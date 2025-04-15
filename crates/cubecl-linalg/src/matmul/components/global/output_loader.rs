@@ -40,15 +40,15 @@ impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
     fn write<ES: Numeric, G: global::GlobalConfig>(
         this: &mut Self,
         slice: Slice<Line<ES>>,
-        compute_plane_offset: u32,
-        accumulator_offset: u32,
+        tile_row: u32,
+        tile_col: u32,
         #[comptime] config: G,
     ) {
         TilewiseUnloading::unload_from_slice::<EG, ES, G>(
             &mut this.tensor_view,
             slice,
-            compute_plane_offset,
-            accumulator_offset,
+            tile_row,
+            tile_col,
             config,
         );
     }
