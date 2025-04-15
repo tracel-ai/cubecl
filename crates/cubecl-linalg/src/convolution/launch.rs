@@ -16,7 +16,7 @@ use super::{
     ConvLaunchError,
     algorithm::{Algorithm, StageInput},
     args::ConvInputsLaunch,
-    base::{ConvolutionConfigFactory, ConvolutionProblem},
+    base::ConvolutionProblem,
     selection::select_matmul,
 };
 
