@@ -598,9 +598,7 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<MP: MatmulPrecision>(
-        state: &Self::State<MP::EI, MP::EO>,
-    ) -> Quantization<MP> {
+    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
         // TODO Currently, this assume that the scaling is always the last value in the buffer.
         //      Also, in burn the scaling is presently fix to f32, hence the extra conversions.
 
@@ -890,9 +888,7 @@ impl MatmulArgs for TensorMapArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<MP: MatmulPrecision>(
-        _state: &Self::State<MP::EI, MP::EO>,
-    ) -> Quantization<MP> {
+    fn quantization<MP: MatmulPrecision>(_state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
         todo!("Quantized TMA not yet supported")
     }
 }
