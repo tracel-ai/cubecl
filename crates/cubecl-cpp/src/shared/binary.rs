@@ -128,10 +128,10 @@ impl<D: Dialect> Binary<D> for HiMul {
         f: &mut std::fmt::Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
-        item: Item<D>,
+        out: Item<D>,
     ) -> std::fmt::Result {
-        let elem = item.elem;
-        match elem {
+        let out_elem = out.elem;
+        match out_elem {
             Elem::I32 => write!(f, "__mulhi({lhs}, {rhs})"),
             Elem::U32 => write!(f, "__umulhi({lhs}, {rhs})"),
             Elem::I64 => write!(f, "__mul64hi({lhs}, {rhs})"),

@@ -843,7 +843,9 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::MulHi(op) => {
-                instructions.push(Instruction::HiMul(self.compile_binary(op, out)))
+                let instruction = Instruction::HiMul(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Modulo(op) => {
                 instructions.push(Instruction::Modulo(self.compile_binary(op, out)))
