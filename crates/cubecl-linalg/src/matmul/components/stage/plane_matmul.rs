@@ -479,8 +479,8 @@ where
                         total: total_iterations
                     }),
                 );
-
                 comptime![execute_counter += 1];
+
                 comptime![m_iter += 1];
             }
 

@@ -9,5 +9,6 @@ pub mod async_full_maximize_unit_count;
 
 pub mod sync_buffer_cyclic;
 pub mod sync_full_cyclic;
+pub mod sync_full_cyclic_unbalanced;
 pub mod sync_full_strided;
 pub mod sync_full_tilewise;

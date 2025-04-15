@@ -71,18 +71,18 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
-    unit_position_base: u32,
+    pub unit_position_base: u32,
 
     #[cube(comptime)]
-    num_tasks_per_unit: u32,
+    pub num_tasks_per_unit: u32,
     #[cube(comptime)]
-    tile_num_elements: u32,
+    pub tile_num_elements: u32,
     #[cube(comptime)]
-    jump_length: u32,
+    pub jump_length: u32,
     #[cube(comptime)]
-    line_size: u32,
+    pub line_size: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    pub input_ident: InputIdent,
 }
 
 #[cube]
@@ -97,30 +97,49 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
-        let nth_tile = unit_position / this.tile_num_elements;
-        let pos_within_tile = unit_position % this.tile_num_elements;
-
-        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
-            nth_tile,
-            comptime!(this.input_ident.as_ident()),
-            comptime!(config.to_smm_config()),
-        );
-
-        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
-            tile_x,
-            tile_y,
-            pos_within_tile,
-            this.input_ident,
+        load_and_store_line::<MP, TO, G>(
+            this,
+            unit_position,
+            tensor_reader,
+            stage,
+            quantization,
             config,
         );
-
-        stage.as_slice_mut()[unit_position / this.line_size] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read),
-            CubeOption::None => Line::cast_from(line_read),
-        };
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_tasks_per_unit
     }
+}
+
+#[cube]
+pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
+    job: &Job,
+    unit_position: u32,
+    tensor_reader: &TensorReader<MP::EI>,
+    stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+    quantization: &CubeOption<Quantization<MP>>,
+    #[comptime] config: G,
+) {
+    let nth_tile = unit_position / job.tile_num_elements;
+    let pos_within_tile = unit_position % job.tile_num_elements;
+
+    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
+        nth_tile,
+        comptime!(job.input_ident.as_ident()),
+        comptime!(config.to_smm_config()),
+    );
+
+    let line_read = tensor_reader.load_coalesced_in_tile::<G>(
+        tile_x,
+        tile_y,
+        pos_within_tile,
+        job.input_ident,
+        config,
+    );
+
+    stage.as_slice_mut()[unit_position / job.line_size] = match quantization {
+        CubeOption::Some(quantization) => quantization.dequantize(line_read),
+        CubeOption::None => Line::cast_from(line_read),
+    };
 }
