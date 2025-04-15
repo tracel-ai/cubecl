@@ -383,7 +383,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
 
 /// More than 4 stages would likely slow things down from code size
 /// Should test more to find the ideal value here, just using 4 because that's what cuDNN uses
-const NUM_STAGES_MAX: u32 = 4;
+const NUM_STAGES_MAX: u32 = 8;
 /// I found that too many pipeline stages relative to k degrade performance
 const MIN_STAGES_PER_PIPELINE: u32 = 32;
 
