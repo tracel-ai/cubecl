@@ -313,7 +313,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(all(feature = "msl", target_os = "macos")))]
+        #[cfg(not(feature = "msl"))]
         mod t16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -328,7 +328,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(all(feature = "msl", target_os = "macos")))]
+        #[cfg(not(feature = "msl"))]
         mod t32x8x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -339,7 +339,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(all(feature = "msl", target_os = "macos")))]
+        #[cfg(not(feature = "msl"))]
         mod t8x32x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -350,7 +350,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(all(feature = "msl", target_os = "macos")))]
+        #[cfg(not(feature = "msl"))]
         mod t16x16x8 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -385,6 +385,18 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(feature = "msl")]
+        mod s16x16x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 16, n: 16, k: 1 }
+            );
+        }
+
         mod s2x2x2 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -409,6 +421,22 @@ macro_rules! matmul_standard_tests {
     };
 
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
+        mod p8x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 8,
+                    n: 8,
+                    k: 8
+                }
+            );
+        }
+
         mod p16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -533,6 +561,4 @@ macro_rules! matmul_standard_tests {
             );
         }
     };
-
-
 }
