@@ -321,10 +321,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        out: &Variable<Self>,
+        out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
-        let out_item = out.item();
-        let out_elem = out_item.elem();
         write!(f, "{out_elem}(__ballot({input}))")
     }
 }
