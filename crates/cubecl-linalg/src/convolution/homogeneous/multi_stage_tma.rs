@@ -381,6 +381,10 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
     }
 }
 
+/// More than 4 stages would likely slow things down from code size
+/// Should test more to find the ideal value here, just using 4 because that's what cuDNN uses
+const NUM_STAGES_MAX: u32 = 4;
+
 fn num_stages<R: Runtime, MP: MatmulPrecision>(
     client: &ComputeClient<R::Server, R::Channel>,
     stage_size: &MatmulSize,
@@ -402,6 +406,7 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
         .max_shared_memory_size;
 
     let max_stages = (max_smem as u32 - output_stage_size_bytes) / inputs_stage_size_bytes;
+    let max_stages = Ord::min(max_stages, NUM_STAGES_MAX);
 
     let mut num_stages = prev_power_of_two(max_stages as u64) as u32;
 
@@ -410,6 +415,10 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;
     }
+
+    // println!(
+    //     "max_stages: {max_stages}, num_stages: {num_stages}, max_smem: {max_smem}, stage_in: {inputs_stage_size_bytes}, stage_out: {output_stage_size_bytes}"
+    // );
 
     num_stages
 }
