@@ -8,7 +8,7 @@ use crate::matmul::{self};
 use crate::tensor::into_contiguous_pitched;
 use crate::tensor::{MatrixBatchLayout, TensorHandle, matrix_batch_layout};
 use core::any::TypeId;
-use cubecl_core::{prelude::*, Feature};
+use cubecl_core::{Feature, prelude::*};
 use cubecl_core::{
     Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
