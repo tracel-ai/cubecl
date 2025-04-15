@@ -29,11 +29,15 @@ template = ["cubecl-core/template"]
 # Runtimes
 cuda = ["cubecl-cuda"]
 hip = ["cubecl-hip"]
-hip-intrinsic = ["hip", "cubecl-hip/wmma-intrinsics"]
+hip-intrinsic = ["cubecl-hip?/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
-wgpu-cpp-msl = ["wgpu", "cubecl-wgpu/msl"]
+wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 
+compilation-cache = [
+    "cubecl-cuda?/compilation-cache",
+    "cubecl-hip?/compilation-cache",
+]
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.5.0", default-features = false, optional = true }
