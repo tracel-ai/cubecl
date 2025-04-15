@@ -7,6 +7,7 @@ use crate::{
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Extension<D: Dialect> {
     Erf(Variable<D>, Variable<D>),
+    Ffs(Elem<D>),
     MulHi(Elem<D>),
     SafeTanh(Item<D>),
     #[default]
@@ -41,11 +42,52 @@ inline {output_elem} erf({input_elem} x) {{
     )
 }
 
+pub fn format_ffs<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    input_elem: &Elem<D>,
+) -> core::fmt::Result {
+    match input_elem {
+        Elem::I32 => write!(
+            f,
+            "
+int __ffs(int x) {{
+    return __ffs(static_cast<uint>(x));
+}}
+"
+        ),
+        Elem::U32 => write!(
+            f,
+            "
+uint __ffs(uint x) {{
+    return x == 0 ? 0 : 32 - clz(x & -x);
+}}
+"
+        ),
+        Elem::I64 => write!(
+            f,
+            "
+int __ffsll(long x) {{
+    return __ffsll(static_cast<ulong>(x));
+}}
+"
+        ),
+        Elem::U64 => write!(
+            f,
+            "
+uint __ffsll(ulong x) {{
+    return x == 0 ? 0 : 64 - clz(x & -x);
+}}
+"
+        ),
+        _ => Ok(()),
+    }
+}
+
 pub fn format_mulhi<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    elem: &Elem<D>,
+    out_elem: &Elem<D>,
 ) -> core::fmt::Result {
-    match elem {
+    match out_elem {
         Elem::I32 => write!(
             f,
             "
