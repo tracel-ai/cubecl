@@ -116,7 +116,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) {
         #[unroll]
-        for i in 0..self.shape.0 * self.shape.1 {
+        for i in 0..comptime![self.shape.0 * self.shape.1] {
             let acc = self.sequence.index_mut(i);
             L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
