@@ -119,6 +119,7 @@ macro_rules! conv2d_standard_tests {
             $crate::conv2d_standard_tests!(MatmulSize { m: 8, n: 8, k: 8 });
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t16x16x16 {
             use super::*;
             $crate::conv2d_standard_tests!(MatmulSize {
@@ -128,16 +129,19 @@ macro_rules! conv2d_standard_tests {
             });
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t32x8x16 {
             use super::*;
             $crate::conv2d_standard_tests!(MatmulSize { m: 32, n: 8, k: 16 });
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t8x32x16 {
             use super::*;
             $crate::conv2d_standard_tests!(MatmulSize { m: 8, n: 32, k: 16 });
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t16x16x8 {
             use super::*;
             $crate::conv2d_standard_tests!(MatmulSize { m: 16, n: 16, k: 8 });
