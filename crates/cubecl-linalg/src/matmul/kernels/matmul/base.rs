@@ -8,7 +8,7 @@ use crate::matmul::{self};
 use crate::tensor::into_contiguous_pitched;
 use crate::tensor::{MatrixBatchLayout, TensorHandle, matrix_batch_layout};
 use core::any::TypeId;
-use cubecl_core::prelude::*;
+use cubecl_core::{prelude::*, Feature};
 use cubecl_core::{
     Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
@@ -100,6 +100,28 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let rank = lhs.strides.len();
     let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
+
+    // This is mostly to check that i8 are supported for quantization.
+    if !client.properties().feature_enabled(Feature::Type(ei_elem))
+        || !client.properties().feature_enabled(Feature::Type(eo_elem))
+    {
+        return Err(MatmulLaunchError::Unavailable(
+            MatmulAvailabilityError::TypesUnavailable {
+                input: ei_elem,
+                output: eo_elem,
+            },
+        ));
+    }
+
+    if MP::QUANTIZED
+        && !client
+            .properties()
+            .feature_enabled(cubecl_core::Feature::DynamicLineSize)
+    {
+        return Err(MatmulLaunchError::Unavailable(
+            MatmulAvailabilityError::DynamicLineSizeUnavailable,
+        ));
+    }
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;

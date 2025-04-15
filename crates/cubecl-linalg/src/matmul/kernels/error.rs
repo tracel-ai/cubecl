@@ -29,6 +29,7 @@ pub enum MatmulAvailabilityError {
     PipelineUnavailable,
     BarrierUnavailable,
     TmaUnavailable,
+    DynamicLineSizeUnavailable,
 }
 
 pub enum MatmulInvalidProblem {
