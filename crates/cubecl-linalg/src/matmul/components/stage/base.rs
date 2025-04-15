@@ -188,4 +188,4 @@ pub enum StageBuffering {
 // TODO Support autotuning the best stage buffering
 //      However, from simple benchmarks on Maxime's computer (NVIDIA GeForce RTX 4060)
 //      Double seems to always be faster or comparable to simple.
-pub const STAGE_BUFFERING: StageBuffering = StageBuffering::Double;
+pub const STAGE_BUFFERING: StageBuffering = StageBuffering::Single;

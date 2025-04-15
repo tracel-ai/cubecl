@@ -93,7 +93,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         let mut accumulators = Sequence::new();
 
         #[unroll]
-        for _ in 0..shape.0 * shape.1 {
+        for _ in 0..comptime!(shape.0 * shape.1) {
             accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
         }
 
@@ -116,7 +116,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) {
         #[unroll]
-        for i in 0..self.shape.0 * self.shape.1 {
+        for i in 0..comptime!(self.shape.0 * self.shape.1) {
             let acc = self.sequence.index_mut(i);
             L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }

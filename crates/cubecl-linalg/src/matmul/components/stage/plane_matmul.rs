@@ -183,9 +183,7 @@ where
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
-        let m_iterations = global_config.tiling_dimensions(Ident::Out).tile_count_row()
-            / global_config.num_planes();
-        let n_iterations = global_config.tiling_dimensions(Ident::Out).tile_count_col();
+        let (m_iterations, n_iterations) = acc.shape;
 
         let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * stage_config.num_planes(),
@@ -195,18 +193,17 @@ where
         let slice_start = num_tile_lines * UNIT_POS_Y;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let shape = (m_iterations, n_iterations);
         let m_offset = UNIT_POS_Y * m_iterations;
         let mut m_iter = comptime![0u32];
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..shape.0 {
+        for _ in 0..m_iterations {
             let mut n_iter = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..shape.1 {
+            for _ in 0..n_iterations {
                 let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
                 TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
                 SW::write::<MP::EO, G>(
@@ -229,6 +226,7 @@ where
             config.tile_count().m / config.num_planes(),
             config.tile_count().n,
         );
+
         Accumulators::<MP, TMM>::new(shape, config)
     }
 
@@ -245,13 +243,11 @@ where
     }
 }
 
-fn check_num_planes(
-    expected_num_planes: u32,
-    actual_num_planes: u32,
-) -> Result<(), InvalidConfigError> {
-    if expected_num_planes != actual_num_planes {
-        return Err(Box::new("Error: Expected {expected_num_planes} planes, but found {actual_num_planes}. 
-        The number of planes is equal to cube dimension y which should be set to {expected_num_planes}."));
+fn check_num_planes(num_rows: u32, num_planes: u32) -> Result<(), InvalidConfigError> {
+    if num_rows % num_planes != 0 {
+        return Err(Box::new(format!(
+            "Error: Number of planes {num_planes} should divide number of rows {num_rows}."
+        )));
     }
 
     Ok(())
@@ -279,9 +275,10 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
+        comptime!(println!("{:?}", acc.shape));
+
         let (m_iterations, n_iterations) = acc.shape;
         let k_iterations = comptime!(RL::num_k_iterations(config));
-        assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
         let lhs_fragment = lhs_fragment.index_mut(0);
         let m_offset = UNIT_POS_Y * m_iterations;
@@ -330,7 +327,7 @@ where
                     );
                     comptime![rhs_load_counter += 1];
 
-                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, n_iter);
+                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, n_iter);
                     TMM::execute(
                         lhs_fragment,
                         rhs_fragment,
@@ -372,7 +369,6 @@ where
 
         let (m_iterations, n_iterations) = acc.shape;
         let k_iterations = comptime!(RL::num_k_iterations(config));
-        assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
         let total_iterations = comptime![m_iterations * n_iterations * k_iterations];
 
@@ -449,7 +445,7 @@ where
                     );
                     comptime![rhs_load_counter += 1];
 
-                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, acc_iter);
+                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, acc_iter);
 
                     TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
                     SEL::on_event(
