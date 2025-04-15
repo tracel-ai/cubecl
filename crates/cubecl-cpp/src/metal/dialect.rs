@@ -16,8 +16,8 @@ use cubecl_core::{
 };
 
 use super::{
-    AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
-    format_metal_builtin_binding_arg, format_safe_tanh,
+    AddressSpace, Extension, arch::MetalArchitecture, extension::format_mulhi, format_erf,
+    format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,6 +50,7 @@ using namespace metal;
         for extension in extensions {
             match extension {
                 Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
+                Extension::MulHi(elem) => format_mulhi(f, elem)?,
                 Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
                 Extension::NoExtension => {}
             }
@@ -70,6 +71,9 @@ using namespace metal;
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
                 register_extension(Extension::Erf(instruction.input, instruction.out));
+            }
+            shared::Instruction::<Self>::HiMul(instruction) => {
+                register_extension(Extension::MulHi(instruction.out.elem()));
             }
             shared::Instruction::<Self>::Tanh(instruction) => {
                 register_extension(Extension::SafeTanh(instruction.input.item()));

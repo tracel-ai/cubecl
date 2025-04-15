@@ -1,12 +1,13 @@
 use crate::{
     Dialect,
-    shared::{Component, Item, Variable},
+    shared::{Component, Elem, Item, Variable},
 };
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Extension<D: Dialect> {
     Erf(Variable<D>, Variable<D>),
+    MulHi(Elem<D>),
     SafeTanh(Item<D>),
     #[default]
     NoExtension,
@@ -40,12 +41,75 @@ inline {output_elem} erf({input_elem} x) {{
     )
 }
 
+pub fn format_mulhi<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    elem: &Elem<D>,
+) -> core::fmt::Result {
+    match elem {
+        Elem::I32 => write!(
+            f,
+            "
+int32_t __mulhi(int32_t a, int32_t b) {{
+    int64_t product = static_cast<int64_t>(a) * static_cast<int64_t>(b);
+    return static_cast<int32_t>(product >> 32);
+}}
+"
+        ),
+        Elem::U32 => write!(
+            f,
+            "
+uint32_t __umulhi(uint32_t a, uint32_t b) {{
+    uint64_t product = static_cast<uint64_t>(a) * static_cast<uint64_t>(b);
+    return static_cast<uint32_t>(product >> 32);
+}}
+"
+        ),
+        Elem::I64 => write!(
+            f,
+            "
+int64_t __mul64hi(int64_t a, int64_t b) {{
+    // Determine the sign of the result
+    bool negative = (a < 0) != (b < 0);
+    // Compute absolute values
+    uint64_t ua = static_cast<uint64_t>(a < 0 ? -a : a);
+    uint64_t ub = static_cast<uint64_t>(b < 0 ? -b : b);
+    // Perform unsigned high multiplication
+    uint64_t high = __umul64hi(ua, ub);
+    // Adjust sign if necessary
+    return negative ? -static_cast<int64_t>(high) : static_cast<int64_t>(high);
+}}
+"
+        ),
+        Elem::U64 => write!(
+            f,
+            "
+uint64_t __umul64hi(uint64_t a, uint64_t b) {{
+    // Split the operands into high and low 32-bit parts
+    uint64_t a_lo = static_cast<uint32_t>(a);
+    uint64_t a_hi = a >> 32;
+    uint64_t b_lo = static_cast<uint32_t>(b);
+    uint64_t b_hi = b >> 32;
+    // Perform partial multiplications
+    uint64_t p0 = a_lo * b_lo;
+    uint64_t p1 = a_lo * b_hi;
+    uint64_t p2 = a_hi * b_lo;
+    uint64_t p3 = a_hi * b_hi;
+    // Combine the results
+    uint64_t mid = (p0 >> 32) + (p1 & 0xFFFFFFFF) + (p2 & 0xFFFFFFFF);
+    uint64_t high = p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+    return high;
+}}
+"
+        ),
+        _ => unimplemented!("HiMul only supports 32 and 64 bit ints"),
+    }
+}
+
 pub fn format_safe_tanh<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     item: &Item<D>,
 ) -> core::fmt::Result {
     let elem = item.elem();
-
     write!(
         f,
         "
