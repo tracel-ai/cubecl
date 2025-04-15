@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::shared::{Component, Elem, FmtLeft};
+use crate::shared::{Component, FmtLeft};
 
 use super::{Dialect, IndexedVariable, Item, Variable};
 
@@ -65,8 +65,12 @@ impl<D: Dialect> Display for WarpInstruction<D> {
         match self {
             WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
-            WarpInstruction::ReduceMax { input, out } => reduce_comparison(f, input, out, "max"),
-            WarpInstruction::ReduceMin { input, out } => reduce_comparison(f, input, out, "min"),
+            WarpInstruction::ReduceMax { input, out } => {
+                reduce_comparison(f, input, out, D::compile_instruction_max_function_name)
+            }
+            WarpInstruction::ReduceMin { input, out } => {
+                reduce_comparison(f, input, out, D::compile_instruction_min_function_name)
+            }
             WarpInstruction::All { input, out } => {
                 reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedVariable<D>>)
             }
@@ -121,8 +125,30 @@ fn reduce_operator<D: Dialect>(
     reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
         let acc_indexed = maybe_index(acc, index);
         write!(f, "{acc_indexed} {op} ")?;
-        D::compile_warp_shuffle_xor(f, &acc_indexed, "offset")?;
+        D::compile_warp_shuffle_xor(f, &acc_indexed, acc.item().elem(), "offset")?;
         writeln!(f, ";")
+    })
+}
+
+fn reduce_comparison<
+    D: Dialect,
+    I: Fn(&mut core::fmt::Formatter<'_>, Item<D>) -> std::fmt::Result,
+>(
+    f: &mut core::fmt::Formatter<'_>,
+    input: &Variable<D>,
+    out: &Variable<D>,
+    instruction: I,
+) -> core::fmt::Result {
+    let in_optimized = input.optimized();
+    let acc_item = in_optimized.item();
+    reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
+        let acc_indexed = maybe_index(acc, index);
+        let acc_elem = acc_item.elem();
+        write!(f, "        {acc_indexed} = ")?;
+        instruction(f, in_optimized.item())?;
+        write!(f, "({acc_indexed}, ")?;
+        D::compile_warp_shuffle_xor(f, &acc_indexed, acc_elem, "offset")?;
+        writeln!(f, ");")
     })
 }
 
@@ -192,28 +218,6 @@ fn reduce_exclusive<D: Dialect>(
     writeln!(f, "}} : {};", cast(&shfl, out.item()))
 }
 
-fn reduce_comparison<D: Dialect>(
-    f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
-    cmp: &str,
-) -> core::fmt::Result {
-    let in_optimized = input.optimized();
-    let acc_item = in_optimized.item();
-    let instruction = match in_optimized.elem() {
-        Elem::F16 | Elem::BF16 => format!("__h{cmp}"),
-        Elem::F162 | Elem::BF162 => format!("__h{cmp}2"),
-        _ => cmp.to_string(),
-    };
-
-    reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
-        let acc_indexed = maybe_index(acc, index);
-        write!(f, "{acc_indexed} = {instruction}({acc_indexed}, ")?;
-        D::compile_warp_shuffle_xor(f, &acc_indexed, "offset")?;
-        writeln!(f, ");")
-    })
-}
-
 fn reduce_broadcast<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
@@ -244,13 +248,14 @@ fn reduce_with_loop<
         name: "acc",
         item: acc_item,
     };
+    let vectorization = acc_item.vectorization;
 
     writeln!(f, "auto plane_{out} = [&]() -> {} {{", out.item())?;
     writeln!(f, "    {} {} = {};", acc_item, acc, cast(input, acc_item))?;
     write!(f, "    for (uint offset = 1; offset < ")?;
     D::compile_plane_dim_checked(f)?;
     writeln!(f, "; offset *=2 ) {{")?;
-    for k in 0..acc_item.vectorization {
+    for k in 0..vectorization {
         instruction(f, &acc, k)?;
     }
     writeln!(f, "    }};")?;

@@ -14,6 +14,7 @@ use crate::{
 };
 
 use super::Extension;
+use super::extension::{format_f162bf16, format_max, format_min};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -27,7 +28,7 @@ impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {}
 // Includes
 
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
-    type Extension = Extension;
+    type Extension = Extension<Self>;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <hip/hip_runtime.h>\n")?;
@@ -44,16 +45,70 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
     }
 
     fn compile_extensions(
-        _f: &mut std::fmt::Formatter<'_>,
-        _extensions: &[Self::Extension],
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
     ) -> std::fmt::Result {
+        for extension in extensions {
+            match extension {
+                Extension::F162BF16 => format_f162bf16(f)?,
+                Extension::Max(var) => format_max::<Self>(f, var)?,
+                Extension::Min(var) => format_min::<Self>(f, var)?,
+                Extension::NoExtension => {}
+            }
+        }
         Ok(())
     }
 
-    fn register_extension(
-        _extensions: &mut Vec<Self::Extension>,
-        _instruction: &Instruction<Self>,
+    fn register_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &Instruction<Self>,
     ) {
+        let mut register_extension = |extension: Self::Extension| {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        };
+        #[allow(clippy::single_match)]
+        match instruction {
+            shared::Instruction::<Self>::Max(op) => {
+                register_extension(Extension::Max(*op.lhs.item().elem()));
+            }
+            shared::Instruction::<Self>::Min(op) => {
+                register_extension(Extension::Min(*op.lhs.item().elem()));
+            }
+            _ => {}
+        }
+    }
+
+    fn register_warp_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &shared::WarpInstruction<Self>,
+    ) {
+        let mut register_extension = |extension: Self::Extension| {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        };
+        #[allow(clippy::single_match)]
+        match instruction {
+            shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
+                let item = input.item();
+                let elem = item.elem();
+                if *elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
+                register_extension(Extension::Max(*elem));
+            }
+            shared::WarpInstruction::<Self>::ReduceMin { input, .. } => {
+                let item = input.item();
+                let elem = item.elem();
+                if *elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
+                register_extension(Extension::Min(*elem));
+            }
+            _ => {}
+        }
     }
 }
 
@@ -186,6 +241,31 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         CudaDialect::compile_instruction_thread_fence(f)
     }
 
+    // others
+    fn compile_instruction_max_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 => "__hmax",
+            Elem::BF16 => "max_bfloat16",
+            _ => "max",
+        };
+        write!(f, "{max}")
+    }
+
+    fn compile_instruction_min_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let min = match item.elem() {
+            Elem::F16 => "__hmin",
+            Elem::BF16 => "min_bfloat16",
+            _ => "min",
+        };
+        write!(f, "{min}")
+    }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
@@ -197,9 +277,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_xor({var}, {offset})")
+        match elem {
+            Elem::BF16 => write!(
+                f,
+                "half_to_bfloat16(__shfl_xor(reinterpret_cast<__half&>({var}), {offset}))"
+            ),
+            _ => write!(f, "__shfl_xor({var}, {offset})"),
+        }
     }
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,

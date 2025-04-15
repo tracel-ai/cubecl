@@ -20,6 +20,7 @@ default = [
     "cudarc/cuda-12050",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+compilation-cache = ["cubecl-common/cache"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
