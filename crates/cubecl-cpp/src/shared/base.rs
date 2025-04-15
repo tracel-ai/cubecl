@@ -340,16 +340,20 @@ impl<D: Dialect> CppCompiler<D> {
                         }))
                     }
                     gpu::Plane::Max(op) => {
-                        instructions.push(Instruction::Warp(WarpInstruction::ReduceMax {
+                        let instruction = WarpInstruction::ReduceMax {
                             input: self.compile_variable(op.input),
                             out,
-                        }))
+                        };
+                        D::register_warp_instruction_extension(&mut self.extensions, &instruction);
+                        instructions.push(Instruction::Warp(instruction))
                     }
                     gpu::Plane::Min(op) => {
-                        instructions.push(Instruction::Warp(WarpInstruction::ReduceMin {
+                        let instruction = WarpInstruction::ReduceMin {
                             input: self.compile_variable(op.input),
                             out,
-                        }))
+                        };
+                        D::register_warp_instruction_extension(&mut self.extensions, &instruction);
+                        instructions.push(Instruction::Warp(instruction))
                     }
                     gpu::Plane::Elect => {
                         instructions.push(Instruction::Warp(WarpInstruction::Elect { out }))
@@ -864,7 +868,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Tanh(op) => {
                 let instruction = Instruction::Tanh(self.compile_unary(op, out));
-                D::register_extension(&mut self.extensions, &instruction);
+                D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
             gpu::Arithmetic::Powf(op) => {
@@ -875,14 +879,18 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Erf(op) => {
                 let instruction = Instruction::Erf(self.compile_unary(op, out));
-                D::register_extension(&mut self.extensions, &instruction);
+                D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
             gpu::Arithmetic::Max(op) => {
-                instructions.push(Instruction::Max(self.compile_binary(op, out)))
+                let instruction = Instruction::Max(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Min(op) => {
-                instructions.push(Instruction::Min(self.compile_binary(op, out)))
+                let instruction = Instruction::Min(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Clamp(op) => instructions.push(Instruction::Clamp {
                 input: self.compile_variable(op.input),
