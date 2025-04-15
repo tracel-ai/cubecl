@@ -7,9 +7,8 @@ use cubecl_std::{
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
-use crate::matmul::components::{self, Ident, MatmulPrecision, MatmulProblem, MatmulSelection};
-
-use super::{GlobalConfig, Quantization};
+use super::Quantization;
+use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
