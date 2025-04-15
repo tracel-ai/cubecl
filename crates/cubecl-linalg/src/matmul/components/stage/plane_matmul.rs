@@ -271,14 +271,18 @@ where
         SEL::on_event(&mut listener, StageEvent::Begin);
 
         let (m_iterations, n_iterations) = acc.shape;
+        let k_iterations = comptime!(RL::num_k_iterations(config));
         assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
-        let k_iterations = comptime!(RL::num_k_iterations(config));
-        let acc_total_iterations = comptime![k_iterations * n_iterations];
+        let acc_total_iterations = comptime![m_iterations * n_iterations * k_iterations];
 
         let mut k_iter = comptime![0u32];
 
         let lhs_fragment = lhs_fragment.index_mut(0);
+
+        let mut lhs_load_counter = comptime![0];
+        let mut rhs_load_counter = comptime![0];
+        let mut execute_counter = comptime![0];
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
@@ -290,27 +294,28 @@ where
             SEL::on_event(
                 &mut listener,
                 comptime![StageEvent::LhsLoaded {
-                    current: k_iter,
-                    total: k_iterations
+                    current: lhs_load_counter,
+                    total: m_iterations * k_iterations
                 }],
             );
+            comptime!(lhs_load_counter += 1);
 
             let mut n_iter = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..n_iterations {
-                let current = comptime![k_iter * n_iterations + n_iter];
                 let rhs_tile_next =
                     RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_iter, config);
                 TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
                     comptime![StageEvent::RhsLoaded {
-                        current,
+                        current: rhs_load_counter,
                         total: acc_total_iterations
                     }],
                 );
+                comptime!(rhs_load_counter += 1);
 
                 let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, n_iter);
                 TMM::execute(
@@ -322,10 +327,11 @@ where
                 SEL::on_event(
                     &mut listener,
                     comptime![StageEvent::TmmCompleted {
-                        current,
+                        current: execute_counter,
                         total: acc_total_iterations
                     }],
                 );
+                comptime!(execute_counter += 1);
 
                 comptime![n_iter += 1];
             }
@@ -357,6 +363,10 @@ where
         let mut k_iter = comptime![0u32];
         let lhs_fragment = lhs_fragment.index_mut(0);
 
+        let mut lhs_load_counter = comptime![0];
+        let mut rhs_load_counter = comptime![0];
+        let mut execute_counter = comptime![0];
+
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in 0..k_iterations {
@@ -365,10 +375,11 @@ where
             SEL::on_event(
                 &mut listener,
                 comptime![StageEvent::LhsLoaded {
-                    current: k_iter,
+                    current: lhs_load_counter,
                     total: k_iterations
                 }],
             );
+            comptime!(lhs_load_counter += 1);
 
             let mut acc_iter = comptime![0u32];
 
@@ -381,15 +392,15 @@ where
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
-                    current: k_iter * n_iterations,
+                    current: rhs_load_counter,
                     total: acc_total_iterations
                 }),
             );
+            comptime!(rhs_load_counter += 1);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 1..n_iterations {
-                let current_computation = comptime![k_iter * n_iterations + acc_iter];
                 let (current, next) = if comptime! {acc_iter % 2 == 0} {
                     (&mut rhs_fragments.0, &mut rhs_fragments.1)
                 } else {
@@ -406,10 +417,11 @@ where
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {
-                        current: current_computation + 1,
+                        current: rhs_load_counter,
                         total: acc_total_iterations
                     }),
                 );
+                comptime!(rhs_load_counter += 1);
 
                 let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, acc_iter);
 
@@ -417,10 +429,11 @@ where
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::TmmCompleted {
-                        current: current_computation,
+                        current: execute_counter,
                         total: acc_total_iterations
                     }),
                 );
+                comptime!(execute_counter += 1);
 
                 comptime![acc_iter += 1];
             }
@@ -436,10 +449,11 @@ where
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::TmmCompleted {
-                    current: k_iter * n_iterations + acc_iter,
+                    current: execute_counter,
                     total: acc_total_iterations
                 }),
             );
+            comptime!(execute_counter += 1);
 
             comptime![k_iter += 1];
         }

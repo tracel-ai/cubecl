@@ -122,21 +122,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 #[cube]
-/// Input to the stage matmul, responsible of handing slices of data
-/// at precise locations in the stage
-pub trait StageReader<ES: Numeric>: CubeType {
-    /// Hands a portion of data from the stage, whose location is function of the
-    /// plane, buffer and accumulator indexes.
-    fn read_tile<S: StageConfig>(
-        this: &Self,
-        compute_plane_offset: u32,
-        buffer_offset: u32,
-        accumulator_offset: u32,
-        #[comptime] config: S,
-    ) -> Slice<Line<ES>>;
-}
-
-#[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
 pub trait StageWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
@@ -145,8 +130,8 @@ pub trait StageWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
     fn write<ES: Numeric, G: global::GlobalConfig>(
         this: &mut Self,
         slice: Slice<Line<ES>>,
-        compute_plane_offset: u32,
-        accumulator_offset: u32,
+        tile_m: u32,
+        tile_n: u32,
         #[comptime] config: G,
     );
 }
@@ -188,4 +173,4 @@ pub enum StageBuffering {
 // TODO Support autotuning the best stage buffering
 //      However, from simple benchmarks on Maxime's computer (NVIDIA GeForce RTX 4060)
 //      Double seems to always be faster or comparable to simple.
-pub const STAGE_BUFFERING: StageBuffering = StageBuffering::Double;
+pub const STAGE_BUFFERING: StageBuffering = StageBuffering::Single;
