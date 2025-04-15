@@ -7,7 +7,7 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
         FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
-        SupportedWmmaCombinations, Variable, WmmaInstruction,
+        SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction,
     },
 };
 use cubecl_core::{
@@ -57,7 +57,10 @@ using namespace metal;
         Ok(())
     }
 
-    fn register_extension(extensions: &mut Vec<Self::Extension>, instruction: &Instruction<Self>) {
+    fn register_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &Instruction<Self>,
+    ) {
         let mut register_extension = |extension: Self::Extension| {
             if !extensions.contains(&extension) {
                 extensions.push(extension);
@@ -73,6 +76,12 @@ using namespace metal;
             }
             _ => {}
         }
+    }
+
+    fn register_warp_instruction_extension(
+        _extensions: &mut Vec<Self::Extension>,
+        _instruction: &WarpInstruction<Self>,
+    ) {
     }
 }
 
@@ -743,6 +752,7 @@ impl DialectInstructions<Self> for MslDialect {
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        _elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
         write!(f, "simd_shuffle_xor({var}, {offset})")
@@ -764,20 +774,25 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "simd_shuffle_down({var}, {offset})")
     }
 
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "simd_all({var})")
+    fn compile_warp_all<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        write!(f, "simd_all({input})")
     }
 
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "simd_any({var})")
+    fn compile_warp_any<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        write!(f, "simd_any({input})")
     }
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        output: &Variable<Self>,
     ) -> std::fmt::Result {
-        let out_elem = output.item().elem;
+        let out_elem = input.item().elem;
         write!(f, "({out_elem})(uint64_t(simd_ballot({input})))")
     }
 }
@@ -909,9 +924,11 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     )
                 } else {
                     writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
-                }
+                }?;
+                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")
             }
             WmmaInstruction::Cast { input, output } => {
+                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")?;
                 let ty = match output {
                     Variable::WmmaFragment { frag, .. } => frag.elem,
                     _ => panic!("should be a fragment"),
@@ -921,6 +938,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                         let addr_space = Self::address_space_for_variable(output);
                         let elem = Elem::<Self>::F16;
                         // TODO: to test with benchmarks
+
                         writeln!(
                             f,
                             "for(int e=0; e<8; e++) {{

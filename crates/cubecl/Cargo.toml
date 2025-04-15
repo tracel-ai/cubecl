@@ -32,7 +32,7 @@ hip = ["cubecl-hip"]
 hip-intrinsic = ["cubecl-hip?/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
-wgpu-cpp-msl = ["wgpu", "cubecl-wgpu/msl"]
+wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 
 compilation-cache = [
     "cubecl-cuda?/compilation-cache",
