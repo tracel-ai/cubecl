@@ -274,8 +274,6 @@ where
         let k_iterations = comptime!(RL::num_k_iterations(config));
         assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
-        let acc_total_iterations = comptime![m_iterations * n_iterations * k_iterations];
-
         let mut k_iter = comptime![0u32];
 
         let lhs_fragment = lhs_fragment.index_mut(0);
@@ -283,6 +281,9 @@ where
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
         let mut execute_counter = comptime![0];
+        let lhs_load_total = comptime!(m_iterations * k_iterations);
+        let rhs_load_total = comptime!(m_iterations * n_iterations * k_iterations);
+        let execute_total = comptime!(m_iterations * n_iterations * k_iterations);
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
@@ -295,7 +296,7 @@ where
                 &mut listener,
                 comptime![StageEvent::LhsLoaded {
                     current: lhs_load_counter,
-                    total: m_iterations * k_iterations
+                    total: lhs_load_total
                 }],
             );
             comptime!(lhs_load_counter += 1);
@@ -312,7 +313,7 @@ where
                     &mut listener,
                     comptime![StageEvent::RhsLoaded {
                         current: rhs_load_counter,
-                        total: acc_total_iterations
+                        total: rhs_load_total
                     }],
                 );
                 comptime!(rhs_load_counter += 1);
@@ -328,7 +329,7 @@ where
                     &mut listener,
                     comptime![StageEvent::TmmCompleted {
                         current: execute_counter,
-                        total: acc_total_iterations
+                        total: execute_total
                     }],
                 );
                 comptime!(execute_counter += 1);
@@ -339,6 +340,9 @@ where
             comptime![k_iter += 1];
         }
 
+        assert!(lhs_load_counter == lhs_load_total);
+        assert!(rhs_load_counter == rhs_load_total);
+        assert!(execute_counter == execute_total);
         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
     }
 
@@ -358,7 +362,6 @@ where
         assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
         let k_iterations = comptime!(RL::num_k_iterations(config));
-        let acc_total_iterations = comptime![k_iterations * n_iterations];
 
         let mut k_iter = comptime![0u32];
         let lhs_fragment = lhs_fragment.index_mut(0);
@@ -366,6 +369,9 @@ where
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
         let mut execute_counter = comptime![0];
+        let lhs_load_total = comptime!(m_iterations * k_iterations);
+        let rhs_load_total = comptime!(m_iterations * n_iterations * k_iterations);
+        let execute_total = comptime!(m_iterations * n_iterations * k_iterations);
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
@@ -376,7 +382,7 @@ where
                 &mut listener,
                 comptime![StageEvent::LhsLoaded {
                     current: lhs_load_counter,
-                    total: k_iterations
+                    total: lhs_load_total
                 }],
             );
             comptime!(lhs_load_counter += 1);
@@ -393,7 +399,7 @@ where
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
                     current: rhs_load_counter,
-                    total: acc_total_iterations
+                    total: rhs_load_total
                 }),
             );
             comptime!(rhs_load_counter += 1);
@@ -418,7 +424,7 @@ where
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {
                         current: rhs_load_counter,
-                        total: acc_total_iterations
+                        total: rhs_load_total
                     }),
                 );
                 comptime!(rhs_load_counter += 1);
@@ -430,7 +436,7 @@ where
                     &mut listener,
                     comptime!(StageEvent::TmmCompleted {
                         current: execute_counter,
-                        total: acc_total_iterations
+                        total: execute_total
                     }),
                 );
                 comptime!(execute_counter += 1);
@@ -450,7 +456,7 @@ where
                 &mut listener,
                 comptime!(StageEvent::TmmCompleted {
                     current: execute_counter,
-                    total: acc_total_iterations
+                    total: execute_total
                 }),
             );
             comptime!(execute_counter += 1);
@@ -458,6 +464,9 @@ where
             comptime![k_iter += 1];
         }
 
+        assert!(lhs_load_counter == lhs_load_total);
+        assert!(rhs_load_counter == rhs_load_total);
+        assert!(execute_counter == execute_total);
         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
     }
 }
