@@ -102,11 +102,7 @@ pub(crate) fn matmul<
     let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
 
     if config.quantized() {
-        let quantization = Args::quantization::<
-            (EI, ES, EA, EO, Quantized),
-            <BMM::Config as BatchConfig>::GmmConfig,
-        >(&state, config.to_gmm_config());
-
+        let quantization = Args::quantization::<(EI, ES, EA, EO, Quantized)>(&state);
         BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
             lhs,
             rhs,

@@ -169,11 +169,9 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             Ok(())
         }
         Strategy::Auto => {
-            println!("HELLO FROM AUTO STRATEGY");
             if let Err(err) =
                 matmul::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
             {
-                println!("YOU SHOULD NOT PASS");
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {
                         // TODO Implement naive with EI and EO

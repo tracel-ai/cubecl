@@ -50,8 +50,6 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     pub fn read(&self, index: u32) -> T {
         match comptime!(self.load_many) {
             Some(amount) => {
-                // panic!("HELLO {} {}", amount, self.line_size);
-
                 let first = index * amount;
                 let mut line = Line::empty(comptime!(amount * self.line_size));
                 #[unroll]
@@ -64,10 +62,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
                 }
                 T::reinterpret(line)
             }
-            None => {
-                // panic!("GOODBYE");
-                T::reinterpret(self.slice[index])
-            }
+            None => T::reinterpret(self.slice[index]),
         }
     }
 }
@@ -84,6 +79,9 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
     slice: SliceMut<Line<S>>,
 
     #[cube(comptime)]
+    line_size: u32,
+
+    #[cube(comptime)]
     load_many: Option<u32>,
 
     #[cube(comptime)]
@@ -95,15 +93,21 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
     pub fn new(slice: SliceMut<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSliceMut<S, T> {
         let source_size = size_of::<S>();
         let target_size = size_of::<T>();
-        let (line_size, load_many) =
+        let (optimized_line_size, load_many) =
             comptime!(optimize_line_size(source_size, line_size, target_size));
-        ReinterpretSliceMut::<S, T> {
-            slice: match comptime!(line_size) {
-                Some(line_size) => slice.with_line_size(line_size),
-                None => slice,
+        match comptime!(optimized_line_size) {
+            Some(line_size) => ReinterpretSliceMut::<S, T> {
+                slice: slice.with_line_size(line_size),
+                line_size,
+                load_many,
+                _phantom: PhantomData,
             },
-            load_many,
-            _phantom: PhantomData,
+            None => ReinterpretSliceMut::<S, T> {
+                slice,
+                line_size,
+                load_many,
+                _phantom: PhantomData,
+            },
         }
     }
 
@@ -111,10 +115,14 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let mut line = Line::empty(amount);
+                let mut line = Line::empty(comptime!(amount * self.line_size));
                 #[unroll]
                 for k in 0..amount {
-                    line[k] = self.slice[first + k];
+                    let elem = self.slice[first + k];
+                    #[unroll]
+                    for j in 0..self.line_size {
+                        line[k * self.line_size + j] = elem[j];
+                    }
                 }
                 T::reinterpret(line)
             }

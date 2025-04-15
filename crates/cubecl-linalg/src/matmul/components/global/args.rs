@@ -121,10 +121,7 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// It is the responsibility of the caller to ensure it is safe to call this function.
     /// That is, when a matmul is indeed quantized. Else, it will most likely results in
     /// out-of-bound memory access.
-    fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
-        state: &Self::State<MP::EI, MP::EO>,
-        #[comptime] config: G,
-    ) -> Quantization<MP>;
+    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP>;
 }
 
 #[derive(Clone, Copy)]
@@ -601,9 +598,8 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
+    fn quantization<MP: MatmulPrecision>(
         state: &Self::State<MP::EI, MP::EO>,
-        #[comptime] config: G,
     ) -> Quantization<MP> {
         // TODO Currently, this assume that the scaling is always the last value in the buffer.
         //      Also, in burn the scaling is presently fix to f32, hence the extra conversions.
@@ -611,18 +607,19 @@ impl MatmulArgs for TensorArgs {
         let (lhs, rhs, _) = *state;
         unsafe {
             let buffer_len_lhs = Self::buffer_len_lhs(state);
-            let line_size_lhs = config.global_line_size(Ident::Lhs);
-            let reinterpreted_len_lhs = buffer_len_lhs * line_size_lhs / 4;
+            let line_size_lhs = (*lhs).line_size();
+            let reinterpreted_len_lhs = buffer_len_lhs * line_size_lhs / 4; // TODO Change this when we stop using u32 to pack 4 i8 in burn.
 
             let scaling_lhs =
-                ReinterpretSlice::<MP::EI, f32>::new((*lhs).to_slice(), (*lhs).line_size())
+                ReinterpretSlice::<MP::EI, f32>::new((*lhs).to_slice(), line_size_lhs)
                     .read(reinterpreted_len_lhs - 1);
+
             let buffer_len_rhs = Self::buffer_len_rhs(state);
-            let line_size_rhs = config.global_line_size(Ident::Rhs);
-            let reinterpreted_len_rhs = buffer_len_rhs * line_size_rhs / 4;
+            let line_size_rhs = (*rhs).line_size();
+            let reinterpreted_len_rhs = buffer_len_rhs * line_size_rhs / 4; // TODO See above comment.
 
             let scaling_rhs =
-                ReinterpretSlice::<MP::EI, f32>::new((*rhs).to_slice(), (*rhs).line_size())
+                ReinterpretSlice::<MP::EI, f32>::new((*rhs).to_slice(), line_size_rhs)
                     .read(reinterpreted_len_rhs - 1);
 
             Quantization::<MP> {
@@ -893,9 +890,8 @@ impl MatmulArgs for TensorMapArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
+    fn quantization<MP: MatmulPrecision>(
         _state: &Self::State<MP::EI, MP::EO>,
-        #[comptime] _config: G,
     ) -> Quantization<MP> {
         todo!("Quantized TMA not yet supported")
     }

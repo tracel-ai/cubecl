@@ -70,7 +70,6 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
-        println!("MATMUL LAUNCH -------");
         unsafe {
             super::matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
                 client, cube_count, cube_dim, input, output, size_k, config,
