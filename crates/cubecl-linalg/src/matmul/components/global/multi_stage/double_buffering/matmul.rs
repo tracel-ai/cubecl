@@ -1,6 +1,6 @@
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
-    BufferId, SyncBufferLoader, SyncBufferLoadingStrategy,
+    BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
@@ -279,18 +279,36 @@ where
     }
 }
 
+#[cube]
+pub trait LoaderEventListener: CubeType + Clone {
+    type State: CubeType;
+}
+
+#[cube]
+impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> LoaderEventListener
+    for SyncBufferLoader<MP, G, L>
+{
+    type State = SyncBufferLoaderJob<MP, L>;
+}
+
 #[derive(CubeType)]
-struct DoubleBufferingEventListener<Lhs: CubeType, Rhs: CubeType, G: GlobalConfig> {
+struct DoubleBufferingEventListener<
+    Lhs: LoaderEventListener,
+    Rhs: LoaderEventListener,
+    G: GlobalConfig,
+> {
     #[cube(comptime)]
     buffer_id: BufferId,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
     config: G,
+    state_lhs: Sequence<Lhs::State>,
+    state_rhs: Sequence<Rhs::State>,
 }
 
 #[cube]
-impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, G: GlobalConfig>
+impl<Lhs: LoaderEventListener, Rhs: LoaderEventListener, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
     pub fn new(
@@ -304,6 +322,8 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, G: GlobalConfig>
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
             config,
+            state_lhs: Sequence::new(),
+            state_rhs: Sequence::new(),
         }
     }
 }
@@ -327,12 +347,55 @@ impl<
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::TmmCompleted { current, total } = event {
-            if comptime![should_handle_event_ratio(0.25, current, total)] {
-                SyncBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
+            if comptime![current == 0] {
+                let job_lhs =
+                    SyncBufferLoader::create_job(&this.loader_lhs, this.buffer_id, this.config);
+                this.state_lhs.push(job_lhs);
+
+                let job_rhs =
+                    SyncBufferLoader::create_job(&this.loader_rhs, this.buffer_id, this.config);
+                this.state_rhs.push(job_rhs);
             }
 
-            if comptime![should_handle_event_ratio(0.50, current, total)] {
-                SyncBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
+            let lhs_job = this.state_lhs.index(0);
+            let rhs_job = this.state_rhs.index(0);
+            let lhs_num_task_executed = lhs_job.current.len();
+            let rhs_num_task_executed = rhs_job.current.len();
+
+            let ratio_lhs = comptime! {
+                let step_lhs = 0.4 / lhs_job.num_tasks as f32;
+                lhs_num_task_executed as f32 * step_lhs + 0.1
+            };
+            let ratio_rhs = comptime! {
+                let step_rhs = 0.4 / rhs_job.num_tasks as f32;
+                rhs_num_task_executed as f32 * step_rhs + 0.3
+            };
+
+            if comptime![
+                lhs_num_task_executed < lhs_job.num_tasks
+                    && should_handle_event_ratio(ratio_lhs, current, total)
+            ] {
+                comptime![println!("Ratio LHS {}", ratio_lhs)];
+                let lhs_job = this.state_lhs.index_mut(0);
+
+                SyncBufferLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            }
+
+            if comptime![
+                rhs_num_task_executed < rhs_job.num_tasks
+                    && should_handle_event_ratio(ratio_rhs, current, total)
+            ] {
+                comptime![println!("Ratio RHS {}", ratio_rhs)];
+                let rhs_job = this.state_rhs.index_mut(0);
+
+                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            }
+
+            if comptime! {current -1 == total} {
+                let lhs_job = this.state_lhs.index(0);
+                let rhs_job = this.state_rhs.index(0);
+                assert_eq!(lhs_num_task_executed, lhs_job.num_tasks);
+                assert_eq!(rhs_num_task_executed, rhs_job.num_tasks);
             }
         };
     }
