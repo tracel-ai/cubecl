@@ -229,6 +229,6 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         plane_dim,
         rows_per_plane,
     };
-    println!("{se:?}");
+
     se
 }
