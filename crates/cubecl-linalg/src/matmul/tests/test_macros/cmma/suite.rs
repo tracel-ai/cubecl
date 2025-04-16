@@ -98,7 +98,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING), // TODO support double buffering
+        (config_input, STAGE_BUFFERING),
         selection,
     );
 }
