@@ -2,6 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
+use crate::precision::ReducePrecision;
+
 use super::{
     ArgMax, ArgMin, Max, MaxAbs, Mean, Min, Prod, ReduceCoordinate, ReduceFamily,
     ReduceInstruction, ReduceRequirements, SharedAccumulator, Sum,
@@ -32,7 +34,7 @@ pub enum ReduceFnConfig {
 }
 
 impl ReduceFamily for ReduceFn {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ReduceFnConfig;
 }
 
@@ -92,9 +94,9 @@ impl<In: Numeric> SharedAccumulator<In> for DynamicAccumulator<In> {
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
-    type AccumulatorItem = DynamicAccumulatorItem<In>;
-    type SharedAccumulator = DynamicAccumulator<In>;
+impl<P: ReducePrecision> ReduceInstruction<P> for ReduceFn {
+    type AccumulatorItem = DynamicAccumulatorItem<P::EA>;
+    type SharedAccumulator = DynamicAccumulator<P::EA>;
     type Config = ReduceFnConfig;
 
     fn requirements(this: &Self) -> ReduceRequirements {
@@ -126,7 +128,7 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
         }
     }
 
-    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<In> {
+    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
         match this {
             ReduceFn::Sum(sum) => Sum::null_input(sum, line_size),
             ReduceFn::Prod(prod) => Prod::null_input(prod, line_size),

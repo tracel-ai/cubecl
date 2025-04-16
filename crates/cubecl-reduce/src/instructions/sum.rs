@@ -1,13 +1,15 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::precision::ReducePrecision;
+
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction, ReduceRequirements};
 
 #[derive(Debug, CubeType, Clone)]
 pub struct Sum {}
 
 impl ReduceFamily for Sum {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ();
 }
 
