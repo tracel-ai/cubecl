@@ -73,7 +73,10 @@ using namespace metal;
         #[allow(clippy::single_match)]
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
-                register_extension(Extension::Erf(instruction.input, instruction.out));
+                register_extension(Extension::Erf(
+                    instruction.input.elem(),
+                    instruction.out.elem(),
+                ));
             }
             shared::Instruction::<Self>::FindFirstSet(instruction) => {
                 let input_elem = instruction.input.elem();
@@ -901,7 +904,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
                         Some(FragmentLayout::RowMajor) => false,
                         Some(FragmentLayout::ColMajor) => true,
-                        _ => panic!("unknown fragment layout!"),
+                        _ => false,
                     },
                     _ => panic!("should be a fragment"),
                 };
