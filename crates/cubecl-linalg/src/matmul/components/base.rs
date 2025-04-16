@@ -15,6 +15,7 @@ pub struct MatmulSelection {
     pub tile_shape: MatmulSize,
     pub tile_count: MatmulSize,
     pub plane_dim: u32,
+    pub rows_per_plane: u32,
 }
 
 /// Provides launch entry point to solve a matmul
