@@ -203,7 +203,7 @@ where
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
-                let accumulator = Self::Accumulator::get_at(acc, 0u32, n_iter);
+                let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
                 TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
                 SW::write::<MP::EO, G>(
                     out,
