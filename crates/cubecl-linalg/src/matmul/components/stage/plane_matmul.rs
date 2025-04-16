@@ -78,10 +78,8 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
             cube_dim.y,
             quantized,
             input.1,
-            // 1,
-            // 1,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
+            1,
+            1,
             problem.out_line_size as u32,
         )
     }
