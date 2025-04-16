@@ -136,8 +136,9 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     register_supported_types(&mut device_props);
     // Not sure if there's a good way to check for support on HIP
     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
-    device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
-    device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
+    // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
+    // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
+    // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
