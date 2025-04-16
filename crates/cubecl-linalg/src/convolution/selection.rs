@@ -147,5 +147,6 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
             k: stage_size_k as u32,
         },
         plane_dim,
+        rows_per_plane: 1,
     }
 }
