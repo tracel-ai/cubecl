@@ -220,7 +220,7 @@ impl TileConfig for Config {
         }
     }
 
-    fn line_size(&self, ident: Ident) -> u32 {
+    fn stage_line_size(&self, ident: Ident) -> u32 {
         match ident {
             Ident::Lhs => self.lhs_line_size,
             Ident::Rhs => self.rhs_line_size,

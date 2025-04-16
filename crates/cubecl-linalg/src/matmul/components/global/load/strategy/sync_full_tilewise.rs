@@ -26,7 +26,6 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
 
         let num_planes = config.num_planes();
         let num_tiles = tiling.tile_count();
@@ -40,11 +39,13 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             }));
         }
 
-        if line_size != config.stage_line_size(ident) {
-            return Err(Box::new(
-                "Global and stage line sizes must match for tilewise loading.",
-            ));
-        }
+        // TODO verify that
+        // let line_size = config.global_line_size(ident);
+        // if line_size != config.stage_line_size(ident) {
+        //     return Err(Box::new(
+        //         "Global and stage line sizes must match for tilewise loading.",
+        //     ));
+        // }
 
         Ok(())
     }

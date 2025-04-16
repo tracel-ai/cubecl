@@ -123,7 +123,7 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        let line_size = config.line_size(ident);
+        let line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
 
@@ -170,7 +170,7 @@ impl StridedTilingLayout {
     ) -> SliceMut<Line<ES>> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
-        let line_size = config.line_size(ident);
+        let line_size = config.stage_line_size(ident);
 
         let slice_length = match comptime!(matrix_layout) {
             MatrixLayout::RowMajor => tiling_dimensions.total_col(),
@@ -191,7 +191,7 @@ impl TilingLayout for StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        let line_size = config.line_size(ident);
+        let line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
 

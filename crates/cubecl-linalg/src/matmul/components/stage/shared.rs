@@ -16,6 +16,9 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub num_planes: u32,
     pub quantized: bool,
     pub buffering: StageBuffering,
+    pub lhs_smem_line_size: u32,
+    pub rhs_smem_line_size: u32,
+    pub out_smem_line_size: u32,
 }
 
 impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
@@ -25,8 +28,12 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config
     }
 
-    fn line_size(&self, ident: Ident) -> u32 {
-        self.tmm_config.line_size(ident)
+    fn stage_line_size(&self, ident: Ident) -> u32 {
+        match ident {
+            Ident::Lhs => self.lhs_smem_line_size,
+            Ident::Rhs => self.rhs_smem_line_size,
+            Ident::Out => self.out_smem_line_size,
+        }
     }
 
     fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
@@ -64,6 +71,9 @@ impl<T: TileConfig> CommonStageConfig<T> {
         num_planes: u32,
         quantized: bool,
         buffering: StageBuffering,
+        lhs_smem_line_size: u32,
+        rhs_smem_line_size: u32,
+        out_smem_line_size: u32,
     ) -> Self {
         Self {
             tmm_config,
@@ -71,6 +81,9 @@ impl<T: TileConfig> CommonStageConfig<T> {
             num_planes,
             quantized,
             buffering,
+            lhs_smem_line_size,
+            rhs_smem_line_size,
+            out_smem_line_size,
         }
     }
 }

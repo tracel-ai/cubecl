@@ -6,8 +6,8 @@ use crate::{
     convolution::homogeneous::simple::ConvTilingLayout,
     matmul::components::{
         Ident,
-        global::AccumulatorLoader,
-        stage::{Stage, StageConfig},
+        global::{AccumulatorLoader, GlobalConfig},
+        stage::Stage,
         tile::{Tile, TileConfig, TileMatmul},
     },
 };
@@ -25,11 +25,11 @@ pub enum BiasLoader<MP: MatmulPrecision> {
 
 #[cube]
 impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
-    fn fill_stage<S: StageConfig>(this: &mut Self, #[comptime] config: S) {
+    fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G) {
         match this {
             BiasLoader::Some { tensor_view, stage } => {
                 let stage_tiling = config.tiling_dimensions(Ident::Rhs);
-                let line_size = config.line_size(Ident::Out);
+                let line_size = config.global_line_size(Ident::Out);
 
                 let num_stage_elements = stage_tiling.total_col();
 
@@ -39,7 +39,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                 let mut slice = stage.as_slice_mut();
 
                 if unit_position_base < num_stage_elements {
-                    let read_line = tensor_view.load_simple::<S>(unit_position_base, config);
+                    let read_line = tensor_view.load_simple::<G>(unit_position_base, config);
                     slice[unit_id] = Line::cast_from(read_line);
                 }
             }
@@ -56,7 +56,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
     ) {
         match this {
             BiasLoader::Some { stage, .. } => {
-                let line_size = config.line_size(Ident::Out);
+                let line_size = config.stage_line_size(Ident::Out);
                 let tile_elems = config.tile_shape().n / line_size;
                 let start = tile_n * tile_elems;
                 let slice = stage.as_slice_mut().slice(start, start + tile_elems);
@@ -72,14 +72,14 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
 
 #[cube]
 impl<MP: MatmulPrecision> BiasLoader<MP> {
-    pub fn new<S: StageConfig>(
+    pub fn new<G: GlobalConfig>(
         tensor: CubeOption<VirtualTensor<MP::EO>>,
         n_offset: u32,
-        #[comptime] config: S,
+        #[comptime] config: G,
     ) -> Self {
         match tensor {
             CubeOption::Some(tensor) => {
-                let stage = init_stage::<MP::EA, S>(config);
+                let stage = init_stage::<MP::EA, G>(config);
                 let shape_n = tensor.shape(0);
                 let tensor_view = BiasReader::<MP::EO>::new(tensor, n_offset, shape_n);
 
@@ -91,8 +91,8 @@ impl<MP: MatmulPrecision> BiasLoader<MP> {
 }
 
 #[cube]
-fn init_stage<ES: Numeric, G: StageConfig>(#[comptime] config: G) -> Stage<ES, ConvTilingLayout> {
-    let line_size = config.line_size(Ident::Out);
+fn init_stage<ES: Numeric, G: GlobalConfig>(#[comptime] config: G) -> Stage<ES, ConvTilingLayout> {
+    let line_size = config.global_line_size(Ident::Out);
 
     let smem = SharedMemory::new_lined(
         comptime!(config.tiling_dimensions(Ident::Rhs).total_col() / line_size),

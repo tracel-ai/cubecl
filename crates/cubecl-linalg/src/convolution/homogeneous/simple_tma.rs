@@ -78,7 +78,7 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        Self::AccumulatorLoader::fill_stage::<SMM::Config>(&mut acc_loader, config.to_smm_config());
+        Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         sync_units();
@@ -165,7 +165,7 @@ where
         n_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccumulatorLoader {
-        Self::AccumulatorLoader::new::<SMM::Config>(bias, n_offset, config.to_smm_config())
+        Self::AccumulatorLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
     fn init_unloader(

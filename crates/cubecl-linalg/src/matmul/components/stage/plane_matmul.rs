@@ -72,7 +72,18 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
             tile_count,
         };
 
-        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, input.1)
+        CommonStageConfig::new(
+            tmm_config,
+            tiling,
+            cube_dim.y,
+            quantized,
+            input.1,
+            // 1,
+            // 1,
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
+            problem.out_line_size as u32,
+        )
     }
 }
 
@@ -189,7 +200,7 @@ where
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
+        let out_smem_line_size = global_config.to_smm_config().stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
         let (m_iterations, n_iterations) = acc.shape;

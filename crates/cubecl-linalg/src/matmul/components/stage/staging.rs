@@ -20,7 +20,7 @@ pub struct Stage<ES: Numeric, T: TilingLayout> {
 impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     /// Instantiate a new stage for the given identifier
     pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES, T> {
-        let line_size = config.line_size(ident);
+        let line_size = config.stage_line_size(ident);
 
         let smem = SharedMemory::new_lined(
             comptime!(config.tiling_dimensions(ident).total_size() / line_size),
@@ -36,7 +36,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         #[comptime] alignment: u32,
         #[comptime] config: S,
     ) -> Stage<ES, T> {
-        let line_size = config.line_size(ident);
+        let line_size = config.stage_line_size(ident);
 
         let smem = SharedMemory::new_aligned(
             comptime!(config.tiling_dimensions(ident).total_size() / line_size),
@@ -79,7 +79,8 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
-            config.tiling_dimensions(ident.into()).total_size() / config.line_size(ident.into())
+            config.tiling_dimensions(ident.into()).total_size()
+                / config.stage_line_size(ident.into())
         );
 
         let unit_count = config.num_planes() * config.plane_dim();
@@ -110,7 +111,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         // // TODO: this assumes the stage was created with new
         // // Also assumes two buffers
         let tiling_dimensions = config.tiling_dimensions(ident.as_ident());
-        let line_size = config.line_size(ident.as_ident());
+        let line_size = config.stage_line_size(ident.as_ident());
         let smem_length = comptime!(tiling_dimensions.total_size() / line_size);
         let buffer_length = smem_length / 2;
 

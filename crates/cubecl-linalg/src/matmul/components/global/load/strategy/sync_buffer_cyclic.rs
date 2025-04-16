@@ -22,7 +22,7 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
-        let line_size = config.stage_line_size(ident);
+        let line_size = config.global_line_size(ident);
         let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();
@@ -66,7 +66,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] config: G,
     ) -> Job {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
-        let line_size = config.stage_line_size(input_ident);
+        let line_size = config.global_line_size(input_ident);
         let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();
@@ -125,7 +125,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
             let tiling_dimensions = config.tiling_dimensions(this.input_ident);
             (
-                config.stage_line_size(this.input_ident),
+                config.global_line_size(this.input_ident),
                 tiling_dimensions.tile_size(),
                 tiling_dimensions.tile_count_row(),
                 tiling_dimensions.tile_count_col()

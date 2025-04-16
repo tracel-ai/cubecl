@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-use crate::matmul::components::{Ident, stage::StageConfig};
+use crate::matmul::components::{Ident, global::GlobalConfig};
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
@@ -29,8 +29,8 @@ impl<E: Numeric> BiasReader<E> {
     }
 
     /// Load the 1D bias into shared memory
-    pub fn load_simple<G: StageConfig>(&self, unit_id: u32, #[comptime] config: G) -> Line<E> {
-        let line_size = config.line_size(Ident::Out);
+    pub fn load_simple<G: GlobalConfig>(&self, unit_id: u32, #[comptime] config: G) -> Line<E> {
+        let line_size = config.global_line_size(Ident::Out);
 
         let view_n = self.n_offset + unit_id;
         let read_pos = view_n / line_size;
