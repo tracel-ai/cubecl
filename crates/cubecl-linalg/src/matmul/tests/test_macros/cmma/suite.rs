@@ -352,7 +352,6 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(feature = "msl"))]
         mod t16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -367,7 +366,6 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(feature = "msl"))]
         mod t32x8x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -378,7 +376,6 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(feature = "msl"))]
         mod t8x32x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -389,7 +386,6 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(not(feature = "msl"))]
         mod t16x16x8 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -424,7 +420,6 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[cfg(feature = "msl")]
         mod s16x16x1 {
             use super::*;
             $crate::matmul_standard_tests!(
