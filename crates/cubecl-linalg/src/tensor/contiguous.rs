@@ -74,7 +74,7 @@ pub fn index_offset_contiguous_fastdivmod<N: CubePrimitive>(
         offset += ogwl * stride.index(dim);
         remainder = rem;
 
-        comptime![dim -= 1;]
+        comptime![dim = dim.saturating_sub(1);]
     }
 
     offset / tensor.line_size()
