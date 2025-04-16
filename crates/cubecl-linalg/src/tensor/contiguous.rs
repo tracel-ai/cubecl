@@ -51,6 +51,35 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
     offset / tensor.line_size()
 }
 
+/// Returns the offset of the tensor corresponding to a contiguous layout.
+#[cube]
+pub fn index_offset_contiguous_fastdivmod<N: CubePrimitive>(
+    tensor: &Tensor<Line<N>>,
+    offset_layout: u32,
+    shape: &Sequence<FastDivmod>,
+    stride: &Sequence<u32>,
+) -> u32 {
+    let rank = comptime![shape.len()];
+
+    let offset_ref = offset_layout * tensor.line_size();
+    let mut offset = 0;
+    let mut remainder = offset_ref;
+
+    let mut dim = comptime![rank - 1];
+
+    #[unroll]
+    for _ in 0..rank {
+        let shape = shape.index(dim);
+        let (rem, ogwl) = shape.div_mod(remainder);
+        offset += ogwl * stride.index(dim);
+        remainder = rem;
+
+        comptime![dim -= 1;]
+    }
+
+    offset / tensor.line_size()
+}
+
 /// Layout for tensor that may or may not be strided on the last dimension. Efficiently translates
 /// the absolute index to strided index.
 #[derive(CubeType, CubeLaunch)]
@@ -92,7 +121,8 @@ fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: StridedLayout,
-    #[comptime] rank: Option<u32>,
+    shape: Sequence<FastDivmod>,
+    stride: Sequence<u32>,
     #[comptime] elems_per_thread: u32,
 ) {
     let offset_output = ABSOLUTE_POS * elems_per_thread;
@@ -102,7 +132,8 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
     #[unroll]
     for i in 0..elems_per_thread {
-        let offset_input = index_offset_contiguous::<N>(input, offset_output + i, rank);
+        let offset_input =
+            index_offset_contiguous_fastdivmod::<N>(input, offset_output + i, &shape, &stride);
         registers[i] = input[offset_input];
     }
 
@@ -110,6 +141,45 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
     #[unroll]
     for i in 0..elems_per_thread {
+        output[offset_output + i] = registers[i];
+    }
+}
+
+#[cube(launch)]
+fn into_contiguous_kernel_pack<N: CubePrimitive>(
+    input: &Tensor<Line<N>>,
+    output: &mut Tensor<Line<N>>,
+    out_layout: StridedLayout,
+    shape: Sequence<FastDivmod>,
+    stride: Sequence<u32>,
+    #[comptime] elems_per_thread: u32,
+) {
+    let line_size = output.line_size();
+    let lines_per_thread = comptime![elems_per_thread / line_size];
+
+    let offset_output = ABSOLUTE_POS * lines_per_thread;
+    let offset_input = offset_output * line_size;
+
+    let mut registers = Array::<Line<N>>::vectorized(lines_per_thread, line_size);
+
+    #[unroll]
+    for i in 0..lines_per_thread {
+        let offset = i * line_size;
+        let mut reg = Line::<N>::empty(line_size);
+        #[unroll]
+        for k in 0..line_size {
+            let offset_input = offset_input + offset + k;
+            let offset_input =
+                index_offset_contiguous_fastdivmod::<N>(input, offset_input, &shape, &stride);
+            reg[k] = input[offset_input][0];
+        }
+        registers[i] = reg;
+    }
+
+    let offset_output = out_layout.index(output, offset_output);
+
+    #[unroll]
+    for i in 0..lines_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -215,18 +285,51 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
         false => StridedLayoutArgs::none(),
     };
 
+    let out_vec = if vectorization_factor > 1 {
+        vectorization_factor
+    } else {
+        *R::supported_line_sizes()
+            .iter()
+            .filter(|it| num_elems_per_unit % **it as u32 == 0)
+            .max()
+            .unwrap_or(&1)
+    };
+
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
-    into_contiguous_kernel::launch::<Line<E>, R>(
+    let shape = SequenceArg {
+        values: input
+            .shape
+            .iter()
+            .map(|dim| FastDivmodArgs::new(client, *dim as u32))
+            .collect(),
+    };
+
+    let stride = SequenceArg {
+        values: input
+            .strides
+            .iter()
+            .map(|s| ScalarArg::new(*s as u32))
+            .collect(),
+    };
+
+    let launch = if vectorization_factor != out_vec && out_vec > 1 {
+        into_contiguous_kernel_pack::launch::<E, R>
+    } else {
+        into_contiguous_kernel::launch::<E, R>
+    };
+
+    launch(
         client,
         cube_count,
         cube_dim,
         input.as_tensor_arg(vectorization_factor),
-        output.as_ref().as_tensor_arg(vectorization_factor),
+        output.as_ref().as_tensor_arg(out_vec),
         out_layout,
-        Some(rank as u32),
+        shape,
+        stride,
         elems_per_unit,
     );
 
