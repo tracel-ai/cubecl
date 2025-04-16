@@ -687,56 +687,57 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     // unary
+    fn compile_instruction_find_first_set<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
+            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
+        }?;
+        write!(f, ")")
+    }
+
     fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<Self>,
+        out_elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "({output})(clz({input}))"),
-            Elem::I64 | Elem::U64 => {
-                panic!("leading_zeros instruction does not support 64-bit int")
-            }
-            elem => write!(
-                f,
-                "({output})(clz({})) - {}",
-                shared::unary::zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
+        write!(f, "{out_elem}(clz({input}))")
     }
 
     fn compile_instruction_popcount_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<Self>,
+        out_elem: Elem<Self>,
     ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "({output})(popcount({input}))"),
-            Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
-            _ => write!(
-                f,
-                "({output})(popcount({}))",
-                shared::unary::zero_extend(input)
-            ),
-        }
+            Elem::I32 | Elem::U32 | Elem::I64 | Elem::U64 => write!(f, "popcount({input})"),
+            _ => write!(f, "popcount({})", shared::unary::zero_extend(input)),
+        }?;
+        write!(f, ")")
     }
 
     fn compile_instruction_reverse_bits_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<Self>,
+        out_elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match output {
-            Elem::I32 | Elem::U32 => write!(f, "reverse_bits({input})"),
-            Elem::I64 | Elem::U64 => panic!("reverse_bits instruction does not support 64-bit int"),
+        write!(f, "{out_elem}(")?;
+        match out_elem {
+            Elem::I32 | Elem::U32 | Elem::I64 | Elem::U64 => write!(f, "reverse_bits({input})"),
             _ => write!(
                 f,
-                "{output}(reverse_bits({}) >> {})",
+                "reverse_bits({}) >> {}",
                 shared::unary::zero_extend(input),
-                (size_of::<u32>() - output.size()) * 8
+                (size_of::<u32>() - out_elem.size()) * 8
             ),
-        }
+        }?;
+        write!(f, ")")
     }
 
     // others

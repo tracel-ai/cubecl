@@ -3,7 +3,9 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
-use crate::shared::{Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable};
+use crate::shared::{
+    Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable, unary,
+};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -233,12 +235,47 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {
 // Instructions
 
 impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
+    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_sync_threads(f)
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_thread_fence(f)
+    }
+
+    // unary
+    fn compile_instruction_find_first_set<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
+            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::U32),
+        }?;
+        write!(f, ")")
+    }
+
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
+            in_elem => write!(
+                f,
+                "__clz({}) - {}",
+                unary::zero_extend(input),
+                (size_of::<u32>() - in_elem.size()) * 8
+            ),
+        }?;
+        write!(f, ")")
     }
 
     // others
