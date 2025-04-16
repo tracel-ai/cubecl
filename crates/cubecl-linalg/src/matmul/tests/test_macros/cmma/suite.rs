@@ -43,7 +43,8 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_shape,
         tile_count,
         plane_dim,
-        rows_per_plane,
+        rows_per_plane: 2,
+        // rows_per_plane,
     };
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
