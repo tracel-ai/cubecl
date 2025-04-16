@@ -327,7 +327,7 @@ where
                     );
                     comptime!(rhs_load_counter += 1);
 
-                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, n_iter);
+                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, n_iter);
                     TMM::execute(
                         lhs_fragment,
                         rhs_fragment,
@@ -408,10 +408,10 @@ where
                 );
                 comptime!(lhs_load_counter += 1);
 
-                let mut acc_iter = comptime![0u32];
+                let mut n_iter = comptime![0u32];
 
                 let rhs_tile_first =
-                    RR::read_tile::<TMM::Config>(rhs_reader, k_iter, acc_iter, config);
+                    RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_iter, config);
                 TMM::fill_rhs(
                     &rhs_tile_first,
                     &mut rhs_fragments.0,
@@ -429,7 +429,7 @@ where
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 1..n_iterations {
-                    let (current, next) = if comptime! {acc_iter % 2 == 0} {
+                    let (current, next) = if comptime! {n_iter % 2 == 0} {
                         (&mut rhs_fragments.0, &mut rhs_fragments.1)
                     } else {
                         (&mut rhs_fragments.1, &mut rhs_fragments.0)
@@ -438,7 +438,7 @@ where
                     let rhs_tile_next = RR::read_tile::<TMM::Config>(
                         rhs_reader,
                         k_iter,
-                        comptime![acc_iter + 1],
+                        comptime![n_iter + 1],
                         config,
                     );
                     TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
@@ -451,7 +451,7 @@ where
                     );
                     comptime!(rhs_load_counter += 1);
 
-                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, acc_iter);
+                    let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, n_iter);
 
                     TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
                     SEL::on_event(
@@ -463,16 +463,16 @@ where
                     );
                     comptime!(execute_counter += 1);
 
-                    comptime![acc_iter += 1];
+                    comptime![n_iter += 1];
                 }
 
-                let last = if comptime! {acc_iter % 2 == 0} {
+                let last = if comptime! {n_iter % 2 == 0} {
                     &mut rhs_fragments.0
                 } else {
                     &mut rhs_fragments.1
                 };
 
-                let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, acc_iter);
+                let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, n_iter);
                 TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
