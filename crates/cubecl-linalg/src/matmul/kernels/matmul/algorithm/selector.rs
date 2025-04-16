@@ -205,17 +205,10 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         instruction_n,
     );
 
-    const MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE: usize = 8;
-
-    let num_row_per_stage_m = stage_size * instruction_m;
     let (rows_per_plane, stage_size_m, stage_size_n) =
-        if problem.m > num_row_per_stage_m * MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE {
-            (2, stage_size * 2, stage_size)
-        } else {
-            (1, stage_size, stage_size)
-        };
+        change_rows_per_plane(stage_size, instruction_m, problem.m);
 
-    let se = MatmulSelection {
+    MatmulSelection {
         tile_shape: MatmulSize {
             m: instruction_m as u32,
             n: instruction_n as u32,
@@ -227,8 +220,24 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
             k: 2,
         },
         plane_dim,
-        rows_per_plane,
-    };
+        rows_per_plane: rows_per_plane as u32,
+    }
+}
 
-    se
+const MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE: usize = 8;
+const MULTI_ROW_ENABLED: bool = false;
+
+fn change_rows_per_plane(
+    stage_size: usize,
+    instruction_m: usize,
+    problem_m: usize,
+) -> (usize, usize, usize) {
+    if MULTI_ROW_ENABLED {
+        let num_row_per_stage_m = stage_size * instruction_m;
+        if problem_m > num_row_per_stage_m * MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE {
+            return (2, stage_size * 2, stage_size);
+        }
+    }
+
+    (1, stage_size, stage_size)
 }
