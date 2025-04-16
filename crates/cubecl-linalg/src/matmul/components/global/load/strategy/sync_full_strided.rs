@@ -94,7 +94,7 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
         );
 
         stage.as_slice_mut()[unit_position] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read),
+            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
             CubeOption::None => Line::cast_from(line_read),
         }
     }

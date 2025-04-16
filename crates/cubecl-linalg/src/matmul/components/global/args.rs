@@ -7,9 +7,8 @@ use cubecl_std::{
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
-use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
-
 use super::Quantization;
+use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
@@ -599,30 +598,31 @@ impl MatmulArgs for TensorArgs {
     }
 
     fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
-        let (lhs, rhs, _) = *state;
-        // comptime! {
-        //     if core::any::TypeId::of::<MP::EI>() != core::any::TypeId::of::<i8>() {
-        //         panic!("{}", core::any::type_name::<MP::EI>());
-        //     }
-        // }
-        unsafe {
-            let scaling_lhs = ReinterpretSlice::<MP::EI, MP::ES>::new(
-                (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
-                (*lhs).line_size(),
-            )
-            .read(0);
-            let scaling_rhs = ReinterpretSlice::<MP::EI, MP::ES>::new(
-                (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
-                (*rhs).line_size(),
-            )
-            .read(0);
-            Quantization::<MP> {
-                scaling: scaling_lhs * scaling_rhs,
-            }
+        // TODO Currently, this assume that the scaling is always the last value in the buffer.
+        //      Also, in burn the scaling is presently fix to f32, hence the extra conversions.
 
-            // TODO Currently I assume that buffer_len = metadata_len + len.
-            //      That is, all the data within the tensors are contiguous and there are no hole
-            //      in the stride pattern.
+        let (lhs, rhs, _) = *state;
+        unsafe {
+            let buffer_len_lhs = Self::buffer_len_lhs(state);
+            let line_size_lhs = (*lhs).line_size();
+            let reinterpreted_len_lhs = buffer_len_lhs * line_size_lhs / 4; // TODO Change this when we stop using u32 to pack 4 i8 in burn.
+
+            let scaling_lhs =
+                ReinterpretSlice::<MP::EI, f32>::new((*lhs).to_slice(), line_size_lhs)
+                    .read(reinterpreted_len_lhs - 1);
+
+            let buffer_len_rhs = Self::buffer_len_rhs(state);
+            let line_size_rhs = (*rhs).line_size();
+            let reinterpreted_len_rhs = buffer_len_rhs * line_size_rhs / 4; // TODO See above comment.
+
+            let scaling_rhs =
+                ReinterpretSlice::<MP::EI, f32>::new((*rhs).to_slice(), line_size_rhs)
+                    .read(reinterpreted_len_rhs - 1);
+
+            Quantization::<MP> {
+                scaling_lhs: MP::ES::cast_from(scaling_lhs),
+                scaling_rhs: MP::ES::cast_from(scaling_rhs),
+            }
         }
     }
 }
