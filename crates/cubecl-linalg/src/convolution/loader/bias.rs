@@ -36,7 +36,8 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                 let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
                 let unit_position_base = unit_id * line_size;
 
-                let mut slice = stage.as_slice_mut();
+                // TODO verify
+                let mut slice = stage.as_slice_mut(1u32);
 
                 if unit_position_base < num_stage_elements {
                     let read_line = tensor_view.load_simple::<G>(unit_position_base, config);
@@ -59,7 +60,8 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                 let line_size = config.stage_line_size(Ident::Out);
                 let tile_elems = config.tile_shape().n / line_size;
                 let start = tile_n * tile_elems;
-                let slice = stage.as_slice_mut().slice(start, start + tile_elems);
+                // TODO verify
+                let slice = stage.as_slice_mut(1u32).slice(start, start + tile_elems);
                 let tile = Tile::new_strided(slice, 0);
                 TMM::fill_accumulator(&tile, acc, config);
             }

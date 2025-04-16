@@ -69,7 +69,8 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            // TODO verify
+            &mut this.stage.as_slice_mut(1u32),
             Ident::Lhs,
             config,
         );

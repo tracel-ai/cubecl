@@ -163,7 +163,7 @@ impl Job {
 
         let offset = this.previous_tiles_offset + pos_within_tile;
 
-        stage.as_slice_mut()[offset] = match quantization {
+        stage.as_slice_mut(this.line_size)[offset] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
             CubeOption::None => Line::cast_from(line_read),
         };

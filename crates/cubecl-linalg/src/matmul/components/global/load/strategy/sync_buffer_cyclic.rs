@@ -164,7 +164,9 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
         let tile_start = nth_tile * this.num_lines_per_tile;
         let tile_end = tile_start + this.num_lines_per_tile;
-        let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
+        let mut tile_slice = stage
+            .as_slice_mut(line_size)
+            .slice_mut(tile_start, tile_end);
 
         tile_slice[pos_within_tile / line_size] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),

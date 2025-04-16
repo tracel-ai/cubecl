@@ -67,13 +67,13 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     }
 
     /// Return the whole stage as a slice, for reading
-    pub fn as_slice(&self) -> Slice<Line<ES>> {
-        self.smem.to_slice()
+    pub fn as_slice(&self, #[comptime] line_size: u32) -> Slice<Line<ES>> {
+        self.smem.to_slice().with_line_size(line_size)
     }
 
     /// Return the whole stage as a mutable slice, for loading
-    pub fn as_slice_mut(&mut self) -> SliceMut<Line<ES>> {
-        self.smem.to_slice_mut()
+    pub fn as_slice_mut(&mut self, #[comptime] line_size: u32) -> SliceMut<Line<ES>> {
+        self.smem.to_slice_mut().with_line_size(line_size)
     }
 
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
