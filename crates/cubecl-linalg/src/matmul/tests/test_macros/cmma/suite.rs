@@ -274,6 +274,21 @@ macro_rules! matmul_standard_tests {
                 1,
             );
         }
+
+        #[test]
+        pub fn double_buffering_multi_rows() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                DoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
     };
 
     (tma; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
