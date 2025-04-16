@@ -169,7 +169,6 @@ where
         #[unroll]
         for _ in 0..comptime!(shape.0) {
             lhs.push(TMM::allocate_lhs(tmm_config));
-            lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
         (
