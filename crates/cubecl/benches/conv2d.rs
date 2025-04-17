@@ -95,8 +95,8 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
     let batch_size = 16;
 
     let bench1 = Conv2dBench::<R, MP> {
-        input_shape: [batch_size, 3, 227, 227].into(),
-        weight_shape: [96, 3, 11, 11].into(),
+        input_shape: [batch_size, 3, 227, 227],
+        weight_shape: [96, 3, 11, 11],
         bias_shape: 96,
         args: ConvolutionArgs {
             stride: (4, 4),
@@ -109,8 +109,8 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
     };
 
     let bench2 = Conv2dBench::<R, MP> {
-        input_shape: [batch_size, 4, 256, 256].into(),
-        weight_shape: [64, 4, 8, 8].into(),
+        input_shape: [batch_size, 4, 256, 256],
+        weight_shape: [64, 4, 8, 8],
         bias_shape: 64,
         args: ConvolutionArgs {
             stride: (1, 1),
