@@ -170,3 +170,12 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             .update_view(k_offset, comptime!(this.ident.as_ident()));
     }
 }
+
+#[cube]
+pub(crate) fn arrive_tma<E: CubePrimitive>(barrier: &Barrier<E>, #[comptime] num_elems: u32) {
+    if UNIT_POS == 0 {
+        barrier.arrive_tx(1, num_elems * E::elem_size());
+    } else {
+        barrier.arrive();
+    }
+}

@@ -9,7 +9,7 @@ use cubecl_core::{
 use crate::{
     convolution::{
         base::{ConvolutionConfigFactory, ConvolutionProblem},
-        homogeneous::simple_tma::SimpleTmaConvolutionFamily,
+        homogeneous::multi_stage_tma::MultiStageTmaConvolutionFamily,
     },
     matmul::components::{
         InputIdent, InvalidConfigError, MatmulPrecision, MatmulSelection,
@@ -20,19 +20,19 @@ use crate::{
     tensor::{TensorHandle, into_contiguous_pitched},
 };
 
-use super::Algorithm;
+use super::{Algorithm, simple_tma::check_problem_tma};
 
 pub const TMA_STRIDE_ALIGN: usize = 16;
 
 /// Cmma convolution
-pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
+pub struct MultiStageTmaConvAlgorithm<TMM: TileMatmulFamily> {
     _tmm: PhantomData<TMM>,
 }
 
-impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
+impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
-    type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
+    type GlobalConvolution = MultiStageTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;
 
@@ -89,7 +89,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
     ) -> TensorHandle<R, E> {
-        let mut handle = if has_valid_layout(handle, ident) {
+        let mut handle = if super::simple_tma::has_valid_layout(handle, ident) {
             TensorHandle::from_ref(handle)
         } else {
             into_contiguous_pitched(client, handle)
@@ -107,68 +107,4 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
             }
         }
     }
-}
-
-pub(crate) fn has_valid_layout<R: Runtime>(
-    handle: &TensorHandleRef<'_, R>,
-    ident: InputIdent,
-) -> bool {
-    let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
-
-    let aligned = handle.strides[..3]
-        .iter()
-        .all(|stride| stride % stride_align == 0);
-
-    let valid_layout = match ident {
-        InputIdent::Lhs => handle.strides[3] == 1,
-        InputIdent::Rhs => {
-            let c_major = handle.strides[3] == 1;
-            let kernel_contig = handle.strides[2] * handle.shape[2] == handle.strides[1];
-            c_major && kernel_contig
-        }
-    };
-
-    valid_layout && aligned
-}
-
-pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {
-    fn check_range(
-        value: isize,
-        name: &str,
-        min: isize,
-        max: isize,
-    ) -> Result<(), InvalidConfigError> {
-        if value < min || value > max {
-            Err(Box::new(format!(
-                "value {name} outside of valid range ({min}, {max})"
-            )))
-        } else {
-            Ok(())
-        }
-    }
-
-    let corner = calculate_upper_corner(problem.padding, problem.kernel_size, problem.dilation);
-    check_range(corner[0] as isize, "corner_h", -128, 127)?;
-    check_range(corner[1] as isize, "corner_w", -128, 127)?;
-
-    let offset_h = (problem.kernel_size.0 - 1) * problem.dilation.0;
-    let offset_w = (problem.kernel_size.1 - 1) * problem.dilation.1;
-    check_range(offset_h as isize, "kernel size h", 0, 255)?;
-    check_range(offset_w as isize, "kernel size w", 0, 255)?;
-
-    check_range(problem.stride.0 as isize, "stride_h", 1, 8)?;
-    check_range(problem.stride.1 as isize, "stride_w", 1, 8)?;
-
-    Ok(())
-}
-
-pub fn calculate_upper_corner(
-    padding: (i32, i32),
-    kernel_size: (u32, u32),
-    dilation: (u32, u32),
-) -> Vec<i32> {
-    let corner_h = padding.0 - (kernel_size.0 - 1) as i32 * dilation.0 as i32;
-    let corner_w = padding.1 - (kernel_size.1 - 1) as i32 * dilation.1 as i32;
-
-    vec![corner_h, corner_w]
 }

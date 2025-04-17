@@ -170,8 +170,10 @@ impl CudaServer {
             };
 
             unsafe {
-                let lib = cudarc::driver::sys::lib();
-                lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                cudarc::driver::sys::lib()
+                    .cuMemcpy2DAsync_v2(&cpy, ctx.stream)
+                    .result()
+                    .unwrap();
             };
             result.push(data);
         }
@@ -273,8 +275,10 @@ impl ComputeServer for CudaServer {
         };
 
         unsafe {
-            let lib = cudarc::driver::sys::lib();
-            lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+            cudarc::driver::sys::lib()
+                .cuMemcpy2DAsync_v2(&cpy, ctx.stream)
+                .result()
+                .unwrap();
         }
 
         (handle, strides)
@@ -410,7 +414,6 @@ impl ComputeServer for CudaServer {
                     device_ptr as usize % 16 == 0,
                     "Tensor pointer must be 16 byte aligned"
                 );
-                let lib = unsafe { cudarc::driver::sys::lib() };
                 let mut map_ptr = MaybeUninit::zeroed();
 
                 let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
@@ -427,6 +430,8 @@ impl ComputeServer for CudaServer {
                     strides.iter().all(|it| it % 16 == 0),
                     "Strides must be 16 byte aligned"
                 );
+
+                let lib = unsafe { cudarc::driver::sys::lib() };
 
                 match &map.format {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
