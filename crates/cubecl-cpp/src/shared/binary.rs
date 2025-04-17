@@ -93,9 +93,18 @@ macro_rules! operator {
                 f: &mut std::fmt::Formatter<'_>,
                 lhs: Lhs,
                 rhs: Rhs,
-                _item: Item<D>,
+                out_item: Item<D>,
             ) -> std::fmt::Result {
-                write!(f, "{lhs} {} {rhs}", $op)
+                let out_elem = out_item.elem();
+                match out_elem {
+                    // prevent auto-promotion rules to kick-in in order to stay in the same type
+                    // this is because of fusion and vectorization that can do elemwise operations on vectorized type,
+                    // the resulting elements need to be of the same type.
+                    Elem::<D>::I16 | Elem::<D>::U16 | Elem::<D>::I8 | Elem::<D>::U8 => {
+                        write!(f, "{out_elem}({lhs} {} {rhs})", $op)
+                    }
+                    _ => write!(f, "{lhs} {} {rhs}", $op),
+                }
             }
         }
     };
