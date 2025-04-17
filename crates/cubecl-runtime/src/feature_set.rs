@@ -8,6 +8,19 @@ pub struct DeviceProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
     memory: MemoryDeviceProperties,
     hardware: HardwareProperties,
+    timing_mode: TimingMode,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TimingMode {
+    /// Using the device own measuting capability.
+    ///
+    /// Normally compatible with async.
+    Device,
+    /// Using [std::time::Instant] to measure kernel execution.
+    ///
+    /// When this version is activated, we must await on async profiling.
+    System,
 }
 
 impl<Feature: Ord + Copy> DeviceProperties<Feature> {
@@ -16,6 +29,7 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
         features: &[Feature],
         memory_props: MemoryDeviceProperties,
         hardware: HardwareProperties,
+        profiling_mode: TimingMode,
     ) -> Self {
         let mut set = BTreeSet::new();
         for feature in features {
@@ -26,7 +40,12 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
             set,
             memory: memory_props,
             hardware,
+            timing_mode: profiling_mode,
         }
+    }
+
+    pub fn tiling_mode(&self) -> TimingMode {
+        self.timing_mode
     }
 
     /// Check if the provided `Feature` is supported by the runtime.

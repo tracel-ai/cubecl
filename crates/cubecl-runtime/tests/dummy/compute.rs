@@ -2,7 +2,7 @@ use super::DummyServer;
 use cubecl_common::CubeDim;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::LocalTuner;
-use cubecl_runtime::{ComputeRuntime, DeviceProperties};
+use cubecl_runtime::{ComputeRuntime, DeviceProperties, TimingMode};
 use cubecl_runtime::{channel::MutexComputeChannel, memory_management::HardwareProperties};
 use cubecl_runtime::{client::ComputeClient, tune::TunableSet};
 use cubecl_runtime::{
@@ -56,7 +56,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     let channel = MutexComputeChannel::new(server);
     ComputeClient::new(
         channel,
-        DeviceProperties::new(&[], mem_properties, topology),
+        DeviceProperties::new(&[], mem_properties, topology, TimingMode::System),
         (),
     )
 }
