@@ -94,7 +94,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
     let client = R::client(&device);
     let batch_size = 16;
 
-    let bench = Conv2dBench::<R, MP> {
+    let bench1 = Conv2dBench::<R, MP> {
         input_shape: [batch_size, 3, 227, 227].into(),
         weight_shape: [96, 3, 11, 11].into(),
         bias_shape: 96,
@@ -108,12 +108,28 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
         _phantom: PhantomData,
     };
 
-    println!(
-        "input: {:?} weight: {:?}",
-        bench.input_shape, bench.weight_shape
-    );
-    println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::Full));
+    let bench2 = Conv2dBench::<R, MP> {
+        input_shape: [batch_size, 4, 256, 256].into(),
+        weight_shape: [64, 4, 8, 8].into(),
+        bias_shape: 64,
+        args: ConvolutionArgs {
+            stride: (1, 1),
+            padding: (0, 0),
+            dilation: (1, 1),
+        },
+        client: client.clone(),
+        device: device.clone(),
+        _phantom: PhantomData,
+    };
+
+    for bench in [bench1, bench2] {
+        println!(
+            "input: {:?} weight: {:?}",
+            bench.input_shape, bench.weight_shape
+        );
+        println!("{}", bench.name());
+        println!("{}", bench.run(TimingMethod::Full));
+    }
 }
 
 #[allow(unused)]
