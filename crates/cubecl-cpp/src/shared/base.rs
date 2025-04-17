@@ -300,10 +300,12 @@ impl<D: Dialect> CppCompiler<D> {
                 let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Plane::Sum(op) => {
-                        instructions.push(Instruction::Warp(WarpInstruction::ReduceSum {
+                        let instruction = WarpInstruction::ReduceSum {
                             input: self.compile_variable(op.input),
                             out,
-                        }))
+                        };
+                        D::register_warp_instruction_extension(&mut self.extensions, &instruction);
+                        instructions.push(Instruction::Warp(instruction));
                     }
                     gpu::Plane::InclusiveSum(op) => {
                         self.flags.indexes.unit_pos_plane = true;
@@ -334,10 +336,12 @@ impl<D: Dialect> CppCompiler<D> {
                         }))
                     }
                     gpu::Plane::Prod(op) => {
-                        instructions.push(Instruction::Warp(WarpInstruction::ReduceProd {
+                        let instruction = WarpInstruction::ReduceProd {
                             input: self.compile_variable(op.input),
                             out,
-                        }))
+                        };
+                        D::register_warp_instruction_extension(&mut self.extensions, &instruction);
+                        instructions.push(Instruction::Warp(instruction))
                     }
                     gpu::Plane::Max(op) => {
                         let instruction = WarpInstruction::ReduceMax {

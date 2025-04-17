@@ -146,9 +146,6 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
-    /// Returns the line size for the stage of the given ident
-    // fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
-
     /// Returns the [StageTiling] for the given ident
     fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions;
 

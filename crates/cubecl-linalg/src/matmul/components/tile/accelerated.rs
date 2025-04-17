@@ -188,8 +188,8 @@ impl MatmulConfigFactory for Accelerated {
             cube_dim.x,
             problem.lhs_layout,
             problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
+            1,
+            1,
             problem.out_line_size as u32,
         )
     }

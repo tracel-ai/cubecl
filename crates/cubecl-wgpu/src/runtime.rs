@@ -54,6 +54,13 @@ impl Runtime for WgpuRuntime {
                 #[cfg(not(feature = "spirv"))]
                 return "wgpu<wgsl>";
             }
+            wgpu::Backend::Metal => {
+                #[cfg(feature = "msl")]
+                return "wgpu<msl>";
+
+                #[cfg(not(feature = "msl"))]
+                return "wgpu<wgsl>";
+            }
             _ => "wgpu<wgsl>",
         }
     }

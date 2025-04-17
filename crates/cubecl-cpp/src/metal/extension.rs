@@ -1,12 +1,12 @@
 use crate::{
     Dialect,
-    shared::{Component, Elem, Item, Variable},
+    shared::{Elem, Item},
 };
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Extension<D: Dialect> {
-    Erf(Variable<D>, Variable<D>),
+    Erf(Elem<D>, Elem<D>),
     Ffs(Elem<D>),
     MulHi(Elem<D>),
     SafeTanh(Item<D>),
@@ -16,16 +16,14 @@ pub enum Extension<D: Dialect> {
 
 pub fn format_erf<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    output: &Variable<D>,
+    input_elem: &Elem<D>,
+    out_elem: &Elem<D>,
 ) -> core::fmt::Result {
-    let input_elem = input.elem();
-    let output_elem = output.elem();
     write!(
         f,
         "
 // Abramowitz and Stegun approximation for erf(x)
-inline {output_elem} erf({input_elem} x) {{
+inline {out_elem} erf({input_elem} x) {{
     const float a1 =  0.254829592f;
     const float a2 = -0.284496736f;
     const float a3 =  1.421413741f;
