@@ -9,7 +9,7 @@ use cubecl_core::{
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
-    ComputeRuntime, TimingMode,
+    ComputeRuntime, TimeMeasurement,
     channel::MutexComputeChannel,
     client::ComputeClient,
     debug::{DebugLogger, ProfileLevel},
@@ -228,8 +228,8 @@ pub(crate) fn create_client_on_setup(
         .features()
         .contains(wgpu::Features::TIMESTAMP_QUERY)
     {
-        true => TimingMode::Device,
-        false => TimingMode::System,
+        true => TimeMeasurement::Device,
+        false => TimeMeasurement::System,
     };
 
     let mut device_props =

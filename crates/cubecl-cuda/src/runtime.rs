@@ -127,7 +127,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         &[Feature::Plane],
         mem_properties,
         hardware_props,
-        cubecl_runtime::TimingMode::System,
+        cubecl_runtime::TimeMeasurement::System,
     );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));

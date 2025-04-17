@@ -136,7 +136,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         &[Feature::Plane],
         mem_properties,
         topology,
-        cubecl_runtime::TimingMode::System,
+        cubecl_runtime::TimeMeasurement::System,
     );
     register_supported_types(&mut device_props);
     // Not sure if there's a good way to check for support on HIP
