@@ -36,6 +36,7 @@ pub struct WgpuServer {
 
 impl WgpuServer {
     /// Create a new server.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
