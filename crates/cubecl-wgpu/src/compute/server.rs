@@ -12,6 +12,7 @@ use cubecl_core::{
     prelude::*,
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };
+use cubecl_runtime::TimeMeasurement;
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
     memory_management::MemoryDeviceProperties,
@@ -43,6 +44,7 @@ impl WgpuServer {
         queue: wgpu::Queue,
         tasks_max: usize,
         backend: wgpu::Backend,
+        time_measurement: TimeMeasurement,
     ) -> Self {
         let logger = DebugLogger::default();
 
@@ -52,6 +54,7 @@ impl WgpuServer {
             memory_properties,
             memory_config,
             tasks_max,
+            time_measurement,
         );
 
         Self {
