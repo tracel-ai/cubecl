@@ -8,7 +8,7 @@ use crate::{
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item,
-        SharedMemory, Variable, WarpInstruction,
+        SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
@@ -271,6 +271,44 @@ impl DialectInstructions<Self> for CudaDialect {
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__threadfence();")
+    }
+
+    // unary
+    fn compile_instruction_find_first_set<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 => write!(f, "__ffs({input})"),
+            Elem::U32 => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
+            Elem::I64 => write!(f, "__ffsll({input})"),
+            Elem::U64 => write!(f, "__ffsll({}({input}))", Elem::<Self>::I64),
+            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
+        }?;
+        write!(f, ")")
+    }
+
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 => write!(f, "__clz({input})"),
+            Elem::U32 => write!(f, "__clz({}({input}))", Elem::<Self>::I32),
+            Elem::I64 => write!(f, "__clzll({input})"),
+            Elem::U64 => write!(f, "__clzll({}({input}))", Elem::<Self>::I64),
+            in_elem => write!(
+                f,
+                "{out_elem}(__clz({}) - {})",
+                unary::zero_extend(input),
+                (size_of::<u32>() - in_elem.size()) * 8
+            ),
+        }?;
+        write!(f, ")")
     }
 
     // others

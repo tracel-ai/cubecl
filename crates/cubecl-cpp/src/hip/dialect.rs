@@ -3,7 +3,9 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
-use crate::shared::{Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable};
+use crate::shared::{
+    Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable, unary,
+};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -92,20 +94,34 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         #[allow(clippy::single_match)]
         match instruction {
             shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
-                let item = input.item();
-                let elem = item.elem();
-                if *elem == Elem::<Self>::BF16 {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
                     register_extension(Extension::F162BF16);
                 }
-                register_extension(Extension::Max(*elem));
+                register_extension(Extension::Max(*input_elem));
             }
             shared::WarpInstruction::<Self>::ReduceMin { input, .. } => {
-                let item = input.item();
-                let elem = item.elem();
-                if *elem == Elem::<Self>::BF16 {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
                     register_extension(Extension::F162BF16);
                 }
-                register_extension(Extension::Min(*elem));
+                register_extension(Extension::Min(*input_elem));
+            }
+            shared::WarpInstruction::<Self>::ReduceProd { input, .. } => {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
+            }
+            shared::WarpInstruction::<Self>::ReduceSum { input, .. } => {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
             }
             _ => {}
         }
@@ -243,12 +259,47 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {
 // Instructions
 
 impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
+    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_sync_threads(f)
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_thread_fence(f)
+    }
+
+    // unary
+    fn compile_instruction_find_first_set<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
+            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::U32),
+        }?;
+        write!(f, ")")
+    }
+
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
+            in_elem => write!(
+                f,
+                "__clz({}) - {}",
+                unary::zero_extend(input),
+                (size_of::<u32>() - in_elem.size()) * 8
+            ),
+        }?;
+        write!(f, ")")
     }
 
     // others
