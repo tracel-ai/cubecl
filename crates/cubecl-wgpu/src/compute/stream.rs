@@ -50,10 +50,10 @@ impl WgpuStream {
         let mut mem_manage = WgpuMemManager::new(device.clone(), memory_properties, memory_config);
 
         // Allocate a small buffer to use for synchronization.
-        #[cfg(target_family = "wasm")]
+        #[cfg(any(target_family = "wasm", target_os = "macos"))]
         let sync_buffer = Some(mem_manage.reserve(32, false));
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(not(any(target_family = "wasm", target_os = "macos")))]
         let sync_buffer = None;
 
         Self {
@@ -264,6 +264,8 @@ impl WgpuStream {
             .device
             .features()
             .contains(wgpu::Features::TIMESTAMP_QUERY)
+            // && false
+            || true
         {
             // Flush all commands to the queue. This isn't really needed, but this should mean
             // new work after this will be run with less overlap.
@@ -362,7 +364,7 @@ impl WgpuStream {
                 })
             }
             None => {
-                #[cfg(not(target_family = "wasm"))]
+                #[cfg(not(any(target_family = "wasm", target_os = "macos")))]
                 {
                     if let Err(e) = self.device.poll(wgpu::PollType::Wait) {
                         log::warn!(
@@ -372,7 +374,7 @@ impl WgpuStream {
                     Box::pin(async move {})
                 }
 
-                #[cfg(target_family = "wasm")]
+                #[cfg(any(target_family = "wasm", target_os = "macos"))]
                 {
                     panic!("Only synching from a buffer is supported.");
                 }
