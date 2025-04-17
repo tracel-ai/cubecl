@@ -80,6 +80,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         tile_shape,
         tile_count,
         plane_dim,
+        rows_per_plane: 1,
     };
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,

@@ -16,8 +16,10 @@ use cubecl_core::{
 };
 
 use super::{
-    AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
-    format_metal_builtin_binding_arg, format_safe_tanh,
+    AddressSpace, Extension,
+    arch::MetalArchitecture,
+    extension::{format_ffs, format_mulhi},
+    format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,6 +52,8 @@ using namespace metal;
         for extension in extensions {
             match extension {
                 Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
+                Extension::Ffs(elem) => format_ffs(f, elem)?,
+                Extension::MulHi(elem) => format_mulhi(f, elem)?,
                 Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
                 Extension::NoExtension => {}
             }
@@ -70,6 +74,28 @@ using namespace metal;
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
                 register_extension(Extension::Erf(instruction.input, instruction.out));
+            }
+            shared::Instruction::<Self>::FindFirstSet(instruction) => {
+                let input_elem = instruction.input.elem();
+                match input_elem {
+                    Elem::U32 | Elem::U64 => {
+                        register_extension(Extension::Ffs(instruction.input.elem()));
+                    }
+                    Elem::I32 => {
+                        register_extension(Extension::Ffs(Elem::<Self>::U32));
+                        register_extension(Extension::Ffs(instruction.input.elem()));
+                    }
+                    Elem::I64 => {
+                        register_extension(Extension::Ffs(Elem::<Self>::U64));
+                        register_extension(Extension::Ffs(instruction.input.elem()));
+                    }
+                    _ => {
+                        register_extension(Extension::Ffs(Elem::<Self>::U32));
+                    }
+                }
+            }
+            shared::Instruction::<Self>::HiMul(instruction) => {
+                register_extension(Extension::MulHi(instruction.out.elem()));
             }
             shared::Instruction::<Self>::Tanh(instruction) => {
                 register_extension(Extension::SafeTanh(instruction.input.item()));
@@ -791,9 +817,9 @@ impl DialectInstructions<Self> for MslDialect {
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
+        out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
-        let out_elem = input.item().elem;
-        write!(f, "({out_elem})(uint64_t(simd_ballot({input})))")
+        write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
     }
 }
 
