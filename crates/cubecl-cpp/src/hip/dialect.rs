@@ -94,20 +94,34 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         #[allow(clippy::single_match)]
         match instruction {
             shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
-                let item = input.item();
-                let elem = item.elem();
-                if *elem == Elem::<Self>::BF16 {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
                     register_extension(Extension::F162BF16);
                 }
-                register_extension(Extension::Max(*elem));
+                register_extension(Extension::Max(*input_elem));
             }
             shared::WarpInstruction::<Self>::ReduceMin { input, .. } => {
-                let item = input.item();
-                let elem = item.elem();
-                if *elem == Elem::<Self>::BF16 {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
                     register_extension(Extension::F162BF16);
                 }
-                register_extension(Extension::Min(*elem));
+                register_extension(Extension::Min(*input_elem));
+            }
+            shared::WarpInstruction::<Self>::ReduceProd { input, .. } => {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
+            }
+            shared::WarpInstruction::<Self>::ReduceSum { input, .. } => {
+                let input_item = input.item();
+                let input_elem = input_item.elem();
+                if *input_elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
             }
             _ => {}
         }
