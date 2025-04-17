@@ -39,14 +39,6 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             }));
         }
 
-        // TODO verify that
-        // let line_size = config.global_line_size(ident);
-        // if line_size != config.stage_line_size(ident) {
-        //     return Err(Box::new(
-        //         "Global and stage line sizes must match for tilewise loading.",
-        //     ));
-        // }
-
         Ok(())
     }
 }

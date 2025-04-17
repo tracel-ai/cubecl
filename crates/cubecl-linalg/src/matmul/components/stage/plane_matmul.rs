@@ -72,16 +72,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
             tile_count,
         };
 
-        CommonStageConfig::new(
-            tmm_config,
-            tiling,
-            cube_dim.y,
-            quantized,
-            input.1,
-            1,
-            1,
-            problem.out_line_size as u32,
-        )
+        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, input.1)
     }
 }
 

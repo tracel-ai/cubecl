@@ -168,7 +168,6 @@ impl StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> SliceMut<Line<ES>> {
-        panic!("for async only, do later");
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
         let stage_line_size = config.stage_line_size(ident);

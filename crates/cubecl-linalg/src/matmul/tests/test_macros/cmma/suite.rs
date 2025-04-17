@@ -170,100 +170,115 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // #[test]
-        // pub fn simple_pipelined() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SimplePipelinedAlgorithm<TMM>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn simple_pipelined() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimplePipelinedAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn simple_barrier_cooperative() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SimpleBarrierAlgorithm<TMM, async_full_cooperative::LoadingStrategy>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn simple_barrier_cooperative() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, async_full_cooperative::LoadingStrategy>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn simple_barrier_cyclic() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SimpleBarrierAlgorithm<TMM, async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn simple_barrier_cyclic() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn simple_barrier_maximize_slice_length() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SimpleBarrierAlgorithm<TMM, async_full_maximize_slice_length::LoadingStrategy>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn simple_barrier_maximize_slice_length() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, async_full_maximize_slice_length::LoadingStrategy>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn simple_barrier_maximize_unit_count() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SimpleBarrierAlgorithm<TMM, async_full_maximize_unit_count::LoadingStrategy>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn simple_barrier_maximize_unit_count() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, async_full_maximize_unit_count::LoadingStrategy>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn specialized() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SpecializedAlgorithm<TMM>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn specialized() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SpecializedAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
         #[test]
         pub fn double_buffering() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_barrier() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                DoubleBufferingBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

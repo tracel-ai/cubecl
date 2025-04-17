@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
-    stage::{Stage, StridedTilingLayout},
+    stage::{Stage, StageConfig, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -61,7 +61,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
-        let line_size = config.global_line_size(input_ident);
+        let line_size = config.to_smm_config().stage_line_size(input_ident.into());
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (

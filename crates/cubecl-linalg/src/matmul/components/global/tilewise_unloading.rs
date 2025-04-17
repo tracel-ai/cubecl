@@ -14,47 +14,34 @@ pub struct TilewiseUnloading {}
 impl TilewiseUnloading {
     pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         write_view: &mut TensorWriter<EG>,
-        slice: Slice<Line<ES>>,
+        out_smem_slice: Slice<Line<ES>>,
         tile_x: u32,
         tile_y: u32,
         #[comptime] config: G,
     ) {
         let tiling = config.tiling_dimensions(Ident::Out);
         let tile_size = tiling.tile_size();
-        let out_line_size = config.global_line_size(Ident::Out);
+        let output_line_size = config.global_line_size(Ident::Out);
+        let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
-        // TODO: interpret slice as out_line_size event if slice_line_size is different
-        // let slice_line_size = config.to_smm_config().stage_line_size(Ident::Out);
-        let slice = slice.with_line_size(out_line_size);
-        // #[allow(clippy::all)]
-        // let _ = comptime!(check_line_size(out_line_size, slice_line_size));
-
-        let unit_step = config.plane_dim() * out_line_size;
+        let unit_step = config.plane_dim() * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
         let balanced_workload = comptime!(tile_size % unit_step == 0);
 
         #[unroll(num_unit_writes == 1)]
         for i in 0..num_unit_writes {
-            let unit_write = UNIT_POS_X * out_line_size + i * unit_step;
+            let unit_write = UNIT_POS_X * output_line_size + i * unit_step;
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
-                let value = slice[unit_write / out_line_size];
+                let value = out_smem_slice[unit_write / output_line_size];
                 write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
             } else {
                 if unit_write < tile_size {
-                    let value = slice[unit_write / out_line_size];
+                    let value = out_smem_slice[unit_write / output_line_size];
                     write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
                 }
             }
         }
     }
-}
-
-fn check_line_size(out_line_size: u32, slice_line_size: u32) {
-    assert_eq!(
-        out_line_size, slice_line_size,
-        "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
-        out_line_size, slice_line_size
-    );
 }

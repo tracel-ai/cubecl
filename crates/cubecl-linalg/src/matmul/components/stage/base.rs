@@ -144,9 +144,6 @@ pub trait StageConfig: MatmulConfig {
     /// Convert itself to the underlying tile matmul config
     fn to_tmm_config(self) -> Self::TmmConfig;
 
-    // /// Returns the line size for the given ident
-    // fn global_line_size(&self, ident: Ident) -> u32;
-
     /// Returns the line size for the given ident
     fn stage_line_size(&self, ident: Ident) -> u32;
 

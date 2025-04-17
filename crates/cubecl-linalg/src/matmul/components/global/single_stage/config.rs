@@ -34,10 +34,6 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         }
     }
 
-    // fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-    //     self.smm_config.global_line_size(ident.into())
-    // }
-
     fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
         self.smm_config.tiling_dimensions(ident.into())
     }

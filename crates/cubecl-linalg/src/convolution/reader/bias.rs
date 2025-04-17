@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-use crate::matmul::components::{Ident, global::GlobalConfig};
+use crate::matmul::components::global::GlobalConfig;
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
