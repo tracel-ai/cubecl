@@ -24,7 +24,8 @@ impl TilewiseUnloading {
         let out_line_size = config.global_line_size(Ident::Out);
 
         // TODO: interpret slice as out_line_size event if slice_line_size is different
-        // let slice_line_size = config.stage_line_size(Ident::Out);
+        // let slice_line_size = config.to_smm_config().stage_line_size(Ident::Out);
+        let slice = slice.with_line_size(out_line_size);
         // #[allow(clippy::all)]
         // let _ = comptime!(check_line_size(out_line_size, slice_line_size));
 

@@ -210,6 +210,12 @@ where
         let slice_start = num_tile_lines * UNIT_POS_Y;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
+        // out_smem has out_smem_line_size
+        // C = MP::EO
+        // acc is MP::EA
+        // smem_slice or slice: Line<EO>, line_size is same as out_smem = out_smem_line_size = 8
+        //
+
         let m_offset = UNIT_POS_Y * m_iterations;
         let mut m_iter = comptime![0u32];
 
