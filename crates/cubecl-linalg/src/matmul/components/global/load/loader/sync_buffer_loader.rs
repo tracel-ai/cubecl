@@ -136,7 +136,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         SyncBufferLoaderJob::<MP, L> {
             loading,
             num_tasks,
-            current: Sequence::new(),
+            current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
         }
     }
 
@@ -145,7 +145,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         job: &mut SyncBufferLoaderJob<MP, L>,
         #[comptime] config: G,
     ) {
-        let task_id = job.current.len();
+        let task_id = job.current.read().counter;
+
         L::Job::<MP>::execute_task::<G>(
             &mut job.loading,
             task_id,
@@ -155,7 +156,9 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             config,
         );
 
-        job.current.push(());
+        job.current.store(TaskCounter {
+            counter: comptime!(task_id + 1u32),
+        });
     }
 }
 
@@ -164,5 +167,11 @@ pub struct SyncBufferLoaderJob<MP: MatmulPrecision, L: SyncBufferLoadingStrategy
     loading: L::Job<MP>,
     #[cube(comptime)]
     pub num_tasks: u32,
-    pub current: Sequence<()>,
+    pub current: ComptimeCell<TaskCounter>,
+}
+
+#[derive(CubeType, Clone)]
+pub struct TaskCounter {
+    #[cube(comptime)]
+    pub counter: u32,
 }
