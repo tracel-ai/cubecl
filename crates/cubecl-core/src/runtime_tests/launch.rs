@@ -129,7 +129,7 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R::Server, R::Ch
 
     // Allocate 24kibi to a check buffer, and the rest to the second buffer
     let shared_size_1 = 24576 / size_of::<u32>();
-    let shared_size_2 = (total_shared_size - 24576) / size_of::<u32>();
+    let shared_size_2 = (total_shared_size - 24576 - 1) / size_of::<u32>();
 
     kernel_with_max_shared::launch::<R>(
         &client,
