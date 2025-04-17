@@ -6,8 +6,9 @@ use crate::{
     Dialect,
     cuda::ptx::TMA_LOAD_IM2COL,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
-        DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item, SharedMemory, Variable,
+        self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item,
+        SharedMemory, Variable, WarpInstruction,
     },
 };
 
@@ -62,9 +63,15 @@ alignas(64) unsigned long long int opaque[16];
         Ok(())
     }
 
-    fn register_extension(
+    fn register_instruction_extension(
         _extensions: &mut Vec<Self::Extension>,
         _instruction: &Instruction<Self>,
+    ) {
+    }
+
+    fn register_warp_instruction_extension(
+        _extensions: &mut Vec<Self::Extension>,
+        _instruction: &WarpInstruction<Self>,
     ) {
     }
 }
@@ -243,6 +250,31 @@ impl DialectInstructions<Self> for CudaDialect {
         writeln!(f, "__threadfence();")
     }
 
+    // others
+    fn compile_instruction_max_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 | Elem::BF16 => "__hmax",
+            Elem::F162 | Elem::BF162 => "__hmax2",
+            _ => "max",
+        };
+        write!(f, "{max}")
+    }
+
+    fn compile_instruction_min_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let min = match item.elem() {
+            Elem::F16 | Elem::BF16 => "__hmin",
+            Elem::F162 | Elem::BF162 => "__hmin2",
+            _ => "min",
+        };
+        write!(f, "{min}")
+    }
+
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
@@ -254,6 +286,7 @@ impl DialectInstructions<Self> for CudaDialect {
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        _elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
         write!(f, "__shfl_xor_sync(-1, {var}, {offset})")
@@ -272,17 +305,23 @@ impl DialectInstructions<Self> for CudaDialect {
     ) -> std::fmt::Result {
         write!(f, "__shfl_down_sync(-1, {var}, {offset})")
     }
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "__all_sync(-1, {var})")
+    fn compile_warp_all<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        write!(f, "__all_sync(-1, {input})")
     }
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "__any_sync(-1, {var})")
+    fn compile_warp_any<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        write!(f, "__any_sync(-1, {input})")
     }
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        _output: &Variable<Self>,
+        _out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
     }

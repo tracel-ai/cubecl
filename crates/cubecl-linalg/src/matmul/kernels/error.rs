@@ -29,6 +29,7 @@ pub enum MatmulAvailabilityError {
     PipelineUnavailable,
     BarrierUnavailable,
     TmaUnavailable,
+    DynamicLineSizeUnavailable,
 }
 
 pub enum MatmulInvalidProblem {
@@ -180,6 +181,9 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::TmaUnavailable => {
                 writeln!(f, "TMA is not available.")
+            }
+            MatmulAvailabilityError::DynamicLineSizeUnavailable => {
+                writeln!(f, "Dynamic line size is not available.")
             }
         }
     }

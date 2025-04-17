@@ -229,9 +229,11 @@ where
     /// Nb: this function will only allow one function at a time to be submitted when multithrading.
     /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
-        self.state.profile_lock.lock();
+        let guard = self.state.profile_lock.lock();
         self.channel.start_profile();
         func();
-        self.channel.end_profile()
+        let result = self.channel.end_profile();
+        core::mem::drop(guard);
+        result
     }
 }

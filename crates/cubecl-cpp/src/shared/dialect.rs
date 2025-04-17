@@ -8,7 +8,7 @@ use crate::shared::FmtLeft;
 use super::{
     Architecture, AtomicKind, Binding, Component, CubeIndexFlags, Elem, Flags, Fragment,
     FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations,
-    Variable, WmmaInstruction,
+    Variable, WarpInstruction, WmmaInstruction,
 };
 
 // Base dialect
@@ -42,7 +42,14 @@ pub trait DialectIncludes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         extensions: &[Self::Extension],
     ) -> std::fmt::Result;
-    fn register_extension(extensions: &mut Vec<Self::Extension>, instruction: &Instruction<D>);
+    fn register_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &Instruction<D>,
+    );
+    fn register_warp_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &WarpInstruction<D>,
+    );
 }
 
 // Types
@@ -517,11 +524,13 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        _output: Elem<D>,
+        output: Elem<D>,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
+            Elem::I32 => write!(f, "static_cast<{output}>(__clz({input}))"),
+            Elem::U32 => write!(f, "__clz({input})"),
+            Elem::I64 => write!(f, "static_cast<{output}>(__clzll({input}))"),
+            Elem::U64 => write!(f, "__clzll({input})"),
             elem => write!(
                 f,
                 "__clz({}) - {}",
@@ -549,8 +558,10 @@ pub trait DialectInstructions<D: Dialect> {
         output: Elem<D>,
     ) -> std::fmt::Result {
         match output {
-            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
+            Elem::I32 => write!(f, "static_cast<{output}>(__brev({input}))"),
+            Elem::U32 => write!(f, "__brev({input})"),
+            Elem::I64 => write!(f, "__brevll({input})"),
+            Elem::U64 => write!(f, "static_cast<{output}>(__brevll({input}))"),
             _ => write!(
                 f,
                 "{output}(__brev({}) >> {})",
@@ -564,26 +575,12 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
         item: Item<D>,
-    ) -> std::fmt::Result {
-        let max = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmax",
-            Elem::F162 | Elem::BF162 => "__hmax2",
-            _ => "max",
-        };
-        write!(f, "{max}")
-    }
+    ) -> std::fmt::Result;
 
     fn compile_instruction_min_function_name(
         f: &mut std::fmt::Formatter<'_>,
         item: Item<D>,
-    ) -> std::fmt::Result {
-        let min = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmin",
-            Elem::F162 | Elem::BF162 => "__hmin2",
-            _ => "min",
-        };
-        write!(f, "{min}")
-    }
+    ) -> std::fmt::Result;
 
     fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "powf")
@@ -606,6 +603,7 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<D>,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_up(
@@ -618,12 +616,18 @@ pub trait DialectInstructions<D: Dialect> {
         var: &str,
         offset: &str,
     ) -> std::fmt::Result;
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
+    fn compile_warp_all<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result;
+    fn compile_warp_any<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result;
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<D>,
-        _output: &Variable<D>,
+        out_elem: &Elem<D>,
     ) -> std::fmt::Result;
 }
 

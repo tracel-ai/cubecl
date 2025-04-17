@@ -12,6 +12,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
+    rows_per_plane: u32,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client
@@ -42,6 +43,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_shape,
         tile_count,
         plane_dim,
+        rows_per_plane,
     };
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
@@ -86,6 +88,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_shape,
         tile_count,
         plane_dim,
+        rows_per_plane: 1,
     };
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
@@ -95,7 +98,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING), // TODO support double buffering
+        (config_input, STAGE_BUFFERING),
         selection,
     );
 }
@@ -122,6 +125,18 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn simple_coalesced_multi_rows() {
+            cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
             );
         }
 
@@ -136,6 +151,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -150,6 +166,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -164,6 +181,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -178,6 +196,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -192,6 +211,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -206,6 +226,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -220,6 +241,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -234,6 +256,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -248,6 +271,22 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_multi_rows() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                DoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
             );
         }
     };
@@ -381,6 +420,17 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        mod s16x16x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 16, n: 16, k: 1 }
+            );
+        }
+
         mod s2x2x2 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -405,6 +455,22 @@ macro_rules! matmul_standard_tests {
     };
 
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
+        mod p8x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 8,
+                    n: 8,
+                    k: 8
+                }
+            );
+        }
+
         mod p16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -529,6 +595,4 @@ macro_rules! matmul_standard_tests {
             );
         }
     };
-
-
 }

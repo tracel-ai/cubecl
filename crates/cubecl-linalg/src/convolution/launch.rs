@@ -16,7 +16,7 @@ use super::{
     ConvLaunchError,
     algorithm::{Algorithm, StageInput},
     args::ConvInputsLaunch,
-    base::{ConvolutionConfigFactory, ConvolutionProblem},
+    base::ConvolutionProblem,
     selection::select_matmul,
 };
 
@@ -162,9 +162,7 @@ where
     let config = Alg::make_config(config_input, &problem, &cube_dim, &cube_count)
         .map_err(MatmulLaunchError::InvalidConfig)?;
 
-    <Alg::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
-        client, &config,
-    )?;
+    Alg::check_availability::<R, MP>(client, &config)?;
 
     let input = <Input<Alg, MP> as ConvInputsLaunch>::create(input, weight, &selection, &problem);
     let output = <Output<Alg, MP> as ConcreteOutputFactory>::create(
