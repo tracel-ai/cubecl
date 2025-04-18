@@ -1,18 +1,8 @@
-use rspirv::{dr::Operand, spirv::Word};
+use rspirv::spirv::Word;
 
 use crate::SpirvCompiler;
 
 use super::{GLCompute, SpirvTarget};
-
-/// To generate:
-/// `bindgen GLSL.std.450.h -o GLSL_std_450.rs --default-enum-style rust
-#[allow(warnings)]
-mod GLSL_std_450;
-/// To generate:
-/// `bindgen NonSemanticShaderDebugInfo100.h -o NonSemanticShaderDebugInfo100.rs --default-enum-style rust --bitfield-enum .+Flags`
-/// grep or equivalent: replace "NonSemanticShaderDebugInfo100" with ""
-#[allow(warnings)]
-pub mod NonSemanticShaderDebugInfo100;
 
 pub trait TargetExtensions<T: SpirvTarget> {
     fn round(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
@@ -44,95 +34,81 @@ pub trait TargetExtensions<T: SpirvTarget> {
 }
 
 pub mod glcompute {
+    use rspirv_ext::dr::autogen_glsl_std_450::GLOpBuilder;
+
     use super::*;
-    use GLSL_std_450::GLSLstd450::{self, *};
-
-    pub const STD_NAME: &str = "GLSL.std.450";
-
-    fn ext_op<T: SpirvTarget, const N: usize>(
-        b: &mut SpirvCompiler<T>,
-        ty: Word,
-        out: Word,
-        instruction: GLSLstd450,
-        operands: [Word; N],
-    ) {
-        let ext = b.state.extensions[STD_NAME];
-        let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
-        b.ext_inst(ty, Some(out), ext, instruction as u32, operands)
-            .unwrap();
-    }
 
     impl<T: SpirvTarget> TargetExtensions<T> for GLCompute {
         fn round(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Round, [input]);
+            b.round_id(ty, Some(out), input).unwrap();
         }
 
         fn f_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450FAbs, [input]);
+            b.f_abs_id(ty, Some(out), input).unwrap();
         }
 
         fn s_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450SAbs, [input]);
+            b.s_abs_id(ty, Some(out), input).unwrap();
         }
 
         fn floor(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Floor, [input]);
+            b.floor_id(ty, Some(out), input).unwrap();
         }
 
         fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Ceil, [input]);
+            b.ceil_id(ty, Some(out), input).unwrap();
         }
 
         fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Sin, [input]);
+            b.sin_id(ty, Some(out), input).unwrap();
         }
 
         fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Cos, [input]);
+            b.cos_id(ty, Some(out), input).unwrap();
         }
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Tanh, [input]);
+            b.tanh_id(ty, Some(out), input).unwrap();
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Pow, [lhs, rhs]);
+            b.pow_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Exp, [input]);
+            b.exp_id(ty, Some(out), input).unwrap();
         }
 
         fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Log, [input]);
+            b.log_id(ty, Some(out), input).unwrap();
         }
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Sqrt, [input]);
+            b.sqrt_id(ty, Some(out), input).unwrap();
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450FMin, [lhs, rhs]);
+            b.f_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450UMin, [lhs, rhs]);
+            b.u_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn s_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450SMin, [lhs, rhs]);
+            b.s_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn f_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450FMax, [lhs, rhs]);
+            b.f_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn u_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450UMax, [lhs, rhs]);
+            b.u_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn s_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450SMax, [lhs, rhs]);
+            b.s_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn f_clamp(
@@ -143,7 +119,7 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
-            ext_op(b, ty, out, GLSLstd450FClamp, [input, min, max]);
+            b.f_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
         fn u_clamp(
@@ -154,7 +130,7 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
-            ext_op(b, ty, out, GLSLstd450UClamp, [input, min, max]);
+            b.u_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
         fn s_clamp(
@@ -165,23 +141,23 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
-            ext_op(b, ty, out, GLSLstd450SClamp, [input, min, max]);
+            b.s_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
         fn magnitude(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Length, [input]);
+            b.length_id(ty, Some(out), input).unwrap();
         }
 
         fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450Normalize, [input]);
+            b.normalize_id(ty, Some(out), input).unwrap();
         }
 
         fn find_msb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450FindUMsb, [input]);
+            b.find_u_msb_id(ty, Some(out), input).unwrap();
         }
 
         fn find_lsb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            ext_op(b, ty, out, GLSLstd450FindILsb, [input]);
+            b.find_i_lsb_id(ty, Some(out), input).unwrap();
         }
     }
 }
