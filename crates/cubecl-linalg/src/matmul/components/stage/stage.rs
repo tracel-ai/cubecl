@@ -7,11 +7,15 @@ use crate::matmul::components::{Ident, InputIdent, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::Skew;
+
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
 pub struct Stage<ES: Numeric, T: TilingLayout> {
     smem: SharedMemory<Line<ES>>,
+    #[cube(comptime)]
+    pub skew: Skew,
     #[cube(comptime)]
     tiling_layout: PhantomData<T>,
 }
@@ -20,14 +24,25 @@ pub struct Stage<ES: Numeric, T: TilingLayout> {
 impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     /// Instantiate a new stage for the given identifier
     pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES, T> {
-        let line_size = config.stage_line_size(ident);
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let skew = config.skew();
+        let usable_size = tiling_dimensions.total_size();
 
+        let total_padding = comptime! {
+            let num_segments = match config.matrix_layout(ident) {
+                MatrixLayout::RowMajor => tiling_dimensions.tile_shape_row(),
+                MatrixLayout::ColMajor => tiling_dimensions.tile_shape_col(),
+            } * tiling_dimensions.tile_count();
+            skew.padding_size() * num_segments
+        };
+
+        let stage_line_size = config.stage_line_size(ident);
         let smem = SharedMemory::new_lined(
-            comptime!(config.tiling_dimensions(ident).total_size() / line_size),
-            line_size,
+            comptime!((usable_size + total_padding) / stage_line_size),
+            stage_line_size,
         );
 
-        Self::new_with_smem(smem)
+        Self::new_with_smem(smem, skew)
     }
 
     /// Instantiate a new stage for the given identifier
@@ -44,13 +59,14 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
             alignment,
         );
 
-        Self::new_with_smem(smem)
+        Self::new_with_smem(smem, Skew::None)
     }
 
     /// Instantiate with a custom shared memory
-    pub fn new_with_smem(smem: SharedMemory<Line<ES>>) -> Stage<ES, T> {
+    pub fn new_with_smem(smem: SharedMemory<Line<ES>>, #[comptime] skew: Skew) -> Stage<ES, T> {
         Stage::<ES, T> {
             smem,
+            skew,
             tiling_layout: PhantomData::<T>,
         }
     }
@@ -67,16 +83,30 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     }
 
     /// Return the whole stage as a slice, for reading
+    /// The stage is reinterpreted with the given line_size
+    /// It is the responsibility of the caller to account for the skew
     pub fn as_slice(&self, #[comptime] line_size: u32) -> Slice<Line<ES>> {
+        comptime! {if let Skew::Pad(_) = self.skew {
+            todo!()
+        }}
         self.smem.to_slice().with_line_size(line_size)
     }
 
     /// Return the whole stage as a mutable slice, for loading
+    /// The stage is reinterpreted with the given line_size
+    /// It is the responsibility of the caller to account for the skew
     pub fn as_slice_mut(&mut self, #[comptime] line_size: u32) -> SliceMut<Line<ES>> {
+        comptime! {if let Skew::Pad(_) = self.skew {
+            todo!()
+        }}
         self.smem.to_slice_mut().with_line_size(line_size)
     }
 
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
+        comptime! {if let Skew::Pad(_) = self.skew {
+            todo!()
+        }}
+
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
             config.tiling_dimensions(ident.into()).total_size()
@@ -108,6 +138,10 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         #[comptime] ident: InputIdent,
         #[comptime] config: S,
     ) {
+        comptime! {if let Skew::Pad(_) = self.skew {
+            todo!()
+        }}
+
         // // TODO: this assumes the stage was created with new
         // // Also assumes two buffers
         let tiling_dimensions = config.tiling_dimensions(ident.as_ident());

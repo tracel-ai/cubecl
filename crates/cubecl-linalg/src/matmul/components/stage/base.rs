@@ -8,7 +8,7 @@ use crate::matmul::components::{
     tile::TileConfig,
 };
 
-use super::{Reader, StageEventListener, TilingLayout};
+use super::{Reader, Skew, StageEventListener, TilingLayout};
 
 pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: Reader<ES>;
@@ -162,6 +162,8 @@ pub trait StageConfig: MatmulConfig {
     fn tile_count(&self) -> &MatmulSize;
 
     fn buffering(&self) -> StageBuffering;
+
+    fn skew(&self) -> Skew;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

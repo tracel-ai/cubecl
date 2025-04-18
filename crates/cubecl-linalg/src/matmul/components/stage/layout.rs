@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::matmul::components::stage::Skew;
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, MatrixLayout};
 
@@ -123,6 +124,10 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
+        comptime! {if let Skew::Pad(_) = stage.skew {
+            todo!()
+        }}
+
         let stage_line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
@@ -153,6 +158,7 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage.as_slice(stage_line_size).slice(start, start + length),
+            stage.skew,
             ident,
             config.to_tmm_config(),
         )
@@ -168,6 +174,10 @@ impl StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> SliceMut<Line<ES>> {
+        comptime! {if let Skew::Pad(_) = stage.skew {
+            todo!()
+        }}
+
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
         let stage_line_size = config.stage_line_size(ident);
@@ -193,6 +203,10 @@ impl TilingLayout for StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
+        comptime! {if let Skew::Pad(_) = stage.skew {
+            todo!()
+        }}
+
         let stage_line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);

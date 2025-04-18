@@ -1,4 +1,4 @@
-use super::{StageBuffering, StageConfig};
+use super::{SKEW, Skew, StageBuffering, StageConfig};
 use crate::matmul::components::{
     CompleteStageTiling, Ident, MatmulConfig, MatmulPrecision, MatmulSize, MatrixLayout,
     TilingDimensions,
@@ -51,6 +51,10 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
 
     fn buffering(&self) -> StageBuffering {
         self.buffering
+    }
+
+    fn skew(&self) -> Skew {
+        SKEW
     }
 }
 
