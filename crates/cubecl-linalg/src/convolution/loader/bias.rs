@@ -7,7 +7,7 @@ use crate::{
     matmul::components::{
         Ident,
         global::{AccumulatorLoader, GlobalConfig},
-        stage::{Stage, StageConfig},
+        stage::{Skew, Stage, StageConfig},
         tile::{Tile, TileConfig, TileMatmul},
     },
 };
@@ -101,10 +101,10 @@ fn init_stage<ES: Numeric, G: GlobalConfig>(#[comptime] config: G) -> Stage<ES, 
         line_size,
     );
 
-    Stage::<ES, ConvTilingLayout>::new_with_smem(smem)
+    Stage::<ES, ConvTilingLayout>::new_with_smem(smem, Skew::None)
 }
 
 #[cube]
 fn init_empty_stage<ES: Numeric>() -> Stage<ES, ConvTilingLayout> {
-    Stage::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1))
+    Stage::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1), Skew::None)
 }
