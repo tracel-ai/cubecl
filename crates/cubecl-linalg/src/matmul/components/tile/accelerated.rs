@@ -1,4 +1,5 @@
 use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::stage::{SKEW, Skew};
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
@@ -183,13 +184,19 @@ impl MatmulConfigFactory for Accelerated {
         _cube_count: &CubeCount,
         _quantized: bool,
     ) -> Self::Config {
+        let (lhs_line_size, rhs_line_size) = match SKEW {
+            Skew::Element(_) => (1, 1),
+            Skew::Line(_) => (problem.lhs_line_size, problem.rhs_line_size),
+            Skew::None => (1, 1), // doesn't actually matter
+        };
+
         Config::new(
             input,
             cube_dim.x,
             problem.lhs_layout,
             problem.rhs_layout,
-            1,
-            1,
+            lhs_line_size as u32,
+            rhs_line_size as u32,
             problem.out_line_size as u32,
         )
     }

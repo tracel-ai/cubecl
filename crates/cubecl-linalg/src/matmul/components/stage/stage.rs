@@ -25,8 +25,9 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     /// Instantiate a new stage for the given identifier
     pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES, T> {
         let tiling_dimensions = config.tiling_dimensions(ident);
+        let stage_line_size = config.stage_line_size(ident);
         let skew = config.skew();
-        let usable_size = tiling_dimensions.total_size();
+        let usable_size = tiling_dimensions.total_size() / stage_line_size;
 
         let total_padding = comptime! {
             let num_segments = match config.matrix_layout(ident) {
@@ -36,11 +37,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
             skew.padding_size() * num_segments
         };
 
-        let stage_line_size = config.stage_line_size(ident);
-        let smem = SharedMemory::new_lined(
-            comptime!((usable_size + total_padding) / stage_line_size),
-            stage_line_size,
-        );
+        let smem = SharedMemory::new_lined(comptime!(usable_size + total_padding), stage_line_size);
 
         Self::new_with_smem(smem, skew)
     }
@@ -83,20 +80,15 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     }
 
     /// Return the whole stage as a slice, for reading
-    /// The stage is reinterpreted with the given line_size
-    /// It is the responsibility of the caller to account for the skew
-    pub fn as_slice(&self, #[comptime] line_size: u32) -> Slice<Line<ES>> {
-        comptime! {if let Skew::Pad(_) = self.skew {
-            todo!()
-        }}
-        self.smem.to_slice().with_line_size(line_size)
+    pub fn as_slice(&self) -> Slice<Line<ES>> {
+        self.smem.to_slice()
     }
 
     /// Return the whole stage as a mutable slice, for loading
     /// The stage is reinterpreted with the given line_size
-    /// It is the responsibility of the caller to account for the skew
+    /// This will likely not work with skew
     pub fn as_slice_mut(&mut self, #[comptime] line_size: u32) -> SliceMut<Line<ES>> {
-        comptime! {if let Skew::Pad(_) = self.skew {
+        comptime! {if let Skew::Element(_) = self.skew {
             todo!()
         }}
         self.smem.to_slice_mut().with_line_size(line_size)
@@ -115,7 +107,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     }
 
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
-        comptime! {if let Skew::Pad(_) = self.skew {
+        comptime! {if let Skew::Element(_) = self.skew {
             todo!()
         }}
 
@@ -150,7 +142,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         #[comptime] ident: InputIdent,
         #[comptime] config: S,
     ) {
-        comptime! {if let Skew::Pad(_) = self.skew {
+        comptime! {if let Skew::Element(_) = self.skew {
             todo!()
         }}
 

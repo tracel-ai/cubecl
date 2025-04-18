@@ -55,10 +55,6 @@ impl<ES: Numeric> Tile<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: T,
     ) -> Tile<ES> {
-        comptime! {if let Skew::Pad(_) = skew {
-            todo!()
-        }}
-
         let (num_segments, segment_length) = Tile::<ES>::segment_info::<T>(ident, config);
         let stride = comptime!(segment_length + skew.padding_size());
 
@@ -126,7 +122,7 @@ impl<ES: Numeric> Tile<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: T,
     ) -> Tile<ES> {
-        comptime! {if let Skew::Pad(_) = skew {
+        comptime! {if let Skew::Element(_) = skew {
             todo!()
         }}
 

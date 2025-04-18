@@ -124,10 +124,6 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        comptime! {if let Skew::Pad(_) = stage.skew {
-            todo!()
-        }}
-
         let stage_line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
@@ -135,29 +131,35 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         let tile_count_x = tiling_dimensions.tile_count_row();
         let tile_count_y = tiling_dimensions.tile_count_col();
 
-        let (tile_shape_x, tile_shape_y, length) = match matrix_layout {
+        let (num_segments, num_lines_in_segment, length) = match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_shape_x = tiling_dimensions.tile_shape_row();
-                let tile_shape_y = tiling_dimensions.tile_shape_col() / stage_line_size;
-                let stride_x = tile_shape_y;
-                let length = (tile_shape_x - 1) * stride_x + tile_shape_y;
-                (tile_shape_x, tile_shape_y, length)
+                let num_segments = tiling_dimensions.tile_shape_row();
+                let num_lines_in_segment = comptime!(
+                    tiling_dimensions.tile_shape_col() / stage_line_size
+                        + stage.skew.padding_size()
+                );
+                let stride_x = num_lines_in_segment;
+                let length = (num_segments - 1) * stride_x + num_lines_in_segment;
+                (num_segments, num_lines_in_segment, length)
             }
             MatrixLayout::ColMajor => {
-                let tile_shape_x = tiling_dimensions.tile_shape_row() / stage_line_size;
-                let tile_shape_y = tiling_dimensions.tile_shape_col();
-                let stride_y = tile_shape_x;
-                let length = (tile_shape_y - 1) * stride_y + tile_shape_x;
-                (tile_shape_x, tile_shape_y, length)
+                let num_lines_in_segment = comptime!(
+                    tiling_dimensions.tile_shape_row() / stage_line_size
+                        + stage.skew.padding_size()
+                );
+                let num_segments = tiling_dimensions.tile_shape_col();
+                let stride_y = num_lines_in_segment;
+                let length = (num_segments - 1) * stride_y + num_lines_in_segment;
+                (num_segments, num_lines_in_segment, length)
             }
         };
 
-        let start = tile_shape_x
-            * tile_shape_y
+        let start = num_segments
+            * num_lines_in_segment
             * T::to_nth_tile::<S>(x, y, tile_count_x, tile_count_y, ident, config);
 
         Tile::new_contiguous::<S::TmmConfig>(
-            stage.as_slice(stage_line_size).slice(start, start + length),
+            stage.as_slice().slice(start, start + length),
             stage.skew,
             ident,
             config.to_tmm_config(),
@@ -174,7 +176,7 @@ impl StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> SliceMut<Line<ES>> {
-        comptime! {if let Skew::Pad(_) = stage.skew {
+        comptime! {if let Skew::Element(_) = stage.skew {
             todo!()
         }}
 
@@ -203,7 +205,7 @@ impl TilingLayout for StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        comptime! {if let Skew::Pad(_) = stage.skew {
+        comptime! {if let Skew::Element(_) = stage.skew {
             todo!()
         }}
 
@@ -224,7 +226,7 @@ impl TilingLayout for StridedTilingLayout {
                 let start = x * tile_shape_x * stride + y * tile_shape_y;
 
                 Tile::new_strided::<S::TmmConfig>(
-                    stage.as_slice(stage_line_size).slice(start, start + length),
+                    stage.as_slice().slice(start, start + length),
                     stride,
                     stage.skew,
                     ident,
@@ -240,7 +242,7 @@ impl TilingLayout for StridedTilingLayout {
                 let start = x * tile_shape_x + y * tile_shape_y * stride;
 
                 Tile::new_strided::<S::TmmConfig>(
-                    stage.as_slice(stage_line_size).slice(start, start + length),
+                    stage.as_slice().slice(start, start + length),
                     stride,
                     stage.skew,
                     ident,

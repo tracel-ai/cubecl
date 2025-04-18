@@ -153,6 +153,31 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         CubeOption::None => Line::cast_from(line_read),
     };
 
+    // TODO: there is a little slowdown (495 to 499ms) compared to the following:
+    // stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = line_read;
+
+    // This is what is added:
+    // const uint32 l_113 = uint32(16) * uint32(16);
+    // const uint32 l_114 = l_99 * uint32(8);
+    // const uint32 l_115 = l_114 + l_98;
+    // const uint32 l_116 = l_113 * l_115;
+    // const uint32 l_117 = l_116 + uint32(256);
+    // __half *slice_118 = reinterpret_cast<__half*>(shared_memory_31);
+    // const uint slice_119_length = l_117 - l_116;
+    // __half *slice_119 = slice_118 + l_116;
+    // const uint32 l_120 = l_96 * uint32(16);
+    // l_mut_121 = l_120;
+    // const uint32 l_122 = l_mut_121 + uint32(16);
+    // const uint slice_123_length = l_122 - l_mut_121;
+    // __half *slice_123 = slice_119 + l_mut_121;
+
+    // And then like before
+    // __half_8 *slice_124 = reinterpret_cast<__half_8*>(slice_123);
+    // const uint32 l_125 = l_97 / uint32(8);
+    // slice_124[l_125] = reinterpret_cast< __half_8 const&>(l_112);
+
+    // Maybe there can be less passing around of slices with re-offsetting
+
     let mut segment_slice = stage
         .segment::<G::SmmConfig>(
             tile_x,
