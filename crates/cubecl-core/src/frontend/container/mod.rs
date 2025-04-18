@@ -1,4 +1,5 @@
 mod array;
+mod cell;
 mod iter;
 mod line;
 mod registry;
@@ -8,6 +9,7 @@ mod slice;
 mod tensor;
 
 pub use array::*;
+pub use cell::*;
 pub use iter::*;
 pub use line::*;
 pub use registry::*;
