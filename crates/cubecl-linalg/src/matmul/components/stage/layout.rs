@@ -223,9 +223,12 @@ impl TilingLayout for StridedTilingLayout {
                 let length = (tile_shape_x - 1) * stride + tile_shape_y;
                 let start = x * tile_shape_x * stride + y * tile_shape_y;
 
-                Tile::new_strided(
+                Tile::new_strided::<S::TmmConfig>(
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
+                    stage.skew,
+                    ident,
+                    config.to_tmm_config(),
                 )
             }
             MatrixLayout::ColMajor => {
@@ -236,9 +239,12 @@ impl TilingLayout for StridedTilingLayout {
                 let length = (tile_shape_y - 1) * stride + tile_shape_x;
                 let start = x * tile_shape_x + y * tile_shape_y * stride;
 
-                Tile::new_strided(
+                Tile::new_strided::<S::TmmConfig>(
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
+                    stage.skew,
+                    ident,
+                    config.to_tmm_config(),
                 )
             }
         }
