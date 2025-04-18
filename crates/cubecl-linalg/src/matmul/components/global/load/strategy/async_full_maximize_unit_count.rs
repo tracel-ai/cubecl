@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
-    stage::{Stage, StageConfig, StridedTilingLayout},
+    stage::{Stage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -61,7 +61,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
-        let line_size = config.to_smm_config().stage_line_size(input_ident.into());
+        let line_size = config.global_line_size::<Ident>(input_ident.into());
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
@@ -86,6 +86,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
             nth_slice,
             nth_segment,
             segment_length,
+            line_size,
             input_ident,
         }
     }
@@ -101,6 +102,8 @@ pub struct Job {
     nth_segment: u32,
     #[cube(comptime)]
     segment_length: u32,
+    #[cube(comptime)]
+    line_size: u32,
     #[cube(comptime)]
     input_ident: InputIdent,
 }
@@ -121,7 +124,8 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
                 this.nth_slice,
                 comptime!(this.input_ident.as_ident()),
                 config.to_smm_config(),
-            );
+            )
+            .with_line_size(this.line_size);
 
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(this.nth_slice, this.input_ident, config);
