@@ -272,87 +272,46 @@ impl<EG: Numeric> TensorReader<EG> {
         &self,
         tile_x: u32,
         tile_y: u32,
-        position: u32,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) -> Line<EG> {
-        let tile_shape_x = config.tiling_dimensions(input_ident).tile_shape_row();
-        let tile_shape_y = config.tiling_dimensions(input_ident).tile_shape_col();
-
-        let view_tile_x = tile_x * tile_shape_x;
-        let view_tile_y = tile_y * tile_shape_y;
-
-        let (load_x, load_y) = match config.matrix_layout(input_ident) {
-            MatrixLayout::RowMajor => (position / tile_shape_y, position % tile_shape_y),
-            MatrixLayout::ColMajor => (position % tile_shape_x, position / tile_shape_x),
-        };
-
-        self.load_coalesced::<G>(
-            (load_x + view_tile_x, load_y + view_tile_y),
-            input_ident,
-            config,
-        )
-    }
-
-    /// Reads data from the tensor view at the specified index within the whole view,
-    /// without regards to tiles
-    ///
-    /// Each unit loads one line in a coalesced manner for improved efficiency.
-    /// For row-major tensors, subsequent units read lines horizontally within the tile,
-    /// while for column-major tensors, they read lines vertically.
-    ///
-    /// # Note
-    ///
-    /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_coalesced_in_stage<G: global::GlobalConfig>(
-        &self,
-        position: u32,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) -> Line<EG> {
-        let stage_shape_x = config.tiling_dimensions(input_ident).total_row();
-        let stage_shape_y = config.tiling_dimensions(input_ident).total_col();
-
-        let load_offsets = match config.matrix_layout(input_ident) {
-            MatrixLayout::RowMajor => (position / stage_shape_y, position % stage_shape_y),
-            MatrixLayout::ColMajor => (position % stage_shape_x, position / stage_shape_x),
-        };
-
-        self.load_coalesced::<G>(load_offsets, input_ident, config)
-    }
-
-    fn load_coalesced<G: global::GlobalConfig>(
-        &self,
-        load_offsets: (u32, u32),
+        segment_index: u32,
+        pos_in_segment: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
         let line_size = config.global_line_size(input_ident);
 
-        let view_x = load_offsets.0 + self.x_offset;
-        let view_y = load_offsets.1 + self.y_offset;
+        let tile_offset_row =
+            self.x_offset + tile_x * config.tiling_dimensions(input_ident).tile_shape_row();
+        let tile_offset_col =
+            self.y_offset + tile_y * config.tiling_dimensions(input_ident).tile_shape_col();
+
+        let (inner_offset_x, inner_offset_y) = match config.matrix_layout(input_ident) {
+            MatrixLayout::RowMajor => (segment_index, pos_in_segment),
+            MatrixLayout::ColMajor => (pos_in_segment, segment_index),
+        };
+        let pos_x = tile_offset_row + inner_offset_x;
+        let pos_y = tile_offset_col + inner_offset_y;
 
         let read_pos =
-            (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
+            (pos_x * self.stride_x + pos_y * self.stride_y + self.batch_offset) / line_size;
 
         match comptime!((
             config.check_row_bounds(input_ident),
             config.check_col_bounds(input_ident)
         )) {
             (true, true) => read_masked::<Line<EG>>(
-                view_x < self.shape_x && view_y < self.shape_y,
+                pos_x < self.shape_x && pos_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
                 Line::cast_from(0),
             ),
             (true, false) => read_masked::<Line<EG>>(
-                view_x < self.shape_x,
+                pos_x < self.shape_x,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
                 Line::cast_from(0),
             ),
             (false, true) => read_masked::<Line<EG>>(
-                view_y < self.shape_y,
+                pos_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
                 Line::cast_from(0),

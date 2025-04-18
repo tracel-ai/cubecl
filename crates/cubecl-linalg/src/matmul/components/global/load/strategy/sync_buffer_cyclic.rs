@@ -154,10 +154,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config.to_smm_config(),
         );
 
+        let x: u32 = todo!();
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
             tile_x,
             tile_y,
-            pos_within_tile,
+            // pos_within_tile,
+            x,
+            x,
             this.input_ident,
             config,
         );

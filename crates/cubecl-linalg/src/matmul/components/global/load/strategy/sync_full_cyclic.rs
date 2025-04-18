@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
+use crate::matmul::components::{MatmulPrecision, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
@@ -49,13 +49,25 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] config: G,
     ) -> Self::Job<MP> {
         let tiling = config.tiling_dimensions(input_ident);
+        // 256
         let tile_num_elements = tiling.tile_size();
+        // 8
         let line_size = config.global_line_size(input_ident);
+        // 256*4 = 1024
         let num_stage_elements = tiling.total_size();
+        // 2 * 32 * 8= 512
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
+        // 1024/512 = 2
         let num_tasks_per_unit = comptime!(num_stage_elements / jump_length);
+        // 16
+        let segment_length = match config.matrix_layout(input_ident) {
+            MatrixLayout::RowMajor => tiling.tile_shape_col(),
+            MatrixLayout::ColMajor => tiling.tile_shape_row(),
+        };
 
+        // 0..2 * 32 + 0..32 = 0..64
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        // 0..64 * 8 = 0,8,..512
         let unit_position_base = unit_id * line_size;
 
         Job {
@@ -63,6 +75,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
             num_tasks_per_unit,
             tile_num_elements,
             jump_length,
+            segment_length,
             line_size,
             input_ident,
         }
@@ -80,6 +93,8 @@ pub struct Job {
     #[cube(comptime)]
     pub jump_length: u32,
     #[cube(comptime)]
+    pub segment_length: u32,
+    #[cube(comptime)]
     pub line_size: u32,
     #[cube(comptime)]
     pub input_ident: InputIdent,
@@ -95,6 +110,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
+        // 0,8,..512 + 0..2 * 512= 0,8,..1024
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         load_and_store_line::<MP, TO, G>(
@@ -121,8 +137,14 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     quantization: &CubeOption<Quantization<MP>>,
     #[comptime] config: G,
 ) {
+    // 0,8,..1024 / 256 = 0,1,2,3
     let nth_tile = unit_position / job.tile_num_elements;
+    // 0,8,..1024 % 256 = 0,8,..256
     let pos_within_tile = unit_position % job.tile_num_elements;
+    // 0,8,..256 / 16 = 0,1,..16
+    let segment_index = pos_within_tile / job.segment_length;
+    // 0,8,..256 % 16 = 0,8,0,8,...
+    let pos_in_segment = pos_within_tile % job.segment_length;
 
     let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
         nth_tile,
@@ -133,7 +155,8 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     let line_read = tensor_reader.load_coalesced_in_tile::<G>(
         tile_x,
         tile_y,
-        pos_within_tile,
+        segment_index,
+        pos_in_segment,
         job.input_ident,
         config,
     );

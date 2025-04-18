@@ -145,10 +145,13 @@ impl Job {
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
+        let x: u32 = todo!();
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
             this.tile.0,
             this.tile.1,
-            pos_within_tile * this.line_size,
+            // pos_within_tile * this.line_size,
+            x,
+            x,
             this.input_ident,
             config,
         );

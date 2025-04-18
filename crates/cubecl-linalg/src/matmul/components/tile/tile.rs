@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -13,7 +11,6 @@ use super::TileConfig;
 pub struct Segment<ES: Numeric> {
     /// The slice of the whole tile
     tile_slice: Slice<Line<ES>>,
-    #[cube(comptime)]
     /// Where the segment starts on the tile slice
     pub offset: u32,
     #[cube(comptime)]
@@ -21,8 +18,6 @@ pub struct Segment<ES: Numeric> {
     pub num_data: u32,
     #[cube(comptime)]
     pub skew: Skew,
-    #[cube(comptime)]
-    _phantom: PhantomData<ES>,
 }
 
 #[cube]
@@ -39,10 +34,17 @@ impl<ES: Numeric> Segment<ES> {
 pub struct Tile<ES: Numeric> {
     /// Slice containing all segments
     pub slice: Slice<Line<ES>>,
-    /// Rows/cols in the tile
-    pub segments: Sequence<Segment<ES>>,
+    #[cube(comptime)]
+    /// Number of segments
+    pub num_segments: u32,
+    #[cube(comptime)]
+    /// Number of data elements, without skew, lined with stage_line_size
+    pub segment_length: u32,
+    #[cube(comptime)]
     /// Stride between each segment,
     pub stride: u32,
+    #[cube(comptime)]
+    pub skew: Skew,
 }
 
 #[cube]
@@ -62,8 +64,10 @@ impl<ES: Numeric> Tile<ES> {
 
         Tile::<ES> {
             slice: tile_slice,
-            segments: Tile::make_segments(tile_slice, num_segments, segment_length, stride, skew),
+            num_segments,
+            segment_length,
             stride,
+            skew,
         }
     }
 
@@ -86,32 +90,32 @@ impl<ES: Numeric> Tile<ES> {
         (num_segments, segment_length)
     }
 
-    pub fn make_segments(
-        tile_slice: Slice<Line<ES>>,
-        #[comptime] num_segments: u32,
-        #[comptime] segment_length: u32,
-        #[comptime] stride: u32,
-        #[comptime] skew: Skew,
-    ) -> Sequence<Segment<ES>> {
-        let mut segments = Sequence::new();
-        let mut segment_iter = comptime![0];
+    // pub fn make_segments(
+    //     tile_slice: Slice<Line<ES>>,
+    //     #[comptime] num_segments: u32,
+    //     #[comptime] segment_length: u32,
+    //     #[comptime] stride: u32,
+    //     #[comptime] skew: Skew,
+    // ) -> Sequence<Segment<ES>> {
+    //     let mut segments = Sequence::new();
+    //     let mut segment_iter = comptime![0];
 
-        #[allow(clippy::explicit_counter_loop)]
-        #[unroll]
-        for _ in 0..num_segments {
-            segments.push(Segment::<ES> {
-                tile_slice,
-                offset: comptime!(segment_iter * stride),
-                num_data: segment_length,
-                skew,
-                _phantom: PhantomData,
-            });
+    //     #[allow(clippy::explicit_counter_loop)]
+    //     #[unroll]
+    //     for _ in 0..num_segments {
+    //         segments.push(Segment::<ES> {
+    //             tile_slice,
+    //             offset: comptime!(segment_iter * stride),
+    //             num_data: segment_length,
+    //             skew,
+    //             _phantom: PhantomData,
+    //         });
 
-            comptime![segment_iter += 1];
-        }
+    //         comptime![segment_iter += 1];
+    //     }
 
-        segments
-    }
+    //     segments
+    // }
 
     /// A tile whose segments are all within `slice` but may be spaced
     /// The stride should account for the skew
@@ -130,8 +134,10 @@ impl<ES: Numeric> Tile<ES> {
 
         Tile::<ES> {
             slice: tile_slice,
-            segments: Tile::make_segments(tile_slice, num_segments, segment_length, stride, skew),
+            num_segments,
+            segment_length,
             stride,
+            skew,
         }
     }
 
@@ -144,5 +150,14 @@ impl<ES: Numeric> Tile<ES> {
             self.slice.try_cast_unchecked(),
             self.stride * config.stage_line_size(ident),
         )
+    }
+
+    pub fn get_segment(&self, segment_index: u32) -> Segment<ES> {
+        Segment::<ES> {
+            tile_slice: self.slice,
+            offset: segment_index * self.stride,
+            num_data: self.segment_length,
+            skew: comptime!(self.skew),
+        }
     }
 }

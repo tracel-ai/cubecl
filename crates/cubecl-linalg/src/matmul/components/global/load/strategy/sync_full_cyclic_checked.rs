@@ -97,6 +97,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             num_tasks_per_unit: comptime!(this.num_tasks_per_unit),
             tile_num_elements: comptime!(this.tile_num_elements),
             jump_length: comptime!(this.jump_length),
+            segment_length: todo!(),
             line_size: comptime!(this.line_size),
             input_ident: comptime!(this.input_ident),
         };

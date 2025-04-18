@@ -92,7 +92,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
+    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
@@ -105,24 +105,24 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
     // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Tiling2D(Default::default()),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
 
-    if client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
-        run::<R, MP>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-        );
-    }
+    // if client
+    //     .properties()
+    //     .feature_enabled(Feature::Tma(TmaFeature::Base))
+    // {
+    //     run::<R, MP>(
+    //         Default::default(),
+    //         matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+    //     );
+    // }
 }
 
 fn main() {

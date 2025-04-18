@@ -87,11 +87,12 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 
-        let line_read = tensor_reader.load_coalesced_in_stage::<G>(
-            unit_position * this.line_size,
-            this.input_ident,
-            config,
-        );
+        let line_read: Line<MP::EI> = todo!();
+        // let line_read = tensor_reader.load_coalesced_in_stage::<G>(
+        //     unit_position * this.line_size,
+        //     this.input_ident,
+        //     config,
+        // );
 
         stage.as_slice_mut(this.line_size)[unit_position] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
