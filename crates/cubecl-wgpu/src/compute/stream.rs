@@ -10,7 +10,7 @@ use web_time::{Duration, Instant};
 use wgpu::QuerySet;
 
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll};
-use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use cubecl_runtime::{TimeMeasurement, memory_management::MemoryDeviceProperties};
 use wgpu::{ComputePipeline, QuerySetDescriptor, QueryType};
 
 #[derive(Debug)]
@@ -34,6 +34,7 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
+    time_measurement: TimeMeasurement,
 }
 
 impl WgpuStream {
@@ -43,6 +44,7 @@ impl WgpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         tasks_max: usize,
+        time_measurement: TimeMeasurement,
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
@@ -72,6 +74,7 @@ impl WgpuStream {
             poll,
             sync_buffer,
             submission_load: SubmissionLoad::default(),
+            time_measurement,
         }
     }
 
@@ -260,11 +263,7 @@ impl WgpuStream {
             );
         }
 
-        if self
-            .device
-            .features()
-            .contains(wgpu::Features::TIMESTAMP_QUERY)
-        {
+        if matches!(self.time_measurement, TimeMeasurement::Device) {
             // Flush all commands to the queue. This isn't really needed, but this should mean
             // new work after this will be run with less overlap.
             self.flush();
