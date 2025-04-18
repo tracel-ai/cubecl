@@ -22,9 +22,9 @@ pub struct Segment<ES: Numeric> {
 
 #[cube]
 impl<ES: Numeric> Segment<ES> {
-    pub fn as_data_slice(self, #[comptime] read_line_size: u32) -> Slice<Line<ES>> {
+    pub fn as_data_slice_mut(&mut self, #[comptime] read_line_size: u32) -> SliceMut<Line<ES>> {
         self.tile_slice
-            .slice(self.offset, self.offset + self.num_data)
+            .slice_mut(self.offset, self.offset + self.num_data)
             .with_line_size(read_line_size)
     }
 }

@@ -49,25 +49,17 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] config: G,
     ) -> Self::Job<MP> {
         let tiling = config.tiling_dimensions(input_ident);
-        // 256
         let tile_num_elements = tiling.tile_size();
-        // 8
         let line_size = config.global_line_size(input_ident);
-        // 256*4 = 1024
         let num_stage_elements = tiling.total_size();
-        // 2 * 32 * 8= 512
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
-        // 1024/512 = 2
         let num_tasks_per_unit = comptime!(num_stage_elements / jump_length);
-        // 16
         let segment_length = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => tiling.tile_shape_col(),
             MatrixLayout::ColMajor => tiling.tile_shape_row(),
         };
 
-        // 0..2 * 32 + 0..32 = 0..64
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
-        // 0..64 * 8 = 0,8,..512
         let unit_position_base = unit_id * line_size;
 
         Job {
@@ -110,7 +102,6 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
-        // 0,8,..512 + 0..2 * 512= 0,8,..1024
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         load_and_store_line::<MP, TO, G>(
@@ -137,13 +128,9 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     quantization: &CubeOption<Quantization<MP>>,
     #[comptime] config: G,
 ) {
-    // 0,8,..1024 / 256 = 0,1,2,3
     let nth_tile = unit_position / job.tile_num_elements;
-    // 0,8,..1024 % 256 = 0,8,..256
     let pos_within_tile = unit_position % job.tile_num_elements;
-    // 0,8,..256 / 16 = 0,1,..16
     let segment_index = pos_within_tile / job.segment_length;
-    // 0,8,..256 % 16 = 0,8,0,8,...
     let pos_in_segment = pos_within_tile % job.segment_length;
 
     let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
@@ -161,8 +148,19 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         config,
     );
 
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
+    let line_read = match quantization {
         CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
         CubeOption::None => Line::cast_from(line_read),
     };
+
+    let mut segment_slice = stage
+        .segment::<G::SmmConfig>(
+            tile_x,
+            tile_y,
+            segment_index,
+            job.input_ident,
+            config.to_smm_config(),
+        )
+        .as_data_slice_mut(job.line_size);
+    segment_slice[pos_in_segment / job.line_size] = line_read;
 }

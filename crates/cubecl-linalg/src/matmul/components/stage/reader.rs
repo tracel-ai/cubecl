@@ -59,12 +59,8 @@ impl<ES: Numeric, T: TilingLayout> Reader<ES> for FullReader<ES, T> {
         col: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
-        this.stage.get_tile::<CommonStageConfig<TC>>(
-            row,
-            col,
-            comptime!(this.input_ident.as_ident()),
-            config,
-        )
+        this.stage
+            .get_tile::<CommonStageConfig<TC>>(row, col, this.input_ident, config)
     }
 }
 
@@ -118,11 +114,7 @@ impl<ES: Numeric, T: TilingLayout> Reader<ES> for BufferReader<ES, T> {
             InputIdent::Lhs => (row, buffer_index),
             InputIdent::Rhs => (buffer_index, col),
         };
-        this.stage.get_tile::<CommonStageConfig<TC>>(
-            x,
-            y,
-            comptime!(this.input_ident.as_ident()),
-            config,
-        )
+        this.stage
+            .get_tile::<CommonStageConfig<TC>>(x, y, this.input_ident, config)
     }
 }

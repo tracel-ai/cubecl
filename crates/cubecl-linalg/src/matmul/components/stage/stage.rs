@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::load::BufferId;
 use crate::matmul::components::stage::{StageConfig, TilingLayout};
-use crate::matmul::components::tile::Tile;
+use crate::matmul::components::tile::{Segment, Tile};
 use crate::matmul::components::{Ident, InputIdent, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -76,10 +76,10 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         &self,
         x: u32,
         y: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        T::get_tile::<ES, S>(self, x, y, ident, config)
+        T::get_tile::<ES, S>(self, x, y, ident.as_ident(), config)
     }
 
     /// Return the whole stage as a slice, for reading
@@ -100,6 +100,18 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
             todo!()
         }}
         self.smem.to_slice_mut().with_line_size(line_size)
+    }
+
+    pub fn segment<S: StageConfig>(
+        &self,
+        tile_x: u32,
+        tile_y: u32,
+        segment_index: u32,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: S,
+    ) -> Segment<ES> {
+        self.get_tile::<S>(tile_x, tile_y, ident, config)
+            .get_segment(segment_index)
     }
 
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
