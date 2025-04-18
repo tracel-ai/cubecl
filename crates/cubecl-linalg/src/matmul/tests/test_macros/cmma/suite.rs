@@ -435,16 +435,16 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // mod s16x16x1 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $kind;
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         MatmulSize { m: 16, n: 16, k: 1 }
-        //     );
-        // }
+        mod s16x16x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 16, n: 16, k: 1 }
+            );
+        }
 
         mod s2x2x2 {
             use super::*;

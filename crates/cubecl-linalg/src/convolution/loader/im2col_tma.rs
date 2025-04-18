@@ -60,7 +60,6 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
             let m_size = tiling_dims.total_row();
             let k_size = tiling_dims.tile_shape_col();
             let slice_size = m_size * k_size;
-            // TODO verify
             let mut full_stage = this.stage.as_slice_mut(1u32);
             let tensor = this.map.tensor.try_cast_unchecked();
 
