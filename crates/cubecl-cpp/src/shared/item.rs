@@ -20,6 +20,10 @@ impl<D: Dialect> Item<D> {
         &self.elem
     }
 
+    pub const fn size(&self) -> usize {
+        self.elem.size() * self.vectorization
+    }
+
     pub fn new(elem: Elem<D>, vectorization: usize, native: bool) -> Self {
         Self {
             elem,

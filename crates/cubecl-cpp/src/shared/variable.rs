@@ -465,6 +465,7 @@ impl<D: Dialect> Variable<D> {
     pub fn fmt_ptr(&self) -> String {
         match self {
             Variable::Slice { .. }
+            | Variable::SharedMemory(_, _, _)
             | Variable::GlobalInputArray(_, _)
             | Variable::GlobalOutputArray(_, _) => format!("{self}"),
             _ => format!("&{self}"),
