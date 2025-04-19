@@ -172,8 +172,8 @@ impl Optimizer {
                 visit_read(self, &mut slice_operator.end);
                 visit_read(self, &mut slice_operator.input);
             }
-            Operator::ReinterpretSlice(_) => {
-                todo!()
+            Operator::ReinterpretSlice(op) => {
+                visit_read(self, &mut op.input);
             }
             Operator::InitLine(line_init_operator) => {
                 for input in &mut line_init_operator.inputs {
