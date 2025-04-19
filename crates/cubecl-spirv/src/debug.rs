@@ -74,7 +74,7 @@ struct Definitions {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_debug(&mut self) {
-        if self.debug_symbols {
+        if self.debug_enabled() {
             let return_ty = self.type_void();
             let function_ty = self.debug_type_function(DebugInfoFlags::NONE, return_ty, []);
             let entry_loc = self.opt.root_scope.debug.entry_loc.clone().unwrap();
@@ -199,7 +199,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn compile_debug(&mut self, debug: core::NonSemantic) {
-        if self.debug_symbols {
+        if self.debug_enabled() {
             match debug {
                 core::NonSemantic::Print {
                     format_string,
@@ -285,7 +285,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn debug_start_block(&mut self) {
-        if self.debug_symbols {
+        if self.debug_enabled() {
             let loc = self.debug_info().previous_loc.clone().unwrap();
             let func = self.stack_top().definition;
             let inlined = self.stack_top().inlined_at;
@@ -298,6 +298,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.debug_line(func.source.id, loc.line, loc.line, loc.column, loc.column)
                 .unwrap();
         }
+    }
+
+    fn debug_enabled(&self) -> bool {
+        self.debug_symbols && self.opt.root_scope.debug.entry_loc.is_some()
     }
 
     #[track_caller]
