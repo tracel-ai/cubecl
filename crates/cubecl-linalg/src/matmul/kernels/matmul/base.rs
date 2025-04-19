@@ -8,7 +8,7 @@ use crate::matmul::{self};
 use crate::tensor::into_contiguous_pitched;
 use crate::tensor::{MatrixBatchLayout, TensorHandle, matrix_batch_layout};
 use core::any::TypeId;
-use cubecl_core::prelude::*;
+use cubecl_core::{Feature, prelude::*};
 use cubecl_core::{
     Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
@@ -101,6 +101,28 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
+    // This is mostly to check that i8 are supported for quantization.
+    if !client.properties().feature_enabled(Feature::Type(ei_elem))
+        || !client.properties().feature_enabled(Feature::Type(eo_elem))
+    {
+        return Err(MatmulLaunchError::Unavailable(
+            MatmulAvailabilityError::TypesUnavailable {
+                input: ei_elem,
+                output: eo_elem,
+            },
+        ));
+    }
+
+    if MP::QUANTIZED
+        && !client
+            .properties()
+            .feature_enabled(cubecl_core::Feature::DynamicLineSize)
+    {
+        return Err(MatmulLaunchError::Unavailable(
+            MatmulAvailabilityError::DynamicLineSizeUnavailable,
+        ));
+    }
+
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
@@ -173,18 +195,6 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             ));
         }
     };
-
-    if MP::QUANTIZED {
-        let mut batch_count_lhs = 1;
-        let mut batch_count_rhs = 1;
-        for axis in 0..rank - 2 {
-            batch_count_lhs *= lhs.shape[axis];
-            batch_count_rhs *= rhs.shape[axis];
-        }
-        if batch_count_lhs != batch_count_rhs {
-            panic!("broadcast is not supported yet with quantization");
-        }
-    }
 
     matmul_launch_kernel::<R, MP, A>(client, lhs, rhs, out, problem, plane_dim)
 }

@@ -3,7 +3,7 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
-use crate::shared::{DialectInstructions, Elem, Instruction, SharedMemory, Variable};
+use crate::shared::{Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -14,6 +14,7 @@ use crate::{
 };
 
 use super::Extension;
+use super::extension::{format_f162bf16, format_max, format_min};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -27,13 +28,12 @@ impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {}
 // Includes
 
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
-    type Extension = Extension;
+    type Extension = Extension<Self>;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <hip/hip_runtime.h>\n")?;
         if flags.elem_bf16 {
-            // "hip_bf16.h" triggers redefinition errors during compilation
-            f.write_str("#include <hip/hip_bfloat16.h>\n")?;
+            f.write_str("#include <hip/hip_bf16.h>\n")?;
         }
         if flags.elem_f16 {
             f.write_str("#include <hip/hip_fp16.h>\n")?;
@@ -45,16 +45,70 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
     }
 
     fn compile_extensions(
-        _f: &mut std::fmt::Formatter<'_>,
-        _extensions: &[Self::Extension],
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
     ) -> std::fmt::Result {
+        for extension in extensions {
+            match extension {
+                Extension::F162BF16 => format_f162bf16(f)?,
+                Extension::Max(var) => format_max::<Self>(f, var)?,
+                Extension::Min(var) => format_min::<Self>(f, var)?,
+                Extension::NoExtension => {}
+            }
+        }
         Ok(())
     }
 
-    fn register_extension(
-        _extensions: &mut Vec<Self::Extension>,
-        _instruction: &Instruction<Self>,
+    fn register_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &Instruction<Self>,
     ) {
+        let mut register_extension = |extension: Self::Extension| {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        };
+        #[allow(clippy::single_match)]
+        match instruction {
+            shared::Instruction::<Self>::Max(op) => {
+                register_extension(Extension::Max(*op.lhs.item().elem()));
+            }
+            shared::Instruction::<Self>::Min(op) => {
+                register_extension(Extension::Min(*op.lhs.item().elem()));
+            }
+            _ => {}
+        }
+    }
+
+    fn register_warp_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &shared::WarpInstruction<Self>,
+    ) {
+        let mut register_extension = |extension: Self::Extension| {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        };
+        #[allow(clippy::single_match)]
+        match instruction {
+            shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
+                let item = input.item();
+                let elem = item.elem();
+                if *elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
+                register_extension(Extension::Max(*elem));
+            }
+            shared::WarpInstruction::<Self>::ReduceMin { input, .. } => {
+                let item = input.item();
+                let elem = item.elem();
+                if *elem == Elem::<Self>::BF16 {
+                    register_extension(Extension::F162BF16);
+                }
+                register_extension(Extension::Min(*elem));
+            }
+            _ => {}
+        }
     }
 }
 
@@ -62,7 +116,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
 
 impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
     fn item_can_be_optimized() -> bool {
-        true
+        // for now deactivate support for half2 and bfloat162 because the HIP API lack support for it.
+        false
     }
 
     fn compile_type_definitions(
@@ -103,8 +158,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::F162 => f.write_str("__half2"),
                 shared::Elem::F32 => f.write_str("float"),
                 shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::BF16 => f.write_str("hip_bfloat16"),
-                shared::Elem::BF162 => f.write_str("hip_bfloat16"),
+                shared::Elem::BF16 => f.write_str("__hip_bfloat16"),
+                shared::Elem::BF162 => f.write_str("__hip_bfloat162"),
                 shared::Elem::TF32 => f.write_str("float"),
                 shared::Elem::I8 => f.write_str("int8"),
                 shared::Elem::I16 => f.write_str("int16"),
@@ -125,7 +180,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         if 1 == item.vectorization {
             return write!(f, "{}", item.elem);
         }
-        write!(f, "{}_{}", item.elem, item.vectorization)
+        if item.native {
+            // native types use the word form of types only
+            Self::compile_elem(f, &item.elem, true)?;
+            write!(f, "{}", item.vectorization)
+        } else {
+            write!(f, "{}_{}", item.elem, item.vectorization)
+        }
     }
 
     fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -180,6 +241,31 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         CudaDialect::compile_instruction_thread_fence(f)
     }
 
+    // others
+    fn compile_instruction_max_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 => "__hmax",
+            Elem::BF16 => "max_bfloat16",
+            _ => "max",
+        };
+        write!(f, "{max}")
+    }
+
+    fn compile_instruction_min_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let min = match item.elem() {
+            Elem::F16 => "__hmin",
+            Elem::BF16 => "min_bfloat16",
+            _ => "min",
+        };
+        write!(f, "{min}")
+    }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
@@ -191,9 +277,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_xor({var}, {offset})")
+        match elem {
+            Elem::BF16 => write!(
+                f,
+                "half_to_bfloat16(__shfl_xor(reinterpret_cast<__half&>({var}), {offset}))"
+            ),
+            _ => write!(f, "__shfl_xor({var}, {offset})"),
+        }
     }
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
@@ -209,18 +302,28 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     ) -> std::fmt::Result {
         write!(f, "__shfl_down({var}, {offset})")
     }
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "__all({var})")
+    fn compile_warp_all<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        let item = input.item();
+        let elem = item.elem;
+        write!(f, "static_cast<{elem}>(__all({input}))")
     }
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
-        write!(f, "__any({out})")
+    fn compile_warp_any<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        let item = input.item();
+        let elem = item.elem;
+        write!(f, "static_cast<{elem}>(__any({input}))")
     }
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        _output: &Variable<Self>,
+        out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
-        write!(f, "__ballot({input})")
+        write!(f, "{out_elem}(__ballot({input}))")
     }
 }
 

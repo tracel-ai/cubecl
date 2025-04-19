@@ -578,32 +578,14 @@ macro_rules! testgen_cmma {
         fn test_cmma_simple_1() {
             let client = TestRuntime::client(&Default::default());
             // In HIP the thread block size must be 32
-            #[cfg(feature = "is_hip")]
             let cube_dimensions = CubeDim::new(32, 1, 1);
-            #[cfg(not(feature = "is_hip"))]
-            let cube_dimensions = CubeDim::new(16, 16, 1);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
         }
-
-        // #[test]
-        // fn test_cmma_simple_2() {
-        //     let client = TestRuntime::client(&Default::default());
-        //     // In HIP the thread block size must be 32
-        //     #[cfg(feature = "is_hip")]
-        //     let cube_dimensions = CubeDim::new(32, 1, 1);
-        //     #[cfg(not(feature = "is_hip"))]
-        //     let cube_dimensions = CubeDim::new(32, 1, 1);
-        //     cubecl_core::runtime_tests::cmma::test_simple_2::<TestRuntime>(client, cube_dimensions);
-        // }
 
         #[test]
         fn test_cmma_simple_tf32() {
             let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
-            #[cfg(feature = "is_hip")]
             let cube_dimensions = CubeDim::new(32, 1, 1);
-            #[cfg(not(feature = "is_hip"))]
-            let cube_dimensions = CubeDim::new(16, 16, 1);
             cubecl_core::runtime_tests::cmma::test_simple_tf32::<TestRuntime>(
                 client,
                 cube_dimensions,
@@ -633,7 +615,7 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_strided() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = CubeDim::new(16, 16, 1);
+            let cube_dimensions = CubeDim::new(32, 1, 1);
             cubecl_core::runtime_tests::cmma::test_cmma_strided::<TestRuntime>(
                 client,
                 cube_dimensions,

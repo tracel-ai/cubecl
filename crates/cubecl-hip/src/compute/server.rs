@@ -25,6 +25,9 @@ use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
 
+#[cfg(feature = "compilation-cache")]
+use cubecl_common::cache::{Cache, CacheOption};
+
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
@@ -38,6 +41,16 @@ pub(crate) struct HipContext {
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: KernelTimestamps,
     compilation_options: CompilationOptions,
+    #[cfg(feature = "compilation-cache")]
+    compilation_cache: Cache<String, CompilationCacheEntry>,
+}
+
+#[cfg(feature = "compilation-cache")]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
+pub struct CompilationCacheEntry {
+    entrypoint_name: String,
+    cube_dim: (u32, u32, u32),
+    binary: Vec<i8>,
 }
 
 #[derive(Debug)]
@@ -323,6 +336,8 @@ impl HipContext {
             stream,
             timestamps: KernelTimestamps::default(),
             compilation_options,
+            #[cfg(feature = "compilation-cache")]
+            compilation_cache: Cache::new("hip/compilation", CacheOption::default()),
         }
     }
 
@@ -356,11 +371,28 @@ impl HipContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
+        #[cfg(feature = "compilation-cache")]
+        let name = kernel_id.stable_format();
+        #[cfg(feature = "compilation-cache")]
+        if let Some(entry) = self.compilation_cache.get(&name) {
+            log::trace!("Using compilation cache");
+            self.load_compiled_binary(
+                entry.binary.clone(),
+                kernel_id.clone(),
+                entry.entrypoint_name.clone(),
+                CubeDim {
+                    x: entry.cube_dim.0,
+                    y: entry.cube_dim.1,
+                    z: entry.cube_dim.2,
+                },
+            );
+            return;
+        }
+
         // CubeCL compilation
         // jitc = just-in-time compiled
         let mut jitc_kernel =
             cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode);
-        let func_name = CString::new(jitc_kernel.entrypoint_name.clone()).unwrap();
 
         if logger.is_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -450,6 +482,40 @@ impl HipContext {
                 "Should load compiled code"
             );
         }
+
+        #[cfg(feature = "compilation-cache")]
+        self.compilation_cache
+            .insert(
+                name,
+                CompilationCacheEntry {
+                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                    cube_dim: (
+                        jitc_kernel.cube_dim.x,
+                        jitc_kernel.cube_dim.y,
+                        jitc_kernel.cube_dim.z,
+                    ),
+                    binary: code.clone(),
+                },
+            )
+            .unwrap();
+
+        self.load_compiled_binary(
+            code,
+            kernel_id.clone(),
+            jitc_kernel.entrypoint_name,
+            jitc_kernel.cube_dim,
+        );
+    }
+
+    fn load_compiled_binary(
+        &mut self,
+        code: Vec<i8>,
+        kernel_id: KernelId,
+        entrypoint_name: String,
+        cube_dim: CubeDim,
+    ) {
+        let func_name = CString::new(entrypoint_name.clone()).unwrap();
+
         // Create the HIP module
         let mut module: cubecl_hip_sys::hipModule_t = std::ptr::null_mut();
         unsafe {
@@ -471,7 +537,7 @@ impl HipContext {
             HipCompiledKernel {
                 _module: module,
                 func,
-                cube_dim: jitc_kernel.cube_dim,
+                cube_dim,
             },
         );
     }

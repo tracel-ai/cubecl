@@ -28,8 +28,9 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
     fn from_config(_config: Self::Config) -> Self {
         MaxAbs {}
     }
+
     fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::min_value())
+        Line::empty(line_size).fill(In::from_int(0))
     }
 
     fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
@@ -77,7 +78,7 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut max = In::min_value();
+        let mut max = In::from_int(0);
         #[unroll]
         for k in 0..accumulator.size() {
             let candidate = accumulator[k];

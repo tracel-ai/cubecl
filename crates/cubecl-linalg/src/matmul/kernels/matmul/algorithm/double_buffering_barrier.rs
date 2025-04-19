@@ -21,8 +21,7 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul =
-        stage::plane_row_matmul::PlaneRowMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingBarrierMatmulFamily<
         Self::StageMatmul,
         async_buffer_maximize_slice_length::LoadingStrategy,
@@ -32,7 +31,8 @@ where
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
+        let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
+        CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
