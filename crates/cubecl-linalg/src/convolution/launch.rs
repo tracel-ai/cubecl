@@ -24,6 +24,7 @@ type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<<MP as Mat
 type Output<Alg, MP> =
     <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;
 
+#[derive(Clone)]
 pub struct ConvolutionArgs {
     pub stride: (usize, usize),
     pub padding: (usize, usize),

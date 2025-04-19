@@ -146,7 +146,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             };
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
-            let mut stage = this.stage.as_slice_mut();
+            let mut stage = this.stage.as_slice_mut(1u32);
             let slice_size = size_row * size_col;
             let batch = this.tensor_view.batch as i32;
 

@@ -9,7 +9,7 @@ use cubecl_core::{
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
-    ComputeRuntime,
+    ComputeRuntime, TimeMeasurement,
     channel::MutexComputeChannel,
     client::ComputeClient,
     debug::{DebugLogger, ProfileLevel},
@@ -52,6 +52,13 @@ impl Runtime for WgpuRuntime {
                 return "wgpu<spirv>";
 
                 #[cfg(not(feature = "spirv"))]
+                return "wgpu<wgsl>";
+            }
+            wgpu::Backend::Metal => {
+                #[cfg(feature = "msl")]
+                return "wgpu<msl>";
+
+                #[cfg(not(feature = "msl"))]
                 return "wgpu<wgsl>";
             }
             _ => "wgpu<wgsl>",
@@ -216,7 +223,20 @@ pub(crate) fn create_client_on_setup(
     let mut compilation_options = Default::default();
 
     let features = setup.adapter.features();
-    let mut device_props = DeviceProperties::new(&[], mem_props.clone(), hardware_props);
+    let time_measurement = match setup
+        .device
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY)
+    {
+        #[cfg(not(target_os = "macos"))]
+        true => TimeMeasurement::Device,
+        #[cfg(target_os = "macos")]
+        true => TimeMeasurement::System, // Bug with Metal
+        false => TimeMeasurement::System,
+    };
+
+    let mut device_props =
+        DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
 
     // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
     // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
@@ -240,6 +260,7 @@ pub(crate) fn create_client_on_setup(
         setup.queue,
         options.tasks_max,
         setup.backend,
+        time_measurement,
     );
     let channel = MutexComputeChannel::new(server);
 

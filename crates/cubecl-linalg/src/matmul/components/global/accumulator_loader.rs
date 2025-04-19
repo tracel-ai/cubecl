@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::{CubeType, prelude::*};
 
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::{stage::StageConfig, tile};
+use crate::matmul::components::tile;
 
-use super::AccumulatorLoader;
+use super::{AccumulatorLoader, GlobalConfig};
 
 /// Accumulator loader that zeros the accumulator
 #[derive(CubeType)]
@@ -12,7 +12,7 @@ pub struct ZeroAccumulatorLoader;
 
 #[cube]
 impl<MP: MatmulPrecision> AccumulatorLoader<MP> for ZeroAccumulatorLoader {
-    fn fill_stage<S: StageConfig>(_this: &mut Self, #[comptime] _config: S) {}
+    fn fill_stage<G: GlobalConfig>(_this: &mut Self, #[comptime] _config: G) {}
 
     fn load<Tile: tile::TileMatmul<MP>>(
         _this: &mut Self,
