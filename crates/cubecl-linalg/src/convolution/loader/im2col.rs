@@ -67,9 +67,10 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
+        let line_size = config.global_line_size(Ident::Lhs);
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage.as_slice_mut(line_size),
             Ident::Lhs,
             config,
         );

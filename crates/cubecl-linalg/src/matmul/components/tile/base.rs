@@ -103,7 +103,7 @@ pub trait TileConfig: MatmulConfig {
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
     /// Returns the line size for the given ident
-    fn line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the shape of the tiles in the three axes m, k and n.
     fn tile_shape(&self) -> &MatmulSize;
@@ -135,7 +135,7 @@ impl<ES: Numeric> Tile<ES> {
                 MatrixLayout::RowMajor => config.tile_shape().n,
                 MatrixLayout::ColMajor => config.tile_shape().k,
             },
-        }) / config.line_size(ident)};
+        }) / config.stage_line_size(ident)};
 
         Tile::<ES> { slice, stride }
     }
@@ -151,7 +151,7 @@ impl<ES: Numeric> Tile<ES> {
     ) -> (Slice<ES>, u32) {
         (
             self.slice.try_cast_unchecked(),
-            self.stride * config.line_size(ident),
+            self.stride * config.stage_line_size(ident),
         )
     }
 }

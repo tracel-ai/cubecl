@@ -1,5 +1,5 @@
 use crate::{
-    DeviceProperties,
+    DeviceProperties, TimeMeasurement,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
@@ -233,6 +233,21 @@ where
         self.channel.start_profile();
         func();
         let result = self.channel.end_profile();
+        let result = match self.properties().time_measurement() {
+            TimeMeasurement::Device => result,
+            TimeMeasurement::System => {
+                #[cfg(target_family = "wasm")]
+                panic!("Can't use system timing mode on wasm");
+
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    // It is important to wait for the profiling to be done, since we're actually
+                    // measuring its execution timing using 'real' time.
+                    let duration = cubecl_common::future::block_on(result.resolve());
+                    ProfileDuration::from_duration(duration)
+                }
+            }
+        };
         core::mem::drop(guard);
         result
     }

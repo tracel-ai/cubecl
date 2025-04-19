@@ -26,7 +26,6 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
 
         let num_planes = config.num_planes();
         let num_tiles = tiling.tile_count();
@@ -38,12 +37,6 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
                     num_planes, num_tiles,
                 )
             }));
-        }
-
-        if line_size != config.stage_line_size(ident) {
-            return Err(Box::new(
-                "Global and stage line sizes must match for tilewise loading.",
-            ));
         }
 
         Ok(())
@@ -162,7 +155,7 @@ impl Job {
 
         let offset = this.previous_tiles_offset + pos_within_tile;
 
-        stage.as_slice_mut()[offset] = match quantization {
+        stage.as_slice_mut(this.line_size)[offset] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
             CubeOption::None => Line::cast_from(line_read),
         };

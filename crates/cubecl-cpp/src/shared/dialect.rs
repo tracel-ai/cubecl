@@ -521,54 +521,52 @@ pub trait DialectInstructions<D: Dialect> {
     }
 
     // unary
+    fn compile_instruction_find_first_set<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<D>,
+    ) -> std::fmt::Result;
     fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<D>,
-    ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 => write!(f, "static_cast<{output}>(__clz({input}))"),
-            Elem::U32 => write!(f, "__clz({input})"),
-            Elem::I64 => write!(f, "static_cast<{output}>(__clzll({input}))"),
-            Elem::U64 => write!(f, "__clzll({input})"),
-            elem => write!(
-                f,
-                "__clz({}) - {}",
-                super::unary::zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
-    }
+        out_elem: Elem<D>,
+    ) -> std::fmt::Result;
 
     fn compile_instruction_popcount_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        _output: Elem<D>,
+        out_elem: Elem<D>,
     ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
+            Elem::I32 => write!(f, "__popc({}({input}))", Elem::<D>::U32),
+            Elem::U32 => write!(f, "__popc({input})"),
+            Elem::I64 => write!(f, "__popcll({}({input}))", Elem::<D>::U64),
+            Elem::U64 => write!(f, "__popcll({input})"),
             _ => write!(f, "__popc({})", super::unary::zero_extend(input)),
-        }
+        }?;
+        write!(f, ")")
     }
 
     fn compile_instruction_reverse_bits_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<D>,
+        out_elem: Elem<D>,
     ) -> std::fmt::Result {
-        match output {
-            Elem::I32 => write!(f, "static_cast<{output}>(__brev({input}))"),
+        write!(f, "{out_elem}(")?;
+        match out_elem {
+            Elem::I32 => write!(f, "__brev({}({input}))", Elem::<D>::U32),
             Elem::U32 => write!(f, "__brev({input})"),
-            Elem::I64 => write!(f, "__brevll({input})"),
-            Elem::U64 => write!(f, "static_cast<{output}>(__brevll({input}))"),
+            Elem::I64 => write!(f, "__brevll({}({input}))", Elem::<D>::U64),
+            Elem::U64 => write!(f, "__brevll({input})"),
             _ => write!(
                 f,
-                "{output}(__brev({}) >> {})",
+                "__brev({}) >> {}",
                 super::unary::zero_extend(input),
-                (size_of::<u32>() - output.size()) * 8
+                (size_of::<u32>() - out_elem.size()) * 8
             ),
-        }
+        }?;
+        write!(f, ")")
     }
 
     // others

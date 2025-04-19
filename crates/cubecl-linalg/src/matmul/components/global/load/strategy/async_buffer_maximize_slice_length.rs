@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::AsyncBufferLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
-    stage::{Stage, StridedTilingLayout},
+    stage::{Stage, StageConfig, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -35,7 +35,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
-        let line_size = config.global_line_size(input_ident);
+        let line_size = config.to_smm_config().stage_line_size(input_ident.into());
         let num_buffers = 2;
 
         // If buffer is parallel to slices, slices are as long as in full stage, but there are less.

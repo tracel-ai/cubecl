@@ -55,6 +55,10 @@ name = "matmul"
 
 [[bench]]
 harness = false
+name = "conv2d"
+
+[[bench]]
+harness = false
 name = "memcpy_async"
 
 [[bench]]
