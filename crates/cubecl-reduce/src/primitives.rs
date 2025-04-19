@@ -7,6 +7,7 @@ use crate::BoundChecksInner;
 use crate::LineMode;
 use crate::ReduceParams;
 use crate::instructions::*;
+use crate::precision::ReducePrecision;
 
 /// A simple range to specify how to iterate a slice when performing a reduction.
 #[derive(CubeType)]
@@ -20,26 +21,26 @@ pub struct ReduceRange {
 
 #[cube]
 impl ReduceRange {
-    pub(crate) fn new<In: Numeric, Out: Numeric>(
+    pub(crate) fn new<P: ReducePrecision, Out: Numeric>(
         reduce_index: u32,
-        input: &VirtualTensor<In>,
+        input: &VirtualTensor<P::EI>,
         output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
         #[comptime] params: ReduceParams,
     ) -> ReduceRange {
         match comptime!(params.line_mode) {
             LineMode::Parallel => {
-                Self::new_parallel::<In, Out>(reduce_index, input, output, axis_reduce, params)
+                Self::new_parallel::<P, Out>(reduce_index, input, output, axis_reduce, params)
             }
             LineMode::Perpendicular => {
-                Self::new_perpendicular::<In, Out>(reduce_index, input, output, axis_reduce, params)
+                Self::new_perpendicular::<P, Out>(reduce_index, input, output, axis_reduce, params)
             }
         }
     }
 
-    fn new_parallel<In: Numeric, Out: Numeric>(
+    fn new_parallel<P: ReducePrecision, Out: Numeric>(
         reduce_index: u32,
-        input: &VirtualTensor<In>,
+        input: &VirtualTensor<P::EI>,
         output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
         #[comptime] params: ReduceParams,
@@ -72,9 +73,9 @@ impl ReduceRange {
         }
     }
 
-    fn new_perpendicular<In: Numeric, Out: Numeric>(
+    fn new_perpendicular<P: ReducePrecision, Out: Numeric>(
         reduce_index: u32,
-        input: &VirtualTensor<In>,
+        input: &VirtualTensor<P::EI>,
         output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
         #[comptime] params: ReduceParams,
@@ -119,7 +120,7 @@ impl ReduceRange {
 /// Since each individual unit performs a reduction, this function is meant to be called
 /// with either a different `items` for each unit, a different `range` or both based on ABSOLUTE_UNIT_POS.
 #[cube]
-pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
+pub fn reduce_slice<P: ReducePrecision, I: List<Line<P::EI>>, R: ReduceInstruction<P>>(
     items: &I,
     range: ReduceRange,
     inst: &R,
@@ -140,7 +141,7 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
         } else {
             ReduceCoordinate::new_NotRequired()
         };
-        reduce_inplace::<N, R>(
+        reduce_inplace::<P, R>(
             inst,
             &mut accumulator,
             items.read(index),
@@ -166,7 +167,7 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
 /// with either a different `items` for each plane, a different `range` or both based on
 /// the absolute plane position (`CUBE_POS * CUBE_DIM_Y + UNIT_POS_Y`).
 #[cube]
-pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
+pub fn reduce_slice_plane<P: ReducePrecision, I: List<Line<P::EI>>, R: ReduceInstruction<P>>(
     items: &I,
     inst: &R,
     range: ReduceRange,
@@ -218,7 +219,7 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
             }
         };
 
-        reduce_inplace::<N, R>(inst, &mut accumulator, item, coordinates, true);
+        reduce_inplace::<P, R>(inst, &mut accumulator, item, coordinates, true);
 
         first_index += plane_dim * range.index_step;
     }
@@ -238,7 +239,7 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
 /// Since each individual cube performs a reduction, this function is meant to be called
 /// with either a different `items` for each cube, a different `range` or both based on `CUBE_POS`.
 #[cube]
-pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
+pub fn reduce_slice_shared<P: ReducePrecision, I: List<Line<P::EI>>, R: ReduceInstruction<P>>(
     items: &I,
     inst: &R,
     range: ReduceRange,
@@ -304,7 +305,7 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
             ReduceCoordinate::new_NotRequired()
         };
 
-        reduce_shared_inplace::<N, R>(
+        reduce_shared_inplace::<P, R>(
             inst,
             &mut accumulator,
             accumulator_index,
@@ -365,7 +366,7 @@ fn fill_coordinate_line(
 /// There is no out-of-bound check, so it is the responsibility of the caller to ensure that `size` is at most the length
 /// of the shared memory and that there are at least `size` units within each cube.
 #[cube]
-pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
+pub fn reduce_tree<P: ReducePrecision, Inst: ReduceInstruction<P>>(
     inst: &Inst,
     accumulator: &mut Inst::SharedAccumulator,
     #[comptime] size: u32,
@@ -378,7 +379,7 @@ pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
             let destination = jump * 2 * UNIT_POS;
             let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_active_units {
-                fuse_accumulator_inplace::<In, Inst>(inst, accumulator, destination, origin);
+                fuse_accumulator_inplace::<P, Inst>(inst, accumulator, destination, origin);
             }
             jump *= 2;
             sync_units();
@@ -390,7 +391,7 @@ pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
             let destination = jump * 2 * UNIT_POS;
             let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_remaining_items / 2 {
-                fuse_accumulator_inplace::<In, Inst>(inst, accumulator, destination, origin);
+                fuse_accumulator_inplace::<P, Inst>(inst, accumulator, destination, origin);
             }
             num_remaining_items = div_ceil(num_remaining_items, 2);
             jump *= 2;
