@@ -25,8 +25,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config
     }
 
-    fn line_size(&self, ident: Ident) -> u32 {
-        self.tmm_config.line_size(ident)
+    fn stage_line_size(&self, ident: Ident) -> u32 {
+        self.tmm_config.stage_line_size(ident)
     }
 
     fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
