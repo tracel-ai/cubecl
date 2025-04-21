@@ -205,7 +205,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
-        && TypeId::of::<MP::EI>() == TypeId::of::<f32>()
+        && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
@@ -282,7 +282,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         }
     };
 
-    if TypeId::of::<MP::EI>() == TypeId::of::<f32>() && tf32::is_supported(client) {
+    if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client, lhs, rhs, out, problem, plane_dim,
         )
