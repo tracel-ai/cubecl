@@ -260,6 +260,7 @@ impl TileConfig for Config {
 impl MatmulConfig for Config {}
 
 impl Config {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         size: MatmulSize,
         plane_dim: u32,
