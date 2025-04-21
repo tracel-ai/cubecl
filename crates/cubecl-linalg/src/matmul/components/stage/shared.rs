@@ -18,6 +18,14 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub buffering: StageBuffering,
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct StageVectorization {
+    /// A line size of zero means use the same vectorization as global memory.
+    pub stage_line_size: u8,
+    /// Still unsupported.
+    pub stage_elem_padding: u8,
+}
+
 impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     type TmmConfig = T;
 

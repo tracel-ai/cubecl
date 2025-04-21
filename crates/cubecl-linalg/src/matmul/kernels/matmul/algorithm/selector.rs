@@ -4,6 +4,7 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
 use cubecl_runtime::DeviceProperties;
 
+use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{InputRuntimeArg, OutputRuntimeArg};
 use crate::matmul::{
     components::{
@@ -45,12 +46,16 @@ where
         tile_count: selection.tile_count,
     };
 
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         <InputArg<MS> as ConcreteInputsFactory>::create(lhs, rhs, &selection, &problem),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
         problem,
-        (config_input, STAGE_BUFFERING),
+        (config_input, STAGE_BUFFERING, vectorization),
         selection,
     )
 }
@@ -69,13 +74,16 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };
-
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         input,
         output,
         problem,
-        (config_input, STAGE_BUFFERING),
+        (config_input, STAGE_BUFFERING, vectorization),
         selection,
     )
 }

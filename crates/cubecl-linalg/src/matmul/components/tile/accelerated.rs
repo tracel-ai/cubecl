@@ -9,7 +9,7 @@ use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 
-use super::Tile;
+use super::{Tile, TileMatmulConfigInput};
 
 pub struct Accelerated;
 
@@ -117,7 +117,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for Accelerated {
 }
 
 impl MatmulConfigFactory for Accelerated {
-    type Input = MatmulSize;
+    type Input = TileMatmulConfigInput;
     type Config = Config;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -133,6 +133,14 @@ impl MatmulConfigFactory for Accelerated {
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
+        if config.stage_dynamic_line_size
+            && !client
+                .properties()
+                .feature_enabled(Feature::DynamicLineSize)
+        {
+            return Err(MatmulAvailabilityError::DynamicLineSizeUnavailable);
+        }
+
         let es = MP::ES::as_elem_native().expect("to be a native type");
         let ea = MP::EA::as_elem_native().expect("to be a native type");
 
@@ -183,13 +191,28 @@ impl MatmulConfigFactory for Accelerated {
         _cube_count: &CubeCount,
         _quantized: bool,
     ) -> Self::Config {
+        let (lhs_line_size, rhs_line_size, stage_line_size_update) =
+            if input.vectorization.stage_line_size == 0 {
+                (
+                    problem.lhs_line_size as u32,
+                    problem.rhs_line_size as u32,
+                    false,
+                )
+            } else {
+                (
+                    input.vectorization.stage_line_size as u32,
+                    input.vectorization.stage_line_size as u32,
+                    true,
+                )
+            };
         Config::new(
-            input,
+            input.size,
             cube_dim.x,
             problem.lhs_layout,
             problem.rhs_layout,
-            1,
-            1,
+            stage_line_size_update,
+            lhs_line_size,
+            rhs_line_size,
             problem.out_line_size as u32,
         )
     }
@@ -202,6 +225,7 @@ pub struct Config {
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
+    stage_dynamic_line_size: bool,
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
@@ -241,6 +265,7 @@ impl Config {
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
+        stage_dynamic_line_size: bool,
         lhs_line_size: u32,
         rhs_line_size: u32,
         out_line_size: u32,
@@ -250,6 +275,7 @@ impl Config {
             plane_dim,
             lhs_layout,
             rhs_layout,
+            stage_dynamic_line_size,
             lhs_line_size,
             rhs_line_size,
             out_line_size,
