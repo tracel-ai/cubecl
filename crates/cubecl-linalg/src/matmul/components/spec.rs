@@ -53,10 +53,10 @@ impl MatmulPrecision for f16 {
 
 impl MatmulPrecision for flex32 {
     const QUANTIZED: bool = false;
-    type EI = flex32;
+    type EI = f32;
     type ES = f16;
     type EA = f32;
-    type EO = flex32;
+    type EO = f32;
 }
 
 impl MatmulPrecision for bf16 {
