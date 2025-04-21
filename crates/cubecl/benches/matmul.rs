@@ -129,12 +129,13 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 fn main() {
     #[cfg(feature = "wgpu")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, cubecl::flex32>();
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
@@ -145,7 +146,7 @@ fn main() {
     #[cfg(feature = "cuda")]
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        run_benches::<cubecl::cuda::CudaRuntime, cubecl::flex32>();
         //run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
