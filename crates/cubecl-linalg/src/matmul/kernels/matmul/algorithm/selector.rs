@@ -188,8 +188,10 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         .hardware_properties()
         .num_tensor_cores
         .unwrap_or(NUM_TENSOR_CORES_APPROX);
-    // Going over 8 does not work well for now
-    let virtual_tensor_cores = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
+    // The number of planes that can send tasks to tensor cores.
+    //
+    // Going over 8 might use too much shared memory.
+    let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
 
     let stage_size = find_stage_size(
         problem.m,
@@ -200,7 +202,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
             .hardware_properties()
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
-        virtual_tensor_cores,
+        tensor_cores_channels,
         instruction_m,
         instruction_n,
     );
