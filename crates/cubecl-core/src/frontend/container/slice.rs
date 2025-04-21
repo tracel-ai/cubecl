@@ -173,8 +173,13 @@ mod metadata {
         where
             E: CubePrimitive,
         {
-            let input = self.into_variable();
+            let input = self.clone().into_variable();
             let mut item = input.item;
+
+            if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+                return self;
+            }
+
             item.vectorization = NonZero::new(line_size as u8);
             let out = scope.create_slice(item);
 
@@ -235,8 +240,13 @@ mod metadata {
         where
             E: CubePrimitive,
         {
-            let input = self.into_variable();
+            let input = self.clone().into_variable();
             let mut item = input.item;
+
+            if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+                return self;
+            }
+
             item.vectorization = NonZero::new(line_size as u8);
             let out = scope.create_slice(item);
 
