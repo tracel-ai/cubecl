@@ -39,7 +39,7 @@ impl<E: Numeric, IO: Clone> List<Line<E>> for VirtualTensor<E, IO> {
 
 impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
@@ -228,7 +228,7 @@ impl<E: Numeric> ListMut<Line<E>> for VirtualTensor<E, ReadWrite> {
 
 impl<E: Numeric> ListMutExpand<Line<E>> for VirtualTensorExpand<E, ReadWrite> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,

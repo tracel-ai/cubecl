@@ -51,7 +51,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let mut line = Line::empty(comptime!(amount * self.line_size));
+                let mut line = Line::<S>::empty(comptime!(amount * self.line_size));
                 #[unroll]
                 for k in 0..amount {
                     let elem = self.slice[first + k];
@@ -115,7 +115,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let mut line = Line::empty(comptime!(amount * self.line_size));
+                let mut line = Line::<S>::empty(comptime!(amount * self.line_size));
                 #[unroll]
                 for k in 0..amount {
                     let elem = self.slice[first + k];

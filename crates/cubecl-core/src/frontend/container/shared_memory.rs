@@ -127,7 +127,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
         where
-            Self: CubeIndex<I>,
+            Self: CubeIndex,
         {
             unexpanded!()
         }
@@ -139,7 +139,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
         where
-            Self: CubeIndexMut<I>,
+            Self: CubeIndexMut,
         {
             unexpanded!()
         }
@@ -191,11 +191,11 @@ impl<T: CubePrimitive> List<T> for SharedMemory<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
     }
 }
 
@@ -212,11 +212,11 @@ impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

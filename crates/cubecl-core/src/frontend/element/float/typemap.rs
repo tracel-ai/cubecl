@@ -240,11 +240,6 @@ impl<const POS: u8> Round for FloatExpand<POS> {}
 impl<const POS: u8> Floor for FloatExpand<POS> {}
 impl<const POS: u8> Ceil for FloatExpand<POS> {}
 
-impl<T: Index, const POS: u8> CubeIndex<T> for FloatExpand<POS> {
-    type Output = Self;
-}
-impl<T: Index, const POS: u8> CubeIndexMut<T> for FloatExpand<POS> {}
-
 impl<const POS: u8> Float for FloatExpand<POS> {
     const DIGITS: u32 = 32;
 

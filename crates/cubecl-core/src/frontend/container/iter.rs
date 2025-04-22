@@ -8,9 +8,9 @@ use crate::{
 use super::Array;
 
 pub trait SizedContainer:
-    CubeIndex<ExpandElementTyped<u32>, Output = Self::Item> + CubeType
+    CubeIndex<Output = Self::Item> + CubeType<ExpandType = ExpandElementTyped<Self>> + Sized
 {
-    type Item: CubeType<ExpandType = ExpandElementTyped<Self::Item>>;
+    type Item: CubePrimitive;
 
     /// Return the length of the container.
     fn len(val: &ExpandElement, scope: &mut Scope) -> ExpandElement {
@@ -32,7 +32,8 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
         let mut child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let item = index::expand(&mut child, self, i.clone().into());
+        let index = i.clone().into();
+        let item = index::expand(&mut child, self, index);
         body(&mut child, item);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {

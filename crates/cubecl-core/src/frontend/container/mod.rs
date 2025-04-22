@@ -6,6 +6,7 @@ mod registry;
 mod sequence;
 mod shared_memory;
 mod slice;
+mod slicev2;
 mod tensor;
 
 pub use array::*;
@@ -16,4 +17,5 @@ pub use registry::*;
 pub use sequence::*;
 pub use shared_memory::*;
 pub use slice::*;
+pub use slicev2::*;
 pub use tensor::*;

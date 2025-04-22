@@ -222,7 +222,7 @@ fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
 }
 
 pub fn array_assign_binary_op_expand<
-    A: CubeType + CubeIndex<u32>,
+    A: CubeType + CubeIndex,
     V: CubeType,
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,

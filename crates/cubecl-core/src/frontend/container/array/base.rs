@@ -191,7 +191,7 @@ mod vectorization {
                     let expand: Self = self.expand.clone().into();
                     let element =
                         index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
-                    index_assign::expand::<Array<C>>(
+                    index_assign::expand::<Self>(
                         scope,
                         new_var.clone().into(),
                         ExpandElementTyped::from_lit(scope, i),
@@ -270,7 +270,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
         where
-            Self: CubeIndex<I>,
+            Self: CubeIndex,
         {
             unexpanded!()
         }
@@ -282,7 +282,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
         where
-            Self: CubeIndexMut<I>,
+            Self: CubeIndexMut,
         {
             unexpanded!()
         }
@@ -337,7 +337,7 @@ impl<C: CubeType> ExpandElementBaseInit for Array<C> {
     }
 }
 
-impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Array<T> {
+impl<T: CubePrimitive> SizedContainer for Array<T> {
     type Item = T;
 }
 
@@ -361,11 +361,11 @@ impl<T: CubePrimitive> List<T> for Array<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
     }
 }
 
@@ -382,11 +382,11 @@ impl<T: CubePrimitive> ListMut<T> for Array<T> {
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand::<Self>(scope, self.clone(), idx, value);
     }
 }

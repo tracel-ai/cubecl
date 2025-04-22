@@ -1,11 +1,10 @@
 use cubecl_ir::{Bitwise, ExpandElement, Operator, Scope};
-use half::{bf16, f16};
 
+use crate::ir;
 use crate::{
     frontend::{Array, SharedMemory, Tensor},
-    prelude::{CubeIndex, CubeIndexMut, CubeType},
+    prelude::{CubeIndex, CubeIndexMut, CubePrimitive, CubeType},
 };
-use crate::{ir, prelude::Index};
 
 pub mod cast {
     use ir::Instruction;
@@ -50,141 +49,109 @@ pub mod assign {
 }
 
 pub mod index_assign {
-    use ir::{Instruction, UIntKind, VariableKind};
-
-    use crate::{
-        flex32,
-        frontend::CubeType,
-        prelude::{ExpandElementTyped, SliceMut},
-        tf32,
+    use super::*;
+    use crate::prelude::{
+        CubeIndexMutExpand, ExpandElementTyped, Line, SliceMut, expand_index_assign_native,
     };
 
-    use self::ir::{BinaryOperator, Variable};
-
-    use super::*;
-
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeIndexMutExpand>(
         scope: &mut Scope,
-        array: ExpandElementTyped<A>,
+        expand: A,
         index: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<A::Output>,
-    ) where
-        A::Output: CubeType + Sized,
-    {
-        let index: Variable = index.expand.into();
-        let index = match index.kind {
-            VariableKind::ConstantScalar(value) => {
-                Variable::constant(ir::ConstantScalarValue::UInt(value.as_u64(), UIntKind::U32))
-            }
-            _ => index,
-        };
-        scope.register(Instruction::new(
-            Operator::IndexAssign(BinaryOperator {
-                lhs: index,
-                rhs: value.expand.into(),
-            }),
-            array.expand.into(),
-        ));
+        value: A::Output,
+    ) {
+        A::expand_index_mut(scope, expand, index, value);
     }
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubeType, I: Index> CubeIndexMut<I> for $type<E> {}
-        };
-    }
-    macro_rules! impl_index_vec {
-        ($($type:ident),*) => {
-            $(
-                impl<I: Index> CubeIndexMut<I> for $type {}
-            )*
+            impl<E: CubePrimitive> CubeIndexMut for $type<E> {
+                fn expand_index_mut(
+                    scope: &mut Scope,
+                    array: Self::ExpandType,
+                    index: ExpandElementTyped<u32>,
+                    value: ExpandElementTyped<Self::Output>,
+                ) {
+                    expand_index_assign_native::<Self>(scope, array, index, value);
+                }
+            }
         };
     }
 
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(
-        i64, i32, i16, i8, f16, bf16, flex32, tf32, f32, f64, u64, u32, u16, u8
-    );
+    impl_index!(Line);
 
-    impl<E: CubeType, I: Index> CubeIndexMut<I> for SliceMut<E> {}
+    impl<E: CubePrimitive> CubeIndexMut for SliceMut<E> {
+        fn expand_index_mut(
+            scope: &mut Scope,
+            array: Self::ExpandType,
+            index: ExpandElementTyped<u32>,
+            value: ExpandElementTyped<Self::Output>,
+        ) {
+            expand_index_assign_native::<Self>(scope, array, index, value);
+        }
+    }
 }
 
 pub mod index {
-    use ir::{UIntKind, VariableKind};
-
-    use crate::{
-        flex32,
-        frontend::{
-            CubeType,
-            operation::base::{binary_expand, binary_expand_no_vec},
-        },
-        prelude::{ExpandElementTyped, Slice, SliceMut},
-        tf32,
+    use super::*;
+    use crate::prelude::{
+        CubeIndexExpand, ExpandElementTyped, Line, Slice, SliceMut, expand_index_native,
     };
 
-    use self::ir::Variable;
-
-    use super::*;
-
-    pub fn expand<A: CubeType + CubeIndex<ExpandElementTyped<u32>>>(
+    pub fn expand<A: CubeIndexExpand>(
         scope: &mut Scope,
-        array: ExpandElementTyped<A>,
+        expand: A,
         index: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<A::Output>
-    where
-        A::Output: CubeType + Sized,
-    {
-        let index: ExpandElement = index.into();
-        let index_var: Variable = *index;
-        let index = match index_var.kind {
-            VariableKind::ConstantScalar(value) => ExpandElement::Plain(Variable::constant(
-                ir::ConstantScalarValue::UInt(value.as_u64(), UIntKind::U32),
-            )),
-            _ => index,
-        };
-        let array: ExpandElement = array.into();
-        let var: Variable = *array;
-        let var = match var.kind {
-            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                binary_expand_no_vec(scope, array, index, Operator::Index)
-            }
-            _ => binary_expand(scope, array, index, Operator::Index),
-        };
-
-        ExpandElementTyped::new(var)
+    ) -> A::Output {
+        A::expand_index(scope, expand, index)
     }
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubeType, I: Index> CubeIndex<I> for $type<E> {
+            impl<E: CubePrimitive> CubeIndex for $type<E> {
                 type Output = E;
-            }
-        };
-    }
-    macro_rules! impl_index_vec {
-        ($($type:ident),*) => {
-            $(
-                impl<I: Index> CubeIndex<I> for $type {
-                    type Output = Self;
+
+                fn expand_index(
+                    scope: &mut Scope,
+                    array: Self::ExpandType,
+                    index: ExpandElementTyped<u32>,
+                ) -> ExpandElementTyped<Self::Output> {
+                    expand_index_native(scope, array, index)
                 }
-            )*
+            }
         };
     }
 
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(
-        i64, i32, i16, i8, f16, flex32, tf32, bf16, f32, f64, u64, u32, u16, u8
-    );
+    impl_index!(Line);
 
-    impl<E: CubeType, I: Index> CubeIndex<I> for Slice<E> {
+    impl<E: CubePrimitive> CubeIndex for Slice<E> {
         type Output = E;
+
+        fn expand_index(
+            scope: &mut Scope,
+            array: Self::ExpandType,
+            index: ExpandElementTyped<u32>,
+        ) -> ExpandElementTyped<Self::Output> {
+            expand_index_native(scope, array, index)
+        }
     }
 
-    impl<E: CubeType, I: Index> CubeIndex<I> for SliceMut<E> {
+    impl<E: CubePrimitive> CubeIndex for SliceMut<E> {
         type Output = E;
+
+        fn expand_index(
+            scope: &mut Scope,
+            array: Self::ExpandType,
+            index: ExpandElementTyped<u32>,
+        ) -> ExpandElementTyped<Self::Output> {
+            expand_index_native(scope, array, index)
+        }
     }
 }
 
@@ -193,7 +160,7 @@ pub mod add_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -210,7 +177,7 @@ pub mod sub_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -227,7 +194,7 @@ pub mod mul_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -244,7 +211,7 @@ pub mod div_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -261,7 +228,7 @@ pub mod rem_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -277,7 +244,7 @@ pub mod bitor_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -293,7 +260,7 @@ pub mod bitand_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -309,7 +276,7 @@ pub mod bitxor_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -326,7 +293,7 @@ pub mod shl_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
@@ -343,7 +310,7 @@ pub mod shr_assign_array_op {
     use super::*;
     use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,

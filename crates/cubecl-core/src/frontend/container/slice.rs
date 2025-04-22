@@ -295,7 +295,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
         where
-            Self: CubeIndex<I>,
+            Self: CubeIndex,
         {
             unexpanded!()
         }
@@ -309,7 +309,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
         where
-            Self: CubeIndex<I>,
+            Self: CubeIndex,
         {
             unexpanded!()
         }
@@ -321,7 +321,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
         where
-            Self: CubeIndexMut<I>,
+            Self: CubeIndexMut,
         {
             unexpanded!()
         }
@@ -405,7 +405,7 @@ impl<C: CubeType> Init for ExpandElementTyped<SliceMut<C>> {
     }
 }
 
-impl<C: CubeType<ExpandType = ExpandElementTyped<C>>> SizedContainer for Slice<C> {
+impl<C: CubePrimitive> SizedContainer for Slice<C> {
     type Item = C;
 }
 
@@ -592,11 +592,11 @@ impl<T: CubePrimitive> List<T> for Slice<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Slice<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
     }
 }
 
@@ -612,11 +612,11 @@ impl<T: CubePrimitive> List<T> for SliceMut<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SliceMut<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
     }
 }
 
@@ -633,11 +633,11 @@ impl<T: CubePrimitive> ListMut<T> for SliceMut<T> {
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SliceMut<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

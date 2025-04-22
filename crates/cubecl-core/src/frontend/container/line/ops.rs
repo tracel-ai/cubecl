@@ -3,9 +3,8 @@ use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
     frontend::{
-        Abs, Ceil, Clamp, Cos, CubeIndex, CubeIndexMut, CubePrimitive, Erf, Exp,
-        ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip, Remainder, Round, Sin, Sqrt,
-        Tanh,
+        Abs, Ceil, Clamp, Cos, CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max,
+        Min, Powf, Recip, Remainder, Round, Sin, Sqrt, Tanh,
     },
     prelude::{BitwiseNot, CountOnes, FindFirstSet, LeadingZeros, ReverseBits},
     unexpanded,
@@ -352,46 +351,6 @@ impl<P: CubePrimitive + NumCast> ToPrimitive for Line<P> {
 
     fn to_u64(&self) -> Option<u64> {
         self.val.to_u64()
-    }
-}
-
-impl<P> CubeIndex<u32> for Line<P>
-where
-    P: CubePrimitive,
-{
-    type Output = P;
-
-    fn cube_idx(&self, _i: u32) -> &Self::Output {
-        unexpanded!()
-    }
-}
-
-impl<P> CubeIndexMut<u32> for Line<P>
-where
-    P: CubePrimitive,
-{
-    fn cube_idx_mut(&mut self, _i: u32) -> &mut Self::Output {
-        unexpanded!()
-    }
-}
-
-impl<P> CubeIndex<ExpandElementTyped<u32>> for Line<P>
-where
-    P: CubePrimitive,
-{
-    type Output = P;
-
-    fn cube_idx(&self, _i: ExpandElementTyped<u32>) -> &Self::Output {
-        unexpanded!()
-    }
-}
-
-impl<P> CubeIndexMut<ExpandElementTyped<u32>> for Line<P>
-where
-    P: CubePrimitive,
-{
-    fn cube_idx_mut(&mut self, _i: ExpandElementTyped<u32>) -> &mut Self::Output {
-        unexpanded!()
     }
 }
 

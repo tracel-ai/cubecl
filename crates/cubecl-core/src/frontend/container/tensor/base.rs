@@ -237,7 +237,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
         where
-            Self: CubeIndex<I>,
+            Self: CubeIndex,
         {
             unexpanded!()
         }
@@ -249,7 +249,7 @@ mod indexation {
         /// always in bounds
         pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
         where
-            Self: CubeIndexMut<I>,
+            Self: CubeIndexMut,
         {
             unexpanded!()
         }
@@ -331,7 +331,7 @@ mod line {
     }
 }
 
-impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Tensor<T> {
+impl<T: CubePrimitive> SizedContainer for Tensor<T> {
     type Item = T;
 }
 
@@ -368,17 +368,17 @@ impl<T: CubePrimitive> List<T> for Tensor<T> {
         this: ExpandElementTyped<Tensor<T>>,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, this, idx)
+        index::expand::<Self::ExpandType>(scope, this, idx)
     }
 }
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand::<Self>(scope, self.clone(), idx)
     }
 }
 
@@ -389,17 +389,17 @@ impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, this, idx, value);
+        index_assign::expand::<Self::ExpandType>(scope, this, idx, value);
     }
 }
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand::<Self>(scope, self.clone(), idx, value);
     }
 }

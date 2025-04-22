@@ -14,13 +14,15 @@ pub trait List<T: CubeType>: CubeType<ExpandType: ListExpand<T>> {
         scope: &mut Scope,
         this: Self::ExpandType,
         index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType;
+    ) -> T::ExpandType {
+        this.__expand_read_method(scope, index)
+    }
 }
 
 /// Expand version of [CubeRead].
 pub trait ListExpand<T: CubeType> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType;
@@ -43,9 +45,9 @@ pub trait ListMut<T: CubeType>: CubeType<ExpandType: ListMutExpand<T>> + List<T>
 }
 
 /// Expand version of [CubeWrite].
-pub trait ListMutExpand<T: CubeType> {
+pub trait ListMutExpand<T: CubeType>: ListExpand<T> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
         value: T::ExpandType,
