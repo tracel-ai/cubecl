@@ -1,36 +1,23 @@
-use super::Line;
+use super::{
+    Line, ReadOnly, ReadWrite, SharedMemory, SliceOriginExpand, SliceV2, SliceV2Expand,
+    SliceVisibility, Tensor,
+};
 use crate::{
-    frontend::{
-        Array, CubePrimitive, CubeType, ExpandElementTyped, Init, SharedMemory, SizedContainer,
-        Tensor, indexation::Index,
-    },
+    frontend::{Array, CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
     ir::{Instruction, Scope},
-    prelude::{CubeDebug, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::CubeDebug,
     unexpanded,
 };
 use cubecl_common::tf32;
-use cubecl_ir::{ExpandElement, Operator};
-use std::marker::PhantomData;
+use cubecl_ir::Operator;
 
 /// A read-only contiguous list of elements
 ///
 /// # Safety
 ///
 /// Since data can't be deallocated during kernel execution, this is safe.
-#[derive(Clone, Copy)]
-pub struct Slice<E> {
-    _e: PhantomData<E>,
-}
-
-/// A read-write contiguous list of elements.
-///
-/// # Safety
-///
-/// Since data can be accessed by any unit during kernel execution, this can never be safe.
-#[derive(Clone, Copy)]
-pub struct SliceMut<E> {
-    _e: PhantomData<E>,
-}
+pub type Slice<E, IO = ReadOnly> = SliceV2<E, IO>;
+pub type SliceMut<E> = SliceV2<E, ReadWrite>;
 
 #[allow(unused)]
 mod metadata {
@@ -42,13 +29,7 @@ mod metadata {
 
     use super::*;
 
-    impl<E> Slice<E> {
-        /// Get the length of the slice.
-        #[allow(clippy::len_without_is_empty)]
-        pub fn len(&self) -> u32 {
-            unexpanded!()
-        }
-
+    impl<E: CubePrimitive> Slice<E> {
         /// Returns the same slice, but with lines of length 1.
         pub fn into_lined(&self) -> Slice<Line<E>>
         where
@@ -81,21 +62,7 @@ mod metadata {
         }
     }
 
-    impl<E> SliceMut<E> {
-        /// Get the length of the slice.
-        #[allow(clippy::len_without_is_empty)]
-        pub fn len(&self) -> u32 {
-            unexpanded!()
-        }
-
-        /// Returns the same slice, but with lines of length 1.
-        pub fn into_lined(self) -> SliceMut<Line<E>>
-        where
-            E: CubePrimitive,
-        {
-            unexpanded!()
-        }
-
+    impl<E: CubePrimitive> SliceMut<E> {
         /// Try to cast the slice to the given type and panic if the type isn't the same.
         ///
         /// This function should only be used to satisfy the Rust type system, when two generic
@@ -279,161 +246,207 @@ pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &mut Scope) -> 
     (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }
 
-/// Module that contains the implementation details of the index functions.
-mod indexation {
-    use cubecl_ir::{BinaryOperator, Instruction, Operator};
+impl<E: CubePrimitive> SliceOperator<E> for SharedMemory<E> {}
+impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<SharedMemory<E>> {
+    fn __expand_slice_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadOnly> {
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::SharedMemory(self.clone()),
+            start,
+            end,
+        )
+    }
 
-    use crate::prelude::{CubeIndex, CubeIndexMut};
+    fn __expand_slice_mut_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadWrite> {
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::SharedMemory(self.clone()),
+            start,
+            end,
+        )
+    }
 
-    use super::*;
+    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadOnly> {
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::SharedMemory(self.clone()),
+            0u32.into(),
+            100000u32.into(), // TODO: Fix,
+        )
+    }
 
-    impl<E: CubePrimitive> Slice<E> {
-        /// Perform an unchecked index into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
-        where
-            Self: CubeIndex,
-        {
-            unexpanded!()
+    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadWrite> {
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::SharedMemory(self.clone()),
+            0u32.into(),
+            100000u32.into(), // TODO: Fix,
+        )
+    }
+}
+
+impl<E: CubePrimitive> SliceOperator<E> for Tensor<E> {}
+impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<Tensor<E>> {
+    fn __expand_slice_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadOnly> {
+        SliceV2::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
+    }
+
+    fn __expand_slice_mut_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadWrite> {
+        SliceV2::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
+    }
+
+    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadOnly> {
+        let len = self.clone().__expand_len_method(scope);
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::Tensor(self.clone()),
+            0u32.into(),
+            len,
+        )
+    }
+
+    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadWrite> {
+        let len = self.clone().__expand_len_method(scope);
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::Tensor(self.clone()),
+            0u32.into(),
+            len,
+        )
+    }
+}
+
+impl<E: CubePrimitive> SliceOperator<E> for Array<E> {}
+impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<Array<E>> {
+    fn __expand_slice_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadOnly> {
+        SliceV2::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
+    }
+
+    fn __expand_slice_mut_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadWrite> {
+        SliceV2::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
+    }
+
+    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadOnly> {
+        let len = self.clone().__expand_len_method(scope);
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::Array(self.clone()),
+            0u32.into(),
+            len,
+        )
+    }
+
+    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadWrite> {
+        let len = self.clone().__expand_len_method(scope);
+        SliceV2::__expand_new(
+            scope,
+            SliceOriginExpand::Array(self.clone()),
+            0u32.into(),
+            len,
+        )
+    }
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> SliceOperator<E> for SliceV2<E, IO> {}
+impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceV2Expand<E, IO> {
+    fn __expand_slice_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadOnly> {
+        let length = crate::frontend::sub::expand(scope, end.into(), start.clone().into());
+        let offset = crate::frontend::add::expand(scope, start.into(), self.offset.clone());
+
+        SliceV2Expand {
+            origin: self.origin.clone(),
+            io: std::marker::PhantomData,
+            offset,
+            length,
         }
     }
 
-    impl<E: CubePrimitive> SliceMut<E> {
-        /// Perform an unchecked index into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
-        where
-            Self: CubeIndex,
-        {
-            unexpanded!()
-        }
+    fn __expand_slice_mut_method(
+        &self,
+        scope: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, ReadWrite> {
+        let length = crate::frontend::sub::expand(scope, end.into(), start.clone().into());
+        let offset = crate::frontend::add::expand(scope, start.into(), self.offset.clone());
 
-        /// Perform an unchecked index assignment into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
-        where
-            Self: CubeIndexMut,
-        {
-            unexpanded!()
+        SliceV2Expand {
+            origin: self.origin.clone(),
+            io: std::marker::PhantomData,
+            offset,
+            length,
         }
     }
 
-    impl<E: CubePrimitive> ExpandElementTyped<Slice<E>> {
-        pub fn __expand_index_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<E> {
-            let out = scope.create_local(self.expand.item);
-            scope.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
-                    lhs: *self.expand,
-                    rhs: i.expand.consume(),
-                }),
-                *out,
-            ));
-            out.into()
+    fn __expand_to_slice_method(&self, _scope: &mut Scope) -> SliceV2Expand<E, ReadOnly> {
+        SliceV2Expand {
+            origin: self.origin.clone(),
+            io: std::marker::PhantomData,
+            offset: self.offset.clone(),
+            length: self.length.clone(),
         }
     }
 
-    impl<E: CubePrimitive> ExpandElementTyped<SliceMut<E>> {
-        pub fn __expand_index_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<E> {
-            let out = scope.create_local(self.expand.item);
-            scope.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
-                    lhs: *self.expand,
-                    rhs: i.expand.consume(),
-                }),
-                *out,
-            ));
-            out.into()
-        }
-
-        pub fn __expand_index_assign_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-            value: ExpandElementTyped<E>,
-        ) {
-            scope.register(Instruction::new(
-                Operator::UncheckedIndexAssign(BinaryOperator {
-                    lhs: i.expand.consume(),
-                    rhs: value.expand.consume(),
-                }),
-                *self.expand,
-            ));
+    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceV2Expand<E, ReadWrite> {
+        SliceV2Expand {
+            origin: self.origin.clone(),
+            io: std::marker::PhantomData,
+            offset: self.offset.clone(),
+            length: self.length.clone(),
         }
     }
 }
 
-impl<E: CubeType> CubeType for Slice<E> {
-    type ExpandType = ExpandElementTyped<Slice<E>>;
-}
-
-impl<C: CubeType> Init for ExpandElementTyped<Slice<C>> {
-    fn init(self, _scope: &mut Scope) -> Self {
-        // The type can't be deeply cloned/copied.
-        self
-    }
-}
-
-impl<E: CubeType> CubeType for SliceMut<E> {
-    type ExpandType = ExpandElementTyped<SliceMut<E>>;
-}
-
-impl<E: CubeType> CubeType for &mut SliceMut<E> {
-    type ExpandType = ExpandElementTyped<SliceMut<E>>;
-}
-
-impl<C: CubeType> Init for ExpandElementTyped<SliceMut<C>> {
-    fn init(self, _scope: &mut Scope) -> Self {
-        // The type can't be deeply cloned/copied.
-        self
-    }
-}
-
-impl<C: CubePrimitive> SizedContainer for Slice<C> {
-    type Item = C;
-}
-
-impl<T: CubeType> Iterator for Slice<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unexpanded!()
-    }
-}
-
-pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
-    type Expand: SliceOperatorExpand<E>;
-
+pub trait SliceOperator<E: CubePrimitive>: CubeType<ExpandType: SliceOperatorExpand<E>> {
     /// Return a read-only view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice<Start: Index, End: Index>(&self, start: Start, end: End) -> Slice<E> {
+    fn slice<Start: Index, End: Index>(&self, start: Start, end: End) -> Slice<E, ReadOnly> {
         unexpanded!()
     }
     /// Expand function of [SliceOperator::slice].
     fn __expand_slice(
         scope: &mut Scope,
-        expand: Self::Expand,
+        expand: Self::ExpandType,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<E>> {
+    ) -> SliceV2Expand<E, ReadOnly> {
         expand.__expand_slice_method(scope, start, end)
     }
 
@@ -441,28 +454,35 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice_mut<Start: Index, End: Index>(&mut self, start: Start, end: End) -> SliceMut<E> {
+    fn slice_mut<Start: Index, End: Index>(
+        &mut self,
+        start: Start,
+        end: End,
+    ) -> Slice<E, ReadWrite> {
         unexpanded!()
     }
 
     /// Expand function of [SliceOperator::slice_mut].
     fn __expand_slice_mut(
         scope: &mut Scope,
-        expand: Self::Expand,
+        expand: Self::ExpandType,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<SliceMut<E>> {
+    ) -> SliceV2Expand<E, ReadWrite> {
         expand.__expand_slice_mut_method(scope, start, end)
     }
 
     /// Reinterprete the current type as a read-only slice.
     #[allow(unused_variables)]
-    fn to_slice(&self) -> Slice<E> {
+    fn to_slice(&self) -> Slice<E, ReadOnly> {
         unexpanded!()
     }
 
     /// Expand function of [SliceOperator::to_slice].
-    fn __expand_to_slice(scope: &mut Scope, expand: Self::Expand) -> ExpandElementTyped<Slice<E>> {
+    fn __expand_to_slice(
+        scope: &mut Scope,
+        expand: Self::ExpandType,
+    ) -> SliceV2Expand<E, ReadOnly> {
         expand.__expand_to_slice_method(scope)
     }
 
@@ -475,169 +495,27 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     /// Expand function of [SliceOperator::to_slice_mut].
     fn __expand_to_slice_mut(
         scope: &mut Scope,
-        expand: Self::Expand,
-    ) -> ExpandElementTyped<SliceMut<E>> {
+        expand: Self::ExpandType,
+    ) -> SliceV2Expand<E, ReadWrite> {
         expand.__expand_to_slice_mut_method(scope)
     }
 }
 
-pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone + Init + CubeDebug {
-    fn slice_base<Start: Index, End: Index>(
-        &self,
-        scope: &mut Scope,
-        start: Start,
-        end: End,
-    ) -> ExpandElement;
-
+pub trait SliceOperatorExpand<E: CubePrimitive>: Clone + Init + CubeDebug {
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<E>> {
-        ExpandElementTyped::new(self.slice_base(scope, start, end))
-    }
+    ) -> SliceV2Expand<E, ReadOnly>;
 
     fn __expand_slice_mut_method(
         &self,
         scope: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<SliceMut<E>> {
-        ExpandElementTyped::new(self.slice_base(scope, start, end))
-    }
+    ) -> SliceV2Expand<E, ReadWrite>;
 
-    fn __expand_to_slice_method(&self, _scope: &mut Scope) -> ExpandElementTyped<Slice<E>> {
-        let expand = self.clone().into();
-        ExpandElementTyped::new(expand)
-    }
-
-    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> ExpandElementTyped<SliceMut<E>> {
-        let expand = self.clone().into();
-        ExpandElementTyped::new(expand)
-    }
-}
-
-macro_rules! slice_op {
-    ($type:ident) => {
-        impl<E: CubePrimitive> SliceOperator<E> for $type<E> {
-            type Expand = ExpandElementTyped<$type<E>>;
-        }
-
-        impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<$type<E>> {
-            fn slice_base<Start: Index, End: Index>(
-                &self,
-                scope: &mut Scope,
-                start: Start,
-                end: End,
-            ) -> ExpandElement {
-                slice_expand(scope, self.clone(), start, end)
-            }
-        }
-    };
-    (slice $type:ident) => {
-        impl<E: CubePrimitive> SliceOperator<E> for $type<E> {
-            type Expand = ExpandElementTyped<$type<E>>;
-        }
-
-        impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<$type<E>> {
-            fn slice_base<Start: Index, End: Index>(
-                &self,
-                scope: &mut Scope,
-                start: Start,
-                end: End,
-            ) -> ExpandElement {
-                slice_expand(scope, self.clone(), start, end)
-            }
-        }
-    };
-}
-
-slice_op!(Array);
-slice_op!(Tensor);
-slice_op!(SharedMemory);
-slice_op!(slice Slice);
-slice_op!(slice SliceMut);
-
-pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
-    scope: &mut Scope,
-    input: I,
-    start: S1,
-    end: S2, // Todo use it to get the length.
-) -> ExpandElement {
-    let input = input.into();
-    let out = scope.create_slice(input.item);
-
-    scope.register(Instruction::new(
-        Operator::Slice(cubecl_ir::SliceOperator {
-            input: *input,
-            start: start.value(),
-            end: end.value(),
-        }),
-        *out,
-    ));
-
-    out
-}
-
-impl<T: CubePrimitive> List<T> for Slice<T> {
-    fn __expand_read(
-        scope: &mut Scope,
-        this: ExpandElementTyped<Slice<T>>,
-        idx: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<T> {
-        index::expand(scope, this, idx)
-    }
-}
-
-impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Slice<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<T> {
-        index::expand(scope, self.clone(), idx)
-    }
-}
-
-impl<T: CubePrimitive> List<T> for SliceMut<T> {
-    fn __expand_read(
-        scope: &mut Scope,
-        this: ExpandElementTyped<SliceMut<T>>,
-        idx: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<T> {
-        index::expand(scope, this, idx)
-    }
-}
-
-impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SliceMut<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<T> {
-        index::expand(scope, self.clone(), idx)
-    }
-}
-
-impl<T: CubePrimitive> ListMut<T> for SliceMut<T> {
-    fn __expand_write(
-        scope: &mut Scope,
-        this: ExpandElementTyped<SliceMut<T>>,
-        idx: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<T>,
-    ) {
-        index_assign::expand(scope, this, idx, value);
-    }
-}
-
-impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SliceMut<T>> {
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<T>,
-    ) {
-        index_assign::expand(scope, self.clone(), idx, value);
-    }
+    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceV2Expand<E, ReadOnly>;
+    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceV2Expand<E, ReadWrite>;
 }

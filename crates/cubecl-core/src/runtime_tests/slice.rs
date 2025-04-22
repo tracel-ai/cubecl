@@ -4,8 +4,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn slice_select<F: Float>(input: &Array<F>, output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let slice = SliceV2::<F, ReadOnly>::new::<&Array<F>>(input, 2, 1);
-        // let slice = input.slice(2, 3);
+        let slice = input.slice(2, 3);
         output[0] = slice[0];
     }
 }

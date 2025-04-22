@@ -5,9 +5,9 @@ use cubecl::prelude::*;
 #[cube]
 pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: u32, value: C) -> C {
     let index = index * u32::cast_from(mask);
-    let input = unsafe { list.index_unchecked(index) };
+    let input = list.read_unchecked(index);
 
-    select(mask, *input, value)
+    select(mask, input, value)
 }
 
 /// Returns the value at `index` in tensor within bounds.

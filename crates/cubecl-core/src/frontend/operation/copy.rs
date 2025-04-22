@@ -29,7 +29,7 @@ pub mod copy_bulk {
     use super::*;
 
     /// The expand function for [`copy_bulk()`]
-    pub fn expand<C: CubeType>(
+    pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
         from: ExpandElementTyped<Slice<C>>,
         from_index: ExpandElementTyped<u32>,

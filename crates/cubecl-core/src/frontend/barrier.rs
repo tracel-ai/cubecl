@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut, TensorMap,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, ReadOnly, ReadWrite, Slice,
+    SliceMut, SliceV2Expand, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -329,8 +330,8 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: ExpandElementTyped<Slice<Line<C>>>,
-        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        source: SliceV2Expand<Line<C>, ReadOnly>,
+        destination: SliceV2Expand<Line<C>, ReadWrite>,
     ) {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
@@ -369,12 +370,12 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<Slice<Line<C>>>,
-        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        source: SliceV2Expand<Line<C>, ReadOnly>,
+        destination: SliceV2Expand<Line<C>, ReadWrite>,
     ) {
         let barrier = *self.elem;
-        let source = *source.expand;
-        let destination = *destination.expand;
+        let (source, source_offset) = source.__to_raw_parts();
+        let (destination, destination_offset) = destination.__to_raw_parts();
 
         let mem_copy = BarrierOps::MemCopyAsync { barrier, source };
 

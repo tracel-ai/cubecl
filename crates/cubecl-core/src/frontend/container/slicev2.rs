@@ -1,7 +1,8 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
+use cubecl_ir::{ExpandElement, Variable};
 
 pub struct ReadOnly;
 pub struct ReadWrite;
@@ -15,44 +16,78 @@ pub struct ReadWrite;
 pub struct SliceV2<E: CubePrimitive, IO: SliceVisibility> {
     _e: PhantomData<E>,
     _io: PhantomData<IO>,
-    offset: PhantomData<u32>,
-    length: PhantomData<u32>,
+    _offset: PhantomData<u32>,
+    length: u32,
 }
 
-impl<E: CubePrimitive> SliceV2<E, ReadOnly> {
-    pub fn new<L: List<E>>(_list: L, _offset: u32, _length: u32) -> Self {
+#[derive(CubeType)]
+pub(crate) enum SliceOrigin<E: CubePrimitive> {
+    Tensor(Tensor<E>),
+    Array(Array<E>),
+    SharedMemory(SharedMemory<E>),
+}
+
+pub trait SliceVisibility {}
+
+impl SliceVisibility for ReadOnly {}
+
+impl SliceVisibility for ReadWrite {}
+
+pub struct SliceV2Expand<E: CubePrimitive, IO: SliceVisibility> {
+    pub(crate) origin: SliceOriginExpand<E>,
+    pub(crate) io: PhantomData<IO>,
+    pub(crate) offset: ExpandElementTyped<u32>,
+    pub(crate) length: ExpandElementTyped<u32>,
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
+    pub fn __to_raw_parts(&self) -> (Variable, Variable) {
+        let expand = match self.origin.clone() {
+            SliceOriginExpand::Tensor(expand) => expand.expand,
+            SliceOriginExpand::Array(expand) => expand.expand,
+            SliceOriginExpand::SharedMemory(expand) => expand.expand,
+        };
+
+        (*expand, *self.offset.expand)
+    }
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+    pub fn new(_origin: SliceOrigin<E>, _offset: u32, _length: u32) -> Self {
         unexpanded!()
     }
-    pub fn __expand_new<L: List<E> + 'static>(
-        _scope: &mut Scope,
-        list: L::ExpandType,
-        offset: ExpandElementTyped<u32>,
-        length: ExpandElementTyped<u32>,
-    ) -> SliceV2Expand<E, ReadOnly> {
-        SliceV2Expand {
-            list: Arc::new(list),
-            offset,
-            len: length,
+
+    pub fn __expand_new(
+        scope: &mut Scope,
+        origin: SliceOriginExpand<E>,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, IO> {
+        Self::__expand_new_expand(scope, origin, start, end)
+    }
+    pub fn __expand_new_expand(
+        scope: &mut Scope,
+        origin: SliceOriginExpand<E>,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceV2Expand<E, IO> {
+        let length = cubecl::frontend::sub::expand(scope, end.into(), start.clone().into());
+
+        SliceV2Expand::<E, IO> {
+            origin,
+            io: PhantomData,
+            offset: start,
+            length,
         }
     }
 }
 
-pub trait SliceVisibility {
-    type ListType<E>: Clone;
-}
-
-impl SliceVisibility for ReadOnly {
-    type ListType<E> = Arc<dyn ListExpand<E>>;
-}
-
-impl SliceVisibility for ReadWrite {
-    type ListType<E> = Arc<dyn ListMutExpand<E>>;
-}
-
-pub struct SliceV2Expand<E, IO: SliceVisibility> {
-    list: IO::ListType<E>,
-    offset: ExpandElementTyped<u32>,
-    len: ExpandElementTyped<u32>,
+#[cube]
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+    /// Get the length of the slice.
+    pub fn len(&self) -> u32 {
+        self.length
+    }
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> CubeType for SliceV2<E, IO> {
@@ -69,12 +104,18 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeDebug for SliceV2Expand<E, IO> {
 impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceV2Expand<E, IO> {
     fn clone(&self) -> Self {
         Self {
-            list: self.list.clone(),
+            origin: self.origin.clone(),
             offset: self.offset.clone(),
-            len: self.len.clone(),
+            length: self.length.clone(),
+            io: PhantomData,
         }
     }
 }
+
+// TODO: Fix
+// impl<T: CubePrimitive> SizedContainer for SliceV2<T, ReadOnly> {
+//     type Item = T;
+// }
 
 impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadOnly> {
     type Output = E;
@@ -91,12 +132,15 @@ impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadOnly> {
 impl<E: CubePrimitive> CubeIndexExpand for SliceV2Expand<E, ReadOnly> {
     type Output = E::ExpandType;
 
-    fn expand_index(
+    fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
+        self.__expand_read_method(scope, index)
+    }
+    fn expand_index_unchecked(
+        self,
         scope: &mut Scope,
-        array: Self,
         index: ExpandElementTyped<u32>,
     ) -> Self::Output {
-        array.__expand_read_method(scope, index)
+        self.__expand_read_unchecked_method(scope, index)
     }
 }
 
@@ -107,7 +151,14 @@ impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadOnly> {
         scope: &mut cubecl_ir::Scope,
         index: ExpandElementTyped<u32>,
     ) -> <E as CubeType>::ExpandType {
-        read_offset::expand::<E>(scope, self.list.as_ref(), self.offset.clone(), index)
+        read_offset::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut cubecl_ir::Scope,
+        index: ExpandElementTyped<u32>,
+    ) -> <E as CubeType>::ExpandType {
+        read_offset_unchecked::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
     }
 }
 
@@ -126,12 +177,15 @@ impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadWrite> {
 impl<E: CubePrimitive> CubeIndexExpand for SliceV2Expand<E, ReadWrite> {
     type Output = E::ExpandType;
 
-    fn expand_index(
+    fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
+        self.__expand_read_method(scope, index)
+    }
+    fn expand_index_unchecked(
+        self,
         scope: &mut Scope,
-        array: Self,
         index: ExpandElementTyped<u32>,
     ) -> Self::Output {
-        array.__expand_read_method(scope, index)
+        self.__expand_read_unchecked_method(scope, index)
     }
 }
 
@@ -142,7 +196,14 @@ impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadWrite> {
         scope: &mut cubecl_ir::Scope,
         index: ExpandElementTyped<u32>,
     ) -> <E as CubeType>::ExpandType {
-        read_offset::expand::<E>(scope, self.list.as_ref(), self.offset.clone(), index)
+        read_offset::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut cubecl_ir::Scope,
+        index: ExpandElementTyped<u32>,
+    ) -> <E as CubeType>::ExpandType {
+        read_offset_unchecked::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
     }
 }
 
@@ -161,12 +222,12 @@ impl<E: CubePrimitive> CubeIndexMutExpand for SliceV2Expand<E, ReadWrite> {
     type Output = E::ExpandType;
 
     fn expand_index_mut(
+        self,
         scope: &mut Scope,
-        array: Self,
         index: ExpandElementTyped<u32>,
         value: Self::Output,
     ) {
-        array.__expand_write_method(scope, index, value)
+        self.__expand_write_method(scope, index, value)
     }
 }
 
@@ -178,7 +239,13 @@ impl<E: CubePrimitive> ListMutExpand<E> for SliceV2Expand<E, ReadWrite> {
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<E>,
     ) {
-        write_offset::expand::<E>(scope, self.list.as_ref(), self.offset.clone(), index, value)
+        write_offset::expand::<E>(
+            scope,
+            self.origin.clone(),
+            self.offset.clone(),
+            index,
+            value,
+        )
     }
 }
 
@@ -186,13 +253,39 @@ mod read_offset {
     use super::*;
 
     pub fn expand<E: CubePrimitive>(
-        context: &mut cubecl::prelude::Scope,
-        list: &dyn ListExpand<E>,
+        scope: &mut cubecl::prelude::Scope,
+        origin: SliceOriginExpand<E>,
         offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
         index: <u32 as cubecl::prelude::CubeType>::ExpandType,
     ) -> <E as cubecl::prelude::CubeType>::ExpandType {
-        let position = cubecl::frontend::add::expand(context, offset.into(), index.into());
-        list.__expand_read_method(context, position.into())
+        let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
+
+        match origin {
+            SliceOriginExpand::Tensor(expand) => index::expand(scope, expand, index),
+            SliceOriginExpand::Array(expand) => index::expand(scope, expand, index),
+            SliceOriginExpand::SharedMemory(expand) => index::expand(scope, expand, index),
+        }
+    }
+}
+
+mod read_offset_unchecked {
+    use super::*;
+
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut cubecl::prelude::Scope,
+        origin: SliceOriginExpand<E>,
+        offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
+        index: <u32 as cubecl::prelude::CubeType>::ExpandType,
+    ) -> <E as cubecl::prelude::CubeType>::ExpandType {
+        let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
+
+        match origin {
+            SliceOriginExpand::Tensor(expand) => index_unchecked::expand(scope, expand, index),
+            SliceOriginExpand::Array(expand) => index_unchecked::expand(scope, expand, index),
+            SliceOriginExpand::SharedMemory(expand) => {
+                index_unchecked::expand(scope, expand, index)
+            }
+        }
     }
 }
 
@@ -200,13 +293,20 @@ mod write_offset {
     use super::*;
 
     pub fn expand<E: CubePrimitive>(
-        context: &mut cubecl::prelude::Scope,
-        list: &dyn ListMutExpand<E>,
+        scope: &mut cubecl::prelude::Scope,
+        origin: SliceOriginExpand<E>,
         offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
         index: <u32 as cubecl::prelude::CubeType>::ExpandType,
         value: <E as cubecl::prelude::CubeType>::ExpandType,
     ) {
-        let position = cubecl::frontend::add::expand(context, offset.into(), index.into());
-        list.__expand_write_method(context, position.into(), value)
+        let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
+
+        match origin {
+            SliceOriginExpand::Tensor(expand) => index_assign::expand(scope, expand, index, value),
+            SliceOriginExpand::Array(expand) => index_assign::expand(scope, expand, index, value),
+            SliceOriginExpand::SharedMemory(expand) => {
+                index_assign::expand(scope, expand, index, value)
+            }
+        }
     }
 }

@@ -51,7 +51,7 @@ pub mod assign {
 pub mod index_assign {
     use super::*;
     use crate::prelude::{
-        CubeIndexMutExpand, ExpandElementTyped, Line, SliceMut, expand_index_assign_native,
+        CubeIndexMutExpand, ExpandElementTyped, Line, expand_index_assign_native,
     };
 
     pub fn expand<A: CubeIndexMutExpand<Output = ExpandElementTyped<V>>, V: CubePrimitive>(
@@ -60,19 +60,23 @@ pub mod index_assign {
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<V>,
     ) {
-        A::expand_index_mut(scope, expand, index, value);
+        expand.expand_index_mut(scope, index, value)
     }
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubePrimitive> CubeIndexMut for $type<E> {
+            impl<E: CubePrimitive> CubeIndexMut for $type<E> {}
+
+            impl<E: CubePrimitive> CubeIndexMutExpand for ExpandElementTyped<$type<E>> {
+                type Output = ExpandElementTyped<E>;
+
                 fn expand_index_mut(
+                    self,
                     scope: &mut Scope,
-                    array: Self::ExpandType,
                     index: ExpandElementTyped<u32>,
-                    value: ExpandElementTyped<Self::Output>,
+                    value: Self::Output,
                 ) {
-                    expand_index_assign_native::<Self>(scope, array, index, value);
+                    expand_index_assign_native::<$type<E>>(scope, self, index, value);
                 }
             }
         };
@@ -82,44 +86,42 @@ pub mod index_assign {
     impl_index!(Tensor);
     impl_index!(SharedMemory);
     impl_index!(Line);
-
-    impl<E: CubePrimitive> CubeIndexMut for SliceMut<E> {
-        fn expand_index_mut(
-            scope: &mut Scope,
-            array: Self::ExpandType,
-            index: ExpandElementTyped<u32>,
-            value: ExpandElementTyped<Self::Output>,
-        ) {
-            expand_index_assign_native::<Self>(scope, array, index, value);
-        }
-    }
 }
 
 pub mod index {
     use super::*;
-    use crate::prelude::{
-        CubeIndexExpand, ExpandElementTyped, Line, Slice, SliceMut, expand_index_native,
-    };
+    use crate::prelude::{CubeIndexExpand, ExpandElementTyped, Line, expand_index_native};
 
     pub fn expand<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
         scope: &mut Scope,
         expand: A,
         index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<V> {
-        A::expand_index(scope, expand, index)
+        expand.expand_index(scope, index)
     }
 
     macro_rules! impl_index {
         ($type:ident) => {
             impl<E: CubePrimitive> CubeIndex for $type<E> {
                 type Output = E;
+            }
+
+            impl<E: CubePrimitive> CubeIndexExpand for ExpandElementTyped<$type<E>> {
+                type Output = ExpandElementTyped<E>;
 
                 fn expand_index(
+                    self,
                     scope: &mut Scope,
-                    array: Self::ExpandType,
                     index: ExpandElementTyped<u32>,
-                ) -> ExpandElementTyped<Self::Output> {
-                    expand_index_native(scope, array, index)
+                ) -> Self::Output {
+                    expand_index_native(scope, self, index)
+                }
+                fn expand_index_unchecked(
+                    self,
+                    scope: &mut Scope,
+                    index: ExpandElementTyped<u32>,
+                ) -> Self::Output {
+                    expand_index_native(scope, self, index)
                 }
             }
         };
@@ -129,29 +131,18 @@ pub mod index {
     impl_index!(Tensor);
     impl_index!(SharedMemory);
     impl_index!(Line);
+}
 
-    impl<E: CubePrimitive> CubeIndex for Slice<E> {
-        type Output = E;
+pub mod index_unchecked {
+    use super::*;
+    use crate::prelude::{CubeIndexExpand, ExpandElementTyped};
 
-        fn expand_index(
-            scope: &mut Scope,
-            array: Self::ExpandType,
-            index: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<Self::Output> {
-            expand_index_native(scope, array, index)
-        }
-    }
-
-    impl<E: CubePrimitive> CubeIndex for SliceMut<E> {
-        type Output = E;
-
-        fn expand_index(
-            scope: &mut Scope,
-            array: Self::ExpandType,
-            index: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<Self::Output> {
-            expand_index_native(scope, array, index)
-        }
+    pub fn expand<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
+        scope: &mut Scope,
+        expand: A,
+        index: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<V> {
+        expand.expand_index_unchecked(scope, index)
     }
 }
 

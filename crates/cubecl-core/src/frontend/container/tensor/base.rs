@@ -4,11 +4,13 @@ use crate::{
         indexation::Index,
     },
     ir::{Item, Metadata, Scope},
-    prelude::{Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::{
+        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
+    },
     unexpanded,
 };
 use cubecl_ir::ExpandElement;
-use std::{marker::PhantomData, num::NonZero};
+use std::{marker::PhantomData, num::NonZero, sync::Arc};
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
@@ -379,6 +381,13 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, self.clone(), idx)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index_unchecked::expand(scope, self.clone(), idx)
     }
 }
 

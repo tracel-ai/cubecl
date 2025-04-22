@@ -53,7 +53,10 @@ use crate::{
     unexpanded,
 };
 
-use super::{CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Slice, SliceMut};
+use super::{
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, ReadOnly, Slice, SliceMut,
+    SliceV2Expand,
+};
 
 use cubecl_ir::{ExpandElement, Scope};
 pub use ir::{MatrixIdent, MatrixLayout};
@@ -226,7 +229,7 @@ impl<C: CubePrimitive> Matrix<C> {
         n: ExpandElementTyped<u32>,
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
-        value: ExpandElementTyped<Slice<C>>,
+        value: SliceV2Expand<C, ReadOnly>,
         stride: ExpandElementTyped<u32>,
     ) -> MatrixExpand<C> {
         let mat = Self::__expand_uninitialized(scope, ident, m, n, k, layout);
@@ -274,7 +277,7 @@ pub mod load {
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
-        value: ExpandElementTyped<Slice<V>>,
+        value: SliceV2Expand<V, ReadOnly>,
         stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
@@ -284,9 +287,12 @@ pub mod load {
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
 
+        let (value, offset) = value.__to_raw_parts();
+
         scope.register(Instruction::new(
             ir::CoopMma::Load {
-                value: *value.expand,
+                value,
+                offset,
                 stride: *stride,
                 layout: None,
             },
@@ -316,15 +322,17 @@ pub mod load_with_layout {
     pub fn expand<C: CubeType, V: CubePrimitive>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
-        value: ExpandElementTyped<Slice<V>>,
+        value: SliceV2Expand<V, ReadOnly>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
         let stride: ExpandElement = stride.into();
+        let (value, offset) = value.__to_raw_parts();
 
         scope.register(Instruction::new(
             ir::CoopMma::Load {
-                value: *value.expand,
+                value,
+                offset,
                 stride: *stride,
                 layout: Some(layout),
             },
@@ -346,26 +354,31 @@ pub fn store<C: CubePrimitive, O: CubePrimitive>(
 
 /// Module containing the expand function for [store()].
 pub mod store {
+    use crate::prelude::ReadWrite;
+
     use super::*;
 
     /// Expand method of [store()].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,
-        output: ExpandElementTyped<SliceMut<O>>,
+        output: SliceV2Expand<O, ReadWrite>,
         mat: MatrixExpand<C>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
         let stride: ExpandElement = stride.into();
 
+        let (output, offset) = output.__to_raw_parts();
+
         scope.register(Instruction::new(
             ir::CoopMma::Store {
                 mat: *mat.elem,
+                offset,
                 stride: *stride,
                 layout,
             },
-            *output.expand,
+            output,
         ));
     }
 }

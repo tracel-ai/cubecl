@@ -3,7 +3,9 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
     ir::{Item, Scope},
-    prelude::{Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::{
+        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -196,6 +198,13 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, self.clone(), idx)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index_unchecked::expand(scope, self.clone(), idx)
     }
 }
 
