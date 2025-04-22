@@ -191,7 +191,7 @@ mod vectorization {
                     let expand: Self = self.expand.clone().into();
                     let element =
                         index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
-                    index_assign::expand::<Self>(
+                    index_assign::expand::<ExpandElementTyped<Array<C>>, _>(
                         scope,
                         new_var.clone().into(),
                         ExpandElementTyped::from_lit(scope, i),
@@ -387,6 +387,6 @@ impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Array<T>> {
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand::<Self>(scope, self.clone(), idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

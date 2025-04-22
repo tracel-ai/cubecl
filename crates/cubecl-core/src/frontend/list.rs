@@ -41,7 +41,9 @@ pub trait ListMut<T: CubeType>: CubeType<ExpandType: ListMutExpand<T>> + List<T>
         this: Self::ExpandType,
         index: ExpandElementTyped<u32>,
         value: T::ExpandType,
-    );
+    ) {
+        this.__expand_write_method(scope, index, value)
+    }
 }
 
 /// Expand version of [CubeWrite].

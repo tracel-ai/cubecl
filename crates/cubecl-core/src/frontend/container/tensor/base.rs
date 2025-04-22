@@ -368,7 +368,7 @@ impl<T: CubePrimitive> List<T> for Tensor<T> {
         this: ExpandElementTyped<Tensor<T>>,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand::<Self::ExpandType>(scope, this, idx)
+        index::expand(scope, this, idx)
     }
 }
 
@@ -378,7 +378,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand::<Self>(scope, self.clone(), idx)
+        index::expand(scope, self.clone(), idx)
     }
 }
 
@@ -389,7 +389,7 @@ impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand::<Self::ExpandType>(scope, this, idx, value);
+        index_assign::expand(scope, this, idx, value);
     }
 }
 
@@ -400,6 +400,6 @@ impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand::<Self>(scope, self.clone(), idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

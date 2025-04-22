@@ -54,11 +54,11 @@ pub mod index_assign {
         CubeIndexMutExpand, ExpandElementTyped, Line, SliceMut, expand_index_assign_native,
     };
 
-    pub fn expand<A: CubeIndexMutExpand>(
+    pub fn expand<A: CubeIndexMutExpand<Output = ExpandElementTyped<V>>, V: CubePrimitive>(
         scope: &mut Scope,
         expand: A,
         index: ExpandElementTyped<u32>,
-        value: A::Output,
+        value: ExpandElementTyped<V>,
     ) {
         A::expand_index_mut(scope, expand, index, value);
     }
@@ -101,11 +101,11 @@ pub mod index {
         CubeIndexExpand, ExpandElementTyped, Line, Slice, SliceMut, expand_index_native,
     };
 
-    pub fn expand<A: CubeIndexExpand>(
+    pub fn expand<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
         scope: &mut Scope,
         expand: A,
         index: ExpandElementTyped<u32>,
-    ) -> A::Output {
+    ) -> ExpandElementTyped<V> {
         A::expand_index(scope, expand, index)
     }
 

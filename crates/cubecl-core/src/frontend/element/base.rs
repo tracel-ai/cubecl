@@ -169,6 +169,12 @@ impl<T: CubeType> From<&ExpandElementTyped<T>> for ExpandElementTyped<T> {
     }
 }
 
+impl<T: CubeType> From<ExpandElementTyped<T>> for Variable {
+    fn from(value: ExpandElementTyped<T>) -> Self {
+        value.expand.into()
+    }
+}
+
 impl<T: CubeType> From<&mut ExpandElementTyped<T>> for ExpandElementTyped<T> {
     fn from(value: &mut ExpandElementTyped<T>) -> Self {
         value.clone()
