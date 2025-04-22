@@ -1,5 +1,8 @@
 mod base;
+mod swizzle;
+
 pub use base::*;
+pub(crate) use swizzle::*;
 
 pub mod async_buffer_maximize_slice_length;
 pub mod async_full_cooperative;

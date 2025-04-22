@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::load::SyncFullLoadingStrategy;
+use crate::matmul::components::global::load::{SyncFullLoadingStrategy, write_smem_swizzled};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
@@ -138,8 +138,20 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         config,
     );
 
-    // stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
-    //     CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
-    //     CubeOption::None => Line::cast_from(line_read),
-    // };
+    // global line size
+    let line_read = match quantization {
+        CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
+        CubeOption::None => Line::cast_from(line_read),
+    };
+
+    // // Stupid, should be just stage line size
+    // let g_position = unit_position / job.line_size;
+    // let global_sized = stage
+    //     .as_slice_mut(job.line_size)
+    //     .slice_mut(g_position, g_position + 1);
+
+    let stage_line_size = 2u32;
+    let s_position = unit_position / stage_line_size;
+    let mut stage_sized = stage.as_slice_mut(stage_line_size);
+    write_smem_swizzled(&mut stage_sized, s_position, line_read);
 }
