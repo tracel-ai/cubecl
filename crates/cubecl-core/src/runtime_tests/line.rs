@@ -104,6 +104,53 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
     }
 }
 
+#[cube(launch_unchecked)]
+pub fn kernel_reinterpret_to_smaller_line<F: Float>(
+    input: &Array<Line<F>>,
+    output: &mut Array<Line<F>>,
+    #[comptime] line_size_in: u32,
+    #[comptime] line_size_out: u32,
+) {
+    let line_in = input[0];
+    let reinterpreted_line = Line::reinterpret(line_in);
+    output[0] = reinterpreted_line;
+}
+
+pub fn test_line_reinterpret_to_smaller_line<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let line_size_in = R::line_size_elem(&F::as_elem_native_unchecked())
+        .max()
+        .unwrap();
+    // let line_size_out = R::line_size_elem(&F::as_elem_native_unchecked())
+    //     .min()
+    //     .unwrap();
+    let line_size_out = 2;
+
+    let handle_in = client.create(F::as_bytes(&vec![F::new(1.0); line_size_in as usize]));
+    let handle_out = client.create(F::as_bytes(&vec![F::new(0.0); line_size_out as usize]));
+    unsafe {
+        kernel_reinterpret_to_smaller_line::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            ArrayArg::from_raw_parts::<F>(&handle_in, 1, line_size_in),
+            ArrayArg::from_raw_parts::<F>(&handle_out, 1, line_size_out),
+            line_size_in as u32,
+            line_size_out as u32,
+        );
+    }
+
+    let actual = client.read_one(handle_out.binding());
+    let actual = F::from_bytes(&actual);
+
+    let expected = (0..line_size_out as i64)
+        .map(|x| F::from_int(x))
+        .collect::<Vec<_>>();
+
+    assert_eq!(&actual[..line_size_out as usize], expected);
+}
+
 macro_rules! impl_line_comparison {
     ($cmp:ident, $expected:expr) => {
         ::paste::paste! {
@@ -220,6 +267,15 @@ macro_rules! testgen_line {
             cubecl_core::runtime_tests::line::test_line_greater_equal::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[test]
+        fn test_line_reinterpret_to_smaller_line() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_line_reinterpret_to_smaller_line::<
+                TestRuntime,
+                FloatType,
+            >(client);
         }
     };
 }

@@ -138,8 +138,8 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         config,
     );
 
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
-        CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
-        CubeOption::None => Line::cast_from(line_read),
-    };
+    // stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
+    //     CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
+    //     CubeOption::None => Line::cast_from(line_read),
+    // };
 }
