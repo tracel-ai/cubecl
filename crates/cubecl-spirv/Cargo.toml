@@ -29,8 +29,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-featur
 half = { workspace = true }
 
 hashbrown = { workspace = true }
-# rspirv = "0.12"
-rspirv = { git = "https://github.com/gfx-rs/rspirv.git", rev = "e19c11fdb30295127cff1d018189bd436892415e" }
+rspirv = "0.12"
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "0.5.0" }

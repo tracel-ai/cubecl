@@ -89,7 +89,7 @@ struct Definitions {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_debug(&mut self) {
-        if self.debug_symbols {
+        if self.debug_enabled() {
             let flags = self.const_u32(DebugInfoFlags::None.0);
             let return_ty = self.type_void();
             let function_ty =
@@ -118,6 +118,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     args,
                 ],
             );
+        } else if self.debug_symbols {
+            let flags = self.const_u32(DebugInfoFlags::None.0);
+            let return_ty = self.type_void();
+            let function_ty =
+                self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
+            self.debug_info = Some(DebugInfo {
+                function_ty,
+                stack: Default::default(),
+                definitions: Default::default(),
+                previous_loc: None,
+            });
         }
     }
 
@@ -382,7 +393,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn debug_start_block(&mut self) {
-        if self.debug_symbols {
+        if self.debug_enabled() {
             let loc = self.debug_info().previous_loc.clone().unwrap();
             let func = self.stack_top().definition;
             let inlined = self.stack_top().inlined_at;
@@ -434,6 +445,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     #[track_caller]
     pub fn debug_info(&mut self) -> &mut DebugInfo {
         self.debug_info.as_mut().unwrap()
+    }
+
+    pub fn debug_enabled(&mut self) -> bool {
+        self.debug_symbols && self.opt.root_scope.debug.entry_loc.is_some()
     }
 
     pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {

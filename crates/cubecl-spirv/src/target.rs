@@ -1,7 +1,11 @@
 use cubecl_core::compute::{Binding, Location, Visibility};
 use hashbrown::HashMap;
-use rspirv::spirv::{
-    self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
+use rspirv::{
+    dr,
+    spirv::{
+        self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass,
+        Word,
+    },
 };
 use std::{fmt::Debug, iter};
 
@@ -75,6 +79,15 @@ impl SpirvTarget for GLCompute {
         for cap in caps.iter() {
             b.capability(*cap);
         }
+        if b.float_controls {
+            let inst = dr::Instruction::new(
+                spirv::Op::Capability,
+                None,
+                None,
+                vec![dr::Operand::LiteralBit32(6029)],
+            );
+            b.module_mut().capabilities.push(inst);
+        }
 
         if caps.contains(&Capability::CooperativeMatrixKHR) {
             b.extension("SPV_KHR_cooperative_matrix");
@@ -97,7 +110,7 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_EXT_shader_atomic_float_min_max");
         }
 
-        if caps.contains(&Capability::FloatControls2) {
+        if b.float_controls {
             b.extension("SPV_KHR_float_controls2");
         }
 
@@ -114,7 +127,7 @@ impl SpirvTarget for GLCompute {
         );
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
 
-        if caps.contains(&Capability::FloatControls2) {
+        if b.float_controls {
             b.declare_float_execution_modes(main);
         }
     }
