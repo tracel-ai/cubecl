@@ -1,13 +1,13 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    GenericArgument, Generics, Ident, ImplItem, ItemImpl, LitStr, PathArguments, Token, Type,
-    TypePath, spanned::Spanned, visit_mut::VisitMut,
+    FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, LitStr, PathArguments, Token,
+    Type, TypePath, spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{parse::kernel::KernelBody, scope::Context};
 
 use super::{
-    helpers::{RemoveHelpers, ReplaceIndices},
+    helpers::{IntrinsicUnexpanded, RemoveHelpers, ReplaceIndices, is_intrinsic_attr},
     kernel::KernelFn,
 };
 
@@ -37,6 +37,14 @@ impl CubeImplItem {
             ImplItem::Fn(func) => {
                 let name = func.sig.ident.clone();
                 let full_name = quote!(#struct_ty_name::#name).to_string();
+                let is_intrinsic = func.attrs.iter().any(is_intrinsic_attr);
+
+                let is_method = func
+                    .sig
+                    .inputs
+                    .iter()
+                    .any(|param| matches!(param, FnArg::Receiver(_)));
+                let func_name_expand = format_ident!("__expand_{}", func.sig.ident);
                 let mut func = KernelFn::from_sig_and_block(
                     func.vis,
                     func.sig,
@@ -44,15 +52,8 @@ impl CubeImplItem {
                     full_name,
                     src_file,
                     debug_symbols,
+                    is_intrinsic,
                 )?;
-                let func_name_expand = format_ident!("__expand_{}", func.sig.name);
-
-                let is_method = func
-                    .sig
-                    .parameters
-                    .first()
-                    .map(|param| param.name == "self")
-                    .unwrap_or(false);
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
@@ -128,7 +129,7 @@ impl CubeImplItem {
 
         let mut body = KernelBody::Verbatim(quote! {
             this.#method_name #generics(
-                context,
+                scope,
                 #(#args),*
             )
         });
@@ -185,7 +186,7 @@ impl CubeImplItem {
 
         let body = quote! {
             #struct_name::#fn_name #generics(
-                context,
+                scope,
                 #(#args),*
             )
         };
@@ -227,6 +228,7 @@ impl CubeImpl {
             })
             .collect::<Result<_, _>>()?;
 
+        IntrinsicUnexpanded.visit_item_impl_mut(&mut item_impl);
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
         ReplaceIndices.visit_item_impl_mut(&mut item_impl);
 

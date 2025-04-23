@@ -15,6 +15,7 @@ use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
 pub(crate) struct KernelArgs {
     pub launch: Flag,
     pub launch_unchecked: Flag,
+    pub intrinsic: Flag,
     pub debug_symbols: Flag,
     pub fast_math: Option<Expr>,
     pub debug: Flag,
@@ -71,7 +72,7 @@ impl GenericAnalysis {
         for (name, ty) in self.map.iter() {
             output.extend(quote! {
                 builder
-                    .context
+                    .scope
                     .register_elem::<#ty>(#name::as_elem_native_unchecked());
             });
         }
@@ -362,19 +363,27 @@ impl KernelFn {
         full_name: String,
         src_file: Option<LitStr>,
         debug_symbols: bool,
+        intrinsic: bool,
     ) -> syn::Result<Self> {
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig)?;
-        Desugar.visit_block_mut(&mut block);
-
         let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
-        let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
+
+        let body = if intrinsic {
+            KernelBody::Verbatim(block.to_token_stream())
+        } else {
+            Desugar.visit_block_mut(&mut block);
+
+            let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
+
+            KernelBody::Block(block)
+        };
 
         Ok(KernelFn {
             vis,
             sig,
-            body: KernelBody::Block(block),
+            body,
             full_name,
             span,
             src_file,
@@ -402,6 +411,7 @@ impl Launch {
             full_name,
             args.src_file.clone(),
             args.debug_symbols.is_present(),
+            args.intrinsic.is_present(),
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.

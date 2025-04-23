@@ -63,6 +63,11 @@ impl Unroll {
 pub struct RemoveHelpers;
 
 impl VisitMut for RemoveHelpers {
+    fn visit_impl_item_fn_mut(&mut self, i: &mut syn::ImplItemFn) {
+        i.attrs.retain(|it| !is_intrinsic_attr(it));
+        visit_mut::visit_impl_item_fn_mut(self, i);
+    }
+
     fn visit_fn_arg_mut(&mut self, i: &mut syn::FnArg) {
         match i {
             syn::FnArg::Receiver(recv) => recv.attrs.retain(|it| !is_comptime_attr(it)),
@@ -185,8 +190,26 @@ impl VisitMut for ReplaceIndexMut {
     }
 }
 
+pub struct IntrinsicUnexpanded;
+
+impl VisitMut for IntrinsicUnexpanded {
+    fn visit_impl_item_fn_mut(&mut self, i: &mut syn::ImplItemFn) {
+        if i.attrs.iter().any(is_intrinsic_attr) {
+            i.attrs.push(parse_quote!(#[allow(unused_variables)]));
+            i.block = parse_quote!({
+                cubecl::unexpanded!();
+            })
+        }
+        visit_mut::visit_impl_item_fn_mut(self, i);
+    }
+}
+
 pub fn is_comptime_attr(attr: &Attribute) -> bool {
     attr.path().is_ident("comptime")
+}
+
+pub fn is_intrinsic_attr(attr: &Attribute) -> bool {
+    attr.path().is_ident("intrinsic")
 }
 
 pub fn is_unroll_attr(attr: &Attribute) -> bool {

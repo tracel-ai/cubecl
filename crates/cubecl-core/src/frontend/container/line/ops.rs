@@ -1,6 +1,8 @@
-use cubecl_ir::{Bitwise, Elem, Instruction, Scope, UIntKind, UnaryOperator};
+use cubecl_ir::{Bitwise, Elem, Instruction, UIntKind, UnaryOperator};
+use cubecl_macros::cube;
 use num_traits::{NumCast, ToPrimitive};
 
+use crate as cubecl;
 use crate::{
     frontend::{
         Abs, Ceil, Clamp, Cos, CubeIndex, CubeIndexMut, CubePrimitive, Erf, Exp,
@@ -12,6 +14,7 @@ use crate::{
 };
 
 use super::Line;
+type LineExpand<E> = ExpandElementTyped<Line<E>>;
 
 impl<P> core::ops::Add<Self> for Line<P>
 where
@@ -252,21 +255,10 @@ impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
 impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
 impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
 
+#[cube]
 impl<P: CountOnes> Line<P> {
+    #[intrinsic]
     pub fn count_ones(self) -> Line<u32> {
-        unexpanded!()
-    }
-
-    pub fn __expand_count_ones(
-        scope: &mut Scope,
-        value: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<Line<u32>> {
-        value.__expand_count_ones_method(scope)
-    }
-}
-
-impl<P: CountOnes> ExpandElementTyped<Line<P>> {
-    pub fn __expand_count_ones_method(self, scope: &mut Scope) -> ExpandElementTyped<Line<u32>> {
         let mut out_item = self.expand.item;
         out_item.elem = Elem::UInt(UIntKind::U32);
         let out = scope.create_local(out_item);
@@ -280,21 +272,10 @@ impl<P: CountOnes> ExpandElementTyped<Line<P>> {
     }
 }
 
+#[cube]
 impl<P: LeadingZeros> Line<P> {
+    #[intrinsic]
     pub fn leading_zeros(self) -> Line<u32> {
-        unexpanded!()
-    }
-
-    pub fn __expand_leading_zeros(
-        scope: &mut Scope,
-        value: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<Line<u32>> {
-        value.__expand_leading_zeros_method(scope)
-    }
-}
-
-impl<P: LeadingZeros> ExpandElementTyped<Line<P>> {
-    pub fn __expand_leading_zeros_method(self, scope: &mut Scope) -> ExpandElementTyped<Line<u32>> {
         let mut out_item = self.expand.item;
         out_item.elem = Elem::UInt(UIntKind::U32);
         let out = scope.create_local(out_item);
@@ -308,24 +289,10 @@ impl<P: LeadingZeros> ExpandElementTyped<Line<P>> {
     }
 }
 
+#[cube]
 impl<P: FindFirstSet> Line<P> {
+    #[intrinsic]
     pub fn find_first_set(self) -> Line<u32> {
-        unexpanded!()
-    }
-
-    pub fn __expand_find_first_set(
-        scope: &mut Scope,
-        value: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<Line<u32>> {
-        value.__expand_find_first_set_method(scope)
-    }
-}
-
-impl<P: FindFirstSet> ExpandElementTyped<Line<P>> {
-    pub fn __expand_find_first_set_method(
-        self,
-        scope: &mut Scope,
-    ) -> ExpandElementTyped<Line<u32>> {
         let mut out_item = self.expand.item;
         out_item.elem = Elem::UInt(UIntKind::U32);
         let out = scope.create_local(out_item);

@@ -107,7 +107,7 @@ macro_rules! impl_int {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($type::as_elem(&builder.context)).into()
+                builder.scalar($type::as_elem(&builder.scope)).into()
             }
         }
     };

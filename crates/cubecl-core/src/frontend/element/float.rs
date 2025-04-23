@@ -132,7 +132,7 @@ macro_rules! impl_float {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem(&builder.context)).into()
+                builder.scalar($primitive::as_elem(&builder.scope)).into()
             }
         }
     };
