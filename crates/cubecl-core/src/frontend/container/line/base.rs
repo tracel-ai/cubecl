@@ -11,7 +11,7 @@ use crate::{
     unexpanded,
 };
 use cubecl_ir::{Comparison, ExpandElement};
-use cubecl_macros::cube;
+use cubecl_macros::{cube, intrinsic};
 use derive_more::derive::Neg;
 /// A contiguous list of elements that supports auto-vectorized operations.
 
@@ -38,10 +38,12 @@ mod new {
     #[cube]
     impl<P: CubePrimitive> Line<P> {
         /// Create a new line of size 1 using the given value.
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
-            let elem: ExpandElementTyped<P> = val;
-            elem.expand.into()
+            intrinsic!(|_| {
+                let elem: ExpandElementTyped<P> = val;
+                elem.expand.into()
+            })
         }
     }
 }
@@ -64,14 +66,16 @@ mod fill {
         /// line[0] = 1;
         /// line[1] = 2;
         /// ```
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
-            let length = self.expand.item.vectorization;
-            let output = scope.create_local(Item::vectorized(P::as_elem(scope), length));
+            intrinsic!(|scope| {
+                let length = self.expand.item.vectorization;
+                let output = scope.create_local(Item::vectorized(P::as_elem(scope), length));
 
-            cast::expand::<P>(scope, value, output.clone().into());
+                cast::expand::<P>(scope, value, output.clone().into());
 
-            output.into()
+                output.into()
+            })
         }
     }
 }
@@ -85,12 +89,14 @@ mod empty {
         /// Create an empty line of the given size.
         ///
         /// Note that a line can't change in size once it's fixed.
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub fn empty(#[comptime] size: u32) -> Self {
-            let length = NonZero::new(size as u8);
-            scope
-                .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
-                .into()
+            intrinsic!(|scope| {
+                let length = NonZero::new(size as u8);
+                scope
+                    .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
+                    .into()
+            })
         }
     }
 }
@@ -153,20 +159,22 @@ macro_rules! impl_line_comparison {
                         $comment,
                         " the second line."
                     )]
-                    #[intrinsic]
+                    #[allow(unused_variables)]
                     pub fn $name(self, other: Self) -> Line<bool> {
-                        let size = self.expand.item.vectorization;
-                        let lhs = self.expand.into();
-                        let rhs = other.expand.into();
+                        intrinsic!(|scope| {
+                            let size = self.expand.item.vectorization;
+                            let lhs = self.expand.into();
+                            let rhs = other.expand.into();
 
-                        let output = scope.create_local_mut(Item::vectorized(bool::as_elem(scope), size));
+                            let output = scope.create_local_mut(Item::vectorized(bool::as_elem(scope), size));
 
-                        scope.register(Instruction::new(
-                            Comparison::$operator(BinaryOperator { lhs, rhs }),
-                            output.clone().into(),
-                        ));
+                            scope.register(Instruction::new(
+                                Comparison::$operator(BinaryOperator { lhs, rhs }),
+                                output.clone().into(),
+                            ));
 
-                        output.into()
+                            output.into()
+                        })
                     }
                 }
             }
@@ -192,9 +200,11 @@ mod bool_and {
     #[cube]
     impl Line<bool> {
         /// Return a new line with the element-wise and of the lines
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub fn and(self, other: Self) -> Line<bool> {
-            binary_expand(scope, self.expand, other.expand, Operator::And).into()
+            intrinsic!(
+                |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
+            )
         }
     }
 }
@@ -209,9 +219,9 @@ mod bool_or {
     #[cube]
     impl Line<bool> {
         /// Return a new line with the element-wise and of the lines
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub fn or(self, other: Self) -> Line<bool> {
-            binary_expand(scope, self.expand, other.expand, Operator::Or).into()
+            intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
         }
     }
 }

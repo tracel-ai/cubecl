@@ -7,7 +7,7 @@ use syn::{
 use crate::{parse::kernel::KernelBody, scope::Context};
 
 use super::{
-    helpers::{IntrinsicUnexpanded, RemoveHelpers, ReplaceIndices, is_intrinsic_attr},
+    helpers::{RemoveHelpers, ReplaceIndices},
     kernel::KernelFn,
 };
 
@@ -37,7 +37,6 @@ impl CubeImplItem {
             ImplItem::Fn(func) => {
                 let name = func.sig.ident.clone();
                 let full_name = quote!(#struct_ty_name::#name).to_string();
-                let is_intrinsic = func.attrs.iter().any(is_intrinsic_attr);
 
                 let is_method = func
                     .sig
@@ -52,7 +51,6 @@ impl CubeImplItem {
                     full_name,
                     src_file,
                     debug_symbols,
-                    is_intrinsic,
                 )?;
 
                 if is_method {
@@ -228,7 +226,6 @@ impl CubeImpl {
             })
             .collect::<Result<_, _>>()?;
 
-        IntrinsicUnexpanded.visit_item_impl_mut(&mut item_impl);
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
         ReplaceIndices.visit_item_impl_mut(&mut item_impl);
 

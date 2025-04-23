@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, num::NonZero};
 
 use crate as cubecl;
-use cubecl_macros::cube;
+use cubecl_macros::{cube, intrinsic};
 
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
@@ -86,18 +86,20 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
 #[cube]
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
-    #[intrinsic]
+    #[allow(unused_variables)]
     pub fn new_aligned(
         #[comptime] size: u32,
         #[comptime] vectorization_factor: u32,
         #[comptime] alignment: u32,
     ) -> SharedMemory<Line<T>> {
-        let var = scope.create_shared(
-            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
-            size,
-            Some(alignment),
-        );
-        ExpandElementTyped::new(var)
+        intrinsic!(|scope| {
+            let var = scope.create_shared(
+                Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
+                size,
+                Some(alignment),
+            );
+            ExpandElementTyped::new(var)
+        })
     }
 }
 
@@ -118,17 +120,19 @@ mod indexation {
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub unsafe fn index_unchecked(&self, i: u32) -> &E {
-            let out = scope.create_local(self.expand.item);
-            scope.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
-                    lhs: *self.expand,
-                    rhs: i.expand.consume(),
-                }),
-                *out,
-            ));
-            out.into()
+            intrinsic!(|scope| {
+                let out = scope.create_local(self.expand.item);
+                scope.register(Instruction::new(
+                    Operator::UncheckedIndex(BinaryOperator {
+                        lhs: *self.expand,
+                        rhs: i.expand.consume(),
+                    }),
+                    *out,
+                ));
+                out.into()
+            })
         }
 
         /// Perform an unchecked index assignment into the array
@@ -136,15 +140,17 @@ mod indexation {
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E) {
-            scope.register(Instruction::new(
-                Operator::UncheckedIndexAssign(BinaryOperator {
-                    lhs: i.expand.consume(),
-                    rhs: value.expand.consume(),
-                }),
-                *self.expand,
-            ));
+            intrinsic!(|scope| {
+                scope.register(Instruction::new(
+                    Operator::UncheckedIndexAssign(BinaryOperator {
+                        lhs: i.expand.consume(),
+                        rhs: value.expand.consume(),
+                    }),
+                    *self.expand,
+                ));
+            })
         }
     }
 }

@@ -1,5 +1,5 @@
 use cubecl_ir::{Bitwise, Elem, Instruction, UIntKind, UnaryOperator};
-use cubecl_macros::cube;
+use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
 
 use crate as cubecl;
@@ -257,52 +257,55 @@ impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
 
 #[cube]
 impl<P: CountOnes> Line<P> {
-    #[intrinsic]
     pub fn count_ones(self) -> Line<u32> {
-        let mut out_item = self.expand.item;
-        out_item.elem = Elem::UInt(UIntKind::U32);
-        let out = scope.create_local(out_item);
-        scope.register(Instruction::new(
-            Bitwise::CountOnes(UnaryOperator {
-                input: *self.expand,
-            }),
-            *out,
-        ));
-        out.into()
+        intrinsic!(|scope| {
+            let mut out_item = self.expand.item;
+            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out = scope.create_local(out_item);
+            scope.register(Instruction::new(
+                Bitwise::CountOnes(UnaryOperator {
+                    input: *self.expand,
+                }),
+                *out,
+            ));
+            out.into()
+        })
     }
 }
 
 #[cube]
 impl<P: LeadingZeros> Line<P> {
-    #[intrinsic]
     pub fn leading_zeros(self) -> Line<u32> {
-        let mut out_item = self.expand.item;
-        out_item.elem = Elem::UInt(UIntKind::U32);
-        let out = scope.create_local(out_item);
-        scope.register(Instruction::new(
-            Bitwise::LeadingZeros(UnaryOperator {
-                input: *self.expand,
-            }),
-            *out,
-        ));
-        out.into()
+        intrinsic!(|scope| {
+            let mut out_item = self.expand.item;
+            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out = scope.create_local(out_item);
+            scope.register(Instruction::new(
+                Bitwise::LeadingZeros(UnaryOperator {
+                    input: *self.expand,
+                }),
+                *out,
+            ));
+            out.into()
+        })
     }
 }
 
 #[cube]
 impl<P: FindFirstSet> Line<P> {
-    #[intrinsic]
     pub fn find_first_set(self) -> Line<u32> {
-        let mut out_item = self.expand.item;
-        out_item.elem = Elem::UInt(UIntKind::U32);
-        let out = scope.create_local(out_item);
-        scope.register(Instruction::new(
-            Bitwise::FindFirstSet(UnaryOperator {
-                input: *self.expand,
-            }),
-            *out,
-        ));
-        out.into()
+        intrinsic!(|scope| {
+            let mut out_item = self.expand.item;
+            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out = scope.create_local(out_item);
+            scope.register(Instruction::new(
+                Bitwise::FindFirstSet(UnaryOperator {
+                    input: *self.expand,
+                }),
+                *out,
+            ));
+            out.into()
+        })
     }
 }
 
