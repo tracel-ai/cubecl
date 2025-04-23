@@ -70,6 +70,7 @@ jobs:
     needs:
       - publish-cubecl-runtime
       - publish-cubecl-std
+      - publish-cubecl-reduce
       - publish-cubecl-core
     secrets: inherit
 
