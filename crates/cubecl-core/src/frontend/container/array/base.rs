@@ -23,20 +23,24 @@ type ArrayExpand<E> = ExpandElementTyped<Array<E>>;
 /// Module that contains the implementation details of the new function.
 mod new {
 
+    use cubecl_macros::intrinsic;
+
     use super::*;
     use crate::ir::Variable;
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create a new array of the given length.
-        #[intrinsic]
+        #[allow(unused_variables)]
         pub fn new(length: u32) -> Self {
-            let size = length
-                .constant()
-                .expect("Array need constant initialization value")
-                .as_u32();
-            let elem = T::as_elem(scope);
-            scope.create_local_array(Item::new(elem), size).into()
+            intrinsic!(|scope| {
+                let size = length
+                    .constant()
+                    .expect("Array needs constant initialization value")
+                    .as_u32();
+                let elem = T::as_elem(scope);
+                scope.create_local_array(Item::new(elem), size).into()
+            })
         }
     }
 
