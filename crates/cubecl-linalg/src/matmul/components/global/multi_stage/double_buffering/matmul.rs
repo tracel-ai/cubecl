@@ -405,6 +405,8 @@ impl<
     }
 }
 
+impl CubeDebug for EventListenerMode {}
+
 #[cube]
 impl<
     MP: MatmulPrecision,
