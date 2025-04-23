@@ -97,6 +97,7 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_EXT_shader_atomic_float_min_max");
         }
 
+        #[cfg(feature = "fastmath")]
         if caps.contains(&Capability::FloatControls2) {
             b.extension("SPV_KHR_float_controls2");
         }
@@ -114,6 +115,7 @@ impl SpirvTarget for GLCompute {
         );
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
 
+        #[cfg(feature = "fastmath")]
         if caps.contains(&Capability::FloatControls2) {
             b.declare_float_execution_modes(main);
         }

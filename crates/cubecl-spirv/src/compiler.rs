@@ -13,8 +13,11 @@ use std::{
 use cubecl_core::{Compiler, compute::KernelDefinition};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
+    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
+
+#[cfg(feature = "fastmath")]
+use rspirv::spirv;
 
 use crate::{
     SpirvKernel,
@@ -192,6 +195,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             false => FPFastMathMode::NONE,
         };
 
+        #[cfg(feature = "fastmath")]
         if self.fp_math_mode != FPFastMathMode::NONE {
             self.capabilities.insert(Capability::FloatControls2);
         }
@@ -365,6 +369,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
     }
 
+    #[cfg(feature = "fastmath")]
     pub fn declare_float_execution_modes(&mut self, main: Word) {
         let mode = self.const_u32(self.fp_math_mode.bits());
 
@@ -394,8 +399,11 @@ fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
             FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
             FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
             FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
+            #[cfg(feature = "fastmath")]
             FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
+            #[cfg(feature = "fastmath")]
             FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+            #[cfg(feature = "fastmath")]
             FastMath::AllowTransform => {
                 flags |= FPFastMathMode::ALLOW_CONTRACT
                     | FPFastMathMode::ALLOW_REASSOC

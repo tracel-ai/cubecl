@@ -267,8 +267,26 @@ impl Elem {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
             Elem::Int(width, _) => b.type_int(*width, 0),
-            Elem::Float(width) => b.type_float(*width, None),
-            Elem::Relaxed => b.type_float(32, None),
+            Elem::Float(width) => {
+                #[cfg(feature = "fastmath")]
+                {
+                    b.type_float(*width, None)
+                }
+                #[cfg(not(feature = "fastmath"))]
+                {
+                    b.type_float(*width)
+                }
+            }
+            Elem::Relaxed => {
+                #[cfg(feature = "fastmath")]
+                {
+                    b.type_float(32, None)
+                }
+                #[cfg(not(feature = "fastmath"))]
+                {
+                    b.type_float(32)
+                }
+            }
         };
         if b.debug_symbols && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
