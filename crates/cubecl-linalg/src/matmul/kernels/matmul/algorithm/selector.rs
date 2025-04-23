@@ -218,6 +218,9 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
     let (rows_per_plane, stage_size_m, stage_size_n) =
         change_rows_per_plane(stage_size, instruction_m, problem.m);
 
+    // Makes all rows the length of plane_dim
+    let k = plane_dim / instruction_k as u32;
+
     MatmulSelection {
         tile_shape: MatmulSize {
             m: instruction_m as u32,
@@ -227,7 +230,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         tile_count: MatmulSize {
             m: stage_size_m as u32,
             n: stage_size_n as u32,
-            k: 2,
+            k,
         },
         plane_dim,
         rows_per_plane: rows_per_plane as u32,
