@@ -118,6 +118,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     args,
                 ],
             );
+        } else if self.debug_symbols {
+            let flags = self.const_u32(DebugInfoFlags::None.0);
+            let return_ty = self.type_void();
+            let function_ty =
+                self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
+            self.debug_info = Some(DebugInfo {
+                function_ty,
+                stack: Default::default(),
+                definitions: Default::default(),
+                previous_loc: None,
+            });
         }
     }
 
