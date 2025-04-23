@@ -58,28 +58,24 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => matmul_cmma_ref_no_check::<R, MP, A>(
-            client,
-            lhs,
-            rhs,
-            out,
-            (lhs_transposed, rhs_transposed),
-        ),
-        (false, true) => matmul_cmma_ref_no_check::<R, MP, A>(
+        (false, false) => {
+            matmul_cmma_ref::<R, MP, A>(client, lhs, rhs, out, (lhs_transposed, rhs_transposed))
+        }
+        (false, true) => matmul_cmma_ref::<R, MP, A>(
             client,
             lhs,
             &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (true, false) => matmul_cmma_ref_no_check::<R, MP, A>(
+        (true, false) => matmul_cmma_ref::<R, MP, A>(
             client,
             &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (true, true) => matmul_cmma_ref_no_check::<R, MP, A>(
+        (true, true) => matmul_cmma_ref::<R, MP, A>(
             client,
             &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
             &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
@@ -90,7 +86,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 }
 
 #[allow(clippy::result_large_err)]
-fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -209,17 +205,12 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
-        && TypeId::of::<MP::EI>() == TypeId::of::<f32>()
+        && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
+        && tf32::is_supported(client)
     {
-        if tf32::is_supported(client) {
-            select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-                client, lhs, rhs, out, problem, plane_dim,
-            )
-        } else {
-            select_kernel_concrete::<ReplaceES<MP, half::f16>, R, A>(
-                client, lhs, rhs, out, problem, plane_dim,
-            )
-        }
+        select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
+            client, lhs, rhs, out, problem, plane_dim,
+        )
     } else {
         select_kernel_concrete::<MP, R, A>(client, lhs, rhs, out, problem, plane_dim)
     }
@@ -291,7 +282,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         }
     };
 
-    if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
+    if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client, lhs, rhs, out, problem, plane_dim,
         )
