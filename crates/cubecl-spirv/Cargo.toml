@@ -21,9 +21,9 @@ std = ["cubecl-common/std", "cubecl-core/std", "cubecl-runtime/std"]
 
 [dependencies]
 bitflags = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.5.0" }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0" }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
   "channel-mutex",
 ] }
 half = { workspace = true }
@@ -32,4 +32,4 @@ hashbrown = { workspace = true }
 rspirv = "0.12"
 
 # Optimizer
-cubecl-opt = { path = "../cubecl-opt", version = "0.5.0" }
+cubecl-opt = { path = "../cubecl-opt", version = "0.6.0" }
