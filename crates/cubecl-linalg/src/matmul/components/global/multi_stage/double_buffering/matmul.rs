@@ -354,6 +354,8 @@ enum EventListenerMode {
     },
 }
 
+impl CubeDebug for EventListenerMode {}
+
 const STEP: u32 = 2;
 const START: u32 = 1;
 
@@ -404,6 +406,8 @@ impl<
         };
     }
 }
+
+impl CubeDebug for EventListenerMode {}
 
 #[cube]
 impl<

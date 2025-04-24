@@ -12,7 +12,7 @@ use std::{
 
 use cubecl_core::{Compiler, compute::KernelDefinition};
 use rspirv::{
-    dr::{Builder, InsertPoint, Instruction, Module, Operand},
+    dr::{self, Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
@@ -41,6 +41,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub visited: HashSet<NodeIndex>,
 
     pub capabilities: HashSet<Capability>,
+    pub float_controls: bool,
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
     pub metadata: Metadata,
@@ -65,6 +66,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             current_block: self.current_block,
 
             capabilities: self.capabilities.clone(),
+            float_controls: false,
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
             fp_math_mode: self.fp_math_mode,
@@ -86,6 +88,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             global_invocation_id: Default::default(),
             num_workgroups: Default::default(),
             capabilities: Default::default(),
+            float_controls: Default::default(),
             state: Default::default(),
             setup_block: Default::default(),
             opt: Default::default(),
@@ -193,7 +196,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         };
 
         if self.fp_math_mode != FPFastMathMode::NONE {
-            self.capabilities.insert(Capability::FloatControls2);
+            let inst = dr::Instruction::new(
+                spirv::Op::Capability,
+                None,
+                None,
+                vec![dr::Operand::LiteralBit32(6029)],
+            );
+            self.module_mut().capabilities.push(inst);
         }
 
         self.set_version(1, 6);
@@ -375,7 +384,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
             .collect::<Vec<_>>();
         for ty in scalars {
-            self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+            let operands = vec![
+                dr::Operand::IdRef(main),
+                dr::Operand::LiteralBit32(6028),
+                dr::Operand::LiteralBit32(ty),
+                dr::Operand::LiteralBit32(mode),
+            ];
+
+            let inst = dr::Instruction::new(spirv::Op::ExecutionModeId, None, None, operands);
+            self.module_mut().execution_modes.push(inst);
         }
     }
 
@@ -394,12 +411,12 @@ fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
             FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
             FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
             FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-            FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
-            FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+            FastMath::AllowContraction => flags |= FPFastMathMode::from_bits_retain(0x10000),
+            FastMath::AllowReassociation => flags |= FPFastMathMode::from_bits_retain(0x20000),
             FastMath::AllowTransform => {
-                flags |= FPFastMathMode::ALLOW_CONTRACT
-                    | FPFastMathMode::ALLOW_REASSOC
-                    | FPFastMathMode::ALLOW_TRANSFORM
+                flags |= FPFastMathMode::from_bits_retain(0x10000)
+                    | FPFastMathMode::from_bits_retain(0x20000)
+                    | FPFastMathMode::from_bits_retain(0x40000)
             }
             _ => {}
         }
