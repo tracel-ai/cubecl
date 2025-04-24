@@ -121,7 +121,7 @@ pub mod async_copy_test_ {
         fn define(&self) -> cubecl::prelude::KernelDefinition {
             let mut builder = cubecl::prelude::KernelBuilder::default();
             builder
-                .context
+                .scope
                 .register_elem::<FloatExpand<0u8>>(F::as_elem_native_unchecked());
             let input = <Array<Line<FloatExpand<0u8>>> as cubecl::prelude::LaunchArgExpand>::expand(
                 &self.input.dynamic_cast(),
@@ -132,7 +132,7 @@ pub mod async_copy_test_ {
                     &self.output.dynamic_cast(),
                     &mut builder,
                 );
-            expand::<FloatExpand<0u8>>(&mut builder.context, input.clone(), output.clone());
+            expand::<FloatExpand<0u8>>(&mut builder.scope, input.clone(), output.clone());
             builder.build(self.settings.clone())
         }
         fn id(&self) -> cubecl::KernelId {

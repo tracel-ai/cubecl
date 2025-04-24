@@ -31,20 +31,23 @@ pub mod copy_bulk {
     /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
-        from: ExpandElementTyped<Slice<C>>,
+        from: SliceV2Expand<C, ReadOnly>,
         from_index: ExpandElementTyped<u32>,
-        to: ExpandElementTyped<SliceMut<C>>,
+        to: SliceV2Expand<C, ReadWrite>,
         to_index: ExpandElementTyped<u32>,
         length: u32,
     ) {
+        let (input, input_offset) = from.__to_raw_parts();
+        let (to, to_offset) = to.__to_raw_parts();
+
         scope.register(Instruction::new(
             Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
                 out_index: to_index.expand.consume(),
-                input: from.expand.consume(),
+                input,
                 in_index: from_index.expand.consume(),
                 len: length.into(),
             }),
-            *to.expand,
+            to,
         ));
     }
 }

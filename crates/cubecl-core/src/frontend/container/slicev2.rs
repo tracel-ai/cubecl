@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
-use cubecl_ir::{Branch, ExpandElement, Item, RangeLoop, Variable};
+use cubecl_ir::{Branch, Elem, ExpandElement, FloatKind, Item, RangeLoop, Variable};
 use cubecl_macros::intrinsic;
 
 pub struct ReadOnly;
@@ -63,26 +63,88 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
 
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+    /// Returns the same slice, but with lines of length 1.
     pub fn into_lined(&self) -> SliceV2<Line<E>, IO> {
         intrinsic!(|_scope| {
-            let origin = match self.origin {
-                SliceOriginExpand::Tensor(expand) => {
-                    SliceOriginExpand::<Line<E>>::Tensor(expand.expand.into())
-                }
-                SliceOriginExpand::Array(expand) => {
-                    SliceOriginExpand::<Line<E>>::Array(expand.expand.into())
-                }
-                SliceOriginExpand::SharedMemory(expand) => {
-                    SliceOriginExpand::<Line<E>>::SharedMemory(expand.expand.into())
-                }
-            };
             SliceV2Expand::<Line<E>, IO> {
-                origin,
+                origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),
                 length: self.length.clone(),
             }
         })
+    }
+    /// Returns the same slice, but with lines of length 1.
+    /// Try to cast the slice to the given type and panic if the type isn't the same.
+    ///
+    /// This function should only be used to satisfy the Rust type system, when two generic
+    /// types are supposed to be the same.
+    pub fn try_cast_unchecked<T: CubePrimitive>(&self) -> Slice<T, IO> {
+        intrinsic!(|scope| {
+            if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
+                let elems = [T::as_elem(scope), E::as_elem(scope)];
+                let is_flex32_cast = elems.contains(&Elem::Float(FloatKind::F32))
+                    && elems.contains(&Elem::Float(FloatKind::Flex32));
+
+                if !is_flex32_cast {
+                    panic!(
+                        "Try cast unchecked should only be used to satisfy the rust type system."
+                    )
+                }
+            }
+
+            SliceV2Expand::<T, IO> {
+                origin: self.origin.cast_unchecked(),
+                io: self.io.clone(),
+                offset: self.offset.clone(),
+                length: self.length.clone(),
+            }
+        })
+    }
+
+    /// Return a new Slice with updated line_size. This doesn't copy or move the data,
+    /// it simply reinterpret how they are loaded and stored in memory.
+    ///
+    /// # Warning
+    ///
+    /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
+    pub fn with_line_size(&self, line_size: u32) -> Slice<Line<E>, IO> {
+        intrinsic!(|scope| {
+            todo!()
+            // let input = self.clone().into_variable();
+            // let mut item = input.item;
+
+            // if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+            //     return self;
+            // }
+
+            // item.vectorization = NonZero::new(line_size as u8);
+            // let out = scope.create_slice(item);
+
+            // scope.register(Instruction::new(
+            //     Operator::ReinterpretSlice(cubecl_ir::ReinterpretSliceOperator {
+            //         input,
+            //         line_size,
+            //     }),
+            //     *out,
+            // ));
+
+            // out.into()
+        })
+    }
+}
+
+impl<E: CubePrimitive> SliceOriginExpand<E> {
+    fn cast_unchecked<T: CubePrimitive>(self) -> SliceOriginExpand<T> {
+        match self {
+            SliceOriginExpand::Tensor(expand) => {
+                SliceOriginExpand::<T>::Tensor(expand.expand.into())
+            }
+            SliceOriginExpand::Array(expand) => SliceOriginExpand::<T>::Array(expand.expand.into()),
+            SliceOriginExpand::SharedMemory(expand) => {
+                SliceOriginExpand::<T>::SharedMemory(expand.expand.into())
+            }
+        }
     }
 }
 

@@ -152,7 +152,7 @@ macro_rules! tensor_map_load {
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceV2Expand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
@@ -165,12 +165,12 @@ macro_rules! tensor_map_load {
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceV2Expand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     let barrier = *self.elem;
                     let source = *source.expand;
-                    let destination = *destination.expand;
+                    let (destination, destination_offset) = destination.__to_raw_parts();
 
                     let mem_copy = BarrierOps::TmaLoad {
                         barrier,
@@ -207,7 +207,7 @@ macro_rules! tensor_map_load_im2col {
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceV2Expand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
@@ -221,13 +221,13 @@ macro_rules! tensor_map_load_im2col {
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceV2Expand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
                     let barrier = *self.elem;
                     let source = *source.expand;
-                    let destination = *destination.expand;
+                    let (destination, destination_offset) = destination.__to_raw_parts();
 
                     let mem_copy = BarrierOps::TmaLoadIm2col {
                         barrier,

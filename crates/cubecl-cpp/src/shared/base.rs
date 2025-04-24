@@ -621,6 +621,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::CoopMma::Load {
                 value,
                 stride,
+                offset,
                 layout,
             } => Instruction::Wmma(WmmaInstruction::Load {
                 frag: out,
@@ -642,6 +643,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::CoopMma::Store {
                 mat,
                 stride,
+                offset,
                 layout,
             } => {
                 self.flags.indexes.unit_pos = true;
