@@ -71,7 +71,7 @@ impl GenericAnalysis {
         for (name, ty) in self.map.iter() {
             output.extend(quote! {
                 builder
-                    .context
+                    .scope
                     .register_elem::<#ty>(#name::as_elem_native_unchecked());
             });
         }
@@ -365,10 +365,11 @@ impl KernelFn {
     ) -> syn::Result<Self> {
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig)?;
-        Desugar.visit_block_mut(&mut block);
-
         let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
+
+        Desugar.visit_block_mut(&mut block);
+
         let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
 
         Ok(KernelFn {

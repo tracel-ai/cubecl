@@ -39,7 +39,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
     ) -> ExpandElementTyped<Array<C>> {
         builder
             .input_array(Item::vectorized(
-                C::as_elem(&builder.context),
+                C::as_elem(&builder.scope),
                 arg.vectorisation,
             ))
             .into()
@@ -52,7 +52,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
                 .output_array(Item::vectorized(
-                    C::as_elem(&builder.context),
+                    C::as_elem(&builder.scope),
                     arg.vectorisation,
                 ))
                 .into(),

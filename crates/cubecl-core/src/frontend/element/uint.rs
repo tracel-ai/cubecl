@@ -48,7 +48,7 @@ macro_rules! declare_uint {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem(&builder.context)).into()
+                builder.scalar($primitive::as_elem(&builder.scope)).into()
             }
         }
 

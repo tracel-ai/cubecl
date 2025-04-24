@@ -65,7 +65,7 @@ impl CubeTypeEnum {
     }
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
-        let context = prelude_type("Scope");
+        let scope = prelude_type("Scope");
         let init = prelude_type("Init");
         let debug = prelude_type("CubeDebug");
 
@@ -77,7 +77,7 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.map_body(name_expand, |f| quote!(#init::init(#f, context))))
+                .map(|v| v.map_body(name_expand, |f| quote!(#init::init(#f, scope))))
                 .collect(),
         );
 
@@ -96,7 +96,7 @@ impl CubeTypeEnum {
 
         quote! {
             impl #generics #init for #name_expand #generic_names #where_clause {
-                fn init(self, context: &mut #context) -> Self {
+                fn init(self, scope: &mut #scope) -> Self {
                     #body_init
                 }
             }
@@ -688,7 +688,7 @@ impl CubeTypeVariant {
         generics: &syn::TypeGenerics,
     ) -> TokenStream {
         let cube_type = prelude_type("CubeType");
-        let context = prelude_type("Scope");
+        let scope = prelude_type("Scope");
         let ident = &self.ident;
         let base_function = Ident::new(&format!("new_{}", ident), ident.span());
         let expand_function = Ident::new(&format!("__expand_new_{}", ident), ident.span());
@@ -720,7 +720,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #context, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &mut #scope, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
                         #ident_ty_expand #turbofish ::#ident {#(#args),*}
                     }
                 }
@@ -753,7 +753,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #context, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &mut #scope, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
                         #ident_ty_expand #turbofish ::#ident(#(#args),*)
                     }
                 }
@@ -764,7 +764,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #context) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &mut #scope) -> #ident_ty_expand #generics {
                         #ident_ty_expand #turbofish ::#ident
                     }
                 }

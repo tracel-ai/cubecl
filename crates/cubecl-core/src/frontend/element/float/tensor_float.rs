@@ -86,6 +86,6 @@ impl LaunchArgExpand for tf32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(tf32::as_elem(&builder.context)).into()
+        builder.scalar(tf32::as_elem(&builder.scope)).into()
     }
 }

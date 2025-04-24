@@ -1,5 +1,8 @@
 use std::{marker::PhantomData, num::NonZero};
 
+use crate as cubecl;
+use cubecl_macros::{cube, intrinsic};
+
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
     ir::{Item, Scope},
@@ -30,14 +33,6 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         SharedMemory { _val: PhantomData }
     }
 
-    pub fn new_aligned<S: Index>(
-        _size: S,
-        _vectorization_factor: u32,
-        _alignment: u32,
-    ) -> SharedMemory<Line<T>> {
-        SharedMemory { _val: PhantomData }
-    }
-
     pub fn __expand_new_lined(
         scope: &mut Scope,
         size: ExpandElementTyped<u32>,
@@ -51,24 +46,6 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
             size,
             None,
-        );
-        ExpandElementTyped::new(var)
-    }
-
-    pub fn __expand_new_aligned(
-        scope: &mut Scope,
-        size: ExpandElementTyped<u32>,
-        vectorization_factor: u32,
-        alignment: u32,
-    ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
-        let size = size
-            .constant()
-            .expect("Shared memory need constant initialization value")
-            .as_u32();
-        let var = scope.create_shared(
-            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
-            size,
-            Some(alignment),
         );
         ExpandElementTyped::new(var)
     }
@@ -107,29 +84,55 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 }
 
+#[cube]
+impl<T: CubePrimitive + Clone> SharedMemory<T> {
+    #[allow(unused_variables)]
+    pub fn new_aligned(
+        #[comptime] size: u32,
+        #[comptime] vectorization_factor: u32,
+        #[comptime] alignment: u32,
+    ) -> SharedMemory<Line<T>> {
+        intrinsic!(|scope| {
+            let var = scope.create_shared(
+                Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
+                size,
+                Some(alignment),
+            );
+            ExpandElementTyped::new(var)
+        })
+    }
+}
+
 /// Module that contains the implementation details of the index functions.
 mod indexation {
     use cubecl_ir::Operator;
 
-    use crate::{
-        ir::{BinaryOperator, Instruction},
-        prelude::{CubeIndex, CubeIndexMut},
-        unexpanded,
-    };
+    use crate::ir::{BinaryOperator, Instruction};
 
     use super::*;
 
+    type SharedMemoryExpand<E> = ExpandElementTyped<SharedMemory<E>>;
+
+    #[cube]
     impl<E: CubePrimitive> SharedMemory<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
-        pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
-        where
-            Self: CubeIndex<I>,
-        {
-            unexpanded!()
+        #[allow(unused_variables)]
+        pub unsafe fn index_unchecked(&self, i: u32) -> &E {
+            intrinsic!(|scope| {
+                let out = scope.create_local(self.expand.item);
+                scope.register(Instruction::new(
+                    Operator::UncheckedIndex(BinaryOperator {
+                        lhs: *self.expand,
+                        rhs: i.expand.consume(),
+                    }),
+                    *out,
+                ));
+                out.into()
+            })
         }
 
         /// Perform an unchecked index assignment into the array
@@ -137,44 +140,17 @@ mod indexation {
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
-        pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
-        where
-            Self: CubeIndexMut<I>,
-        {
-            unexpanded!()
-        }
-    }
-
-    impl<E: CubePrimitive> ExpandElementTyped<SharedMemory<E>> {
-        pub fn __expand_index_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<E> {
-            let out = scope.create_local(self.expand.item);
-            scope.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
-                    lhs: *self.expand,
-                    rhs: i.expand.consume(),
-                }),
-                *out,
-            ));
-            out.into()
-        }
-
-        pub fn __expand_index_assign_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-            value: ExpandElementTyped<E>,
-        ) {
-            scope.register(Instruction::new(
-                Operator::UncheckedIndexAssign(BinaryOperator {
-                    lhs: i.expand.consume(),
-                    rhs: value.expand.consume(),
-                }),
-                *self.expand,
-            ));
+        #[allow(unused_variables)]
+        pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E) {
+            intrinsic!(|scope| {
+                scope.register(Instruction::new(
+                    Operator::UncheckedIndexAssign(BinaryOperator {
+                        lhs: i.expand.consume(),
+                        rhs: value.expand.consume(),
+                    }),
+                    *self.expand,
+                ));
+            })
         }
     }
 }

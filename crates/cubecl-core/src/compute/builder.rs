@@ -13,7 +13,7 @@ use super::Visibility;
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {
     /// Cube [scope](Scope).
-    pub context: Scope,
+    pub scope: Scope,
     buffers: Vec<BufferInfo>,
     scalars: BTreeMap<Elem, usize>,
     tensor_maps: Vec<Id>,
@@ -23,7 +23,7 @@ impl KernelBuilder {
     /// Register a scalar and return the [element](ExpandElement) to be used for kernel expansion.
     pub fn scalar(&mut self, elem: Elem) -> ExpandElement {
         let id = self.scalars.entry(elem).or_default();
-        let expand = self.context.scalar(*id as Id, elem);
+        let expand = self.scope.scalar(*id as Id, elem);
         *id += 1;
         expand
     }
@@ -41,7 +41,7 @@ impl KernelBuilder {
             visibility: Visibility::ReadWrite,
             has_extended_meta: true,
         });
-        self.context.output(id, item)
+        self.scope.output(id, item)
     }
 
     /// Register a tensor map and return the [element](ExpandElement) to be used for kernel expansion.
@@ -63,7 +63,7 @@ impl KernelBuilder {
             visibility: Visibility::Read,
             has_extended_meta: true,
         });
-        self.context.input(id, item)
+        self.scope.input(id, item)
     }
 
     /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
@@ -75,7 +75,7 @@ impl KernelBuilder {
             visibility: Visibility::ReadWrite,
             has_extended_meta: false,
         });
-        self.context.output(id, item)
+        self.scope.output(id, item)
     }
 
     /// Register an output that uses the same resource as the input as the given position.
@@ -86,7 +86,7 @@ impl KernelBuilder {
             .expect("Position valid");
 
         input.visibility = Visibility::ReadWrite;
-        self.context.input(position, input.item)
+        self.scope.input(position, input.item)
     }
 
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
@@ -98,7 +98,7 @@ impl KernelBuilder {
             visibility: Visibility::Read,
             has_extended_meta: false,
         });
-        self.context.input(id, item)
+        self.scope.input(id, item)
     }
 
     /// Build the [kernel definition](KernelDefinition).
@@ -109,7 +109,7 @@ impl KernelBuilder {
             .map(|(elem, count)| ScalarInfo { elem, count })
             .collect();
         KernelIntegrator::new(KernelExpansion {
-            scope: self.context,
+            scope: self.scope,
             buffers: self.buffers,
             scalars,
             tensor_maps: self.tensor_maps,
@@ -119,7 +119,7 @@ impl KernelBuilder {
 
     pub fn new() -> Self {
         Self {
-            context: Scope::root(DebugLogger::default().is_activated()),
+            scope: Scope::root(DebugLogger::default().is_activated()),
             buffers: Default::default(),
             scalars: Default::default(),
             tensor_maps: Default::default(),
