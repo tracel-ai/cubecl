@@ -4,6 +4,7 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
 use cubecl_runtime::DeviceProperties;
 
+use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{InputRuntimeArg, OutputRuntimeArg};
 use crate::matmul::{
     components::{
@@ -45,12 +46,16 @@ where
         tile_count: selection.tile_count,
     };
 
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         <InputArg<MS> as ConcreteInputsFactory>::create(lhs, rhs, &selection, &problem),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
         problem,
-        (config_input, STAGE_BUFFERING),
+        (config_input, STAGE_BUFFERING, vectorization),
         selection,
     )
 }
@@ -69,13 +74,16 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };
-
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         input,
         output,
         problem,
-        (config_input, STAGE_BUFFERING),
+        (config_input, STAGE_BUFFERING, vectorization),
         selection,
     )
 }
@@ -188,8 +196,10 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         .hardware_properties()
         .num_tensor_cores
         .unwrap_or(NUM_TENSOR_CORES_APPROX);
-    // Going over 8 does not work well for now
-    let virtual_tensor_cores = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
+    // The number of planes that can send tasks to tensor cores.
+    //
+    // Going over 8 might use too much shared memory.
+    let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
 
     let stage_size = find_stage_size(
         problem.m,
@@ -200,13 +210,16 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
             .hardware_properties()
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
-        virtual_tensor_cores,
+        tensor_cores_channels,
         instruction_m,
         instruction_n,
     );
 
     let (rows_per_plane, stage_size_m, stage_size_n) =
         change_rows_per_plane(stage_size, instruction_m, problem.m);
+
+    // Makes all rows the length of plane_dim
+    let k = plane_dim / instruction_k as u32;
 
     MatmulSelection {
         tile_shape: MatmulSize {
@@ -217,7 +230,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         tile_count: MatmulSize {
             m: stage_size_m as u32,
             n: stage_size_n as u32,
-            k: 2,
+            k,
         },
         plane_dim,
         rows_per_plane: rows_per_plane as u32,

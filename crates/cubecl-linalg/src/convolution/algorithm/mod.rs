@@ -3,7 +3,7 @@ use crate::{
         components::{
             CompleteStageTiling, InputIdent, InvalidConfigError, MatmulPrecision, MatmulSelection,
             global::args::MatmulArgs,
-            stage::{StageBuffering, StageMatmulFamily},
+            stage::{StageBuffering, StageMatmulFamily, StageVectorization},
             tile::TileMatmulFamily,
         },
         kernels::MatmulAvailabilityError,
@@ -17,7 +17,7 @@ use super::base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProble
 pub mod simple;
 pub mod simple_tma;
 
-pub type StageInput = (CompleteStageTiling, StageBuffering);
+pub type StageInput = (CompleteStageTiling, StageBuffering, StageVectorization);
 
 /// Specifications for a convolution algorithm
 pub trait Algorithm {

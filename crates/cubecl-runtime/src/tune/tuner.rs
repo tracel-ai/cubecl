@@ -237,9 +237,13 @@ impl<K: AutotuneKey> Tuner<K> {
                 let top_times = bench_results
                     .iter()
                     .map(|r| {
-                        r.as_ref()
+                        let time = r
+                            .as_ref()
                             .map(|r| r.computation.median)
-                            .unwrap_or(Duration::MAX)
+                            .unwrap_or(Duration::MAX);
+
+                        let index = r.as_ref().map(|r| r.index).unwrap_or_default();
+                        (index, time)
                     })
                     .take(3)
                     .collect::<Vec<_>>();

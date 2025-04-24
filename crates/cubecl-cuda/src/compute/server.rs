@@ -32,6 +32,7 @@ use cubecl_runtime::{
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
+    cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -172,8 +173,7 @@ impl CudaServer {
             };
 
             unsafe {
-                let lib = cudarc::driver::sys::lib();
-                lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
             };
             result.push(data);
         }
@@ -275,8 +275,7 @@ impl ComputeServer for CudaServer {
         };
 
         unsafe {
-            let lib = cudarc::driver::sys::lib();
-            lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+            cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
         }
 
         (handle, strides)
@@ -412,7 +411,6 @@ impl ComputeServer for CudaServer {
                     device_ptr as usize % 16 == 0,
                     "Tensor pointer must be 16 byte aligned"
                 );
-                let lib = unsafe { cudarc::driver::sys::lib() };
                 let mut map_ptr = MaybeUninit::zeroed();
 
                 let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
@@ -435,7 +433,7 @@ impl ComputeServer for CudaServer {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
-                        lib.cuTensorMapEncodeTiled(
+                        cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
@@ -466,7 +464,7 @@ impl ComputeServer for CudaServer {
                         let upper_corner: Vec<_> =
                             pixel_box_upper_corner.iter().rev().copied().collect();
 
-                        lib.cuTensorMapEncodeIm2col(
+                        cuTensorMapEncodeIm2col(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
@@ -668,7 +666,10 @@ impl CudaContext {
         let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
-            let program = cudarc::nvrtc::result::create_program(kernel_compiled.source).unwrap();
+            // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
+            // leave it `None` for now
+            let program =
+                cudarc::nvrtc::result::create_program(kernel_compiled.source, None).unwrap();
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
                 let log_ptr = log_raw.as_ptr();

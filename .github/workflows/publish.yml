@@ -12,11 +12,36 @@ jobs:
       crate: cubecl-common
     secrets: inherit
 
+  publish-cubecl-macros-internal:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-macros-internal
+    secrets: inherit
+
+  publish-cubecl-ir:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-ir
+    needs:
+      - publish-cubecl-common
+      - publish-cubecl-macros-internal
+    secrets: inherit
+
+  publish-cubecl-std:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-std
+    needs:
+      - publish-cubecl-core
+      - publish-cubecl-runtime
+    secrets: inherit
+
   publish-cubecl-runtime:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
       crate: cubecl-runtime
     needs:
+      - publish-cubecl-ir
       - publish-cubecl-common
     secrets: inherit
 
@@ -33,6 +58,7 @@ jobs:
     with:
       crate: cubecl-core
     needs:
+      - publish-cubecl-ir
       - publish-cubecl-runtime
       - publish-cubecl-macros
     secrets: inherit
@@ -43,6 +69,8 @@ jobs:
       crate: cubecl-linalg
     needs:
       - publish-cubecl-runtime
+      - publish-cubecl-std
+      - publish-cubecl-reduce
       - publish-cubecl-core
     secrets: inherit
 
@@ -51,6 +79,7 @@ jobs:
     with:
       crate: cubecl-reduce
     needs:
+      - publish-cubecl-std
       - publish-cubecl-runtime
       - publish-cubecl-core
     secrets: inherit
@@ -60,6 +89,7 @@ jobs:
     with:
       crate: cubecl-opt
     needs:
+      - publish-cubecl-ir
       - publish-cubecl-common
       - publish-cubecl-core
     secrets: inherit
@@ -80,6 +110,7 @@ jobs:
     with:
       crate: cubecl-wgpu
     needs:
+      - publish-cubecl-std
       - publish-cubecl-spirv
       - publish-cubecl-common
       - publish-cubecl-runtime
@@ -103,6 +134,7 @@ jobs:
     with:
       crate: cubecl-cuda
     needs:
+      - publish-cubecl-std
       - publish-cubecl-cpp
       - publish-cubecl-common
       - publish-cubecl-runtime
@@ -116,6 +148,7 @@ jobs:
     with:
       crate: cubecl-hip
     needs:
+      - publish-cubecl-std
       - publish-cubecl-cpp
       - publish-cubecl-common
       - publish-cubecl-runtime

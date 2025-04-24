@@ -119,10 +119,6 @@ pub mod config {
             self.matmul.global_line_size(ident)
         }
 
-        fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-            self.matmul.stage_line_size(ident)
-        }
-
         fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
             self.matmul.tiling_dimensions(ident)
         }

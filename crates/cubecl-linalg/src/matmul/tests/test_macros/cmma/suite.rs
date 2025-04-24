@@ -1,4 +1,4 @@
-use crate::matmul::components::stage::STAGE_BUFFERING;
+use crate::matmul::components::stage::{STAGE_BUFFERING, StageVectorization};
 use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
@@ -49,8 +49,17 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
 
-    test_matmul_algorithm::<A, P, R>(client, problem, (config_input, STAGE_BUFFERING), selection);
+    test_matmul_algorithm::<A, P, R>(
+        client,
+        problem,
+        (config_input, STAGE_BUFFERING, vectorization),
+        selection,
+    );
 }
 
 pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
@@ -95,10 +104,14 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_count: selection.tile_count,
     };
 
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING),
+        (config_input, STAGE_BUFFERING, vectorization),
         selection,
     );
 }
@@ -264,6 +277,21 @@ macro_rules! matmul_standard_tests {
         pub fn double_buffering() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_barrier() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                DoubleBufferingBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

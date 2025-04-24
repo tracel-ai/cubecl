@@ -11,6 +11,7 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
+use cudarc::driver::sys::cuDeviceTotalMem_v2;
 
 use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
@@ -69,7 +70,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     .unwrap();
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
-        cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+        cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
     let storage = CudaStorage::new(stream);
@@ -126,7 +127,12 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
     let mut compilation_options = CompilationOptions::default();
-    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
+    let mut device_props = DeviceProperties::new(
+        &[Feature::Plane],
+        mem_properties,
+        hardware_props,
+        cubecl_runtime::TimeMeasurement::System,
+    );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     if arch.version >= 60 {
