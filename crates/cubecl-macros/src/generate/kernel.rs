@@ -31,7 +31,8 @@ impl KernelFn {
                 src_file.or_else(|| {
                     let span: proc_macro::Span = self.span.unwrap();
                     let source_path = span.source().local_file();
-                    source_path.and_then(|file| Some(file.file_name()?.to_string_lossy().into()))
+                    let source_file = source_path.as_ref().and_then(|path| path.file_name());
+                    source_file.map(|file| file.to_string_lossy().into())
                 })
             };
             let source_text = match src_file {

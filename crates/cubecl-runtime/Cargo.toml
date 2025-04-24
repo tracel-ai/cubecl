@@ -31,8 +31,8 @@ storage-bytes = []
 async-channel = { workspace = true }                                                       # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "0.5.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "0.6.0", default-features = false }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
@@ -41,7 +41,7 @@ serde = { workspace = true }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false, features = [
     "cache",
     "serde",
 ] }
