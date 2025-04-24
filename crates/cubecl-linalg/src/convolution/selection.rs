@@ -7,7 +7,8 @@ use super::{
 use crate::matmul::{
     components::{
         CompleteStageTiling, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
-        stage::STAGE_BUFFERING, tile::TileMatmulFamily,
+        stage::{STAGE_BUFFERING, StageVectorization},
+        tile::TileMatmulFamily,
     },
     kernels::matmul::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_shape},
 };
@@ -23,9 +24,12 @@ pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };
-
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
     // TODO Allows to select double buffering
-    (selection, (config_input, STAGE_BUFFERING))
+    (selection, (config_input, STAGE_BUFFERING, vectorization))
 }
 
 /// A heuristic to find the number of tiles in the stage.
