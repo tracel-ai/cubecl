@@ -3,10 +3,18 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
-    config::MatmulConfig,
+    config::MatmulConfig, stage::shared::StageVectorization,
 };
 
-pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TileMatmulConfigInput {
+    pub vectorization: StageVectorization,
+    pub size: MatmulSize,
+}
+
+pub trait TileMatmulFamily:
+    MatmulConfigFactory<Input = TileMatmulConfigInput, Config: TileConfig>
+{
     fn tile_shape(config: &Self::Config) -> MatmulSize;
     fn requires_tensor_cores() -> bool;
 

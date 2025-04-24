@@ -36,7 +36,7 @@ pub struct SliceMut<E> {
 mod metadata {
     use core::num::NonZero;
 
-    use cubecl_ir::{Item, NonSemantic};
+    use cubecl_ir::{Elem, FloatKind, Item, NonSemantic};
 
     use crate::prelude::cube_comment;
 
@@ -149,7 +149,15 @@ mod metadata {
             T: CubePrimitive,
         {
             if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
-                panic!("Try cast unchecked should only be used to satisfy the rust type system.")
+                let elems = [T::as_elem(scope), E::as_elem(scope)];
+                let is_flex32_cast = elems.contains(&Elem::Float(FloatKind::F32))
+                    && elems.contains(&Elem::Float(FloatKind::Flex32));
+
+                if !is_flex32_cast {
+                    panic!(
+                        "Try cast unchecked should only be used to satisfy the rust type system."
+                    )
+                }
             }
 
             self.expand.into()
@@ -173,8 +181,13 @@ mod metadata {
         where
             E: CubePrimitive,
         {
-            let input = self.into_variable();
+            let input = self.clone().into_variable();
             let mut item = input.item;
+
+            if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+                return self;
+            }
+
             item.vectorization = NonZero::new(line_size as u8);
             let out = scope.create_slice(item);
 
@@ -235,8 +248,13 @@ mod metadata {
         where
             E: CubePrimitive,
         {
-            let input = self.into_variable();
+            let input = self.clone().into_variable();
             let mut item = input.item;
+
+            if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+                return self;
+            }
+
             item.vectorization = NonZero::new(line_size as u8);
             let out = scope.create_slice(item);
 

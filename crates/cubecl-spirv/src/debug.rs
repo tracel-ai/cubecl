@@ -95,6 +95,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 SIGNATURE,
                 "",
             );
+        } else if self.debug_symbols {
+            let return_ty = self.type_void();
+            let function_ty = self.debug_type_function(DebugInfoFlags::NONE, return_ty, []);
+            self.debug_info = Some(DebugInfo {
+                function_ty,
+                stack: Default::default(),
+                definitions: Default::default(),
+                previous_loc: None,
+            });
         }
     }
 
