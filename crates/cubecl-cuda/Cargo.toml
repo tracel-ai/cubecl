@@ -11,15 +11,16 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda"
 version.workspace = true
 
 [features]
+compilation-cache = ["cubecl-common/cache"]
 default = [
     "std",
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
     "cudarc/cuda-12050",
+    "cudarc/dynamic-loading",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-compilation-cache = ["cubecl-common/cache"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
@@ -32,7 +33,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-featur
 ] }
 
 bytemuck = { workspace = true }
-cudarc = { version = "0.13.9", features = [
+cudarc = { version = "0.16.1", features = [
     "std",
     "driver",
     "cuda-version-from-build-system",
