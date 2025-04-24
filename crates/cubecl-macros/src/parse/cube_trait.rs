@@ -71,6 +71,7 @@ impl CubeTraitImplItem {
             ImplItem::Fn(func) => {
                 let name = func.sig.ident.clone();
                 let full_name = quote!(#struct_ty::#name).to_string();
+
                 let mut func = KernelFn::from_sig_and_block(
                     func.vis,
                     func.sig,

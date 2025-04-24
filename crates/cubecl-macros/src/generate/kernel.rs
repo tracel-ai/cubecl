@@ -41,14 +41,14 @@ impl KernelFn {
             };
 
             let debug_source = quote_spanned! {self.span=>
-                #debug_source(context, #name, file!(), #source_text, line!(), column!())
+                #debug_source(scope, #name, file!(), #source_text, line!(), column!())
             };
             let debug_params = sig
                 .runtime_params()
                 .map(|it| &it.name)
                 .map(|name| {
                     let name_str = name.to_string();
-                    quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
+                    quote! [#cube_debug::set_debug_name(&#name, scope, #name_str);]
                 })
                 .collect();
             (debug_source, debug_params)
@@ -97,7 +97,7 @@ impl ToTokens for KernelSignature {
             quote! {
                 fn #name #generics(
                     self, // Always owned during expand.
-                    context: &mut #scope,
+                    scope: &mut #scope,
                     #(#args),*
                 ) -> #return_type
             }
@@ -105,7 +105,7 @@ impl ToTokens for KernelSignature {
             let args = &self.parameters;
             quote! {
                 fn #name #generics(
-                    context: &mut #scope,
+                    scope: &mut #scope,
                     #(#args),*
                 ) -> #return_type
             }
@@ -242,7 +242,7 @@ impl Launch {
             let mut builder = #kernel_builder::default();
             #register_type
             #io_map
-            expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
+            expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())
         }
     }

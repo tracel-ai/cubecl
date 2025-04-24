@@ -215,7 +215,7 @@ impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(IntExpand::<POS>::as_elem(&builder.context))
+            .scalar(IntExpand::<POS>::as_elem(&builder.scope))
             .into()
     }
 }

@@ -31,12 +31,6 @@ mod metadata {
 
     impl<E: CubePrimitive> Slice<E> {
         /// Returns the same slice, but with lines of length 1.
-        pub fn into_lined(&self) -> Slice<Line<E>>
-        where
-            E: CubePrimitive,
-        {
-            unexpanded!()
-        }
         /// Try to cast the slice to the given type and panic if the type isn't the same.
         ///
         /// This function should only be used to satisfy the Rust type system, when two generic
@@ -93,17 +87,6 @@ mod metadata {
         pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
-        }
-
-        /// Expand method of [len](Slice::into_lined).
-        pub fn __expand_into_lined_method(
-            self,
-            _scope: &mut Scope,
-        ) -> ExpandElementTyped<Slice<Line<E>>>
-        where
-            E: CubePrimitive,
-        {
-            self.expand.into()
         }
 
         /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).
@@ -175,17 +158,6 @@ mod metadata {
         pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
-        }
-
-        /// Expand method of [len](SliceMut::into_lined).
-        pub fn __expand_into_lined_method(
-            self,
-            _scope: &mut Scope,
-        ) -> ExpandElementTyped<SliceMut<Line<E>>>
-        where
-            E: CubePrimitive,
-        {
-            self.expand.into()
         }
 
         /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).

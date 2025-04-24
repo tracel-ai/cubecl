@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
 use cubecl_ir::{Branch, ExpandElement, Item, RangeLoop, Variable};
+use cubecl_macros::intrinsic;
 
 pub struct ReadOnly;
 pub struct ReadWrite;
@@ -60,15 +61,30 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
     }
 }
 
-
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
-    pub fn into_lined(_origin: SliceOrigin<E>, _offset: u32, _length: u32) -> Self {
-        intrinsic!(|scope| {
+    pub fn into_lined(&self) -> SliceV2<Line<E>, IO> {
+        intrinsic!(|_scope| {
+            let origin = match self.origin {
+                SliceOriginExpand::Tensor(expand) => {
+                    SliceOriginExpand::<Line<E>>::Tensor(expand.expand.into())
+                }
+                SliceOriginExpand::Array(expand) => {
+                    SliceOriginExpand::<Line<E>>::Array(expand.expand.into())
+                }
+                SliceOriginExpand::SharedMemory(expand) => {
+                    SliceOriginExpand::<Line<E>>::SharedMemory(expand.expand.into())
+                }
+            };
+            SliceV2Expand::<Line<E>, IO> {
+                origin,
+                io: self.io.clone(),
+                offset: self.offset.clone(),
+                length: self.length.clone(),
+            }
         })
     }
 }
-
 
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
     pub fn new(_origin: SliceOrigin<E>, _offset: u32, _length: u32) -> Self {
