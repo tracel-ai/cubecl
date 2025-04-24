@@ -76,7 +76,10 @@ use crate::{
     unexpanded,
 };
 
-use super::{CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut};
+use super::{
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, ReadOnly, ReadWrite, Slice,
+    SliceMut, SliceV2Expand,
+};
 
 /// A mechanism for managing a sequence of `memcpy_async`
 /// For now, it only works at the Cube scope
@@ -162,8 +165,8 @@ impl<C: CubePrimitive> Pipeline<C> {
     pub fn __expand_memcpy_async(
         scope: &mut Scope,
         expand: PipelineExpand<C>,
-        source: ExpandElementTyped<Slice<Line<C>>>,
-        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        source: SliceV2Expand<Line<C>, ReadOnly>,
+        destination: SliceV2Expand<Line<C>, ReadWrite>,
     ) {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
@@ -189,12 +192,12 @@ impl<C: CubePrimitive> PipelineExpand<C> {
     pub fn __expand_memcpy_async_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<Slice<Line<C>>>,
-        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        source: SliceV2Expand<Line<C>, ReadOnly>,
+        destination: SliceV2Expand<Line<C>, ReadWrite>,
     ) {
         let pipeline = *self.elem;
-        let source = *source.expand;
-        let destination = *destination.expand;
+        let (source, source_offset) = source.__to_raw_parts();
+        let (destination, destination_offset) = destination.__to_raw_parts();
 
         let mem_copy = PipelineOps::MemCopyAsync {
             pipeline,

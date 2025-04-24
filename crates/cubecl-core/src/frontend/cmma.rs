@@ -292,8 +292,8 @@ pub mod load {
         scope.register(Instruction::new(
             ir::CoopMma::Load {
                 value,
-                offset,
                 stride: *stride,
+                offset,
                 layout: None,
             },
             *mat.elem,
@@ -332,8 +332,8 @@ pub mod load_with_layout {
         scope.register(Instruction::new(
             ir::CoopMma::Load {
                 value,
-                offset,
                 stride: *stride,
+                offset,
                 layout: Some(layout),
             },
             *mat.elem,

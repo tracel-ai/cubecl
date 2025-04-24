@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
-use cubecl_ir::{ExpandElement, Variable};
+use cubecl_ir::{Branch, ExpandElement, Item, RangeLoop, Variable};
 
 pub struct ReadOnly;
 pub struct ReadWrite;
@@ -21,10 +21,18 @@ pub struct SliceV2<E: CubePrimitive, IO: SliceVisibility> {
 }
 
 #[derive(CubeType)]
-pub(crate) enum SliceOrigin<E: CubePrimitive> {
+pub enum SliceOrigin<E: CubePrimitive> {
     Tensor(Tensor<E>),
     Array(Array<E>),
     SharedMemory(SharedMemory<E>),
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> Iterator for SliceV2<E, IO> {
+    type Item = E;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unexpanded!()
+    }
 }
 
 pub trait SliceVisibility {}
@@ -52,11 +60,20 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
     }
 }
 
+
+#[cube]
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+    pub fn into_lined(_origin: SliceOrigin<E>, _offset: u32, _length: u32) -> Self {
+        intrinsic!(|scope| {
+        })
+    }
+}
+
+
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
     pub fn new(_origin: SliceOrigin<E>, _offset: u32, _length: u32) -> Self {
         unexpanded!()
     }
-
     pub fn __expand_new(
         scope: &mut Scope,
         origin: SliceOriginExpand<E>,
@@ -113,10 +130,44 @@ impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceV2Expand<E, IO> {
 }
 
 // TODO: Fix
-// impl<T: CubePrimitive> SizedContainer for SliceV2<T, ReadOnly> {
-//     type Item = T;
-// }
+impl<E: CubePrimitive> SizedContainer for SliceV2<E, ReadOnly> {
+    type Item = E;
+}
 
+impl<E: CubePrimitive> Iterable<E> for SliceV2Expand<E, ReadOnly> {
+    fn expand(
+        self,
+        scope: &mut Scope,
+        mut body: impl FnMut(&mut Scope, <E as CubeType>::ExpandType),
+    ) {
+        let index_ty = Item::new(u32::as_elem(scope));
+        let len: ExpandElement = self.length.clone().into();
+
+        let mut child = scope.child();
+        let i = child.create_local_restricted(index_ty);
+
+        let index = i.clone().into();
+        let item = index::expand(&mut child, self, index);
+        body(&mut child, item);
+
+        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
+            i: *i,
+            start: 0u32.into(),
+            end: *len,
+            step: None,
+            inclusive: false,
+            scope: child,
+        })));
+    }
+
+    fn expand_unroll(
+        self,
+        _scope: &mut Scope,
+        _body: impl FnMut(&mut Scope, <E as CubeType>::ExpandType),
+    ) {
+        unimplemented!("Can't unroll slice iterator")
+    }
+}
 impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadOnly> {
     type Output = E;
 

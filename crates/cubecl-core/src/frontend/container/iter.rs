@@ -7,9 +7,7 @@ use crate::{
 
 use super::Array;
 
-pub trait SizedContainer:
-    CubeIndex<Output = Self::Item> + CubeType<ExpandType = ExpandElementTyped<Self>> + Sized
-{
+pub trait SizedContainer: CubeIndex<Output = Self::Item> + Sized {
     type Item: CubePrimitive;
 
     /// Return the length of the container.
@@ -20,7 +18,9 @@ pub trait SizedContainer:
     }
 }
 
-impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
+impl<T: SizedContainer + CubeType<ExpandType = ExpandElementTyped<T>>> Iterable<T::Item>
+    for ExpandElementTyped<T>
+{
     fn expand(
         self,
         scope: &mut Scope,

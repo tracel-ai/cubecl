@@ -10,7 +10,7 @@ use crate::{
     unexpanded,
 };
 use cubecl_ir::ExpandElement;
-use std::{marker::PhantomData, num::NonZero, sync::Arc};
+use std::{marker::PhantomData, num::NonZero};
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
