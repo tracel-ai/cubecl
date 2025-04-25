@@ -137,8 +137,21 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let tile_index = unit_position / tile_size;
         let pos_within_tile = unit_position % tile_size;
 
-        let (tile_x_global, tile_y_global) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
+        let (total_tile_count_row, total_tile_count_col) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (
+                comptime!(tile_count_row),
+                comptime!(tile_count_col * 2), // assume double buff
+            ),
+            InputIdent::Rhs => (
+                comptime!(tile_count_row * 2), // assume double buff
+                comptime!(tile_count_col),
+            ),
+        };
+
+        let (tile_x_global, tile_y_global) = TO::to_row_col::<G::SmmConfig>(
             tile_index,
+            tile_count_row,
+            tile_count_col,
             comptime!(this.input_ident.as_ident()),
             comptime!(config.to_smm_config()),
         );
@@ -155,21 +168,16 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config,
         );
 
-        let (tile_x_smem, tile_y_smem, total_tile_count_row, total_tile_count_col) =
-            match comptime!(this.input_ident) {
-                InputIdent::Lhs => (
-                    tile_x_global,
-                    this.buffer_index.runtime() * tile_count_col + tile_y_global,
-                    comptime!(tile_count_row),
-                    comptime!(tile_count_col * 2), // assume double buff
-                ),
-                InputIdent::Rhs => (
-                    this.buffer_index.runtime() * tile_count_row + tile_x_global,
-                    tile_y_global,
-                    comptime!(tile_count_row * 2), // assume double buff
-                    comptime!(tile_count_col),
-                ),
-            };
+        let (tile_x_smem, tile_y_smem) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (
+                tile_x_global,
+                this.buffer_index.runtime() * tile_count_col + tile_y_global,
+            ),
+            InputIdent::Rhs => (
+                this.buffer_index.runtime() * tile_count_row + tile_x_global,
+                tile_y_global,
+            ),
+        };
         let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
             tile_x_smem,
             tile_y_smem,
