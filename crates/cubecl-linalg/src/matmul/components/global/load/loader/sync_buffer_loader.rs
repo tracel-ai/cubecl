@@ -51,6 +51,7 @@ pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferL
 impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
     SyncBufferLoader<MP, G, L>
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
