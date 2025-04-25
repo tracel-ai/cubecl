@@ -147,8 +147,8 @@ where
         // than a stage
         // Then we can merge names stage=buffer
 
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
-        let loop_step = buffer_step * 2;
+        let loop_step = config.tiling_dimensions(Ident::Lhs).total_col();
+        let buffer_step = loop_step / 2;
         let range = k_range.1 - k_range.0;
         let needed_stages = div_ceil(range, buffer_step);
 

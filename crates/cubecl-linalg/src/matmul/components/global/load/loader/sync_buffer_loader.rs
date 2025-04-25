@@ -37,7 +37,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
 pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
     tensor_reader: TensorReader<MP::EI>,
     stage: Stage<MP::ES, L::TilingLayout>,
-    loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
+    loading_job: CubeOption<L::Job<MP>>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     buffer_id: BufferId,
@@ -65,9 +65,10 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some((
-                L::new_job::<MP, G>(0u32, input_ident, config),
-                L::new_job::<MP, G>(1u32, input_ident, config),
+            true => CubeOption::new_Some(L::new_job::<MP, G>(
+                comptime!(buffer_id.to_index()),
+                input_ident,
+                config,
             )),
             false => CubeOption::new_None(),
         };
@@ -93,14 +94,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
-            CubeOption::Some(job) => match comptime!(this.buffer_id) {
-                BufferId::A => job.0,
-                BufferId::B => job.1,
-            },
-            CubeOption::None => match comptime!(this.buffer_id) {
-                BufferId::A => L::new_job::<MP, G>(0u32, this.input_ident, config),
-                BufferId::B => L::new_job::<MP, G>(1u32, this.input_ident, config),
-            },
+            CubeOption::Some(loading_job) => loading_job,
+            CubeOption::None => L::new_job::<MP, G>(
+                comptime!(this.buffer_id.to_index()),
+                this.input_ident,
+                config,
+            ),
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -117,21 +116,19 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
     }
 
     pub fn create_job(this: &Self, #[comptime] config: G) -> SyncBufferLoaderJob<MP, L> {
-        let loading = match this.loading_job {
-            CubeOption::Some(job) => match comptime!(this.buffer_id) {
-                BufferId::A => job.0,
-                BufferId::B => job.1,
-            },
-            CubeOption::None => match comptime!(this.buffer_id) {
-                BufferId::A => L::new_job::<MP, G>(0u32, this.input_ident, config),
-                BufferId::B => L::new_job::<MP, G>(1u32, this.input_ident, config),
-            },
+        let loading_job = match this.loading_job {
+            CubeOption::Some(loading_job) => loading_job,
+            CubeOption::None => L::new_job::<MP, G>(
+                comptime!(this.buffer_id.to_index()),
+                this.input_ident,
+                config,
+            ),
         };
 
-        let num_tasks = L::Job::task_count(&loading);
+        let num_tasks = L::Job::task_count(&loading_job);
 
         SyncBufferLoaderJob::<MP, L> {
-            loading,
+            loading_job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
         }
@@ -145,7 +142,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         let task_id = job.current.read().counter;
 
         L::Job::<MP>::execute_task::<G>(
-            &mut job.loading,
+            &mut job.loading_job,
             task_id,
             &this.tensor_reader,
             &mut this.stage,
@@ -161,7 +158,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 
 #[derive(CubeType)]
 pub struct SyncBufferLoaderJob<MP: MatmulPrecision, L: SyncBufferLoadingStrategy> {
-    loading: L::Job<MP>,
+    loading_job: L::Job<MP>,
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
