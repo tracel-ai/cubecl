@@ -63,7 +63,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, ReadOnly> {
     /// it simply reinterpret how they are loaded and stored in memory.
     ///
     /// # Warning
@@ -440,6 +440,7 @@ mod write_offset {
         offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
         index: <u32 as cubecl::prelude::CubeType>::ExpandType,
         value: <E as cubecl::prelude::CubeType>::ExpandType,
+        line_size: Option<u32>,
     ) {
         let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
 
