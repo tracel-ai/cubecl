@@ -140,13 +140,6 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        // TODO
-        // At this level, we consider that stage=buffer
-        // Even though underneath, we will use 1 stage that contains 2 buffers
-        // Should rethink the stage abstraction, it's more a SMEM manager
-        // than a stage
-        // Then we can merge names stage=buffer
-
         let loop_step = config.tiling_dimensions(Ident::Lhs).total_col();
         let buffer_step = loop_step / 2;
         let range = k_range.1 - k_range.0;
