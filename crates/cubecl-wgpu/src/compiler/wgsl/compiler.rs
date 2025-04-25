@@ -406,9 +406,6 @@ impl WgslCompiler {
                 self.compile_comment(instructions, content)
             }
             cube::Operation::NonSemantic(_) => {}
-            cube::Operation::Pipeline(_) => {
-                panic!("Pipeline isn't supported on wgpu.")
-            }
             cube::Operation::Barrier(_) => {
                 panic!("Barrier isn't supported on wgpu.")
             }

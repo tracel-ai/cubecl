@@ -1,7 +1,6 @@
 use cubecl_ir::{
     Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Metadata, NonSemantic, Operation, Operator, PipelineOps, Plane, TmaOps, UnaryOperator,
-    Variable,
+    Metadata, NonSemantic, Operation, Operator, Plane, TmaOps, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -50,7 +49,6 @@ impl Optimizer {
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
-            Operation::Pipeline(pipeline_ops) => self.visit_pipeline(pipeline_ops, visit_read),
             Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
             Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
             Operation::NonSemantic(non_semantic) => {
@@ -297,28 +295,6 @@ impl Optimizer {
             CoopMma::Cast { input } => {
                 visit_read(self, input);
             }
-        }
-    }
-
-    fn visit_pipeline(
-        &mut self,
-        pipeline_ops: &mut PipelineOps,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
-    ) {
-        match pipeline_ops {
-            PipelineOps::MemCopyAsync {
-                pipeline,
-                source,
-                destination,
-            } => {
-                visit_read(self, pipeline);
-                visit_read(self, source);
-                visit_read(self, destination);
-            }
-            PipelineOps::ProducerAcquire { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ProducerCommit { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ConsumerWait { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ConsumerRelease { pipeline } => visit_read(self, pipeline),
         }
     }
 
