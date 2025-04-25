@@ -166,9 +166,6 @@ where
         SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader_a, config);
         SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader_a, config);
 
-        // SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_b, buffer_step);
-        // SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_b, buffer_step);
-
         sync_units();
 
         for _ in 0..num_loops {
