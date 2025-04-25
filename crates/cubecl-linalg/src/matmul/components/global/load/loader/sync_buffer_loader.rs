@@ -40,9 +40,11 @@ pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferL
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
+    buffer_id: BufferId,
+    #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
-    _config: PhantomData<G>,
+    _phantom: PhantomData<G>,
 }
 
 #[cube]
@@ -55,6 +57,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         y_offset: u32,
         batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_id: BufferId,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -74,29 +77,27 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             stage,
             loading_job,
             quantization,
+            buffer_id,
             input_ident,
-            _config: PhantomData::<G>,
+            _phantom: PhantomData::<G>,
         }
     }
 
-    pub fn reader(
-        this: &Self,
-        #[comptime] buffer_id: BufferId,
-    ) -> BufferReader<MP::ES, L::TilingLayout> {
-        BufferReader::new(this.stage, buffer_id, this.input_ident)
+    pub fn reader(this: &Self) -> BufferReader<MP::ES, L::TilingLayout> {
+        BufferReader::new(this.stage, this.buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_reader.update_view(k_offset, this.input_ident);
     }
 
-    pub fn fill_stage(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G) {
+    pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
-            CubeOption::Some(job) => match buffer_id {
+            CubeOption::Some(job) => match comptime!(this.buffer_id) {
                 BufferId::A => job.0,
                 BufferId::B => job.1,
             },
-            CubeOption::None => match buffer_id {
+            CubeOption::None => match comptime!(this.buffer_id) {
                 BufferId::A => L::new_job::<MP, G>(0u32, this.input_ident, config),
                 BufferId::B => L::new_job::<MP, G>(1u32, this.input_ident, config),
             },
@@ -115,17 +116,13 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         }
     }
 
-    pub fn create_job(
-        this: &Self,
-        #[comptime] buffer_id: BufferId,
-        #[comptime] config: G,
-    ) -> SyncBufferLoaderJob<MP, L> {
+    pub fn create_job(this: &Self, #[comptime] config: G) -> SyncBufferLoaderJob<MP, L> {
         let loading = match this.loading_job {
-            CubeOption::Some(job) => match buffer_id {
+            CubeOption::Some(job) => match comptime!(this.buffer_id) {
                 BufferId::A => job.0,
                 BufferId::B => job.1,
             },
-            CubeOption::None => match buffer_id {
+            CubeOption::None => match comptime!(this.buffer_id) {
                 BufferId::A => L::new_job::<MP, G>(0u32, this.input_ident, config),
                 BufferId::B => L::new_job::<MP, G>(1u32, this.input_ident, config),
             },

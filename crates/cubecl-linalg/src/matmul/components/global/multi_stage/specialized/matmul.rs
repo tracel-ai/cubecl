@@ -7,8 +7,8 @@ use crate::matmul::components::{
     },
     stage::{BufferReader, StageMatmul},
 };
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{CubeOption, div_ceil};
 
 use super::config::Config;
 use cubecl_core as cubecl;
@@ -133,15 +133,21 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncBufferLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
+    type LhsLoader = (
+        SyncBufferLoader<MP, Self::Config, LL>,
+        SyncBufferLoader<MP, Self::Config, LL>,
+    );
+    type RhsLoader = (
+        SyncBufferLoader<MP, Self::Config, RL>,
+        SyncBufferLoader<MP, Self::Config, RL>,
+    );
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: Self::LhsLoader,
-        mut rhs_loader: Self::RhsLoader,
+        lhs_loader: Self::LhsLoader,
+        rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -150,53 +156,64 @@ where
         let is_consumer = Self::is_consumer(config);
         let is_producer = !is_consumer;
 
-        let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
-        let k_step = num_buffers * buffer_step;
-
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
+        let loop_step = buffer_step * 2;
         let range = k_range.1 - k_range.0;
-        let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages * num_buffers;
+        let needed_stages = div_ceil(range, buffer_step);
+
+        // Algorithm assumes an even number of stages
+        let num_stages = needed_stages + (needed_stages % 2);
+        let num_loops = num_stages / 2;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
-
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
+        let mut lhs_loader_a = lhs_loader.0;
+        let mut lhs_loader_b = lhs_loader.1;
+        let mut rhs_loader_a = rhs_loader.0;
+        let mut rhs_loader_b = rhs_loader.1;
+
+        let lhs_reader_a = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader_a);
+        let lhs_reader_b = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader_b);
+        let rhs_reader_a = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader_a);
+        let rhs_reader_b = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader_b);
+
+        SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_b, buffer_step);
+        SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_b, buffer_step);
 
         for _ in 0..num_loops {
             if is_producer {
-                Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
-                Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+                SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader_a, config);
+                SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader_a, config);
             }
 
             sync_units();
 
             if is_consumer {
                 SMM::execute(
-                    &lhs_buffer_reader_a,
-                    &rhs_buffer_reader_a,
+                    &lhs_reader_a,
+                    &rhs_reader_a,
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
                     config.to_smm_config(),
                 );
             }
+
+            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_a, loop_step);
+            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_a, loop_step);
 
             if is_producer {
-                Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
-                Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+                SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader_b, config);
+                SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader_b, config);
             }
 
             sync_units();
 
             if is_consumer {
                 SMM::execute(
-                    &lhs_buffer_reader_b,
-                    &rhs_buffer_reader_b,
+                    &lhs_reader_b,
+                    &rhs_reader_b,
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
@@ -204,8 +221,8 @@ where
                 );
             }
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_b, loop_step);
+            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_b, loop_step);
         }
 
         if is_consumer {
@@ -227,14 +244,27 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            quantization,
-            InputIdent::Lhs,
-            config,
+        (
+            SyncBufferLoader::<MP, Self::Config, LL>::new(
+                lhs,
+                x_offset,
+                y_offset,
+                batch_offset,
+                quantization,
+                BufferId::A,
+                InputIdent::Lhs,
+                config,
+            ),
+            SyncBufferLoader::<MP, Self::Config, LL>::new(
+                lhs,
+                x_offset,
+                y_offset,
+                batch_offset,
+                quantization,
+                BufferId::B,
+                InputIdent::Lhs,
+                config,
+            ),
         )
     }
 
@@ -247,14 +277,27 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            quantization,
-            InputIdent::Rhs,
-            config,
+        (
+            SyncBufferLoader::<MP, Self::Config, RL>::new(
+                rhs,
+                x_offset,
+                y_offset,
+                batch_offset,
+                quantization,
+                BufferId::A,
+                InputIdent::Rhs,
+                config,
+            ),
+            SyncBufferLoader::<MP, Self::Config, RL>::new(
+                rhs,
+                x_offset,
+                y_offset,
+                batch_offset,
+                quantization,
+                BufferId::B,
+                InputIdent::Rhs,
+                config,
+            ),
         )
     }
 
