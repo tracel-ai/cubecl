@@ -28,6 +28,7 @@ pub enum BarrierOps {
     MemCopyAsync {
         barrier: Variable,
         source: Variable,
+        source_length: Variable,
         offset_source: Variable,
         offset_out: Variable,
     },
@@ -81,6 +82,7 @@ impl Display for BarrierOps {
                 source,
                 offset_source,
                 offset_out,
+                ..
             } => {
                 write!(
                     f,

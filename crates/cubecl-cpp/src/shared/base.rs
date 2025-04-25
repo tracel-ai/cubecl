@@ -422,6 +422,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::BarrierOps::MemCopyAsync {
                     barrier,
                     source,
+                    source_length,
                     offset_source,
                     offset_out,
                 } => {
@@ -433,6 +434,7 @@ impl<D: Dialect> CppCompiler<D> {
                             barrier: self.compile_variable(barrier),
                             source: self.compile_variable(source),
                             destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
                             offset_source: self.compile_variable(offset_source),
                             offset_out: self.compile_variable(offset_out),
                             level,

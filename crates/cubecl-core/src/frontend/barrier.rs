@@ -376,12 +376,14 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         destination: SliceV2Expand<Line<C>, ReadWrite>,
     ) {
         let barrier = *self.elem;
+        let source_length = *source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
 
         let mem_copy = BarrierOps::MemCopyAsync {
             barrier,
             source,
+            source_length,
             offset_source: source_offset,
             offset_out: destination_offset,
         };

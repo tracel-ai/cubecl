@@ -15,6 +15,7 @@ pub enum BarrierOps<D: Dialect> {
         barrier: Variable<D>,
         source: Variable<D>,
         destination: Variable<D>,
+        source_length: Variable<D>,
         offset_source: Variable<D>,
         offset_out: Variable<D>,
         level: BarrierLevel,
@@ -127,6 +128,7 @@ __syncthreads();
                 barrier,
                 source,
                 destination,
+                source_length,
                 offset_source,
                 offset_out,
                 level,
@@ -137,19 +139,19 @@ __syncthreads();
                     BarrierLevel::Unit => write!(
                         f,
                         "
-cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source}_length * {size}, {barrier});
+cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                     "
                     ),
                     BarrierLevel::CubeCoop(_) => write!(
                         f,
                         "
-cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {offset_source}, {source}_length * {size}, {barrier});
+cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                         "
                     ),
                     BarrierLevel::CubeManual(_) => write!(
                         f,
                         "
-cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source}_length * {size}, {barrier});
+cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                         "
                     ),
                 }
