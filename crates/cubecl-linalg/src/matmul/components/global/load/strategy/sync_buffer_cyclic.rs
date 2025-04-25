@@ -137,22 +137,24 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let tile_index = unit_position / tile_size;
         let pos_within_tile = unit_position % tile_size;
 
-        let (tile_x_global, tile_y_global) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (tile_index, 0),
-            InputIdent::Rhs => (0, tile_index),
-        };
-        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
-            tile_x_global,
-            tile_y_global,
-            pos_within_tile,
-            this.input_ident,
-            config,
-        );
+        // let (tile_x_global, tile_y_global) = match comptime!(this.input_ident) {
+        //     InputIdent::Lhs => (tile_index, 0),
+        //     InputIdent::Rhs => (0, tile_index),
+        // };
 
         let (tile_x_smem, tile_y_smem) = match comptime!(this.input_ident) {
             InputIdent::Lhs => (tile_index, this.buffer_index.runtime()),
             InputIdent::Rhs => (this.buffer_index.runtime(), tile_index),
         };
+
+        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
+            tile_x_smem,
+            tile_y_smem,
+            pos_within_tile,
+            this.input_ident,
+            config,
+        );
+
         let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
             tile_x_smem,
             tile_y_smem,
