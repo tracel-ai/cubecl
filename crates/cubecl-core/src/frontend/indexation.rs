@@ -1,6 +1,8 @@
 use cubecl_ir::{BinaryOperator, ExpandElement, Instruction, Operator, Scope, VariableKind};
 
-use super::{CubeType, ExpandElementTyped, binary_expand_no_vec, index_expand};
+use super::{
+    CubeType, ExpandElementTyped, binary_expand_no_vec, index_expand, index_expand_no_vec,
+};
 use crate::{
     ir::{IntKind, UIntKind, Variable},
     unexpanded,
@@ -93,14 +95,14 @@ where
     let var = if checked {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                binary_expand_no_vec(scope, array, index, Operator::Index)
+                index_expand_no_vec(scope, array, index, Operator::Index)
             }
             _ => index_expand(scope, array, index, line_size, Operator::Index),
         }
     } else {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                binary_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
+                index_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
             }
             _ => index_expand(scope, array, index, line_size, Operator::UncheckedIndex),
         }

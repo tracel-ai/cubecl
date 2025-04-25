@@ -1,8 +1,8 @@
 use std::num::{NonZero, NonZeroU8};
 
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, Instruction, Item, Operation,
-    Operator, Scope, UnaryOperator, Variable, VariableKind, Vectorization,
+    Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, IndexOperator, Instruction, Item,
+    Operation, Operator, Scope, UnaryOperator, Variable, VariableKind, Vectorization,
 };
 
 use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
@@ -37,22 +37,51 @@ where
     output
 }
 
+pub(crate) fn index_expand_no_vec<F>(
+    scope: &mut Scope,
+    list: ExpandElement,
+    index: ExpandElement,
+    func: F,
+) -> ExpandElement
+where
+    F: Fn(IndexOperator) -> Operator,
+{
+    let list = list.consume();
+    let index = index.consume();
+
+    let item_lhs = list.item;
+
+    let item = Item::new(item_lhs.elem);
+
+    let output = scope.create_local(item);
+    let out = *output;
+
+    let op = func(IndexOperator {
+        list,
+        index,
+        line_size: 0u32.into(),
+    });
+
+    scope.register(Instruction::new(op, out));
+
+    output
+}
 pub(crate) fn index_expand<F, Op>(
     scope: &mut Scope,
-    lhs: ExpandElement,
-    rhs: ExpandElement,
+    list: ExpandElement,
+    index: ExpandElement,
     line_size: Option<u8>,
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(BinaryOperator) -> Op,
+    F: Fn(IndexOperator) -> Op,
     Op: Into<Operation>,
 {
-    let lhs = lhs.consume();
-    let rhs = rhs.consume();
+    let list = list.consume();
+    let index = index.consume();
 
-    let item_lhs = lhs.item;
-    let item_rhs = rhs.item;
+    let item_lhs = list.item;
+    let item_rhs = index.item;
 
     let vectorization = if let Some(line_size) = line_size {
         NonZero::new(line_size)
@@ -65,7 +94,11 @@ where
     let output = scope.create_local(item);
     let out = *output;
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(IndexOperator {
+        list,
+        index,
+        line_size: line_size.map(|a| a as u32).unwrap_or(0),
+    });
 
     scope.register(Instruction::new(op, out));
 
@@ -282,9 +315,10 @@ pub fn array_assign_binary_op_expand<
     let array_value = scope.create_local(array_item);
 
     let read = Instruction::new(
-        Operator::Index(BinaryOperator {
-            lhs: *array,
-            rhs: *index,
+        Operator::Index(IndexOperator {
+            list: *array,
+            index: *index,
+            line_size: 0,
         }),
         *array_value,
     );

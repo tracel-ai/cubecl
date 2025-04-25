@@ -107,7 +107,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::Operator;
+    use cubecl_ir::{IndexOperator, Operator};
 
     use crate::ir::{BinaryOperator, Instruction};
 
@@ -127,9 +127,10 @@ mod indexation {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.item);
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndex(BinaryOperator {
-                        lhs: *self.expand,
-                        rhs: i.expand.consume(),
+                    Operator::UncheckedIndex(IndexOperator {
+                        list: *self.expand,
+                        index: i.expand.consume(),
+                        line_size: 0,
                     }),
                     *out,
                 ));

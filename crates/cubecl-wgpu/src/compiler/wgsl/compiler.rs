@@ -877,12 +877,12 @@ impl WgslCompiler {
             }),
             cube::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked)
-                    && op.lhs.has_length()
+                    && op.list.has_length()
                     && !out.elem().is_atomic()
                 {
-                    let list = ExpandElement::Plain(op.lhs);
-                    let index = ExpandElement::Plain(op.rhs);
-                    scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
+                    let list = ExpandElement::Plain(op.list);
+                    let index = ExpandElement::Plain(op.index);
+                    scope.register_elem::<FloatExpand<0>>(op.list.elem());
 
                     let mut child_scope = scope.child();
                     let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
@@ -900,15 +900,15 @@ impl WgslCompiler {
                     })
                 } else {
                     instructions.push(wgsl::Instruction::Index {
-                        lhs: self.compile_variable(op.lhs),
-                        rhs: self.compile_variable(op.rhs),
+                        lhs: self.compile_variable(op.list),
+                        rhs: self.compile_variable(op.index),
                         out: self.compile_variable(out),
                     });
                 }
             }
             cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                lhs: self.compile_variable(op.list),
+                rhs: self.compile_variable(op.index),
                 out: self.compile_variable(out),
             }),
             cube::Operator::IndexAssign(op) => {

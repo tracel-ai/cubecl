@@ -172,6 +172,15 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
+pub struct IndexOperator {
+    pub list: Variable,
+    pub index: Variable,
+    pub line_size: u32, // 0 == same as list.
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
 pub struct BinaryOperator {
     pub lhs: Variable,
     pub rhs: Variable,

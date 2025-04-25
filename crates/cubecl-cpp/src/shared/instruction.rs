@@ -21,6 +21,14 @@ pub struct BinaryInstruction<D: Dialect> {
 }
 
 #[derive(Debug, Clone)]
+pub struct IndexInstruction<D: Dialect> {
+    pub list: Variable<D>,
+    pub index: Variable<D>,
+    pub line_size: u32,
+    pub out: Variable<D>,
+}
+
+#[derive(Debug, Clone)]
 pub struct UnaryInstruction<D: Dialect> {
     pub input: Variable<D>,
     pub out: Variable<D>,
@@ -64,7 +72,7 @@ pub enum Instruction<D: Dialect> {
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
-    Index(BinaryInstruction<D>),
+    Index(IndexInstruction<D>),
     IndexAssign(BinaryInstruction<D>),
     Assign(UnaryInstruction<D>),
     RangeLoop {
@@ -293,7 +301,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::Index(it) => Index::format(f, &it.list, &it.index, &it.out),
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Copy {
                 input,

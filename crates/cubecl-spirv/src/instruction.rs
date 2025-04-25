@@ -145,9 +145,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let out = out.unwrap();
         match op {
             Operator::Index(op) => {
-                let is_atomic = op.lhs.item.elem.is_atomic();
-                let value = self.compile_variable(op.lhs);
-                let index = self.compile_variable(op.rhs);
+                let is_atomic = op.list.item.elem.is_atomic();
+                let value = self.compile_variable(op.list);
+                let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
 
                 if is_atomic {
@@ -175,8 +175,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write_indexed(&out, &index, value_id);
             }
             Operator::UncheckedIndex(op) => {
-                let value = self.compile_variable(op.lhs);
-                let index = self.compile_variable(op.rhs);
+                let value = self.compile_variable(op.list);
+                let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
 
                 let out_id = self.read_indexed_unchecked(&out, &value, &index);

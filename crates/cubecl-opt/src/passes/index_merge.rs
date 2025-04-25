@@ -21,12 +21,12 @@ impl OptimizerPass for CopyTransform {
                 let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
                     Operation::Operator(Operator::Index(op))
-                        if op.lhs.is_array()
-                            && item_compatible(op.lhs.item, inst.item())
+                        if op.list.is_array()
+                            && item_compatible(op.list.item, inst.item())
                             && !is_reused(opt, &inst.out) =>
                     {
                         if let Some(id) = as_versioned(&inst.out()) {
-                            reads.insert(id, (idx, op.lhs, op.rhs));
+                            reads.insert(id, (idx, op.list, op.index));
                         }
                     }
                     Operation::Operator(Operator::IndexAssign(op))

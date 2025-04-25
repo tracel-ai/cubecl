@@ -1,8 +1,8 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
-    VariableKind,
+    BinaryOperator, Id, IndexOperator, Instruction, Item, LineInitOperator, Operation, Operator,
+    Variable, VariableKind,
 };
 use stable_vec::StableVec;
 
@@ -112,17 +112,17 @@ impl OptimizerPass for RemoveIndexScalar {
         for block in blocks {
             let ops = opt.program[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                if let Operation::Operator(Operator::Index(BinaryOperator { lhs, rhs })) =
+                if let Operation::Operator(Operator::Index(IndexOperator { list, index, .. })) =
                     &mut op.operation
                 {
-                    if !lhs.is_array() {
-                        if let Some(index) = rhs.as_const() {
+                    if !list.is_array() {
+                        if let Some(index) = index.as_const() {
                             let index = index.as_u32();
                             let vectorization =
-                                lhs.item.vectorization.map(|it| it.get()).unwrap_or(1);
+                                list.item.vectorization.map(|it| it.get()).unwrap_or(1);
                             if vectorization == 1 {
                                 assert_eq!(index, 0, "Can't index into scalar");
-                                op.operation = Operation::Copy(*lhs);
+                                op.operation = Operation::Copy(*list);
                                 changes.inc();
                             }
                         }

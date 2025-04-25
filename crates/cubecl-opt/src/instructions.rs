@@ -156,15 +156,17 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
-            Operator::UncheckedIndex(binary_operator)
-            | Operator::UncheckedIndexAssign(binary_operator)
-            | Operator::Index(binary_operator)
+            Operator::UncheckedIndexAssign(binary_operator)
             | Operator::IndexAssign(binary_operator)
             | Operator::And(binary_operator)
             | Operator::Or(binary_operator) => self.visit_binop(binary_operator, visit_read),
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
             | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            Operator::Index(index_operator) | Operator::UncheckedIndex(index_operator) => {
+                visit_read(self, &mut index_operator.list);
+                visit_read(self, &mut index_operator.index);
+            }
             Operator::ReinterpretSlice(_) => {
                 todo!()
             }

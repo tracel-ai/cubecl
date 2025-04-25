@@ -191,12 +191,12 @@ impl ValueTable {
         let (expr, val) = match operator {
             Operator::Index(op) | Operator::UncheckedIndex(op) => {
                 let out_val = value_of_var(&out);
-                if !op.lhs.is_immutable() {
+                if !op.list.is_immutable() {
                     Err(out_val)?
                 }
                 let item = out.item;
-                let lhs = self.lookup_or_add_var(&op.lhs)?;
-                let rhs = self.lookup_or_add_var(&op.rhs)?;
+                let lhs = self.lookup_or_add_var(&op.list)?;
+                let rhs = self.lookup_or_add_var(&op.index)?;
                 let id = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out_val)

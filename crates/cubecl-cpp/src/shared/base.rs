@@ -18,8 +18,8 @@ use super::barrier::BarrierOps;
 use super::pipeline::PipelineOps;
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Dialect, Elem,
-    Fragment, FragmentIdent, FragmentLayout, Instruction, Item, LocalArray, SharedMemory,
-    UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
+    Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item, LocalArray,
+    SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -1027,12 +1027,12 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked)
-                    && op.lhs.has_length()
+                    && op.list.has_length()
                     && !out.elem().is_atomic()
                 {
-                    let list = ExpandElement::Plain(op.lhs);
-                    let index = ExpandElement::Plain(op.rhs);
-                    scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
+                    let list = ExpandElement::Plain(op.list);
+                    let index = ExpandElement::Plain(op.index);
+                    scope.register_elem::<FloatExpand<0>>(op.list.elem());
 
                     let mut child_scope = scope.child();
                     let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
@@ -1050,11 +1050,11 @@ impl<D: Dialect> CppCompiler<D> {
                         out: self.compile_variable(out),
                     }))
                 } else {
-                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
+                    instructions.push(Instruction::Index(self.compile_index(op, out)));
                 }
             }
             gpu::Operator::UncheckedIndex(op) => {
-                instructions.push(Instruction::Index(self.compile_binary(op, out)))
+                instructions.push(Instruction::Index(self.compile_index(op, out)))
             }
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
@@ -1122,6 +1122,19 @@ impl<D: Dialect> CppCompiler<D> {
         BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
+            out: self.compile_variable(out),
+        }
+    }
+
+    fn compile_index(
+        &mut self,
+        value: gpu::IndexOperator,
+        out: gpu::Variable,
+    ) -> IndexInstruction<D> {
+        IndexInstruction {
+            list: self.compile_variable(value.list),
+            index: self.compile_variable(value.index),
+            line_size: value.line_size,
             out: self.compile_variable(out),
         }
     }

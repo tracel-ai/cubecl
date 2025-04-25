@@ -341,8 +341,8 @@ impl<D: Dialect> Binary<D> for IndexAssign {
     }
 }
 
-impl<D: Dialect> Binary<D> for Index {
-    fn format(
+impl Index {
+    pub(crate) fn format<D: Dialect>(
         f: &mut Formatter<'_>,
         lhs: &Variable<D>,
         rhs: &Variable<D>,
@@ -364,7 +364,7 @@ impl<D: Dialect> Binary<D> for Index {
         }
     }
 
-    fn format_scalar<Lhs, Rhs>(
+    fn format_scalar<D: Dialect, Lhs, Rhs>(
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,

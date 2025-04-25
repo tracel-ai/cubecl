@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use alloc::{format, vec::Vec};
 
-use crate::TypeHash;
+use crate::{IndexOperator, TypeHash};
 
 use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
@@ -12,13 +12,13 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 #[operation(opcode_name = OperatorOpCode)]
 pub enum Operator {
     #[operation(pure)]
-    Index(BinaryOperator),
+    Index(IndexOperator),
     CopyMemory(CopyMemoryOperator),
     CopyMemoryBulk(CopyMemoryBulkOperator),
     #[operation(pure)]
     ReinterpretSlice(ReinterpretSliceOperator),
     #[operation(pure)]
-    UncheckedIndex(BinaryOperator),
+    UncheckedIndex(IndexOperator),
     IndexAssign(BinaryOperator),
     #[operation(pure)]
     InitLine(LineInitOperator),
@@ -41,7 +41,7 @@ pub enum Operator {
 impl Display for Operator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Operator::Index(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
+            Operator::Index(op) => write!(f, "{}[{}]", op.list, op.index),
             Operator::CopyMemory(op) => {
                 write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index)
             }
@@ -54,7 +54,7 @@ impl Display for Operator {
                 write!(f, "with_line_size({}, {})", op.input, op.line_size)
             }
             Operator::UncheckedIndex(op) => {
-                write!(f, "unchecked {}[{}]", op.lhs, op.rhs)
+                write!(f, "unchecked {}[{}]", op.list, op.index)
             }
             Operator::IndexAssign(op) => write!(f, "[{}] = {}", op.lhs, op.rhs),
             Operator::UncheckedIndexAssign(op) => {
