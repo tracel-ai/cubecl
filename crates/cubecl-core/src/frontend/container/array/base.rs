@@ -278,7 +278,6 @@ mod indexation {
             Self: CubeIndexMut,
         {
             intrinsic!(|scope| {
-                println!("array index_assign_unchecked");
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(BinaryOperator {
                         lhs: i.expand.consume(),

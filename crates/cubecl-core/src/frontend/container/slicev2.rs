@@ -63,7 +63,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, ReadOnly> {
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
     /// it simply reinterpret how they are loaded and stored in memory.
     ///
     /// # Warning
@@ -400,6 +400,7 @@ impl<E: CubePrimitive> ListMutExpand<E> for SliceV2Expand<E, ReadWrite> {
             self.offset.clone(),
             index,
             value,
+            self.line_size,
         )
     }
 }
