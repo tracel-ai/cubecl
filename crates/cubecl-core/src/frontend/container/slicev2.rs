@@ -69,6 +69,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
     /// # Warning
     ///
     /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
+    #[allow(unused_variables)]
     pub fn with_line_size(&self, #[comptime] line_size: u32) -> Slice<Line<E>, IO> {
         intrinsic!(|scope| {
             let (input, offset) = self.__to_raw_parts();
