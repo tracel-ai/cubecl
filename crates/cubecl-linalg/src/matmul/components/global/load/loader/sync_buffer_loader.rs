@@ -54,6 +54,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
+        stage: Stage<MP::ES, L::TilingLayout>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -62,7 +63,6 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(input_ident.as_ident(), config.to_smm_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {

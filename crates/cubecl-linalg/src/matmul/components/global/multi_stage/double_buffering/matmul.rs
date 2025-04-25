@@ -5,9 +5,9 @@ use crate::matmul::components::global::load::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
+use crate::matmul::components::stage::{BufferReader, Stage};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -266,9 +266,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let stage = Stage::new::<SMM::Config>(Ident::Lhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -279,6 +281,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -299,9 +302,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let stage = Stage::new::<SMM::Config>(Ident::Rhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -312,6 +317,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,

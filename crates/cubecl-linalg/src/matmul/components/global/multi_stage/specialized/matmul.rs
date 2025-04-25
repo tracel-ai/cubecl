@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
     },
-    stage::{BufferReader, StageMatmul},
+    stage::{BufferReader, Stage, StageMatmul},
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use cubecl_std::{CubeOption, div_ceil};
@@ -244,9 +244,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let stage = Stage::new::<SMM::Config>(Ident::Lhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -257,6 +259,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -277,9 +280,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let stage = Stage::new::<SMM::Config>(Ident::Rhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -290,6 +295,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
