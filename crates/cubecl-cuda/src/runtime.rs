@@ -84,9 +84,11 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let hardware_props = unsafe {
         use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
         let warp_size = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_WARP_SIZE).unwrap() as u32;
-        let max_shared = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
-            .unwrap() as usize;
-
+        let max_shared = get_attribute(
+            device_ptr,
+            CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+        )
+        .unwrap() as usize;
         let max_threads =
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK).unwrap() as u32;
         let block_dim_x = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X).unwrap();

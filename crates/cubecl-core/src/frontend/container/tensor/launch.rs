@@ -74,7 +74,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
     ) -> ExpandElementTyped<Tensor<C>> {
         builder
             .input_tensor(Item::vectorized(
-                C::as_elem(&builder.context),
+                C::as_elem(&builder.scope),
                 arg.vectorisation,
             ))
             .into()
@@ -87,7 +87,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
                 .output_tensor(Item::vectorized(
-                    C::as_elem(&builder.context),
+                    C::as_elem(&builder.scope),
                     arg.vectorisation,
                 ))
                 .into(),

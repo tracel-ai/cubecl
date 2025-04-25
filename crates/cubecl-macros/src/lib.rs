@@ -174,6 +174,23 @@ pub fn comptime(input: TokenStream) -> TokenStream {
     quote![{ #tokens }].into()
 }
 
+/// Mark the contents of this macro as an intrinsic, turning off all expansion for this code
+/// and calling it with the scope
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn do_stuff(input: u32) -> u32 {
+///     let comptime_value = intrinsic! { |scope| u32::elem_size(scope) };
+///     input + comptime_value
+/// }
+/// ```
+#[proc_macro]
+pub fn intrinsic(_input: TokenStream) -> TokenStream {
+    quote![{ cubecl::unexpanded!() }].into()
+}
+
 /// Makes the function return a compile time value
 /// Useful in a cube trait to have a part of the trait return comptime values
 ///
