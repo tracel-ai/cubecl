@@ -70,6 +70,7 @@ pub enum WmmaInstruction<D: Dialect> {
     Load {
         frag: Variable<D>,
         value: Variable<D>,
+        offset: Variable<D>,
         stride: Variable<D>,
         layout: Option<FragmentLayout<D>>,
     },
@@ -88,6 +89,7 @@ pub enum WmmaInstruction<D: Dialect> {
         output: Variable<D>,
         frag: Variable<D>,
         stride: Variable<D>,
+        offset: Variable<D>,
         layout: FragmentLayout<D>,
     },
     /// Cast
@@ -193,6 +195,7 @@ pub mod wmma_api_base {
                 frag,
                 value,
                 stride,
+                offset,
                 layout: None,
             } => {
                 let item = value.item();
@@ -200,7 +203,7 @@ pub mod wmma_api_base {
                     let elem = item.elem;
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});"
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride});"
                     )
                 } else {
                     writeln!(
@@ -213,6 +216,7 @@ pub mod wmma_api_base {
             WmmaInstruction::Load {
                 frag,
                 value,
+                offset,
                 stride,
                 layout: Some(layout),
             } => {
@@ -226,12 +230,12 @@ pub mod wmma_api_base {
                     let elem = item.elem;
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride}, {layout});"
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride}, {layout});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, {value}, {stride}, {layout});"
+                        "{namespace}::load_matrix_sync({frag}, {value} + {offset}, {stride}, {layout});"
                     )
                 }
             }
@@ -251,6 +255,7 @@ pub mod wmma_api_base {
                 output,
                 frag,
                 stride,
+                offset,
                 layout,
             } => {
                 let layout = match layout {
@@ -271,12 +276,12 @@ pub mod wmma_api_base {
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
+                        "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({output} + {offset}), {frag}, {stride}, {layout});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::store_matrix_sync({output}, {frag}, {stride}, {layout});"
+                        "{namespace}::store_matrix_sync({output} + {offset}, {frag}, {stride}, {layout});"
                     )
                 }
             }

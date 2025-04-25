@@ -1,10 +1,10 @@
 use super::{
-    Line, ReadOnly, ReadWrite, SharedMemory, SliceOriginExpand, SliceV2, SliceV2Expand,
-    SliceVisibility, Tensor,
+    ReadOnly, ReadWrite, SharedMemory, SliceOriginExpand, SliceV2, SliceV2Expand, SliceVisibility,
+    Tensor,
 };
 use crate::{
     frontend::{Array, CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
-    ir::{Instruction, Scope},
+    ir::Scope,
     prelude::CubeDebug,
     unexpanded,
 };
@@ -174,6 +174,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceV2Ex
             io: std::marker::PhantomData,
             offset,
             length,
+            line_size: None,
         }
     }
 
@@ -191,6 +192,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceV2Ex
             io: std::marker::PhantomData,
             offset,
             length,
+            line_size: None,
         }
     }
 
@@ -200,6 +202,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceV2Ex
             io: std::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
+            line_size: self.line_size.clone(),
         }
     }
 
@@ -209,6 +212,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceV2Ex
             io: std::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
+            line_size: self.line_size.clone(),
         }
     }
 }

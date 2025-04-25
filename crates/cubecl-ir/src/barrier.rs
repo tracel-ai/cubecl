@@ -28,17 +28,21 @@ pub enum BarrierOps {
     MemCopyAsync {
         barrier: Variable,
         source: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
     },
     TmaLoad {
         barrier: Variable,
         tensor_map: Variable,
         indices: Vec<Variable>,
+        offset_out: Variable,
     },
     TmaLoadIm2col {
         barrier: Variable,
         tensor_map: Variable,
         indices: Vec<Variable>,
         offsets: Vec<Variable>,
+        offset_out: Variable,
     },
     /// Arrives at the barrier (decrements barrier count)
     Arrive {
@@ -72,13 +76,22 @@ impl Display for BarrierOps {
                 true => write!(f, "init_barrier_tma({barrier})"),
                 false => write!(f, "init_barrier({barrier})"),
             },
-            BarrierOps::MemCopyAsync { barrier, source } => {
-                write!(f, "mem_copy_async({barrier}, source: {source})",)
+            BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                offset_source,
+                offset_out,
+            } => {
+                write!(
+                    f,
+                    "out[{offset_out}] = mem_copy_async({barrier}, source: {source}[{offset_source}])",
+                )
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
             BarrierOps::TmaLoad {
                 barrier,
                 tensor_map,
+                offset_out,
                 indices,
             } => {
                 let rank = indices.len();
@@ -86,13 +99,17 @@ impl Display for BarrierOps {
                     let _ = write!(s, "{it}, ");
                     s
                 });
-                write!(f, "tma_load::<{rank}>({barrier}, {tensor_map}, {indices})")
+                write!(
+                    f,
+                    "out[{offset_out}] = tma_load::<{rank}>({barrier}, {tensor_map}, {indices})"
+                )
             }
             BarrierOps::TmaLoadIm2col {
                 barrier,
                 tensor_map,
                 indices,
                 offsets,
+                offset_out,
             } => {
                 let rank = indices.len();
                 let indices = indices.iter().fold(String::new(), |mut s, it| {
@@ -105,7 +122,7 @@ impl Display for BarrierOps {
                 });
                 write!(
                     f,
-                    "tma_load_im2col::<{rank}>({barrier}, {tensor_map}, indices: ({indices}), offsets: ({offsets}))"
+                    "out[{offset_out}] = tma_load_im2col::<{rank}>({barrier}, {tensor_map}, indices: ({indices}), offsets: ({offsets}))"
                 )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),

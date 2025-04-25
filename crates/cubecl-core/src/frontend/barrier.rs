@@ -176,6 +176,7 @@ macro_rules! tensor_map_load {
                         barrier,
                         tensor_map: source,
                         indices: vec![$(*$arg.expand),*],
+                        offset_out: destination_offset
                     };
 
                     scope.register(Instruction::new(mem_copy, destination));
@@ -234,6 +235,7 @@ macro_rules! tensor_map_load_im2col {
                         tensor_map: source,
                         indices: vec![$(*$arg.expand),*],
                         offsets: vec![$(*$offset.expand),*],
+                        offset_out: destination_offset,
                     };
 
                     scope.register(Instruction::new(mem_copy, destination));
@@ -377,7 +379,12 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
 
-        let mem_copy = BarrierOps::MemCopyAsync { barrier, source };
+        let mem_copy = BarrierOps::MemCopyAsync {
+            barrier,
+            source,
+            offset_source: source_offset,
+            offset_out: destination_offset,
+        };
 
         scope.register(Instruction::new(mem_copy, destination));
     }

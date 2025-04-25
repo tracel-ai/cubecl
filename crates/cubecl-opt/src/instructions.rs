@@ -336,15 +336,24 @@ impl Optimizer {
             BarrierOps::Init { barrier, .. } => {
                 visit_read(self, barrier);
             }
-            BarrierOps::MemCopyAsync { barrier, source } => {
+            BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                offset_source,
+                offset_out,
+            } => {
                 visit_read(self, barrier);
                 visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
             }
             BarrierOps::TmaLoad {
                 barrier,
+                offset_out,
                 tensor_map,
                 indices,
             } => {
+                visit_read(self, offset_out);
                 visit_read(self, barrier);
                 visit_read(self, tensor_map);
                 for index in indices {
@@ -355,8 +364,10 @@ impl Optimizer {
                 barrier,
                 tensor_map,
                 indices,
+                offset_out,
                 offsets,
             } => {
+                visit_read(self, offset_out);
                 visit_read(self, barrier);
                 visit_read(self, tensor_map);
                 for index in indices {

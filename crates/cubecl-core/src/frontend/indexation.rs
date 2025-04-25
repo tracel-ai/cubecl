@@ -1,6 +1,6 @@
 use cubecl_ir::{BinaryOperator, ExpandElement, Instruction, Operator, Scope, VariableKind};
 
-use super::{CubeType, ExpandElementTyped, binary_expand, binary_expand_no_vec};
+use super::{CubeType, ExpandElementTyped, binary_expand, binary_expand_no_vec, index_expand};
 use crate::{
     ir::{IntKind, UIntKind, Variable},
     unexpanded,
@@ -74,6 +74,7 @@ pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<u32>,
+    line_size: Option<u8>,
     checked: bool,
 ) -> ExpandElementTyped<A::Output>
 where
@@ -94,14 +95,14 @@ where
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 binary_expand_no_vec(scope, array, index, Operator::Index)
             }
-            _ => binary_expand(scope, array, index, Operator::Index),
+            _ => index_expand(scope, array, index, line_size, Operator::Index),
         }
     } else {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 binary_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
             }
-            _ => binary_expand(scope, array, index, Operator::UncheckedIndex),
+            _ => index_expand(scope, array, index, line_size, Operator::UncheckedIndex),
         }
     };
 
@@ -119,7 +120,6 @@ pub(crate) fn expand_index_assign_native<
 ) where
     A::Output: CubeType + Sized,
 {
-    println!("expand_index_assign_native");
     let index: Variable = index.expand.into();
     let index = match index.kind {
         VariableKind::ConstantScalar(value) => Variable::constant(

@@ -114,14 +114,14 @@ pub mod index {
                     scope: &mut Scope,
                     index: ExpandElementTyped<u32>,
                 ) -> Self::Output {
-                    expand_index_native(scope, self, index, true)
+                    expand_index_native(scope, self, index, None, true)
                 }
                 fn expand_index_unchecked(
                     self,
                     scope: &mut Scope,
                     index: ExpandElementTyped<u32>,
                 ) -> Self::Output {
-                    expand_index_native(scope, self, index, false)
+                    expand_index_native(scope, self, index, None, false)
                 }
             }
         };

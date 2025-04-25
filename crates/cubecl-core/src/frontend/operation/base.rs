@@ -1,4 +1,4 @@
-use std::num::NonZeroU8;
+use std::num::{NonZero, NonZeroU8};
 
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, Instruction, Item, Operation,
@@ -24,6 +24,41 @@ where
     let item_rhs = rhs.item;
 
     let vectorization = find_vectorization(item_lhs.vectorization, item_rhs.vectorization);
+
+    let item = Item::vectorized(item_lhs.elem, vectorization);
+
+    let output = scope.create_local(item);
+    let out = *output;
+
+    let op = func(BinaryOperator { lhs, rhs });
+
+    scope.register(Instruction::new(op, out));
+
+    output
+}
+
+pub(crate) fn index_expand<F, Op>(
+    scope: &mut Scope,
+    lhs: ExpandElement,
+    rhs: ExpandElement,
+    line_size: Option<u8>,
+    func: F,
+) -> ExpandElement
+where
+    F: Fn(BinaryOperator) -> Op,
+    Op: Into<Operation>,
+{
+    let lhs = lhs.consume();
+    let rhs = rhs.consume();
+
+    let item_lhs = lhs.item;
+    let item_rhs = rhs.item;
+
+    let vectorization = if let Some(line_size) = line_size {
+        NonZero::new(line_size)
+    } else {
+        find_vectorization(item_lhs.vectorization, item_rhs.vectorization)
+    };
 
     let item = Item::vectorized(item_lhs.elem, vectorization);
 

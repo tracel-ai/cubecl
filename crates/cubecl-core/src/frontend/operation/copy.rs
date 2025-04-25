@@ -46,6 +46,8 @@ pub mod copy_bulk {
                 input,
                 in_index: from_index.expand.consume(),
                 len: length.into(),
+                offset_input: input_offset,
+                offset_out: to_offset,
             }),
             to,
         ));

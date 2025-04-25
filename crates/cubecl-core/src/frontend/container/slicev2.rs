@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZero};
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
@@ -47,6 +47,7 @@ pub struct SliceV2Expand<E: CubePrimitive, IO: SliceVisibility> {
     pub(crate) io: PhantomData<IO>,
     pub(crate) offset: ExpandElementTyped<u32>,
     pub(crate) length: ExpandElementTyped<u32>,
+    pub(crate) line_size: Option<u8>,
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
@@ -68,28 +69,18 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
     /// # Warning
     ///
     /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
-    pub fn with_line_size(&self, line_size: u32) -> Slice<Line<E>, IO> {
+    pub fn with_line_size(&self, #[comptime] line_size: u32) -> Slice<Line<E>, IO> {
         intrinsic!(|scope| {
-            todo!()
-            // let input = self.clone().into_variable();
-            // let mut item = input.item;
+            let (input, offset) = self.__to_raw_parts();
+            let mut item = input.item;
 
-            // if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
-            //     return self;
-            // }
+            if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+                return self;
+            }
 
-            // item.vectorization = NonZero::new(line_size as u8);
-            // let out = scope.create_slice(item);
-
-            // scope.register(Instruction::new(
-            //     Operator::ReinterpretSlice(cubecl_ir::ReinterpretSliceOperator {
-            //         input,
-            //         line_size,
-            //     }),
-            //     *out,
-            // ));
-
-            // out.into()
+            let mut out = self.clone();
+            out.line_size = Some(line_size as u8);
+            out
         })
     }
 }
@@ -104,6 +95,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
                 io: self.io.clone(),
                 offset: self.offset.clone(),
                 length: self.length.clone(),
+                line_size: None,
             }
         })
     }
@@ -131,6 +123,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
                 io: self.io.clone(),
                 offset: self.offset.clone(),
                 length: self.length.clone(),
+                line_size: self.line_size.clone(),
             }
         })
     }
@@ -175,6 +168,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
             io: PhantomData,
             offset: start,
             length,
+            line_size: None,
         }
     }
 }
@@ -204,6 +198,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceV2Expand<E, IO> {
             origin: self.origin.clone(),
             offset: self.offset.clone(),
             length: self.length.clone(),
+            line_size: self.line_size.clone(),
             io: PhantomData,
         }
     }
@@ -345,7 +340,6 @@ impl<E: CubePrimitive> CubeIndexMut for SliceV2<E, ReadWrite> {
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<E>,
     ) {
-        println!("Expand write");
         array.__expand_write_method(scope, index, value)
     }
 }
@@ -409,7 +403,6 @@ mod read_offset_unchecked {
         offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
         index: <u32 as cubecl::prelude::CubeType>::ExpandType,
     ) -> <E as cubecl::prelude::CubeType>::ExpandType {
-        println!("Read read_offset_unchecked");
         let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
 
         match origin {

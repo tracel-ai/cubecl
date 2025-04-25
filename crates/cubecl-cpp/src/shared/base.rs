@@ -459,7 +459,12 @@ impl<D: Dialect> CppCompiler<D> {
                         with_cta_fence,
                     }));
                 }
-                gpu::BarrierOps::MemCopyAsync { barrier, source } => {
+                gpu::BarrierOps::MemCopyAsync {
+                    barrier,
+                    source,
+                    offset_source,
+                    offset_out,
+                } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
                     };
@@ -468,6 +473,8 @@ impl<D: Dialect> CppCompiler<D> {
                             barrier: self.compile_variable(barrier),
                             source: self.compile_variable(source),
                             destination: self.compile_variable(out.unwrap()),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
                             level,
                         },
                     ));
@@ -475,12 +482,14 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::BarrierOps::TmaLoad {
                     barrier,
                     tensor_map,
+                    offset_out,
                     indices,
                 } => {
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsyncTensorGlobalToShared {
                             barrier: self.compile_variable(barrier),
                             smem_buffer: self.compile_variable(out.unwrap()),
+                            smem_offset: self.compile_variable(offset_out),
                             tensor_map: self.compile_variable(tensor_map),
                             indices: indices
                                 .into_iter()
@@ -492,6 +501,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::BarrierOps::TmaLoadIm2col {
                     barrier,
                     tensor_map,
+                    offset_out,
                     indices,
                     offsets,
                 } => {
@@ -500,6 +510,7 @@ impl<D: Dialect> CppCompiler<D> {
                         super::barrier::BarrierOps::TmaLoadIm2col {
                             barrier: self.compile_variable(barrier),
                             smem_buffer: self.compile_variable(out.unwrap()),
+                            smem_offset: self.compile_variable(offset_out),
                             tensor_map: self.compile_variable(tensor_map),
                             indices: indices
                                 .into_iter()
@@ -625,6 +636,7 @@ impl<D: Dialect> CppCompiler<D> {
                 layout,
             } => Instruction::Wmma(WmmaInstruction::Load {
                 frag: out,
+                offset: self.compile_variable(offset),
                 value: self.compile_variable(value),
                 stride: self.compile_variable(stride),
                 layout: layout.and_then(|l| self.compile_matrix_layout(l)),
@@ -650,6 +662,7 @@ impl<D: Dialect> CppCompiler<D> {
                 self.flags.indexes.plane_index = true;
                 Instruction::Wmma(WmmaInstruction::Store {
                     output: out,
+                    offset: self.compile_variable(offset),
                     frag: self.compile_variable(mat),
                     stride: self.compile_variable(stride),
                     layout: self

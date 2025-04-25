@@ -124,6 +124,8 @@ pub struct CopyMemoryBulkOperator {
     pub input: Variable,
     pub in_index: Variable,
     pub len: Variable,
+    pub offset_input: Variable,
+    pub offset_out: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
