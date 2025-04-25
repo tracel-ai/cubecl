@@ -344,22 +344,41 @@ impl<D: Dialect> Binary<D> for IndexAssign {
 impl Index {
     pub(crate) fn format<D: Dialect>(
         f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
+        list: &Variable<D>,
+        index: &Variable<D>,
         out: &Variable<D>,
+        line_size: u32,
     ) -> std::fmt::Result {
-        if matches!(lhs, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
-            return IndexVector::format(f, lhs, rhs, out);
+        if matches!(
+            list,
+            Variable::LocalMut { .. } | Variable::LocalConst { .. }
+        ) {
+            return IndexVector::format(f, list, index, out);
+        }
+
+        if line_size > 0 {
+            let mut item = list.item();
+            item.vectorization = line_size as usize;
+            let addr_space = D::address_space_for_variable(list);
+            let qualifier = list.const_qualifier();
+            let tmp = Variable::tmp(item);
+
+            writeln!(
+                f,
+                "{qualifier} {addr_space}{item} *{tmp} = reinterpret_cast<{qualifier} {item}*>({list});"
+            )?;
+
+            return Index::format(f, &tmp, index, out, 0);
         }
 
         let item_out = out.item();
         if let Elem::Atomic(inner) = item_out.elem {
-            let addr_space = D::address_space_for_variable(lhs);
-            writeln!(f, "{addr_space}{inner}* {out} = &{lhs}[{rhs}];")
+            let addr_space = D::address_space_for_variable(list);
+            writeln!(f, "{addr_space}{inner}* {out} = &{list}[{index}];")
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
-            Self::format_scalar(f, *lhs, *rhs, item_out)?;
+            Self::format_scalar(f, *list, *index, item_out)?;
             f.write_str(";\n")
         }
     }

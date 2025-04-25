@@ -184,7 +184,10 @@ impl<D: Dialect> Component<D> for Variable<D> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(self, Variable::LocalConst { .. })
+        matches!(
+            self,
+            Variable::LocalConst { .. } | Variable::GlobalInputArray(..)
+        )
     }
 }
 

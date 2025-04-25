@@ -70,7 +70,7 @@ pub(crate) fn index_expand<F, Op>(
     scope: &mut Scope,
     list: ExpandElement,
     index: ExpandElement,
-    line_size: Option<u8>,
+    line_size: Option<u32>,
     func: F,
 ) -> ExpandElement
 where
@@ -84,7 +84,7 @@ where
     let item_rhs = index.item;
 
     let vectorization = if let Some(line_size) = line_size {
-        NonZero::new(line_size)
+        NonZero::new(line_size as u8)
     } else {
         find_vectorization(item_lhs.vectorization, item_rhs.vectorization)
     };
@@ -130,32 +130,6 @@ where
     scope.register(Instruction::new(op, out_var));
 
     out
-}
-
-pub(crate) fn binary_expand_no_vec<F>(
-    scope: &mut Scope,
-    lhs: ExpandElement,
-    rhs: ExpandElement,
-    func: F,
-) -> ExpandElement
-where
-    F: Fn(BinaryOperator) -> Operator,
-{
-    let lhs = lhs.consume();
-    let rhs = rhs.consume();
-
-    let item_lhs = lhs.item;
-
-    let item = Item::new(item_lhs.elem);
-
-    let output = scope.create_local(item);
-    let out = *output;
-
-    let op = func(BinaryOperator { lhs, rhs });
-
-    scope.register(Instruction::new(op, out));
-
-    output
 }
 
 pub(crate) fn cmp_expand<F>(

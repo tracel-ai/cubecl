@@ -100,6 +100,14 @@ pub mod index {
         expand.expand_index(scope, index)
     }
 
+    pub fn expand_with<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
+        scope: &mut Scope,
+        expand: A,
+        index: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<V> {
+        expand.expand_index(scope, index)
+    }
+
     macro_rules! impl_index {
         ($type:ident) => {
             impl<E: CubePrimitive> CubeIndex for $type<E> {

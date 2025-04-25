@@ -47,7 +47,7 @@ pub struct SliceV2Expand<E: CubePrimitive, IO: SliceVisibility> {
     pub(crate) io: PhantomData<IO>,
     pub(crate) offset: ExpandElementTyped<u32>,
     pub(crate) length: ExpandElementTyped<u32>,
-    pub(crate) line_size: Option<u8>,
+    pub(crate) line_size: Option<u32>,
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
@@ -80,7 +80,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
             }
 
             let mut out = self.clone();
-            out.line_size = Some(line_size as u8);
+            out.line_size = Some(line_size);
             out
         })
     }
@@ -278,14 +278,28 @@ impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadOnly> {
         scope: &mut cubecl_ir::Scope,
         index: ExpandElementTyped<u32>,
     ) -> <E as CubeType>::ExpandType {
-        read_offset::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
+        read_offset::expand::<E>(
+            scope,
+            self.origin.clone(),
+            self.offset.clone(),
+            index,
+            self.line_size,
+            true,
+        )
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut cubecl_ir::Scope,
         index: ExpandElementTyped<u32>,
     ) -> <E as CubeType>::ExpandType {
-        read_offset_unchecked::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
+        read_offset::expand::<E>(
+            scope,
+            self.origin.clone(),
+            self.offset.clone(),
+            index,
+            self.line_size,
+            false,
+        )
     }
 }
 
@@ -323,14 +337,28 @@ impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadWrite> {
         scope: &mut cubecl_ir::Scope,
         index: ExpandElementTyped<u32>,
     ) -> <E as CubeType>::ExpandType {
-        read_offset::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
+        read_offset::expand::<E>(
+            scope,
+            self.origin.clone(),
+            self.offset.clone(),
+            index,
+            self.line_size.clone(),
+            true,
+        )
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut cubecl_ir::Scope,
         index: ExpandElementTyped<u32>,
     ) -> <E as CubeType>::ExpandType {
-        read_offset_unchecked::expand::<E>(scope, self.origin.clone(), self.offset.clone(), index)
+        read_offset::expand::<E>(
+            scope,
+            self.origin.clone(),
+            self.offset.clone(),
+            index,
+            self.line_size.clone(),
+            false,
+        )
     }
 }
 
@@ -384,33 +412,20 @@ mod read_offset {
         origin: SliceOriginExpand<E>,
         offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
         index: <u32 as cubecl::prelude::CubeType>::ExpandType,
+        line_size: Option<u32>,
+        checked: bool,
     ) -> <E as cubecl::prelude::CubeType>::ExpandType {
         let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
 
         match origin {
-            SliceOriginExpand::Tensor(expand) => index::expand(scope, expand, index),
-            SliceOriginExpand::Array(expand) => index::expand(scope, expand, index),
-            SliceOriginExpand::SharedMemory(expand) => index::expand(scope, expand, index),
-        }
-    }
-}
-
-mod read_offset_unchecked {
-    use super::*;
-
-    pub fn expand<E: CubePrimitive>(
-        scope: &mut cubecl::prelude::Scope,
-        origin: SliceOriginExpand<E>,
-        offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        index: <u32 as cubecl::prelude::CubeType>::ExpandType,
-    ) -> <E as cubecl::prelude::CubeType>::ExpandType {
-        let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
-
-        match origin {
-            SliceOriginExpand::Tensor(expand) => index_unchecked::expand(scope, expand, index),
-            SliceOriginExpand::Array(expand) => index_unchecked::expand(scope, expand, index),
+            SliceOriginExpand::Tensor(expand) => {
+                expand_index_native::<Tensor<E>>(scope, expand, index, line_size, checked)
+            }
+            SliceOriginExpand::Array(expand) => {
+                expand_index_native::<Array<E>>(scope, expand, index, line_size, checked)
+            }
             SliceOriginExpand::SharedMemory(expand) => {
-                index_unchecked::expand(scope, expand, index)
+                expand_index_native::<SharedMemory<E>>(scope, expand, index, line_size, checked)
             }
         }
     }

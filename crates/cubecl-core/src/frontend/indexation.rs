@@ -1,8 +1,6 @@
 use cubecl_ir::{BinaryOperator, ExpandElement, Instruction, Operator, Scope, VariableKind};
 
-use super::{
-    CubeType, ExpandElementTyped, binary_expand_no_vec, index_expand, index_expand_no_vec,
-};
+use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
 use crate::{
     ir::{IntKind, UIntKind, Variable},
     unexpanded,
@@ -76,7 +74,7 @@ pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<u32>,
-    line_size: Option<u8>,
+    line_size: Option<u32>,
     checked: bool,
 ) -> ExpandElementTyped<A::Output>
 where
