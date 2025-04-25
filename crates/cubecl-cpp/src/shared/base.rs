@@ -249,9 +249,6 @@ impl<D: Dialect> CppCompiler<D> {
         let processing = scope.process();
 
         for var in processing.variables {
-            if let gpu::VariableKind::Slice { .. } = var.kind {
-                continue;
-            }
             instructions.push(Instruction::DeclareVariable {
                 var: self.compile_variable(var),
             });
@@ -1053,35 +1050,6 @@ impl<D: Dialect> CppCompiler<D> {
     ) {
         let out = out.unwrap();
         match value {
-            gpu::Operator::Slice(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
-                    let input = op.input;
-                    let input_len = *scope
-                        .create_local_mut(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match input.has_buffer_length() {
-                        true => gpu::Metadata::BufferLength { var: input },
-                        false => gpu::Metadata::Length { var: input },
-                    };
-
-                    instructions.push(self.compile_metadata(length, Some(input_len)));
-                    instructions.push(Instruction::CheckedSlice {
-                        input: self.compile_variable(op.input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                        len: self.compile_variable(input_len),
-                    });
-                } else {
-                    instructions.push(Instruction::Slice {
-                        input: self.compile_variable(op.input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                    })
-                }
-            }
             gpu::Operator::ReinterpretSlice(op) => {
                 // TODO Do we need to add special behavior in checked mode?
                 instructions.push(Instruction::ReinterpretSlice {
@@ -1226,10 +1194,6 @@ impl<D: Dialect> CppCompiler<D> {
                 item: self.compile_item(item),
             },
             gpu::VariableKind::LocalConst { id } => Variable::LocalConst {
-                id,
-                item: self.compile_item(item),
-            },
-            gpu::VariableKind::Slice { id } => Variable::Slice {
                 id,
                 item: self.compile_item(item),
             },

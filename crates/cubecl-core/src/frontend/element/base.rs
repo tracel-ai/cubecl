@@ -353,7 +353,6 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::GlobalOutputArray { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::ConstantArray { .. }
-        | VariableKind::Slice { .. }
         | VariableKind::Matrix { .. }
         | VariableKind::Barrier { .. }
         | VariableKind::Pipeline { .. }

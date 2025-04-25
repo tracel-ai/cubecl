@@ -39,8 +39,8 @@ use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
-    EmptyBranchToSelect, InBoundsToUnchecked, InlineAssignments, MergeBlocks, MergeSameExpressions,
-    OptimizerPass, ReduceStrength, RemoveIndexScalar,
+    EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
+    ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
@@ -274,11 +274,6 @@ impl Optimizer {
             if counter.get() == 0 {
                 break;
             }
-        }
-
-        // Only replace indexing when checked, since all indexes are unchecked anyways in unchecked
-        if matches!(self.mode, ExecutionMode::Checked) {
-            InBoundsToUnchecked.apply_post_ssa(self, AtomicCounter::new(0));
         }
     }
 

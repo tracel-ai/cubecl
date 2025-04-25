@@ -7,7 +7,6 @@ use rspirv::spirv::{Capability, Decoration, Word};
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    lookups::Slice,
     variable::IndexedVariable,
 };
 
@@ -191,37 +190,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed_unchecked(&out, &index, value_id);
-            }
-            Operator::Slice(op) => {
-                let item = self.compile_item(op.input.item);
-                let input = self.compile_variable(op.input);
-                let start = self.compile_variable(op.start);
-                let end = self.compile_variable(op.end);
-                let out = match out.kind {
-                    core::VariableKind::Slice { id } => id,
-                    _ => unreachable!(),
-                };
-
-                let start_id = self.read(&start);
-                let end_id = self.read(&end);
-                let const_len = match (start.as_const(), end.as_const()) {
-                    (Some(start), Some(end)) => {
-                        let len = end.as_u32() - start.as_u32();
-                        Some(len)
-                    }
-                    _ => None,
-                };
-
-                self.state.slices.insert(
-                    out,
-                    Slice {
-                        ptr: input,
-                        offset: start_id,
-                        end: end_id,
-                        const_len,
-                        item,
-                    },
-                );
             }
             Operator::ReinterpretSlice(_) => {
                 todo!()

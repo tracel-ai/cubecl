@@ -167,11 +167,6 @@ impl Optimizer {
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
             | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
-            Operator::Slice(slice_operator) => {
-                visit_read(self, &mut slice_operator.start);
-                visit_read(self, &mut slice_operator.end);
-                visit_read(self, &mut slice_operator.input);
-            }
             Operator::ReinterpretSlice(_) => {
                 todo!()
             }

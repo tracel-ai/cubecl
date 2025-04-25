@@ -198,11 +198,6 @@ impl ScopeProcessing {
                     }
                 },
                 Operation::Operator(op) => match op {
-                    Operator::Slice(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt(UIntKind::U32));
-                    }
                     Operator::ReinterpretSlice(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }

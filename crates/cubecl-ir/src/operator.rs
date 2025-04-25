@@ -16,8 +16,6 @@ pub enum Operator {
     CopyMemory(CopyMemoryOperator),
     CopyMemoryBulk(CopyMemoryBulkOperator),
     #[operation(pure)]
-    Slice(SliceOperator),
-    #[operation(pure)]
     ReinterpretSlice(ReinterpretSliceOperator),
     #[operation(pure)]
     UncheckedIndex(BinaryOperator),
@@ -52,7 +50,6 @@ impl Display for Operator {
                 "memcpy([{}], {}[{}], {})",
                 op.input, op.in_index, op.out_index, op.len
             ),
-            Operator::Slice(op) => write!(f, "{}[{}..{}]", op.input, op.start, op.end),
             Operator::ReinterpretSlice(op) => {
                 write!(f, "with_line_size({}, {})", op.input, op.line_size)
             }

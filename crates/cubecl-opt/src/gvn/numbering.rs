@@ -205,7 +205,6 @@ impl ValueTable {
 
             Operator::IndexAssign(_)
             | Operator::UncheckedIndexAssign(_)
-            | Operator::Slice(_)
             | Operator::CopyMemoryBulk(_)
             | Operator::CopyMemory(_) => Err(None)?,
 
@@ -227,7 +226,6 @@ impl ValueTable {
                 let var = match var.kind {
                     VariableKind::GlobalInputArray { .. }
                     | VariableKind::GlobalOutputArray { .. }
-                    | VariableKind::Slice { .. }
                     | VariableKind::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
                     VariableKind::ConstantArray { length, .. }
                     | VariableKind::SharedMemory { length, .. }
