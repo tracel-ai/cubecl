@@ -243,6 +243,7 @@ macro_rules! tma_store {
                         TmaOps::TmaStore {
                             source,
                             coordinates,
+                            offset_source: source_offset,
                         },
                         dst,
                     ))

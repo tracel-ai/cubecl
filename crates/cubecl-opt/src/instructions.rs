@@ -405,8 +405,10 @@ impl Optimizer {
             TmaOps::TmaStore {
                 source,
                 coordinates,
+                offset_source,
             } => {
                 visit_read(self, source);
+                visit_read(self, offset_source);
                 for coord in coordinates {
                     visit_read(self, coord)
                 }

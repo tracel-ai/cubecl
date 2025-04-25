@@ -404,43 +404,6 @@ impl<D: Dialect> CppCompiler<D> {
                 // Don't need to handle scopes
                 _ => {}
             },
-            gpu::Operation::Pipeline(pipeline_ops) => match pipeline_ops {
-                gpu::PipelineOps::MemCopyAsync {
-                    pipeline,
-                    source,
-                    destination,
-                } => {
-                    instructions.push(Instruction::Pipeline(
-                        super::pipeline::PipelineOps::MemCopyAsync {
-                            pipeline: self.compile_variable(pipeline),
-                            source: self.compile_variable(source),
-                            destination: self.compile_variable(destination),
-                        },
-                    ));
-                }
-                gpu::PipelineOps::ProducerAcquire { pipeline } => instructions.push(
-                    Instruction::Pipeline(super::pipeline::PipelineOps::ProducerAcquire {
-                        pipeline: self.compile_variable(pipeline),
-                    }),
-                ),
-                gpu::PipelineOps::ProducerCommit { pipeline } => instructions.push(
-                    Instruction::Pipeline(super::pipeline::PipelineOps::ProducerCommit {
-                        pipeline: self.compile_variable(pipeline),
-                    }),
-                ),
-
-                gpu::PipelineOps::ConsumerWait { pipeline } => instructions.push(
-                    Instruction::Pipeline(super::pipeline::PipelineOps::ConsumerWait {
-                        pipeline: self.compile_variable(pipeline),
-                    }),
-                ),
-
-                gpu::PipelineOps::ConsumerRelease { pipeline } => instructions.push(
-                    Instruction::Pipeline(super::pipeline::PipelineOps::ConsumerRelease {
-                        pipeline: self.compile_variable(pipeline),
-                    }),
-                ),
-            },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
                 gpu::BarrierOps::Init {
                     barrier,
@@ -576,9 +539,11 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::TmaOps::TmaStore {
                         source,
                         coordinates,
+                        offset_source,
                     } => {
                         instructions.push(Instruction::MemCopyAsyncTensorSharedToGlobal {
                             smem_buffer: self.compile_variable(source),
+                            smem_offset: self.compile_variable(offset_source),
                             tensor_map: self.compile_variable(out.unwrap()),
                             indices: coordinates
                                 .into_iter()

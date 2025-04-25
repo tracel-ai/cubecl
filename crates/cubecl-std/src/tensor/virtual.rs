@@ -48,10 +48,10 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
 
     fn __expand_read_unchecked_method(
         &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
+        _scope: &mut Scope,
+        _index: ExpandElementTyped<u32>,
     ) -> <Line<E> as CubeType>::ExpandType {
-        todo!();
+        todo!("VirtualTensor don't support read unchecked yet");
     }
 }
 

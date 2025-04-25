@@ -139,6 +139,7 @@ pub struct Optimizer {
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
+    #[allow(unused)]
     pub(crate) mode: ExecutionMode,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
 }

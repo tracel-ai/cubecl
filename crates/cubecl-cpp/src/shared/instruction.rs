@@ -219,6 +219,7 @@ pub enum Instruction<D: Dialect> {
     Barrier(BarrierOps<D>),
     MemCopyAsyncTensorSharedToGlobal {
         smem_buffer: Variable<D>,
+        smem_offset: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
@@ -617,6 +618,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             ),
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
+                smem_offset,
                 tensor_map,
                 indices,
             } => {
@@ -628,7 +630,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr} + {smem_offset});"
                 )
             }
         }

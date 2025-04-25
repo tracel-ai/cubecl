@@ -1,6 +1,6 @@
 use cubecl_ir::{BinaryOperator, ExpandElement, Instruction, Operator, Scope, VariableKind};
 
-use super::{CubeType, ExpandElementTyped, binary_expand, binary_expand_no_vec, index_expand};
+use super::{CubeType, ExpandElementTyped, binary_expand_no_vec, index_expand};
 use crate::{
     ir::{IntKind, UIntKind, Variable},
     unexpanded,

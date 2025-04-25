@@ -216,10 +216,7 @@ pub fn compile_bindings<D: Dialect>(
     );
     args.extend(buffers.iter().map(|binding| match binding.vis {
         Visibility::Read => {
-            format!(
-                "const {}* __restrict__ buffer_{}",
-                binding.item, binding.id
-            )
+            format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
         }
         Visibility::ReadWrite => {
             format!("{}* buffer_{}", binding.item, binding.id)

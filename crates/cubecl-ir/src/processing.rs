@@ -351,9 +351,6 @@ impl ScopeProcessing {
                 Operation::NonSemantic(_) => {
                     // Nothing to do.
                 }
-                Operation::Pipeline(_) => {
-                    // Nothing to do
-                }
                 Operation::Barrier(_) => {
                     // Nothing to do
                 }
