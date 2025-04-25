@@ -30,9 +30,9 @@ use cubecl_runtime::{
     server::{self, ComputeServer},
 };
 use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUctx_st, CUmemorytype, CUtensorMap, CUtensorMapDataType,
-    CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2,
-    cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
+    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
+    cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -67,6 +67,7 @@ pub(crate) struct CudaContext {
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
+    shared_mem_bytes: usize,
     cluster_dim: Option<(u32, u32, u32)>,
     ptx: Vec<i8>,
 }
@@ -74,6 +75,7 @@ pub struct PtxCacheEntry {
 #[derive(Debug)]
 struct CompiledKernel {
     cube_dim: CubeDim,
+    shared_mem_bytes: usize,
     func: *mut CUfunc_st,
 }
 
@@ -629,6 +631,7 @@ impl CudaContext {
                     y: entry.cube_dim.1,
                     z: entry.cube_dim.2,
                 },
+                entry.shared_mem_bytes,
             );
             return;
         }
@@ -685,6 +688,9 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
+        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect> =
+            kernel_compiled.repr.unwrap();
+
         #[cfg(feature = "compilation-cache")]
         self.ptx_cache
             .insert(
@@ -692,6 +698,7 @@ impl CudaContext {
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                    shared_mem_bytes: repr.shared_memory_size(),
                     cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
                     ptx: ptx.clone(),
                 },
@@ -703,6 +710,7 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
+            repr.shared_memory_size(),
         );
     }
 
@@ -712,6 +720,7 @@ impl CudaContext {
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
+        shared_mem_bytes: usize,
     ) {
         let func_name = CString::new(entrypoint_name).unwrap();
         let func = unsafe {
@@ -720,8 +729,14 @@ impl CudaContext {
             cudarc::driver::result::module::get_function(module, func_name).unwrap()
         };
 
-        self.module_names
-            .insert(kernel_id.clone(), CompiledKernel { cube_dim, func });
+        self.module_names.insert(
+            kernel_id.clone(),
+            CompiledKernel {
+                cube_dim,
+                shared_mem_bytes,
+                func,
+            },
+        );
     }
 
     fn execute_task(
@@ -742,14 +757,19 @@ impl CudaContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
+            cudarc::driver::result::function::set_function_attribute(
+                kernel.func,
+                CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                kernel.shared_mem_bytes as i32,
+            )
+            .unwrap();
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
                 (cube_dim.x, cube_dim.y, cube_dim.z),
-                // Shared memory is specified statically in the kernel, and no dynamic shared
-                // memory is supported yet in the kernel, which would be that value for the
-                // current kernel launch.
-                0,
+                // Shared memory is collected into a single buffer, with each shared memory being
+                // an offset pointer
+                kernel.shared_mem_bytes as u32,
                 self.stream,
                 &mut bindings,
             )

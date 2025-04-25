@@ -2,51 +2,53 @@ use std::{marker::PhantomData, num::NonZero};
 
 use cubecl_ir::{ExpandElement, Scope};
 
+use crate as cubecl;
 use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped};
 use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer};
+use crate::prelude::{assign, index, index_assign};
 use crate::{
     frontend::CubeType,
     ir::{Item, Metadata},
     unexpanded,
 };
-use crate::{
-    frontend::indexation::Index,
-    prelude::{assign, index, index_assign},
-};
+use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous array of elements.
 pub struct Array<E> {
     _val: PhantomData<E>,
 }
 
+type ArrayExpand<E> = ExpandElementTyped<Array<E>>;
+
 /// Module that contains the implementation details of the new function.
 mod new {
+
+    use cubecl_macros::intrinsic;
+
     use super::*;
     use crate::ir::Variable;
 
+    #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create a new array of the given length.
         #[allow(unused_variables)]
-        pub fn new<L: Index>(length: L) -> Self {
-            Array { _val: PhantomData }
+        pub fn new(length: u32) -> Self {
+            intrinsic!(|scope| {
+                let size = length
+                    .constant()
+                    .expect("Array needs constant initialization value")
+                    .as_u32();
+                let elem = T::as_elem(scope);
+                scope.create_local_array(Item::new(elem), size).into()
+            })
         }
+    }
 
+    impl<T: CubePrimitive + Clone> Array<T> {
         /// Create an array from data.
-        pub fn from_data<C: CubePrimitive>(_data: impl IntoIterator<Item = C>) -> Self {
+        #[allow(unused_variables)]
+        pub fn from_data<C: CubePrimitive>(data: impl IntoIterator<Item = C>) -> Self {
             Array { _val: PhantomData }
-        }
-
-        /// Expand function of [new](Array::new).
-        pub fn __expand_new(
-            scope: &mut Scope,
-            size: ExpandElementTyped<u32>,
-        ) -> <Self as CubeType>::ExpandType {
-            let size = size
-                .constant()
-                .expect("Array need constant initialization value")
-                .as_u32();
-            let elem = T::as_elem(scope);
-            scope.create_local_array(Item::new(elem), size).into()
         }
 
         /// Expand function of [from_data](Array::from_data).
@@ -132,75 +134,59 @@ mod line {
 ///
 /// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
+
     use super::*;
 
+    #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn vectorized<L: Index>(length: L, vectorization_factor: u32) -> Self {
-            Array { _val: PhantomData }
+        pub fn vectorized(#[comptime] length: u32, #[comptime] vectorization_factor: u32) -> Self {
+            intrinsic!(|scope| {
+                scope
+                    .create_local_array(
+                        Item::vectorized(
+                            T::as_elem(scope),
+                            NonZero::new(vectorization_factor as u8),
+                        ),
+                        length,
+                    )
+                    .into()
+            })
         }
 
-        pub fn to_vectorized(self, _vectorization_factor: u32) -> T {
-            unexpanded!()
-        }
+        #[allow(unused_variables)]
+        pub fn to_vectorized(self, #[comptime] vectorization_factor: u32) -> T {
+            intrinsic!(|scope| {
+                let factor = vectorization_factor;
+                let var = self.expand.clone();
+                let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
 
-        pub fn __expand_vectorized(
-            scope: &mut Scope,
-            size: ExpandElementTyped<u32>,
-            vectorization_factor: u32,
-        ) -> <Self as CubeType>::ExpandType {
-            let size = size.value();
-            let size = match size.kind {
-                crate::ir::VariableKind::ConstantScalar(value) => value.as_u32(),
-                _ => panic!("Shared memory need constant initialization value"),
-            };
-            scope
-                .create_local_array(
-                    Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
-                    size,
-                )
-                .into()
-        }
-    }
-
-    impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
-        pub fn __expand_to_vectorized_method(
-            self,
-            scope: &mut Scope,
-            vectorization_factor: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<C> {
-            let factor = vectorization_factor
-                .constant()
-                .expect("Vectorization must be comptime")
-                .as_u32();
-            let var = self.expand.clone();
-            let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
-
-            let new_var = if factor == 1 {
-                let new_var = scope.create_local(item);
-                let element = index::expand(
-                    scope,
-                    self.clone(),
-                    ExpandElementTyped::from_lit(scope, 0u32),
-                );
-                assign::expand::<C>(scope, element, new_var.clone().into());
-                new_var
-            } else {
-                let new_var = scope.create_local_mut(item);
-                for i in 0..factor {
-                    let expand: Self = self.expand.clone().into();
-                    let element =
-                        index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
-                    index_assign::expand::<Array<C>>(
+                let new_var = if factor == 1 {
+                    let new_var = scope.create_local(item);
+                    let element = index::expand(
                         scope,
-                        new_var.clone().into(),
-                        ExpandElementTyped::from_lit(scope, i),
-                        element,
+                        self.clone(),
+                        ExpandElementTyped::from_lit(scope, 0u32),
                     );
-                }
-                new_var
-            };
-            new_var.into()
+                    assign::expand::<T>(scope, element, new_var.clone().into());
+                    new_var
+                } else {
+                    let new_var = scope.create_local_mut(item);
+                    for i in 0..factor {
+                        let expand: Self = self.expand.clone().into();
+                        let element =
+                            index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
+                        index_assign::expand::<Array<T>>(
+                            scope,
+                            new_var.clone().into(),
+                            ExpandElementTyped::from_lit(scope, i),
+                            element,
+                        );
+                    }
+                    new_var
+                };
+                new_var.into()
+            })
         }
     }
 }
@@ -211,42 +197,35 @@ mod metadata {
 
     use super::*;
 
+    #[cube]
     impl<E: CubeType> Array<E> {
         /// Obtain the array length
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> u32 {
-            unexpanded!()
+            intrinsic!(|scope| {
+                let out = scope.create_local(Item::new(u32::as_elem(scope)));
+                scope.register(Instruction::new(
+                    Metadata::Length {
+                        var: self.expand.into(),
+                    },
+                    out.clone().into(),
+                ));
+                out.into()
+            })
         }
 
         /// Obtain the array buffer length
         pub fn buffer_len(&self) -> u32 {
-            unexpanded!()
-        }
-    }
-
-    impl<T: CubeType> ExpandElementTyped<Array<T>> {
-        // Expand method of [len](Array::len).
-        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-            let out = scope.create_local(Item::new(u32::as_elem(scope)));
-            scope.register(Instruction::new(
-                Metadata::Length {
-                    var: self.expand.into(),
-                },
-                out.clone().into(),
-            ));
-            out.into()
-        }
-
-        // Expand method of [buffer_len](Array::buffer_len).
-        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-            let out = scope.create_local(Item::new(u32::as_elem(scope)));
-            scope.register(Instruction::new(
-                Metadata::BufferLength {
-                    var: self.expand.into(),
-                },
-                out.clone().into(),
-            ));
-            out.into()
+            intrinsic!(|scope| {
+                let out = scope.create_local(Item::new(u32::as_elem(scope)));
+                scope.register(Instruction::new(
+                    Metadata::BufferLength {
+                        var: self.expand.into(),
+                    },
+                    out.clone().into(),
+                ));
+                out.into()
+            })
         }
     }
 }
@@ -262,17 +241,29 @@ mod indexation {
 
     use super::*;
 
+    #[cube]
     impl<E: CubePrimitive> Array<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
-        pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
+        #[allow(unused_variables)]
+        pub unsafe fn index_unchecked(&self, i: u32) -> &E
         where
-            Self: CubeIndex<I>,
+            Self: CubeIndex<u32>,
         {
-            unexpanded!()
+            intrinsic!(|scope| {
+                let out = scope.create_local(self.expand.item);
+                scope.register(Instruction::new(
+                    Operator::UncheckedIndex(BinaryOperator {
+                        lhs: *self.expand,
+                        rhs: i.expand.consume(),
+                    }),
+                    *out,
+                ));
+                out.into()
+            })
         }
 
         /// Perform an unchecked index assignment into the array
@@ -280,44 +271,20 @@ mod indexation {
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
-        pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
+        #[allow(unused_variables)]
+        pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E)
         where
-            Self: CubeIndexMut<I>,
+            Self: CubeIndexMut<u32>,
         {
-            unexpanded!()
-        }
-    }
-
-    impl<E: CubePrimitive> ExpandElementTyped<Array<E>> {
-        pub fn __expand_index_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<E> {
-            let out = scope.create_local(self.expand.item);
-            scope.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
-                    lhs: *self.expand,
-                    rhs: i.expand.consume(),
-                }),
-                *out,
-            ));
-            out.into()
-        }
-
-        pub fn __expand_index_assign_unchecked_method(
-            self,
-            scope: &mut Scope,
-            i: ExpandElementTyped<u32>,
-            value: ExpandElementTyped<E>,
-        ) {
-            scope.register(Instruction::new(
-                Operator::UncheckedIndexAssign(BinaryOperator {
-                    lhs: i.expand.consume(),
-                    rhs: value.expand.consume(),
-                }),
-                *self.expand,
-            ));
+            intrinsic!(|scope| {
+                scope.register(Instruction::new(
+                    Operator::UncheckedIndexAssign(BinaryOperator {
+                        lhs: i.expand.consume(),
+                        rhs: value.expand.consume(),
+                    }),
+                    *self.expand,
+                ));
+            })
         }
     }
 }

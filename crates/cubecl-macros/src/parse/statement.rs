@@ -126,6 +126,16 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
         Ok(Expression::Comment { content })
     } else if mac.path.is_ident("terminate") {
         Ok(Expression::Terminate)
+    } else if mac.path.is_ident("intrinsic") {
+        let closure: syn::ExprClosure = mac.parse_body()?;
+        let arg = &closure.inputs[0];
+        let block = *closure.body;
+        let tokens = quote! {{
+            let #arg = scope;
+            #block
+        }};
+
+        Ok(Expression::Verbatim { tokens })
     } else {
         Err(syn::Error::new_spanned(
             mac,
