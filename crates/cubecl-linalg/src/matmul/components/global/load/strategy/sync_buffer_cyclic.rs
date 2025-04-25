@@ -134,34 +134,33 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
-        // We assume unit_position < total_num_lines * line_size;
-        // This is caught by the loading validation
-
-        let unit_pos_in_buffer = unit_position / tile_size;
+        let tile_index = unit_position / tile_size;
         let pos_within_tile = unit_position % tile_size;
 
-        let (tile_x, tile_y) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (unit_pos_in_buffer, this.buffer_index.runtime()),
-            InputIdent::Rhs => (this.buffer_index.runtime(), unit_pos_in_buffer),
+        let (tile_x_global, tile_y_global) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (tile_index, 0),
+            InputIdent::Rhs => (0, tile_index),
         };
-
-        let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
-            tile_x,
-            tile_y,
-            tile_count_row,
-            tile_count_col,
-            comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
-        );
-
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
-            tile_x,
-            tile_y,
+            tile_x_global,
+            tile_y_global,
             pos_within_tile,
             this.input_ident,
             config,
         );
 
+        let (tile_x_smem, tile_y_smem) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (tile_index, this.buffer_index.runtime()),
+            InputIdent::Rhs => (this.buffer_index.runtime(), tile_index),
+        };
+        let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
+            tile_x_smem,
+            tile_y_smem,
+            tile_count_row,
+            tile_count_col,
+            comptime!(this.input_ident.as_ident()),
+            config.to_smm_config(),
+        );
         let tile_start = nth_tile * this.num_lines_per_tile;
         let tile_end = tile_start + this.num_lines_per_tile;
         let mut tile_slice = stage
