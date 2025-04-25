@@ -51,9 +51,7 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> <Line<E> as CubeType>::ExpandType {
-        self.state
-            .clone()
-            .__expand_read_unchecked_method(scope, index)
+        todo!();
     }
 }
 

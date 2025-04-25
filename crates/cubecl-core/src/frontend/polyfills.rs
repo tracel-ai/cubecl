@@ -29,7 +29,7 @@ fn checked_index_assign<E: CubePrimitive>(
     out: &mut Array<Line<E>>,
     #[comptime] has_buffer_len: bool,
 ) {
-    let array_len = if has_buffer_len {
+    let array_len = if comptime![has_buffer_len] {
         out.buffer_len()
     } else {
         out.len()

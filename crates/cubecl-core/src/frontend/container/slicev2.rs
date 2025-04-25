@@ -62,6 +62,39 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
 }
 
 #[cube]
+impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
+    /// it simply reinterpret how they are loaded and stored in memory.
+    ///
+    /// # Warning
+    ///
+    /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
+    pub fn with_line_size(&self, line_size: u32) -> Slice<Line<E>, IO> {
+        intrinsic!(|scope| {
+            todo!()
+            // let input = self.clone().into_variable();
+            // let mut item = input.item;
+
+            // if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+            //     return self;
+            // }
+
+            // item.vectorization = NonZero::new(line_size as u8);
+            // let out = scope.create_slice(item);
+
+            // scope.register(Instruction::new(
+            //     Operator::ReinterpretSlice(cubecl_ir::ReinterpretSliceOperator {
+            //         input,
+            //         line_size,
+            //     }),
+            //     *out,
+            // ));
+
+            // out.into()
+        })
+    }
+}
+
+#[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
     /// Returns the same slice, but with lines of length 1.
     pub fn into_lined(&self) -> SliceV2<Line<E>, IO> {
@@ -99,37 +132,6 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
                 offset: self.offset.clone(),
                 length: self.length.clone(),
             }
-        })
-    }
-
-    /// Return a new Slice with updated line_size. This doesn't copy or move the data,
-    /// it simply reinterpret how they are loaded and stored in memory.
-    ///
-    /// # Warning
-    ///
-    /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
-    pub fn with_line_size(&self, line_size: u32) -> Slice<Line<E>, IO> {
-        intrinsic!(|scope| {
-            todo!()
-            // let input = self.clone().into_variable();
-            // let mut item = input.item;
-
-            // if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
-            //     return self;
-            // }
-
-            // item.vectorization = NonZero::new(line_size as u8);
-            // let out = scope.create_slice(item);
-
-            // scope.register(Instruction::new(
-            //     Operator::ReinterpretSlice(cubecl_ir::ReinterpretSliceOperator {
-            //         input,
-            //         line_size,
-            //     }),
-            //     *out,
-            // ));
-
-            // out.into()
         })
     }
 }
@@ -343,6 +345,7 @@ impl<E: CubePrimitive> CubeIndexMut for SliceV2<E, ReadWrite> {
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<E>,
     ) {
+        println!("Expand write");
         array.__expand_write_method(scope, index, value)
     }
 }
@@ -406,6 +409,7 @@ mod read_offset_unchecked {
         offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
         index: <u32 as cubecl::prelude::CubeType>::ExpandType,
     ) -> <E as cubecl::prelude::CubeType>::ExpandType {
+        println!("Read read_offset_unchecked");
         let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
 
         match origin {

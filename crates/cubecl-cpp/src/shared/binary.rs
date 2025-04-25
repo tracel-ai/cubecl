@@ -348,6 +348,7 @@ impl<D: Dialect> Binary<D> for Index {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        println!("Format index");
         if matches!(lhs, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
             return IndexVector::format(f, lhs, rhs, out);
         }

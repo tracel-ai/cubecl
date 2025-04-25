@@ -277,6 +277,7 @@ mod indexation {
             Self: CubeIndexMut,
         {
             intrinsic!(|scope| {
+                println!("array index_assign_unchecked");
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(BinaryOperator {
                         lhs: i.expand.consume(),
@@ -339,6 +340,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
+        println!("Read unchecked array");
         index_unchecked::expand(scope, self.clone(), idx)
     }
 }

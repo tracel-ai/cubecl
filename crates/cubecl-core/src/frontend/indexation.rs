@@ -74,6 +74,7 @@ pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<u32>,
+    checked: bool,
 ) -> ExpandElementTyped<A::Output>
 where
     A::Output: CubeType + Sized,
@@ -88,11 +89,20 @@ where
     };
     let array: ExpandElement = array.into();
     let var: Variable = *array;
-    let var = match var.kind {
-        VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-            binary_expand_no_vec(scope, array, index, Operator::Index)
+    let var = if checked {
+        match var.kind {
+            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
+                binary_expand_no_vec(scope, array, index, Operator::Index)
+            }
+            _ => binary_expand(scope, array, index, Operator::Index),
         }
-        _ => binary_expand(scope, array, index, Operator::Index),
+    } else {
+        match var.kind {
+            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
+                binary_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
+            }
+            _ => binary_expand(scope, array, index, Operator::UncheckedIndex),
+        }
     };
 
     ExpandElementTyped::new(var)
@@ -105,9 +115,11 @@ pub(crate) fn expand_index_assign_native<
     array: A::ExpandType,
     index: ExpandElementTyped<u32>,
     value: ExpandElementTyped<A::Output>,
+    checked: bool,
 ) where
     A::Output: CubeType + Sized,
 {
+    println!("expand_index_assign_native");
     let index: Variable = index.expand.into();
     let index = match index.kind {
         VariableKind::ConstantScalar(value) => Variable::constant(
@@ -115,13 +127,23 @@ pub(crate) fn expand_index_assign_native<
         ),
         _ => index,
     };
-    scope.register(Instruction::new(
-        Operator::IndexAssign(BinaryOperator {
-            lhs: index,
-            rhs: value.expand.into(),
-        }),
-        array.expand.into(),
-    ));
+    if checked {
+        scope.register(Instruction::new(
+            Operator::IndexAssign(BinaryOperator {
+                lhs: index,
+                rhs: value.expand.into(),
+            }),
+            array.expand.into(),
+        ));
+    } else {
+        scope.register(Instruction::new(
+            Operator::UncheckedIndexAssign(BinaryOperator {
+                lhs: index,
+                rhs: value.expand.into(),
+            }),
+            array.expand.into(),
+        ));
+    }
 }
 
 pub trait Index {

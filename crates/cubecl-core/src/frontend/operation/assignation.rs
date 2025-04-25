@@ -76,7 +76,7 @@ pub mod index_assign {
                     index: ExpandElementTyped<u32>,
                     value: Self::Output,
                 ) {
-                    expand_index_assign_native::<$type<E>>(scope, self, index, value);
+                    expand_index_assign_native::<$type<E>>(scope, self, index, value, true);
                 }
             }
         };
@@ -114,14 +114,14 @@ pub mod index {
                     scope: &mut Scope,
                     index: ExpandElementTyped<u32>,
                 ) -> Self::Output {
-                    expand_index_native(scope, self, index)
+                    expand_index_native(scope, self, index, true)
                 }
                 fn expand_index_unchecked(
                     self,
                     scope: &mut Scope,
                     index: ExpandElementTyped<u32>,
                 ) -> Self::Output {
-                    expand_index_native(scope, self, index)
+                    expand_index_native(scope, self, index, false)
                 }
             }
         };
