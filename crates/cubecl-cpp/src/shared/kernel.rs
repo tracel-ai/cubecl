@@ -216,14 +216,13 @@ pub fn compile_bindings<D: Dialect>(
     );
     args.extend(buffers.iter().map(|binding| match binding.vis {
         Visibility::Read => {
-            format!("{} buffer_{}[]", binding.item, binding.id)
-            // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-            // we should have multiple pointer types to enable that optimization.
-            //
-            // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+            format!(
+                "const {}* __restrict__ buffer_{}",
+                binding.item, binding.id
+            )
         }
         Visibility::ReadWrite => {
-            format!("{} buffer_{}[]", binding.item, binding.id)
+            format!("{}* buffer_{}", binding.item, binding.id)
         }
     }));
     args.extend(
