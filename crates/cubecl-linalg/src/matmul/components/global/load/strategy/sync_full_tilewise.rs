@@ -7,7 +7,7 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{
     global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
-    stage::{ContiguousTilingLayout, Stage, TilingOrder},
+    stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -98,7 +98,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
@@ -141,7 +141,7 @@ impl Job {
         this: &Self,
         pos_within_tile: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {

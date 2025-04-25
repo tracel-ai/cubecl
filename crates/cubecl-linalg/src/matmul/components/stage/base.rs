@@ -161,7 +161,10 @@ pub trait StageConfig: MatmulConfig {
 
     fn tile_count(&self) -> &MatmulSize;
 
+    // TODO rename tile buffering
     fn buffering(&self) -> StageBuffering;
+
+    fn num_buffers(&self) -> u32;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

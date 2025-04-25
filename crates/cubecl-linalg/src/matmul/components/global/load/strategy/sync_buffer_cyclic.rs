@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
-use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
+use crate::matmul::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -118,7 +118,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
@@ -137,10 +137,16 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let tile_index = unit_position / tile_size;
         let pos_within_tile = unit_position % tile_size;
 
-        let (tile_x_global, tile_y_global) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (tile_index, 0),
-            InputIdent::Rhs => (0, tile_index),
-        };
+        let (tile_x_global, tile_y_global) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
+            tile_index,
+            comptime!(this.input_ident.as_ident()),
+            comptime!(config.to_smm_config()),
+        );
+
+        // let (tile_x_global, tile_y_global) = match comptime!(this.input_ident) {
+        //     InputIdent::Lhs => (tile_index, 0),
+        //     InputIdent::Rhs => (0, tile_index),
+        // };
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
             tile_x_global,
             tile_y_global,
@@ -149,15 +155,26 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config,
         );
 
-        let (tile_x_smem, tile_y_smem) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (tile_index, this.buffer_index.runtime()),
-            InputIdent::Rhs => (this.buffer_index.runtime(), tile_index),
-        };
+        let (tile_x_smem, tile_y_smem, total_tile_count_row, total_tile_count_col) =
+            match comptime!(this.input_ident) {
+                InputIdent::Lhs => (
+                    tile_x_global,
+                    this.buffer_index.runtime() * tile_count_col + tile_y_global,
+                    comptime!(tile_count_row),
+                    comptime!(tile_count_col * 2), // assume double buff
+                ),
+                InputIdent::Rhs => (
+                    this.buffer_index.runtime() * tile_count_row + tile_x_global,
+                    tile_y_global,
+                    comptime!(tile_count_row * 2), // assume double buff
+                    comptime!(tile_count_col),
+                ),
+            };
         let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
             tile_x_smem,
             tile_y_smem,
-            tile_count_row,
-            tile_count_col,
+            total_tile_count_row,
+            total_tile_count_col,
             comptime!(this.input_ident.as_ident()),
             config.to_smm_config(),
         );

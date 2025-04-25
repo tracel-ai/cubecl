@@ -4,9 +4,9 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::matmul::components::tile::Tile;
-use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{Ident, InputIdent, MatrixLayout};
 
-use super::{Stage, StageConfig};
+use super::{StageConfig, StageMemory};
 
 #[cube]
 pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
@@ -90,9 +90,10 @@ pub struct StridedTilingLayout {}
 #[cube]
 pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
     fn get_tile<ES: Numeric, S: StageConfig>(
-        stage: &Stage<ES, Self>,
+        stage: &StageMemory<ES, Self>,
         x: u32,
         y: u32,
+        #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES>;
@@ -115,11 +116,12 @@ impl<T: TilingOrder> ContiguousTilingLayout<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
+impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
     fn get_tile<ES: Numeric, S: StageConfig>(
-        stage: &Stage<ES, Self>,
-        x: u32,
-        y: u32,
+        stage_memory: &StageMemory<ES, Self>,
+        row: u32,
+        col: u32,
+        #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
@@ -127,32 +129,84 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
 
-        let tile_count_x = tiling_dimensions.tile_count_row();
-        let tile_count_y = tiling_dimensions.tile_count_col();
+        let (row_buffer_offset, col_buffer_offset, total_tile_count_row, total_tile_count_col) =
+            match ident.as_input_ident() {
+                InputIdent::Lhs => {
+                    let x_tile_offset = 0;
+                    let y_tile_offset = tiling_dimensions.tile_count_col() * buffer_index;
+                    let total_tile_count_x = tiling_dimensions.tile_count_row();
+                    let total_tile_count_y =
+                        tiling_dimensions.tile_count_col() * config.num_buffers();
+                    (
+                        x_tile_offset,
+                        y_tile_offset,
+                        total_tile_count_x,
+                        total_tile_count_y,
+                    )
+                }
+                InputIdent::Rhs => {
+                    let x_tile_offset = tiling_dimensions.tile_count_row() * buffer_index;
+                    let y_tile_offset = 0;
+                    let total_tile_count_x =
+                        tiling_dimensions.tile_count_row() * config.num_buffers();
+                    let total_tile_count_y = tiling_dimensions.tile_count_col();
+                    (
+                        x_tile_offset,
+                        y_tile_offset,
+                        total_tile_count_x,
+                        total_tile_count_y,
+                    )
+                }
+            };
 
-        let (tile_shape_x, tile_shape_y, length) = match matrix_layout {
+        let (tile_shape_x, tile_shape_y, tile_slice_length, stride) = match matrix_layout {
             MatrixLayout::RowMajor => {
                 let tile_shape_x = tiling_dimensions.tile_shape_row();
                 let tile_shape_y = tiling_dimensions.tile_shape_col() / stage_line_size;
-                let stride_x = tile_shape_y;
+                let stride_x = comptime!(tile_shape_y * total_tile_count_col);
                 let length = (tile_shape_x - 1) * stride_x + tile_shape_y;
-                (tile_shape_x, tile_shape_y, length)
+
+                (tile_shape_x, tile_shape_y, length, stride_x)
             }
             MatrixLayout::ColMajor => {
                 let tile_shape_x = tiling_dimensions.tile_shape_row() / stage_line_size;
                 let tile_shape_y = tiling_dimensions.tile_shape_col();
-                let stride_y = tile_shape_x;
+                let stride_y = comptime!(tile_shape_x * total_tile_count_row);
                 let length = (tile_shape_y - 1) * stride_y + tile_shape_x;
-                (tile_shape_x, tile_shape_y, length)
+
+                (tile_shape_x, tile_shape_y, length, stride_y)
             }
+        };
+
+        comptime! {
+        println!("--------" );
+        println!("{:?}", ident);
+        println!("{:?}", buffer_index);
+        println!("{:?}", row_buffer_offset);
+        println!("{:?}", col_buffer_offset);
+        println!("{:?}", total_tile_count_row);
+        println!("{:?}", total_tile_count_col);
+        println!("{:?}", tile_shape_x);
+        println!("{:?}", tile_shape_y);
+        println!("{:?}", tile_slice_length);
+        println!("{:?}", stride);
         };
 
         let start = tile_shape_x
             * tile_shape_y
-            * T::to_nth_tile::<S>(x, y, tile_count_x, tile_count_y, ident, config);
+            * TO::to_nth_tile::<S>(
+                row + row_buffer_offset,
+                col + col_buffer_offset,
+                total_tile_count_row,
+                total_tile_count_col,
+                ident,
+                config,
+            );
 
         Tile::new_contiguous::<S::TmmConfig>(
-            stage.as_slice(stage_line_size).slice(start, start + length),
+            stage_memory
+                .as_slice(stage_line_size)
+                .slice(start, start + tile_slice_length),
             ident,
             config.to_tmm_config(),
         )
@@ -163,7 +217,7 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
 impl StridedTilingLayout {
     /// Returns the nth slice of the stage
     pub fn nth_slice<ES: Numeric, S: StageConfig>(
-        stage: &mut Stage<ES, Self>,
+        stage: &mut StageMemory<ES, Self>,
         nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
@@ -187,9 +241,10 @@ impl StridedTilingLayout {
 #[cube]
 impl TilingLayout for StridedTilingLayout {
     fn get_tile<ES: Numeric, S: StageConfig>(
-        stage: &Stage<ES, Self>,
+        stage: &StageMemory<ES, Self>,
         x: u32,
         y: u32,
+        #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {

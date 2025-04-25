@@ -13,7 +13,7 @@ use crate::{
 };
 use crate::{
     convolution::{ConvGemmConfig, base::RuntimeArgs},
-    matmul::components::{InputIdent, stage::Stage},
+    matmul::components::{InputIdent, stage::StageMemory},
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
@@ -23,7 +23,7 @@ pub type TmaIm2colReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaIm2col
 #[derive(CubeType)]
 pub struct TmaIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
     pub map: Im2colTmaReader<MP::EI>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>,
+    pub stage: StageMemory<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<G>,
@@ -38,7 +38,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
+        let stage = StageMemory::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
 
         let (nh_offset, w_offset) = runtime_args.out_w.div_mod(x_offset);
         let (n_offset, h_offset) = runtime_args.out_h.div_mod(nh_offset);

@@ -7,7 +7,7 @@ use crate::matmul::components::global::{
 };
 use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{self, StageMemory};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
@@ -44,7 +44,7 @@ pub struct AsyncBufferLoader<
     L: AsyncBufferLoadingStrategy,
 > {
     tensor_reader: TensorReader<MP::EI>,
-    stage: Stage<MP::ES, L::TilingLayout>,
+    stage: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     #[cube(comptime)]
     input_ident: InputIdent,
@@ -75,7 +75,7 @@ impl<
             }
         }
 
-        let stage = Stage::new::<S>(input_ident.as_ident(), config.to_smm_config());
+        let stage = StageMemory::new::<S>(2u32, input_ident.as_ident(), config.to_smm_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((

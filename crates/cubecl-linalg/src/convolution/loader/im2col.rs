@@ -13,14 +13,14 @@ use crate::{
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
-    matmul::components::stage::Stage,
+    matmul::components::stage::StageMemory,
 };
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
 pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
     pub tensor_view: Im2colReader<MP::EI>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: StageMemory<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
@@ -34,7 +34,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let stage = StageMemory::new::<G::SmmConfig>(1u32, Ident::Lhs, config.to_smm_config());
         let shape_channel = tensor.shape(3);
 
         let shape_m = runtime_args.size_m;

@@ -60,6 +60,11 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     fn buffering(&self) -> StageBuffering {
         self.buffering
     }
+
+    fn num_buffers(&self) -> u32 {
+        // TODO
+        2
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}

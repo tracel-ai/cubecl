@@ -3,14 +3,13 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    MatmulProblem, MatmulSelection,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
+        load::{sync_full_cyclic, SyncFullLoadingStrategy},
     },
     stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder},
-    tile,
+    tile, MatmulProblem, MatmulSelection,
 };
 
 pub struct SimpleAlgorithm<

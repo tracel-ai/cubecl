@@ -6,7 +6,7 @@ use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingVali
 use crate::matmul::components::global::{Quantization, single_stage};
 use crate::matmul::components::stage::FullReader;
 use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{self, StageMemory};
 use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -41,7 +41,7 @@ pub struct AsyncLoader<
     L: AsyncFullLoadingStrategy,
 > {
     tensor_reader: TensorReader<MP::EI>,
-    stage: Stage<MP::ES, L::TilingLayout>,
+    stage: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<MP>>,
     #[cube(comptime)]
     ident: InputIdent,
@@ -72,7 +72,8 @@ impl<
             }
         }
 
-        let mut stage = Stage::new::<G::SmmConfig>(ident.as_ident(), config.to_smm_config());
+        let mut stage =
+            StageMemory::new::<G::SmmConfig>(1u32, ident.as_ident(), config.to_smm_config());
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<MP, G>(ident, config)),

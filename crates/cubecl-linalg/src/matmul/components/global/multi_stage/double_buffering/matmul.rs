@@ -53,10 +53,6 @@ where
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
 
-        if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
-            return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
-        }
-
         SMM::check_config(&config.to_smm_config())
     }
 
@@ -140,21 +136,14 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        // TODO
-        // At this level, we consider that stage=buffer
-        // Even though underneath, we will use 1 stage that contains 2 buffers
-        // Should rethink the stage abstraction, it's more a SMEM manager
-        // than a stage
-        // Then we can merge names stage=buffer
-
-        let loop_step = config.tiling_dimensions(Ident::Lhs).total_col();
-        let buffer_step = loop_step / 2;
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
+        let loop_step = buffer_step * 2;
         let range = k_range.1 - k_range.0;
-        let needed_stages = div_ceil(range, buffer_step);
+        let needed_stage_matmuls = div_ceil(range, buffer_step);
 
         // Algorithm assumes an even number of stages
-        let num_stages = needed_stages + (needed_stages % 2);
-        let num_loops = (num_stages - 2) / 2;
+        let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
+        let num_loops = (num_stage_matmuls - 2) / 2;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());

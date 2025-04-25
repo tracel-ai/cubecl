@@ -274,7 +274,7 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn double_buffering() {
+        pub fn double_buffering__() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
                 Precision,
