@@ -491,7 +491,6 @@ fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
         | Operator::Index(_)
         | Operator::CopyMemory(_)
         | Operator::CopyMemoryBulk(_)
-        | Operator::ReinterpretSlice(_)
         | Operator::UncheckedIndex(_)
         | Operator::IndexAssign(_)
         | Operator::InitLine(_)

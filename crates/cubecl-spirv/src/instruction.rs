@@ -167,8 +167,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             Operator::IndexAssign(op) => {
-                let index = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
+                let index = self.compile_variable(op.index);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let value_id = self.read_as(&value, &out.indexed_item());
 
@@ -183,15 +183,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operator::UncheckedIndexAssign(op) => {
-                let index = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
+                let index = self.compile_variable(op.index);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed_unchecked(&out, &index, value_id);
-            }
-            Operator::ReinterpretSlice(_) => {
-                todo!()
             }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);

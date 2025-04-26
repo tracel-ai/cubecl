@@ -113,10 +113,10 @@ impl Display for Instruction {
                 op.len
             ),
             Operation::Operator(Operator::IndexAssign(op)) => {
-                write!(f, "{}[{}] = {}", self.out(), op.lhs, op.rhs)
+                write!(f, "{}[{}] = {}", self.out(), op.index, op.value)
             }
             Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
-                write!(f, "unchecked {}[{}] = {}", self.out(), op.lhs, op.rhs)
+                write!(f, "unchecked {}[{}] = {}", self.out(), op.index, op.value)
             }
             Operation::Operator(Operator::Cast(op)) => {
                 write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
@@ -175,6 +175,16 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 pub struct IndexOperator {
     pub list: Variable,
     pub index: Variable,
+    pub line_size: u32, // 0 == same as list.
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct IndexAssignOperator {
+    // list is out.
+    pub index: Variable,
+    pub value: Variable,
     pub line_size: u32, // 0 == same as list.
 }
 

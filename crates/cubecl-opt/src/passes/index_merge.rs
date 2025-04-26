@@ -30,10 +30,10 @@ impl OptimizerPass for CopyTransform {
                         }
                     }
                     Operation::Operator(Operator::IndexAssign(op))
-                        if inst.out().is_array() && item_compatible(inst.item(), op.rhs.item) =>
+                        if inst.out().is_array() && item_compatible(inst.item(), op.value.item) =>
                     {
-                        if let Some(id) = as_versioned(&op.rhs) {
-                            writes.insert(id, (idx, inst.out(), op.lhs));
+                        if let Some(id) = as_versioned(&op.value) {
+                            writes.insert(id, (idx, inst.out(), op.index));
                         }
                     }
                     _ => {}

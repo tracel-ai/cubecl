@@ -252,8 +252,47 @@ impl<D: Dialect> Binary<D> for Min {
 pub struct IndexAssign;
 pub struct Index;
 
-impl<D: Dialect> Binary<D> for IndexAssign {
-    fn format_scalar<Lhs, Rhs>(
+impl IndexAssign {
+    pub fn format<D: Dialect>(
+        f: &mut Formatter<'_>,
+        index: &Variable<D>,
+        value: &Variable<D>,
+        out_list: &Variable<D>,
+        line_size: u32,
+    ) -> std::fmt::Result {
+        if matches!(
+            out_list,
+            Variable::LocalMut { .. } | Variable::LocalConst { .. }
+        ) {
+            return IndexAssignVector::format(f, index, value, out_list);
+        };
+
+        if line_size > 0 {
+            let mut item = out_list.item();
+            item.vectorization = line_size as usize;
+            let addr_space = D::address_space_for_variable(out_list);
+            let qualifier = out_list.const_qualifier();
+            let tmp = Variable::tmp(item);
+
+            writeln!(
+                f,
+                "{qualifier} {addr_space}{item} *{tmp} = reinterpret_cast<{qualifier} {item}*>({out_list});"
+            )?;
+
+            return IndexAssign::format(f, index, value, &tmp, 0);
+        }
+
+        let out_item = out_list.item();
+
+        if index.item().vectorization == 1 {
+            write!(f, "{}[{index}] = ", out_list.fmt_left())?;
+            Self::format_scalar(f, *index, *value, out_item)?;
+            f.write_str(";\n")
+        } else {
+            Self::unroll_vec(f, index, value, out_list)
+        }
+    }
+    fn format_scalar<D: Dialect, Lhs, Rhs>(
         f: &mut Formatter<'_>,
         _lhs: Lhs,
         rhs: Rhs,
@@ -298,7 +337,7 @@ impl<D: Dialect> Binary<D> for IndexAssign {
         }
     }
 
-    fn unroll_vec(
+    fn unroll_vec<D: Dialect>(
         f: &mut Formatter<'_>,
         lhs: &Variable<D>,
         rhs: &Variable<D>,
@@ -317,27 +356,6 @@ impl<D: Dialect> Binary<D> for IndexAssign {
         }
 
         Ok(())
-    }
-
-    fn format(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> std::fmt::Result {
-        if matches!(out, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
-            return IndexAssignVector::format(f, lhs, rhs, out);
-        };
-
-        let out_item = out.item();
-
-        if lhs.item().vectorization == 1 {
-            write!(f, "{}[{lhs}] = ", out.fmt_left())?;
-            Self::format_scalar(f, *lhs, *rhs, out_item)?;
-            f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, lhs, rhs, out)
-        }
     }
 }
 

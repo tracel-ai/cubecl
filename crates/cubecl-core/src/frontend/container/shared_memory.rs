@@ -107,9 +107,9 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexOperator, Operator};
+    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::ir::{BinaryOperator, Instruction};
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -147,9 +147,10 @@ mod indexation {
         pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(BinaryOperator {
-                        lhs: i.expand.consume(),
-                        rhs: value.expand.consume(),
+                    Operator::UncheckedIndexAssign(IndexAssignOperator {
+                        index: i.expand.consume(),
+                        value: value.expand.consume(),
+                        line_size: 0,
                     }),
                     *self.expand,
                 ));

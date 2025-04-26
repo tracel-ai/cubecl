@@ -75,7 +75,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                     if let VariableKind::LocalArray { id, length } = op.out().kind {
                         let item = op.out().item;
                         arrays.insert(id, Array { id, length, item });
-                        let is_const = assign.lhs.as_const().is_some();
+                        let is_const = assign.index.as_const().is_some();
                         *track_consts.entry(id).or_insert(is_const) &= is_const;
                     }
                 }
@@ -109,9 +109,9 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
                 ) => {
                     if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind {
                         if id == arr_id {
-                            let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
+                            let const_index = assign.index.as_const().unwrap().as_i64() as usize;
                             let out = vars[const_index];
-                            *op = Instruction::new(Operation::Copy(assign.rhs), out);
+                            *op = Instruction::new(Operation::Copy(assign.value), out);
                             opt.invalidate_analysis::<Writes>();
                         }
                     }

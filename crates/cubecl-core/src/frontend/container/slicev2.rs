@@ -446,10 +446,16 @@ mod write_offset {
         let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
 
         match origin {
-            SliceOriginExpand::Tensor(expand) => index_assign::expand(scope, expand, index, value),
-            SliceOriginExpand::Array(expand) => index_assign::expand(scope, expand, index, value),
+            SliceOriginExpand::Tensor(expand) => expand_index_assign_native::<Tensor<E>>(
+                scope, expand, index, value, line_size, true,
+            ),
+            SliceOriginExpand::Array(expand) => expand_index_assign_native::<Array<E>>(
+                scope, expand, index, value, line_size, false,
+            ),
             SliceOriginExpand::SharedMemory(expand) => {
-                index_assign::expand(scope, expand, index, value)
+                expand_index_assign_native::<SharedMemory<E>>(
+                    scope, expand, index, value, line_size, false,
+                )
             }
         }
     }

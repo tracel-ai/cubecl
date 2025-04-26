@@ -232,10 +232,10 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexOperator, Operator};
+    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
     use crate::{
-        ir::{BinaryOperator, Instruction},
+        ir::Instruction,
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -279,9 +279,10 @@ mod indexation {
         {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(BinaryOperator {
-                        lhs: i.expand.consume(),
-                        rhs: value.expand.consume(),
+                    Operator::UncheckedIndexAssign(IndexAssignOperator {
+                        index: i.expand.consume(),
+                        value: value.expand.consume(),
+                        line_size: 0,
                     }),
                     *self.expand,
                 ));

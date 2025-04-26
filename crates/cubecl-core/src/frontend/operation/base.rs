@@ -1,8 +1,9 @@
 use std::num::{NonZero, NonZeroU8};
 
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, IndexOperator, Instruction, Item,
-    Operation, Operator, Scope, UnaryOperator, Variable, VariableKind, Vectorization,
+    Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, IndexAssignOperator,
+    IndexOperator, Instruction, Item, Operation, Operator, Scope, UnaryOperator, Variable,
+    VariableKind, Vectorization,
 };
 
 use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
@@ -306,9 +307,10 @@ pub fn array_assign_binary_op_expand<
         *op_out,
     );
 
-    let write = Operator::IndexAssign(BinaryOperator {
-        lhs: *index,
-        rhs: op_out.consume(),
+    let write = Operator::IndexAssign(IndexAssignOperator {
+        index: *index,
+        value: op_out.consume(),
+        line_size: 0,
     });
     scope.register(read);
     scope.register(calculate);

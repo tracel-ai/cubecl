@@ -1,4 +1,4 @@
-use cubecl_ir::{BinaryOperator, ExpandElement, Instruction, Operator, Scope, VariableKind};
+use cubecl_ir::{ExpandElement, IndexAssignOperator, Instruction, Operator, Scope, VariableKind};
 
 use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
 use crate::{
@@ -116,6 +116,7 @@ pub(crate) fn expand_index_assign_native<
     array: A::ExpandType,
     index: ExpandElementTyped<u32>,
     value: ExpandElementTyped<A::Output>,
+    line_size: Option<u32>,
     checked: bool,
 ) where
     A::Output: CubeType + Sized,
@@ -127,19 +128,22 @@ pub(crate) fn expand_index_assign_native<
         ),
         _ => index,
     };
+    let line_size = line_size.unwrap_or(0);
     if checked {
         scope.register(Instruction::new(
-            Operator::IndexAssign(BinaryOperator {
-                lhs: index,
-                rhs: value.expand.into(),
+            Operator::IndexAssign(IndexAssignOperator {
+                index,
+                value: value.expand.into(),
+                line_size,
             }),
             array.expand.into(),
         ));
     } else {
         scope.register(Instruction::new(
-            Operator::UncheckedIndexAssign(BinaryOperator {
-                lhs: index,
-                rhs: value.expand.into(),
+            Operator::UncheckedIndexAssign(IndexAssignOperator {
+                index,
+                value: value.expand.into(),
+                line_size,
             }),
             array.expand.into(),
         ));

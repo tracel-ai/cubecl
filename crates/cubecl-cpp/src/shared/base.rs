@@ -18,8 +18,8 @@ use super::barrier::BarrierOps;
 use super::pipeline::PipelineOps;
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Dialect, Elem,
-    Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item, LocalArray,
-    SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
+    Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction, Instruction,
+    Item, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -1017,14 +1017,6 @@ impl<D: Dialect> CppCompiler<D> {
     ) {
         let out = out.unwrap();
         match value {
-            gpu::Operator::ReinterpretSlice(op) => {
-                // TODO Do we need to add special behavior in checked mode?
-                instructions.push(Instruction::ReinterpretSlice {
-                    input: self.compile_variable(op.input),
-                    line_size: op.line_size,
-                    out: self.compile_variable(out),
-                })
-            }
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked)
                     && op.list.has_length()
@@ -1059,15 +1051,15 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
                     if out.has_length() {
-                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
+                        expand_checked_index_assign(scope, op.index, op.value, out);
                         instructions.extend(self.compile_scope(scope));
                         return;
                     }
                 };
-                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)));
+                instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)));
             }
             gpu::Operator::UncheckedIndexAssign(op) => {
-                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)))
+                instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)))
             }
             gpu::Operator::And(op) => {
                 instructions.push(Instruction::And(self.compile_binary(op, out)))
@@ -1122,6 +1114,19 @@ impl<D: Dialect> CppCompiler<D> {
         BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
+            out: self.compile_variable(out),
+        }
+    }
+
+    fn compile_index_assign(
+        &mut self,
+        value: gpu::IndexAssignOperator,
+        out: gpu::Variable,
+    ) -> IndexAssignInstruction<D> {
+        IndexAssignInstruction {
+            index: self.compile_variable(value.index),
+            value: self.compile_variable(value.value),
+            line_size: value.line_size,
             out: self.compile_variable(out),
         }
     }

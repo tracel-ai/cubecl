@@ -76,7 +76,7 @@ pub mod index_assign {
                     index: ExpandElementTyped<u32>,
                     value: Self::Output,
                 ) {
-                    expand_index_assign_native::<$type<E>>(scope, self, index, value, true);
+                    expand_index_assign_native::<$type<E>>(scope, self, index, value, None, true);
                 }
             }
         };

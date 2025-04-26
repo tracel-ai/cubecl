@@ -914,21 +914,21 @@ impl WgslCompiler {
             cube::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
                     if out.has_length() {
-                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
+                        expand_checked_index_assign(scope, op.index, op.value, out);
                         instructions.extend(self.compile_scope(scope));
                         return;
                     }
                 };
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
+                    lhs: self.compile_variable(op.index),
+                    rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
             }
             cube::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
+                    lhs: self.compile_variable(op.index),
+                    rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
             }
@@ -946,9 +946,6 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::ReinterpretSlice(_) => {
-                todo!()
-            }
             cube::Operator::Reinterpret(op) => instructions.push(wgsl::Instruction::Bitcast {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
