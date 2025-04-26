@@ -31,9 +31,9 @@ pub mod copy_bulk {
     /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
-        from: SliceV2Expand<C, ReadOnly>,
+        from: SliceExpand<C, ReadOnly>,
         from_index: ExpandElementTyped<u32>,
-        to: SliceV2Expand<C, ReadWrite>,
+        to: SliceExpand<C, ReadWrite>,
         to_index: ExpandElementTyped<u32>,
         length: u32,
     ) {

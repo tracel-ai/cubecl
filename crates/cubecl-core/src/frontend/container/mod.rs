@@ -1,4 +1,5 @@
 mod array;
+mod base;
 mod cell;
 mod iter;
 mod line;
@@ -6,8 +7,9 @@ mod registry;
 mod sequence;
 mod shared_memory;
 mod slice;
-mod slicev2;
 mod tensor;
+
+pub(crate) use base::*;
 
 pub use array::*;
 pub use cell::*;
@@ -17,5 +19,4 @@ pub use registry::*;
 pub use sequence::*;
 pub use shared_memory::*;
 pub use slice::*;
-pub use slicev2::*;
 pub use tensor::*;

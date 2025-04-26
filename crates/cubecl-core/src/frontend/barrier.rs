@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, ReadOnly, ReadWrite, Slice,
-    SliceMut, SliceV2Expand, TensorMap,
+    SliceExpand, SliceMut, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -152,7 +152,7 @@ macro_rules! tensor_map_load {
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: SliceV2Expand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
@@ -165,7 +165,7 @@ macro_rules! tensor_map_load {
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: SliceV2Expand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     let barrier = *self.elem;
@@ -208,7 +208,7 @@ macro_rules! tensor_map_load_im2col {
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: SliceV2Expand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
@@ -222,7 +222,7 @@ macro_rules! tensor_map_load_im2col {
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: SliceV2Expand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
@@ -332,8 +332,8 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: SliceV2Expand<Line<C>, ReadOnly>,
-        destination: SliceV2Expand<Line<C>, ReadWrite>,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
@@ -372,8 +372,8 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_method(
         &self,
         scope: &mut Scope,
-        source: SliceV2Expand<Line<C>, ReadOnly>,
-        destination: SliceV2Expand<Line<C>, ReadWrite>,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
         let barrier = *self.elem;
         let source_length = *source.length.expand;

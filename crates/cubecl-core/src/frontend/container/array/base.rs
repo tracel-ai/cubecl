@@ -193,7 +193,7 @@ mod vectorization {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use crate::ir::Instruction;
+    use crate::{ir::Instruction, prelude::expand_length_native};
 
     use super::*;
 
@@ -203,14 +203,7 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> u32 {
             intrinsic!(|scope| {
-                let out = scope.create_local(Item::new(u32::as_elem(scope)));
-                scope.register(Instruction::new(
-                    Metadata::Length {
-                        var: self.expand.into(),
-                    },
-                    out.clone().into(),
-                ));
-                out.into()
+                ExpandElement::Plain(expand_length_native(scope, *self.expand)).into()
             })
         }
 

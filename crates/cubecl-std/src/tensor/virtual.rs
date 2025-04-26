@@ -336,7 +336,7 @@ pub trait VirtualTensorOperationsExpand<E: Numeric> {
         context: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> SliceV2Expand<Line<E>, ReadOnly>;
+    ) -> SliceExpand<Line<E>, ReadOnly>;
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
@@ -393,7 +393,7 @@ mod __tensor {
             context: &mut Scope,
             start: ExpandElementTyped<u32>,
             end: ExpandElementTyped<u32>,
-        ) -> SliceV2Expand<Line<E>, ReadOnly> {
+        ) -> SliceExpand<Line<E>, ReadOnly> {
             self.clone().__expand_slice_method(context, start, end)
         }
 
@@ -460,7 +460,7 @@ mod __tensor_map {
             _context: &mut Scope,
             _start: ExpandElementTyped<u32>,
             _end: ExpandElementTyped<u32>,
-        ) -> SliceV2Expand<Line<E>, ReadOnly> {
+        ) -> SliceExpand<Line<E>, ReadOnly> {
             todo!()
         }
 

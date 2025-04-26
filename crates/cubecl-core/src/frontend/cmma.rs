@@ -54,8 +54,8 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, ReadOnly, Slice, SliceMut,
-    SliceV2Expand,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, ReadOnly, Slice, SliceExpand,
+    SliceMut,
 };
 
 use cubecl_ir::{ExpandElement, Scope};
@@ -229,7 +229,7 @@ impl<C: CubePrimitive> Matrix<C> {
         n: ExpandElementTyped<u32>,
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
-        value: SliceV2Expand<C, ReadOnly>,
+        value: SliceExpand<C, ReadOnly>,
         stride: ExpandElementTyped<u32>,
     ) -> MatrixExpand<C> {
         let mat = Self::__expand_uninitialized(scope, ident, m, n, k, layout);
@@ -277,7 +277,7 @@ pub mod load {
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
-        value: SliceV2Expand<V, ReadOnly>,
+        value: SliceExpand<V, ReadOnly>,
         stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
@@ -322,7 +322,7 @@ pub mod load_with_layout {
     pub fn expand<C: CubeType, V: CubePrimitive>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
-        value: SliceV2Expand<V, ReadOnly>,
+        value: SliceExpand<V, ReadOnly>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
@@ -362,7 +362,7 @@ pub mod store {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,
-        output: SliceV2Expand<O, ReadWrite>,
+        output: SliceExpand<O, ReadWrite>,
         mat: MatrixExpand<C>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,

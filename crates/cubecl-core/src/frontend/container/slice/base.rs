@@ -14,7 +14,7 @@ pub struct ReadWrite;
 ///
 /// Since data can't be deallocated during kernel execution, this is safe.
 #[derive(Clone, Copy)]
-pub struct SliceV2<E: CubePrimitive, IO: SliceVisibility> {
+pub struct Slice<E: CubePrimitive, IO: SliceVisibility = ReadOnly> {
     _e: PhantomData<E>,
     _io: PhantomData<IO>,
     _offset: PhantomData<u32>,
@@ -28,7 +28,7 @@ pub enum SliceOrigin<E: CubePrimitive> {
     SharedMemory(SharedMemory<E>),
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> Iterator for SliceV2<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> Iterator for Slice<E, IO> {
     type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -42,7 +42,7 @@ impl SliceVisibility for ReadOnly {}
 
 impl SliceVisibility for ReadWrite {}
 
-pub struct SliceV2Expand<E: CubePrimitive, IO: SliceVisibility> {
+pub struct SliceExpand<E: CubePrimitive, IO: SliceVisibility> {
     pub(crate) origin: SliceOriginExpand<E>,
     pub(crate) io: PhantomData<IO>,
     pub(crate) offset: ExpandElementTyped<u32>,
@@ -50,7 +50,7 @@ pub struct SliceV2Expand<E: CubePrimitive, IO: SliceVisibility> {
     pub(crate) line_size: Option<u32>,
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
     pub fn __to_raw_parts(&self) -> (Variable, Variable) {
         let expand = match self.origin.clone() {
             SliceOriginExpand::Tensor(expand) => expand.expand,
@@ -63,7 +63,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2Expand<E, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
     /// it simply reinterpret how they are loaded and stored in memory.
     ///
     /// # Warning
@@ -87,11 +87,11 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<Line<E>, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// Returns the same slice, but with lines of length 1.
-    pub fn into_lined(&self) -> SliceV2<Line<E>, IO> {
+    pub fn into_lined(&self) -> Slice<Line<E>, IO> {
         intrinsic!(|_scope| {
-            SliceV2Expand::<Line<E>, IO> {
+            SliceExpand::<Line<E>, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),
@@ -119,7 +119,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
                 }
             }
 
-            SliceV2Expand::<T, IO> {
+            SliceExpand::<T, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),
@@ -144,7 +144,7 @@ impl<E: CubePrimitive> SliceOriginExpand<E> {
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     pub fn new(_origin: SliceOrigin<E>, _offset: u32, _length: u32) -> Self {
         unexpanded!()
     }
@@ -153,7 +153,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
         origin: SliceOriginExpand<E>,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> SliceV2Expand<E, IO> {
+    ) -> SliceExpand<E, IO> {
         Self::__expand_new_expand(scope, origin, start, end)
     }
     pub fn __expand_new_expand(
@@ -161,10 +161,10 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
         origin: SliceOriginExpand<E>,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> SliceV2Expand<E, IO> {
+    ) -> SliceExpand<E, IO> {
         let length = cubecl::frontend::sub::expand(scope, end.into(), start.clone().into());
 
-        SliceV2Expand::<E, IO> {
+        SliceExpand::<E, IO> {
             origin,
             io: PhantomData,
             offset: start,
@@ -175,25 +175,25 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> SliceV2<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// Get the length of the slice.
     pub fn len(&self) -> u32 {
         self.length
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> CubeType for SliceV2<E, IO> {
-    type ExpandType = SliceV2Expand<E, IO>;
+impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
+    type ExpandType = SliceExpand<E, IO>;
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> Init for SliceV2Expand<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> Init for SliceExpand<E, IO> {
     fn init(self, _scope: &mut cubecl_ir::Scope) -> Self {
         self
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> CubeDebug for SliceV2Expand<E, IO> {}
-impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceV2Expand<E, IO> {
+impl<E: CubePrimitive, IO: SliceVisibility> CubeDebug for SliceExpand<E, IO> {}
+impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceExpand<E, IO> {
     fn clone(&self) -> Self {
         Self {
             origin: self.origin.clone(),
@@ -206,11 +206,11 @@ impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceV2Expand<E, IO> {
 }
 
 // TODO: Fix
-impl<E: CubePrimitive> SizedContainer for SliceV2<E, ReadOnly> {
+impl<E: CubePrimitive> SizedContainer for Slice<E, ReadOnly> {
     type Item = E;
 }
 
-impl<E: CubePrimitive> Iterable<E> for SliceV2Expand<E, ReadOnly> {
+impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
     fn expand(
         self,
         scope: &mut Scope,
@@ -244,7 +244,7 @@ impl<E: CubePrimitive> Iterable<E> for SliceV2Expand<E, ReadOnly> {
         unimplemented!("Can't unroll slice iterator")
     }
 }
-impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadOnly> {
+impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
     type Output = E;
 
     fn expand_index(
@@ -256,7 +256,7 @@ impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadOnly> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndexExpand for SliceV2Expand<E, ReadOnly> {
+impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadOnly> {
     type Output = E::ExpandType;
 
     fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
@@ -271,8 +271,8 @@ impl<E: CubePrimitive> CubeIndexExpand for SliceV2Expand<E, ReadOnly> {
     }
 }
 
-impl<E: CubePrimitive> List<E> for SliceV2<E, ReadOnly> {}
-impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadOnly> {
+impl<E: CubePrimitive> List<E> for Slice<E, ReadOnly> {}
+impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadOnly> {
     fn __expand_read_method(
         &self,
         scope: &mut cubecl_ir::Scope,
@@ -303,7 +303,7 @@ impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadOnly> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadWrite> {
+impl<E: CubePrimitive> CubeIndex for Slice<E, ReadWrite> {
     type Output = E;
 
     fn expand_index(
@@ -315,7 +315,7 @@ impl<E: CubePrimitive> CubeIndex for SliceV2<E, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndexExpand for SliceV2Expand<E, ReadWrite> {
+impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadWrite> {
     type Output = E::ExpandType;
 
     fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
@@ -330,8 +330,8 @@ impl<E: CubePrimitive> CubeIndexExpand for SliceV2Expand<E, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive> List<E> for SliceV2<E, ReadWrite> {}
-impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadWrite> {
+impl<E: CubePrimitive> List<E> for Slice<E, ReadWrite> {}
+impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_read_method(
         &self,
         scope: &mut cubecl_ir::Scope,
@@ -362,7 +362,7 @@ impl<E: CubePrimitive> ListExpand<E> for SliceV2Expand<E, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndexMut for SliceV2<E, ReadWrite> {
+impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {
     fn expand_index_mut(
         scope: &mut Scope,
         array: Self::ExpandType,
@@ -373,7 +373,7 @@ impl<E: CubePrimitive> CubeIndexMut for SliceV2<E, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndexMutExpand for SliceV2Expand<E, ReadWrite> {
+impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E, ReadWrite> {
     type Output = E::ExpandType;
 
     fn expand_index_mut(
@@ -386,8 +386,8 @@ impl<E: CubePrimitive> CubeIndexMutExpand for SliceV2Expand<E, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive> ListMut<E> for SliceV2<E, ReadWrite> {}
-impl<E: CubePrimitive> ListMutExpand<E> for SliceV2Expand<E, ReadWrite> {
+impl<E: CubePrimitive> ListMut<E> for Slice<E, ReadWrite> {}
+impl<E: CubePrimitive> ListMutExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_write_method(
         &self,
         scope: &mut cubecl_ir::Scope,

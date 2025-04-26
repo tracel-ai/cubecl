@@ -272,7 +272,7 @@ impl IndexAssign {
             item.vectorization = line_size as usize;
             let addr_space = D::address_space_for_variable(out_list);
             let qualifier = out_list.const_qualifier();
-            let tmp = Variable::tmp(item);
+            let tmp = Variable::tmp_declared(item);
 
             writeln!(
                 f,
@@ -379,7 +379,7 @@ impl Index {
             item.vectorization = line_size as usize;
             let addr_space = D::address_space_for_variable(list);
             let qualifier = list.const_qualifier();
-            let tmp = Variable::tmp(item);
+            let tmp = Variable::tmp_declared(item);
 
             writeln!(
                 f,
