@@ -334,7 +334,6 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        println!("Read unchecked array");
         index_unchecked::expand(scope, self.clone(), idx)
     }
 }

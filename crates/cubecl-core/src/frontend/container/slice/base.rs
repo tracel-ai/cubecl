@@ -64,7 +64,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
 
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
-    /// it simply reinterpret how they are loaded and stored in memory.
+    /// Reinterprets how items are loaded and stored in memory.slicebase
     ///
     /// # Warning
     ///
