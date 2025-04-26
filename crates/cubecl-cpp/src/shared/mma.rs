@@ -208,7 +208,7 @@ pub mod wmma_api_base {
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, {value}, {stride});"
+                        "{namespace}::load_matrix_sync({frag}, {value} + {offset}, {stride});"
                     )
                 }
             }
