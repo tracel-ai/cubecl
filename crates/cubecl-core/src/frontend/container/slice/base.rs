@@ -79,7 +79,23 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
                 return self;
             }
 
+            let current = input.item.vectorization.map(|a| a.get()).unwrap_or(1) as u32;
             let mut out = self.clone();
+
+            if current < line_size {
+                let ratio = line_size / current;
+                let length = cubecl::frontend::div::expand(scope, self.length, ratio.into());
+                let offset = cubecl::frontend::div::expand(scope, self.offset, ratio.into());
+                out.length = length;
+                out.offset = offset;
+            } else {
+                let ratio = current / line_size;
+                let length = cubecl::frontend::mul::expand(scope, self.length, ratio.into());
+                let offset = cubecl::frontend::mul::expand(scope, self.offset, ratio.into());
+                out.length = length;
+                out.offset = offset;
+            }
+
             out.line_size = Some(line_size);
             out
         })
