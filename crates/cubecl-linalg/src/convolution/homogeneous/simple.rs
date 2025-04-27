@@ -33,7 +33,7 @@ use cubecl_std::{
 
 use super::base::{
     config::{self, HomogeneousConfig},
-    implicit_conv,
+    implicit_conv, shape_divmod,
 };
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
@@ -225,10 +225,11 @@ where
                 problem.out_line_size as u32,
                 size.k,
             ),
-            problem.kernel_size,
-            problem.stride,
-            problem.dilation,
-            problem.padding,
+            &problem.kernel_size,
+            &problem.stride,
+            &problem.dilation,
+            &problem.padding,
+            problem.dimensionality,
         )
     }
 
@@ -253,7 +254,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        let size_m = problem.batches * problem.out_h * problem.out_w;
+        let size_m = problem.batches * problem.out_shape.iter().product::<usize>();
         let size_n = problem.n;
         let size_k = config.kernel_size(0) * config.kernel_size(1) * problem.channels as u32;
 
@@ -262,8 +263,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
             ScalarArg::new(size_n as u32),
             ScalarArg::new(size_k),
             FastDivmodArgs::new(client, problem.channels as u32),
-            FastDivmodArgs::new(client, problem.out_h as u32),
-            FastDivmodArgs::new(client, problem.out_w as u32),
+            shape_divmod(client, &problem.out_shape),
         );
 
         unsafe {

@@ -243,4 +243,9 @@ impl<T: CubeType> SequenceExpand<T> {
         let values = self.values.borrow();
         values.len() as u32
     }
+
+    pub fn __expand_rev_method(self, _scope: &mut Scope) -> Self {
+        self.values.borrow_mut().reverse();
+        self
+    }
 }
