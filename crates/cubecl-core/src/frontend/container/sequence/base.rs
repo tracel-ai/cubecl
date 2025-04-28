@@ -26,7 +26,7 @@ impl<T: CubeType> Default for Sequence<T> {
 }
 
 impl<T: CubeType> Init for Sequence<T> {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }
@@ -142,7 +142,7 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
 }
 
 impl<T: CubeType> Init for SequenceExpand<T> {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }

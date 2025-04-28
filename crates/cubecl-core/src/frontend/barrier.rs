@@ -27,7 +27,7 @@ impl<C: CubePrimitive> CubeType for Barrier<C> {
 }
 
 impl<C: CubePrimitive> Init for BarrierExpand<C> {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, is_mut: bool) -> Self {
         self
     }
 }
@@ -53,7 +53,7 @@ impl CubeType for BarrierLevel {
 }
 
 impl Init for BarrierLevel {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }
