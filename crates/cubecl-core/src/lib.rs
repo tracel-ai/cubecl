@@ -60,7 +60,10 @@ pub fn calculate_cube_count_elemwise(num_elems: usize, cube_dim: CubeDim) -> Cub
     let num_elems_per_cube = cube_dim.num_elems();
     let cube_counts = f32::max(1.0, f32::ceil(num_elems as f32 / num_elems_per_cube as f32));
     let cube_count_x = f32::ceil(f32::sqrt(cube_counts));
-    let cube_count_y = f32::ceil(num_elems as f32 / (cube_count_x * num_elems_per_cube as f32));
+    let cube_count_y = f32::max(
+        1.0,
+        f32::ceil(num_elems as f32 / (cube_count_x * num_elems_per_cube as f32)),
+    );
 
     CubeCount::Static(cube_count_x as u32, cube_count_y as u32, 1)
 }
