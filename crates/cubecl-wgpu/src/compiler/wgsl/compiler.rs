@@ -920,14 +920,14 @@ impl WgslCompiler {
                     }
                 };
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.index),
+                    index: self.compile_variable(op.index),
                     rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
             }
             cube::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.index),
+                    index: self.compile_variable(op.index),
                     rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
