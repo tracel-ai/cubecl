@@ -41,10 +41,14 @@ pub mod assign {
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
     ) {
-        scope.register(Instruction::new(
-            Operation::Copy(*input.expand),
-            *output.expand,
-        ));
+        let output = *output.expand;
+        let input = *input.expand;
+
+        if output.is_immutable() {
+            panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
+        }
+
+        scope.register(Instruction::new(Operation::Copy(input), output));
     }
 }
 

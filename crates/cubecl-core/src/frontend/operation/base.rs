@@ -176,9 +176,7 @@ where
     if lhs.is_immutable() {
         panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
     }
-
     let lhs_var: Variable = *lhs;
-
     let rhs: Variable = *rhs;
 
     find_vectorization(lhs_var.item.vectorization, rhs.item.vectorization);
