@@ -909,7 +909,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 frag,
                 value,
                 stride,
-                ..
+                offset,
+                layout: _layout,
             } => {
                 let transpose = match frag {
                     Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
@@ -924,12 +925,12 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     let elem = item.elem;
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value}), {stride}, 0, {transpose});"
+                        "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value} + {offset}), {stride}, 0, {transpose});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, {value}, {stride}, 0, {transpose});"
+                        "simdgroup_load({frag}, {value} + {offset}, {stride}, 0, {transpose});"
                     )
                 }
             }
@@ -946,7 +947,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 output,
                 frag,
                 stride,
-                ..
+                offset,
+                layout: _layout,
             } => {
                 let item = output.item();
                 let mut reinterpret_cast = item.vectorization > 1;
@@ -960,10 +962,10 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output}), {stride});"
+                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output} + {offset}), {stride});"
                     )
                 } else {
-                    writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
+                    writeln!(f, "simdgroup_store({frag}, {output} + {offset}, {stride});")
                 }?;
                 writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")
             }
