@@ -3,6 +3,7 @@ use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageEvent;
@@ -252,25 +253,24 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
+        // TODO fork tensor reader to not call new twice
+        let tensor_reader_a = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
+        let tensor_reader_b = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
+        let stage_memory =
+            StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
+
         (
             SyncBufferLoader::<MP, Self::Config, LL>::new(
-                lhs,
-                stage,
-                x_offset,
-                y_offset,
-                batch_offset,
+                tensor_reader_a,
+                stage_memory,
                 quantization,
                 BufferId::A,
                 InputIdent::Lhs,
                 config,
             ),
             SyncBufferLoader::<MP, Self::Config, LL>::new(
-                lhs,
-                stage,
-                x_offset,
-                y_offset,
-                batch_offset,
+                tensor_reader_b,
+                stage_memory,
                 quantization,
                 BufferId::B,
                 InputIdent::Lhs,
@@ -288,25 +288,24 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
+        // TODO fork tensor reader to not call new twice
+        let tensor_reader_a = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
+        let tensor_reader_b = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
+        let stage_memory =
+            StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
+
         (
             SyncBufferLoader::<MP, Self::Config, RL>::new(
-                rhs,
-                stage,
-                x_offset,
-                y_offset,
-                batch_offset,
+                tensor_reader_a,
+                stage_memory,
                 quantization,
                 BufferId::A,
                 InputIdent::Rhs,
                 config,
             ),
             SyncBufferLoader::<MP, Self::Config, RL>::new(
-                rhs,
-                stage,
-                x_offset,
-                y_offset,
-                batch_offset,
+                tensor_reader_b,
+                stage_memory,
                 quantization,
                 BufferId::B,
                 InputIdent::Rhs,

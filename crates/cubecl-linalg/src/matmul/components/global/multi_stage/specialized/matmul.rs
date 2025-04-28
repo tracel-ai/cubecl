@@ -4,6 +4,7 @@ use crate::matmul::components::{
         self, GlobalMatmul, Quantization, ZeroAccumulatorLoader,
         load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
+        tensor_view::TensorReader,
     },
     stage::{BufferReader, StageMatmul, StageMemory},
 };
@@ -244,25 +245,21 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let tensor_reader_a = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
+        let tensor_reader_b = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
         let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, LL>::new(
-                lhs,
+                tensor_reader_a,
                 stage,
-                x_offset,
-                y_offset,
-                batch_offset,
                 quantization,
                 BufferId::A,
                 InputIdent::Lhs,
                 config,
             ),
             SyncBufferLoader::<MP, Self::Config, LL>::new(
-                lhs,
+                tensor_reader_b,
                 stage,
-                x_offset,
-                y_offset,
-                batch_offset,
                 quantization,
                 BufferId::B,
                 InputIdent::Lhs,
@@ -280,25 +277,21 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let tensor_reader_a = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
+        let tensor_reader_b = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
         let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, RL>::new(
-                rhs,
+                tensor_reader_a,
                 stage,
-                x_offset,
-                y_offset,
-                batch_offset,
                 quantization,
                 BufferId::A,
                 InputIdent::Rhs,
                 config,
             ),
             SyncBufferLoader::<MP, Self::Config, RL>::new(
-                rhs,
+                tensor_reader_b,
                 stage,
-                x_offset,
-                y_offset,
-                batch_offset,
                 quantization,
                 BufferId::B,
                 InputIdent::Rhs,

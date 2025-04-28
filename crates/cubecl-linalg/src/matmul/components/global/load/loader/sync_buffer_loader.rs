@@ -13,7 +13,6 @@ use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::stage::TilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -53,18 +52,13 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        tensor: VirtualTensor<MP::EI>,
+        tensor_reader: TensorReader<MP::EI>,
         stage: StageMemory<MP::ES, L::TilingLayout>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_id: BufferId,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
-
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<MP, G>(
                 comptime!(buffer_id.to_index()),
