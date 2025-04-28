@@ -93,8 +93,9 @@ mod empty {
         pub fn empty(#[comptime] size: u32) -> Self {
             intrinsic!(|scope| {
                 let length = NonZero::new(size as u8);
+                // It doesn't make sense to use it not mut.
                 scope
-                    .create_local(Item::vectorized(Self::as_elem(scope), length))
+                    .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
                     .into()
             })
         }
