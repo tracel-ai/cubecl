@@ -280,13 +280,11 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         let padded_channels =
             (problem.channels as u32).next_multiple_of(tiling_dims.tile_shape_col());
 
-        let size_m = problem.batches * problem.out_shape.iter().product::<usize>();
-        let size_n = problem.n;
         let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 
         let runtime_args = RuntimeArgsLaunch::new(
-            ScalarArg::new(size_m as u32),
-            ScalarArg::new(size_n as u32),
+            ScalarArg::new(problem.m as u32),
+            ScalarArg::new(problem.n as u32),
             ScalarArg::new(size_k),
             FastDivmodArgs::new(client, padded_channels),
             shape_divmod(client, &problem.out_shape),
