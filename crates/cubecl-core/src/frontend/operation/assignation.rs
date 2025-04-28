@@ -36,6 +36,7 @@ pub mod assign {
 
     use super::*;
 
+    /// Expand the assign operation on a mutable output varible.
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
@@ -47,6 +48,17 @@ pub mod assign {
         if output.is_immutable() {
             panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
         }
+
+        scope.register(Instruction::new(Operation::Copy(input), output));
+    }
+    /// Expand the assign operation on an initialized const output varible.
+    pub fn expand_init<C: CubeType>(
+        scope: &mut Scope,
+        input: ExpandElementTyped<C>,
+        output: ExpandElementTyped<C>,
+    ) {
+        let output = *output.expand;
+        let input = *input.expand;
 
         scope.register(Instruction::new(Operation::Copy(input), output));
     }
