@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
     },
-    stage::{BufferReader, StageMatmul},
+    stage::{BufferReader, StageMatmul, StageMemory},
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use cubecl_std::{CubeOption, div_ceil};
@@ -92,7 +92,7 @@ where
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
             problem.n as u32 % stage_shape.n != 0,
-            problem.k as u32 % stage_shape.k != 0,
+            problem.k as u32 % 2 * stage_shape.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
@@ -244,9 +244,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -257,6 +259,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -277,9 +280,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -290,6 +295,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,

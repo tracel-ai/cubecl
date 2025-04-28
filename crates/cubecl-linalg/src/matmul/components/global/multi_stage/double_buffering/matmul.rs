@@ -5,9 +5,9 @@ use crate::matmul::components::global::load::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
+use crate::matmul::components::stage::{BufferReader, StageMemory};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -77,7 +77,7 @@ where
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
             problem.n as u32 % stage_shape.n != 0,
-            problem.k as u32 % stage_shape.k != 0,
+            problem.k as u32 % (2 * stage_shape.k) != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
@@ -161,9 +161,6 @@ where
 
         SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader_a, config);
         SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader_a, config);
-
-        SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_b, buffer_step);
-        SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_b, buffer_step);
 
         sync_units();
 
@@ -255,9 +252,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -268,6 +267,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, LL>::new(
                 lhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -288,9 +288,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
         (
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,
@@ -301,6 +303,7 @@ where
             ),
             SyncBufferLoader::<MP, Self::Config, RL>::new(
                 rhs,
+                stage,
                 x_offset,
                 y_offset,
                 batch_offset,

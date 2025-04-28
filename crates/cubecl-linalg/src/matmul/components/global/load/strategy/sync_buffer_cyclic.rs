@@ -75,10 +75,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
 
-        let num_tiles_in_buffer = comptime! {match input_ident {
-            InputIdent::Lhs => tile_count_row,
-            InputIdent::Rhs => tile_count_col,
-        }};
+        let num_tiles_in_buffer = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
         let num_tasks = (total_num_lines + total_units - 1) / total_units;
 
@@ -148,7 +145,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             ),
         };
 
-        let (tile_x_global, tile_y_global) = TO::to_row_col::<G::SmmConfig>(
+        let (tile_x_within_buffer, tile_y_within_buffer) = TO::to_row_col::<G::SmmConfig>(
             tile_index,
             tile_count_row,
             tile_count_col,
@@ -156,37 +153,35 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             comptime!(config.to_smm_config()),
         );
 
-        // let (tile_x_global, tile_y_global) = match comptime!(this.input_ident) {
-        //     InputIdent::Lhs => (tile_index, 0),
-        //     InputIdent::Rhs => (0, tile_index),
-        // };
+        let (tile_x, tile_y) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (
+                tile_x_within_buffer,
+                this.buffer_index * tile_count_col + tile_y_within_buffer,
+            ),
+            InputIdent::Rhs => (
+                this.buffer_index * tile_count_row + tile_x_within_buffer,
+                tile_y_within_buffer,
+            ),
+        };
+
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
-            tile_x_global,
-            tile_y_global,
+            tile_x,
+            tile_y,
             pos_within_tile,
             this.input_ident,
             config,
         );
 
-        let (tile_x_smem, tile_y_smem) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (
-                tile_x_global,
-                this.buffer_index.runtime() * tile_count_col + tile_y_global,
-            ),
-            InputIdent::Rhs => (
-                this.buffer_index.runtime() * tile_count_row + tile_x_global,
-                tile_y_global,
-            ),
-        };
-        let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
-            tile_x_smem,
-            tile_y_smem,
+        let nth_tile_in_stage = TO::to_nth_tile::<G::SmmConfig>(
+            tile_x,
+            tile_y,
             total_tile_count_row,
             total_tile_count_col,
             comptime!(this.input_ident.as_ident()),
             config.to_smm_config(),
         );
-        let tile_start = nth_tile * this.num_lines_per_tile;
+
+        let tile_start = nth_tile_in_stage * this.num_lines_per_tile;
         let tile_end = tile_start + this.num_lines_per_tile;
         let mut tile_slice = stage
             .as_slice_mut(line_size)

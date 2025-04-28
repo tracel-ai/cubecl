@@ -178,20 +178,6 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
             }
         };
 
-        comptime! {
-        println!("--------" );
-        println!("{:?}", ident);
-        println!("{:?}", buffer_index);
-        println!("{:?}", row_buffer_offset);
-        println!("{:?}", col_buffer_offset);
-        println!("{:?}", total_tile_count_row);
-        println!("{:?}", total_tile_count_col);
-        println!("{:?}", tile_shape_x);
-        println!("{:?}", tile_shape_y);
-        println!("{:?}", tile_slice_length);
-        println!("{:?}", stride);
-        };
-
         let start = tile_shape_x
             * tile_shape_y
             * TO::to_nth_tile::<S>(
