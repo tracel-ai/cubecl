@@ -30,10 +30,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
 
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
-        let num_tiles_in_buffer = comptime! {match ident.as_input_ident() {
-            InputIdent::Lhs => tile_count_row,
-            InputIdent::Rhs => tile_count_col,
-        }};
+        let num_tiles_in_buffer = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
         let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
 

@@ -432,6 +432,17 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        mod s8x8x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 8, n: 8, k: 4 }
+            );
+        }
+
         mod s4x4x2 {
             use super::*;
             $crate::matmul_standard_tests!(
