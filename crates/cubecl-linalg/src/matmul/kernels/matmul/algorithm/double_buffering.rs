@@ -45,6 +45,6 @@ where
     }
 
     fn num_stages() -> u32 {
-         2
+        2
     }
 }

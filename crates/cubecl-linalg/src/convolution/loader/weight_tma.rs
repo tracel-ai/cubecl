@@ -9,7 +9,7 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{
     global::{self, tensor_view::MappedTensorReader},
-    stage::{ContiguousTilingLayout, StageMemory, StageConfig},
+    stage::{ContiguousTilingLayout, StageConfig, StageMemory},
 };
 use crate::{convolution::base::RuntimeArgs, matmul::components::stage::RowMajorTilingOrder};
 

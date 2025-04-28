@@ -28,7 +28,6 @@ pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
         stage_line_size: 0,
         stage_elem_padding: 0,
     };
-    // TODO Allows to select double buffering
     (
         selection,
         (

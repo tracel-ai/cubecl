@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
-    stage::{StageMemory, StageConfig, StridedTilingLayout},
+    stage::{StageConfig, StageMemory, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
