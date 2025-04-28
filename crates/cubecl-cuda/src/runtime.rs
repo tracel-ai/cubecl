@@ -126,7 +126,6 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
-    let mut compilation_options = CompilationOptions::default();
     let mut device_props = DeviceProperties::new(
         &[Feature::Plane],
         mem_properties,
@@ -148,7 +147,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     if arch.version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
         device_props.register_feature(Feature::CubeCluster);
-        compilation_options.supports_clusters = true;
+        comp_opts.supports_clusters = true;
     }
     if arch.version >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
