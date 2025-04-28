@@ -5,9 +5,11 @@ use crate::matmul::components::global::load::{
     AsyncBufferLoader, AsyncBufferLoadingStrategy, BufferId,
 };
 use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::BufferReader;
+use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
@@ -281,15 +283,10 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            quantization,
-            InputIdent::Lhs,
-            config,
-        )
+        let tensor_reader = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
+        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
+
+        Self::LhsLoader::new(tensor_reader, stage, quantization, InputIdent::Lhs, config)
     }
 
     fn init_rhs_loader(
@@ -301,15 +298,10 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            quantization,
-            InputIdent::Rhs,
-            config,
-        )
+        let tensor_reader = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
+        let stage = StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
+
+        Self::RhsLoader::new(tensor_reader, stage, quantization, InputIdent::Rhs, config)
     }
 
     fn init_unloader(

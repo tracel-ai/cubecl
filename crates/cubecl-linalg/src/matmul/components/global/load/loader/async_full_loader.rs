@@ -11,7 +11,6 @@ use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -41,7 +40,7 @@ pub struct AsyncLoader<
     L: AsyncFullLoadingStrategy,
 > {
     tensor_reader: TensorReader<MP::EI>,
-    stage: StageMemory<MP::ES, L::TilingLayout>,
+    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<MP>>,
     #[cube(comptime)]
     ident: InputIdent,
@@ -58,10 +57,8 @@ impl<
 > AsyncLoader<MP, CM, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<MP::EI>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
+        tensor_reader: TensorReader<MP::EI>,
+        mut stage_memory: StageMemory<MP::ES, L::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
@@ -71,9 +68,6 @@ impl<
                 todo!();
             }
         }
-
-        let mut stage =
-            StageMemory::new::<G::SmmConfig>(1u32, ident.as_ident(), config.to_smm_config());
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<MP, G>(ident, config)),
@@ -85,11 +79,10 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
-                    if x_offset
-                        > tensor.shape(tensor.rank() - 2)
-                            - config.tiling_dimensions(Ident::Lhs).total_row()
+                    if tensor_reader.x_offset
+                        > tensor_reader.shape_x - config.tiling_dimensions(Ident::Lhs).total_row()
                     {
-                        stage.clear::<G::SmmConfig>(ident, config.to_smm_config());
+                        stage_memory.clear::<G::SmmConfig>(ident, config.to_smm_config());
                     }
                 }
             }
@@ -97,21 +90,18 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
-                    if y_offset
-                        > tensor.shape(tensor.rank() - 1)
-                            - config.tiling_dimensions(Ident::Rhs).total_col()
+                    if tensor_reader.y_offset
+                        > tensor_reader.shape_y - config.tiling_dimensions(Ident::Rhs).total_col()
                     {
-                        stage.clear::<G::SmmConfig>(ident, config.to_smm_config());
+                        stage_memory.clear::<G::SmmConfig>(ident, config.to_smm_config());
                     }
                 }
             }
         }
 
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
-
         AsyncLoader::<MP, CM, S, L> {
             tensor_reader,
-            stage,
+            stage_memory,
             loading_job,
             ident,
             _phantom: PhantomData::<(S, L, CM)>,
@@ -134,7 +124,7 @@ impl<
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
-                &mut this.stage,
+                &mut this.stage_memory,
                 mechanism,
                 config,
             );
@@ -142,11 +132,12 @@ impl<
     }
 
     pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(this.ident, config.to_smm_config())
+        this.stage_memory
+            .clear::<S>(this.ident, config.to_smm_config())
     }
 
     pub fn reader(this: &Self) -> FullReader<MP::ES, L::TilingLayout> {
-        FullReader::new(this.stage, this.ident)
+        FullReader::new(this.stage_memory, this.ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {

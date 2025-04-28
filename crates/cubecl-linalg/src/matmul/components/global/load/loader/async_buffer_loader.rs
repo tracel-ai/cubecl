@@ -13,7 +13,6 @@ use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -44,7 +43,7 @@ pub struct AsyncBufferLoader<
     L: AsyncBufferLoadingStrategy,
 > {
     tensor_reader: TensorReader<MP::EI>,
-    stage: StageMemory<MP::ES, L::TilingLayout>,
+    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     #[cube(comptime)]
     input_ident: InputIdent,
@@ -61,10 +60,8 @@ impl<
 > AsyncBufferLoader<MP, S, CM, L>
 {
     pub fn new(
-        tensor: VirtualTensor<MP::EI>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
+        tensor_reader: TensorReader<MP::EI>,
+        stage_memory: StageMemory<MP::ES, L::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: CommonGlobalConfig<S>,
@@ -75,8 +72,6 @@ impl<
             }
         }
 
-        let stage = StageMemory::new::<S>(2u32, input_ident.as_ident(), config.to_smm_config());
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
                 L::new_job::<MP, CommonGlobalConfig<S>>(0u32, input_ident, config),
@@ -87,7 +82,7 @@ impl<
 
         AsyncBufferLoader::<MP, S, CM, L> {
             tensor_reader,
-            stage,
+            stage_memory,
             loading_job,
             input_ident,
             _phantom: PhantomData::<(S, CM)>,
@@ -98,7 +93,7 @@ impl<
         this: &Self,
         #[comptime] buffer_id: BufferId,
     ) -> BufferReader<MP::ES, L::TilingLayout> {
-        BufferReader::new(this.stage, buffer_id, this.input_ident)
+        BufferReader::new(this.stage_memory, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
@@ -132,7 +127,7 @@ impl<
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
-                &mut this.stage,
+                &mut this.stage_memory,
                 mechanism,
                 config,
             );
@@ -144,7 +139,7 @@ impl<
         #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        this.stage
+        this.stage_memory
             .clear_buffer::<S>(buffer_id, this.input_ident, config.to_smm_config())
     }
 }

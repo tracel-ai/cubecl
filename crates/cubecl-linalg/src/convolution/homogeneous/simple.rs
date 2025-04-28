@@ -10,17 +10,18 @@ use crate::{
         loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
     },
     matmul::components::{
-        EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
+        EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
         MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{SyncFullLoader, sync_full_cyclic},
             output_loader::Unloader,
             single_stage,
+            tensor_view::TensorReader,
         },
         stage::{
             ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder, StageMatmul,
-            StageMatmulFamily,
+            StageMatmulFamily, StageMemory,
         },
     },
 };
@@ -139,11 +140,13 @@ where
         _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let tensor_reader = TensorReader::new(rhs, x_offset, y_offset, 0);
+        let stage_memory =
+            StageMemory::new::<SMM::Config>(1u32, Ident::Rhs, config.to_smm_config());
+
         Self::RhsLoader::new::<Self::Config>(
-            rhs,
-            x_offset,
-            y_offset,
-            0,
+            tensor_reader,
+            stage_memory,
             CubeOption::new_None(),
             InputIdent::Rhs,
             config,
