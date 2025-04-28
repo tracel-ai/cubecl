@@ -178,7 +178,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> SliceExpand<E, IO> {
-        let length = cubecl::frontend::sub::expand(scope, end.into(), start.clone().into());
+        let length = cubecl::frontend::sub::expand(scope, end, start.clone());
 
         SliceExpand::<E, IO> {
             origin,
@@ -195,6 +195,10 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// Get the length of the slice.
     pub fn len(&self) -> u32 {
         self.length
+    }
+    /// Returns true if the slice is empty.
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
     }
 }
 
@@ -215,7 +219,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceExpand<E, IO> {
             origin: self.origin.clone(),
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size.clone(),
+            line_size: self.line_size,
             io: PhantomData,
         }
     }
@@ -358,7 +362,7 @@ impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadWrite> {
             self.origin.clone(),
             self.offset.clone(),
             index,
-            self.line_size.clone(),
+            self.line_size,
             true,
         )
     }
@@ -372,7 +376,7 @@ impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadWrite> {
             self.origin.clone(),
             self.offset.clone(),
             index,
-            self.line_size.clone(),
+            self.line_size,
             false,
         )
     }
@@ -432,7 +436,7 @@ mod read_offset {
         line_size: Option<u32>,
         checked: bool,
     ) -> <E as cubecl::prelude::CubeType>::ExpandType {
-        let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
+        let index = cubecl::frontend::add::expand(scope, offset, index);
 
         match origin {
             SliceOriginExpand::Tensor(expand) => {
@@ -459,7 +463,7 @@ mod write_offset {
         value: <E as cubecl::prelude::CubeType>::ExpandType,
         line_size: Option<u32>,
     ) {
-        let index = cubecl::frontend::add::expand(scope, offset.into(), index.into());
+        let index = cubecl::frontend::add::expand(scope, offset, index);
 
         match origin {
             SliceOriginExpand::Tensor(expand) => expand_index_assign_native::<Tensor<E>>(

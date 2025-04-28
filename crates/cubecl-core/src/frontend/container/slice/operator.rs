@@ -160,8 +160,8 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> SliceExpand<E, ReadOnly> {
-        let length = crate::frontend::sub::expand(scope, end.into(), start.clone().into());
-        let offset = crate::frontend::add::expand(scope, start.into(), self.offset.clone());
+        let length = crate::frontend::sub::expand(scope, end, start.clone());
+        let offset = crate::frontend::add::expand(scope, start, self.offset.clone());
 
         SliceExpand {
             origin: self.origin.clone(),
@@ -178,8 +178,8 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> SliceExpand<E, ReadWrite> {
-        let length = crate::frontend::sub::expand(scope, end.into(), start.clone().into());
-        let offset = crate::frontend::add::expand(scope, start.into(), self.offset.clone());
+        let length = crate::frontend::sub::expand(scope, end, start.clone());
+        let offset = crate::frontend::add::expand(scope, start, self.offset.clone());
 
         SliceExpand {
             origin: self.origin.clone(),
@@ -196,7 +196,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: std::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size.clone(),
+            line_size: self.line_size,
         }
     }
 
@@ -206,7 +206,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: std::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size.clone(),
+            line_size: self.line_size,
         }
     }
 }

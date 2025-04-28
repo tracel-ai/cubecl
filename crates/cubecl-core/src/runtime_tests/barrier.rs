@@ -104,7 +104,7 @@ pub mod async_copy_test_ {
                             p
                         }
                     };
-                    let mut name = format!("{}", "async_copy_test");
+                    let mut name = "async_copy_test".to_string();
                     {
                         let type_name = shorten(core::any::type_name::<F>());
                         name.push_str(&format!("_{type_name}"));
@@ -136,7 +136,7 @@ pub mod async_copy_test_ {
             builder.build(self.settings.clone())
         }
         fn id(&self) -> cubecl::KernelId {
-            let cube_dim = self.settings.cube_dim.clone();
+            let cube_dim = self.settings.cube_dim;
             cubecl::KernelId::new::<Self>().info((
                 cube_dim,
                 self.input.clone(),
@@ -152,7 +152,7 @@ pub mod async_copy_test_ {
         __cube_dim: cubecl::prelude::CubeDim,
         input: cubecl::RuntimeArg<'kernel, Array<Line<F>>, __R>,
         output: cubecl::RuntimeArg<'kernel, Array<Line<F>>, __R>,
-    ) -> () {
+    ) {
         use cubecl::frontend::ArgSettings as _;
         let mut __settings = cubecl::prelude::KernelSettings::default().cube_dim(__cube_dim);
         let input_arg_0 =

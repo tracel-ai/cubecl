@@ -60,7 +60,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: 0u32.into(),
+        line_size: 0u32,
     });
 
     scope.register(Instruction::new(op, out));
@@ -98,7 +98,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: line_size.map(|a| a as u32).unwrap_or(0),
+        line_size: line_size.unwrap_or(0),
     });
 
     scope.register(Instruction::new(op, out));
