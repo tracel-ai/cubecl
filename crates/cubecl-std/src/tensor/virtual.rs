@@ -39,11 +39,19 @@ impl<E: Numeric, IO: Clone> List<Line<E>> for VirtualTensor<E, IO> {
 
 impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         self.state.clone().__expand_read_method(scope, index)
+    }
+
+    fn __expand_read_unchecked_method(
+        &self,
+        _scope: &mut Scope,
+        _index: ExpandElementTyped<u32>,
+    ) -> <Line<E> as CubeType>::ExpandType {
+        todo!("VirtualTensor don't support read unchecked yet");
     }
 }
 
@@ -228,7 +236,7 @@ impl<E: Numeric> ListMut<Line<E>> for VirtualTensor<E, ReadWrite> {
 
 impl<E: Numeric> ListMutExpand<Line<E>> for VirtualTensorExpand<E, ReadWrite> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
@@ -328,7 +336,7 @@ pub trait VirtualTensorOperationsExpand<E: Numeric> {
         context: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<Line<E>>>;
+    ) -> SliceExpand<Line<E>, ReadOnly>;
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
@@ -385,7 +393,7 @@ mod __tensor {
             context: &mut Scope,
             start: ExpandElementTyped<u32>,
             end: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<Slice<Line<E>>> {
+        ) -> SliceExpand<Line<E>, ReadOnly> {
             self.clone().__expand_slice_method(context, start, end)
         }
 
@@ -452,7 +460,7 @@ mod __tensor_map {
             _context: &mut Scope,
             _start: ExpandElementTyped<u32>,
             _end: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<Slice<Line<E>>> {
+        ) -> SliceExpand<Line<E>, ReadOnly> {
             todo!()
         }
 

@@ -10,17 +10,37 @@ pub trait List<T: CubeType>: CubeType<ExpandType: ListExpand<T>> {
         unexpanded!()
     }
 
+    #[allow(unused)]
+    fn read_unchecked(&self, index: u32) -> T {
+        unexpanded!()
+    }
+
     fn __expand_read(
         scope: &mut Scope,
         this: Self::ExpandType,
         index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType;
+    ) -> T::ExpandType {
+        this.__expand_read_method(scope, index)
+    }
+
+    fn __expand_read_unchecked(
+        scope: &mut Scope,
+        this: Self::ExpandType,
+        index: ExpandElementTyped<u32>,
+    ) -> T::ExpandType {
+        this.__expand_read_unchecked_method(scope, index)
+    }
 }
 
 /// Expand version of [CubeRead].
 pub trait ListExpand<T: CubeType> {
     fn __expand_read_method(
-        self,
+        &self,
+        scope: &mut Scope,
+        index: ExpandElementTyped<u32>,
+    ) -> T::ExpandType;
+    fn __expand_read_unchecked_method(
+        &self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType;
@@ -39,13 +59,15 @@ pub trait ListMut<T: CubeType>: CubeType<ExpandType: ListMutExpand<T>> + List<T>
         this: Self::ExpandType,
         index: ExpandElementTyped<u32>,
         value: T::ExpandType,
-    );
+    ) {
+        this.__expand_write_method(scope, index, value)
+    }
 }
 
 /// Expand version of [CubeWrite].
-pub trait ListMutExpand<T: CubeType> {
+pub trait ListMutExpand<T: CubeType>: ListExpand<T> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
         value: T::ExpandType,

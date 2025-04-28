@@ -97,7 +97,8 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
     /// Asserts that the configuration for this matmul will lead to a valid computation
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError>;
 
-    fn make_config(
+    fn make_config<R: Runtime, MP: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
         cube_dim: &CubeDim,

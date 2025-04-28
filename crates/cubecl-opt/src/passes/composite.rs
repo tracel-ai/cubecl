@@ -1,8 +1,8 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
-    VariableKind,
+    Id, IndexAssignOperator, IndexOperator, Instruction, Item, LineInitOperator, Operation,
+    Operator, Variable, VariableKind,
 };
 use stable_vec::StableVec;
 
@@ -48,17 +48,21 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::IndexAssign(BinaryOperator { lhs, rhs })),
+                    Operation::Operator(Operator::IndexAssign(IndexAssignOperator {
+                        index,
+                        value,
+                        ..
+                    })),
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
                 {
                     let item = op.out.unwrap().item;
-                    if let Some(index) = lhs.as_const() {
+                    if let Some(index) = index.as_const() {
                         let index = index.as_u32();
                         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
                         if vectorization > 1 {
                             let assigns = assigns.entry(id).or_default();
-                            assigns.push((idx, index, rhs));
+                            assigns.push((idx, index, value));
                             if assigns.len() as u8 == vectorization {
                                 merge_assigns(
                                     &mut opt.program[block].ops.borrow_mut(),
@@ -71,7 +75,7 @@ impl OptimizerPass for CompositeMerge {
                         } else {
                             assert_eq!(index, 0, "Can't index into scalar");
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
-                                Operation::Copy(rhs),
+                                Operation::Copy(value),
                                 Variable::new(VariableKind::LocalMut { id }, item),
                             )
                         }
@@ -112,17 +116,17 @@ impl OptimizerPass for RemoveIndexScalar {
         for block in blocks {
             let ops = opt.program[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                if let Operation::Operator(Operator::Index(BinaryOperator { lhs, rhs })) =
+                if let Operation::Operator(Operator::Index(IndexOperator { list, index, .. })) =
                     &mut op.operation
                 {
-                    if !lhs.is_array() {
-                        if let Some(index) = rhs.as_const() {
+                    if !list.is_array() {
+                        if let Some(index) = index.as_const() {
                             let index = index.as_u32();
                             let vectorization =
-                                lhs.item.vectorization.map(|it| it.get()).unwrap_or(1);
+                                list.item.vectorization.map(|it| it.get()).unwrap_or(1);
                             if vectorization == 1 {
                                 assert_eq!(index, 0, "Can't index into scalar");
-                                op.operation = Operation::Copy(*lhs);
+                                op.operation = Operation::Copy(*list);
                                 changes.inc();
                             }
                         }

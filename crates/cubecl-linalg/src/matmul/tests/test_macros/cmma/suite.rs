@@ -128,7 +128,6 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
-        use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
@@ -172,21 +171,6 @@ macro_rules! matmul_standard_tests {
         pub fn simple_tilewise() {
             cubecl_linalg::matmul::tests::test_algo::<
                 SimpleAlgorithm<TMM, sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>, sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-            );
-        }
-
-        #[test]
-        pub fn simple_pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimplePipelinedAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

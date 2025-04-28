@@ -12,7 +12,6 @@ use serde::Serialize;
 use crate::{
     Runtime,
     compute::{KernelBuilder, KernelLauncher},
-    prelude::Index,
     prelude::*,
 };
 
@@ -202,11 +201,6 @@ impl<const POS: u8> ReverseBits for IntExpand<POS> {}
 impl<const POS: u8> CountOnes for IntExpand<POS> {}
 impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
 impl<const POS: u8> LeadingZeros for IntExpand<POS> {}
-
-impl<T: Index, const POS: u8> CubeIndex<T> for IntExpand<POS> {
-    type Output = Self;
-}
-impl<T: Index, const POS: u8> CubeIndexMut<T> for IntExpand<POS> {}
 
 impl<const POS: u8> Int for IntExpand<POS> {
     const BITS: u32 = 32;
