@@ -89,25 +89,33 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
     ) -> TensorHandle<R, E> {
-        let rank = handle.shape.len();
-        let dim_c = rank - 1;
-        let mut handle = if has_valid_layout(handle, ident) {
-            TensorHandle::from_ref(handle)
-        } else {
-            into_contiguous_pitched(client, handle)
-        };
-        match ident {
-            InputIdent::Lhs => handle,
-            InputIdent::Rhs => {
-                let k_size = handle.shape[1..dim_c].iter().product();
-                handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
-                handle.strides = vec![
-                    handle.strides[0],
-                    handle.strides[dim_c - 1],
-                    handle.strides[dim_c],
-                ];
-                handle
-            }
+        into_tensor_handle_tma(client, handle, ident)
+    }
+}
+
+pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    handle: &TensorHandleRef<'_, R>,
+    ident: InputIdent,
+) -> TensorHandle<R, E> {
+    let rank = handle.shape.len();
+    let dim_c = rank - 1;
+    let mut handle = if has_valid_layout(handle, ident) {
+        TensorHandle::from_ref(handle)
+    } else {
+        into_contiguous_pitched(client, handle)
+    };
+    match ident {
+        InputIdent::Lhs => handle,
+        InputIdent::Rhs => {
+            let k_size = handle.shape[1..dim_c].iter().product();
+            handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
+            handle.strides = vec![
+                handle.strides[0],
+                handle.strides[dim_c - 1],
+                handle.strides[dim_c],
+            ];
+            handle
         }
     }
 }
