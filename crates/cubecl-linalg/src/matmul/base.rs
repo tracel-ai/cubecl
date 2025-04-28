@@ -17,8 +17,8 @@ use super::{
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm,
             double_buffering_barrier::DoubleBufferingBarrierAlgorithm, simple::SimpleAlgorithm,
-            simple_barrier::SimpleBarrierAlgorithm, simple_pipelined::SimplePipelinedAlgorithm,
-            simple_tma::SimpleTmaAlgorithm, specialized::SpecializedAlgorithm,
+            simple_barrier::SimpleBarrierAlgorithm, simple_tma::SimpleTmaAlgorithm,
+            specialized::SpecializedAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -29,7 +29,6 @@ use super::{
 pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
-    SimplePipelined,
     DoubleBuffering,
     DoubleBufferingBarrier,
     Specialized,
@@ -140,11 +139,6 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 SimpleTmaAlgorithm<Accelerated>,
             >(client, lhs, rhs, out, (false, false)),
         },
-        Strategy::SimplePipelined => {
-            matmul::launch_ref::<R, MP, SimplePipelinedAlgorithm<Accelerated>>(
-                client, lhs, rhs, out,
-            )
-        }
         Strategy::DoubleBuffering => {
             matmul::launch_ref::<R, MP, DoubleBufferingAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,

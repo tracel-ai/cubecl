@@ -233,7 +233,7 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
         _context: &mut Scope,
         _start: ExpandElementTyped<u32>,
         _end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<Line<P::In>>> {
+    ) -> SliceExpand<Line<P::In>, ReadOnly> {
         panic!("Unsupported")
     }
 
@@ -297,7 +297,7 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
         _context: &mut Scope,
         _start: ExpandElementTyped<u32>,
         _end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<Line<P::Out>>> {
+    ) -> SliceExpand<Line<P::Out>, ReadOnly> {
         panic!("Unsupported")
     }
 

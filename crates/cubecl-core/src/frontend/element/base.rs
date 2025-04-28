@@ -169,6 +169,12 @@ impl<T: CubeType> From<&ExpandElementTyped<T>> for ExpandElementTyped<T> {
     }
 }
 
+impl<T: CubeType> From<ExpandElementTyped<T>> for Variable {
+    fn from(value: ExpandElementTyped<T>) -> Self {
+        value.expand.into()
+    }
+}
+
 impl<T: CubeType> From<&mut ExpandElementTyped<T>> for ExpandElementTyped<T> {
     fn from(value: &mut ExpandElementTyped<T>) -> Self {
         value.clone()
@@ -347,7 +353,6 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::GlobalOutputArray { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::ConstantArray { .. }
-        | VariableKind::Slice { .. }
         | VariableKind::Matrix { .. }
         | VariableKind::Barrier { .. }
         | VariableKind::Pipeline { .. }

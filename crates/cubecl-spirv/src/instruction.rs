@@ -7,7 +7,6 @@ use rspirv::spirv::{Capability, Decoration, Word};
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    lookups::Slice,
     variable::IndexedVariable,
 };
 
@@ -41,7 +40,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
-            Operation::Pipeline(_) => panic!("Pipeline not supported in SPIR-V"),
             Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
             Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
         }
@@ -147,9 +145,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let out = out.unwrap();
         match op {
             Operator::Index(op) => {
-                let is_atomic = op.lhs.item.elem.is_atomic();
-                let value = self.compile_variable(op.lhs);
-                let index = self.compile_variable(op.rhs);
+                let is_atomic = op.list.item.elem.is_atomic();
+                let value = self.compile_variable(op.list);
+                let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
 
                 if is_atomic {
@@ -169,62 +167,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             Operator::IndexAssign(op) => {
-                let index = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
+                let index = self.compile_variable(op.index);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed(&out, &index, value_id);
             }
             Operator::UncheckedIndex(op) => {
-                let value = self.compile_variable(op.lhs);
-                let index = self.compile_variable(op.rhs);
+                let value = self.compile_variable(op.list);
+                let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
 
                 let out_id = self.read_indexed_unchecked(&out, &value, &index);
                 self.write(&out, out_id);
             }
             Operator::UncheckedIndexAssign(op) => {
-                let index = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
+                let index = self.compile_variable(op.index);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed_unchecked(&out, &index, value_id);
-            }
-            Operator::Slice(op) => {
-                let item = self.compile_item(op.input.item);
-                let input = self.compile_variable(op.input);
-                let start = self.compile_variable(op.start);
-                let end = self.compile_variable(op.end);
-                let out = match out.kind {
-                    core::VariableKind::Slice { id } => id,
-                    _ => unreachable!(),
-                };
-
-                let start_id = self.read(&start);
-                let end_id = self.read(&end);
-                let const_len = match (start.as_const(), end.as_const()) {
-                    (Some(start), Some(end)) => {
-                        let len = end.as_u32() - start.as_u32();
-                        Some(len)
-                    }
-                    _ => None,
-                };
-
-                self.state.slices.insert(
-                    out,
-                    Slice {
-                        ptr: input,
-                        offset: start_id,
-                        end: end_id,
-                        const_len,
-                        item,
-                    },
-                );
-            }
-            Operator::ReinterpretSlice(_) => {
-                todo!()
             }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);

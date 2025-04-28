@@ -164,7 +164,7 @@ impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EO>
         _context: &mut Scope,
         _start: ExpandElementTyped<u32>,
         _end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<Line<EO>>> {
+    ) -> SliceExpand<Line<EO>, ReadOnly> {
         panic!("Can't read output tensor");
     }
 
@@ -228,7 +228,7 @@ impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EI>
         context: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Slice<Line<EI>>> {
+    ) -> SliceExpand<Line<EI>, ReadOnly> {
         TensorInputExpand::__expand_read_window_method(self.clone(), context, start, end)
     }
 

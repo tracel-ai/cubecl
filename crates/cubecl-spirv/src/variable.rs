@@ -365,12 +365,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::ConstantScalar(id, const_val, item.elem())
                 }
             }
-            ir::VariableKind::Slice { id, .. } => self
-                .state
-                .slices
-                .get(&id)
-                .expect("Tried accessing non-existing slice")
-                .into(),
             ir::VariableKind::GlobalInputArray(pos) => {
                 let id = self.state.buffers[pos as usize];
                 Variable::GlobalInputArray(id, self.compile_item(item), pos)

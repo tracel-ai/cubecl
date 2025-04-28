@@ -4,7 +4,7 @@ use cubecl_ir::{ExpandElement, Scope};
 
 use crate as cubecl;
 use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped};
-use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer};
+use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked};
 use crate::prelude::{assign, index, index_assign};
 use crate::{
     frontend::CubeType,
@@ -176,7 +176,7 @@ mod vectorization {
                         let expand: Self = self.expand.clone().into();
                         let element =
                             index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
-                        index_assign::expand::<Array<T>>(
+                        index_assign::expand::<ExpandElementTyped<Array<T>>, T>(
                             scope,
                             new_var.clone().into(),
                             ExpandElementTyped::from_lit(scope, i),
@@ -193,7 +193,7 @@ mod vectorization {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use crate::ir::Instruction;
+    use crate::{ir::Instruction, prelude::expand_length_native};
 
     use super::*;
 
@@ -203,14 +203,7 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> u32 {
             intrinsic!(|scope| {
-                let out = scope.create_local(Item::new(u32::as_elem(scope)));
-                scope.register(Instruction::new(
-                    Metadata::Length {
-                        var: self.expand.into(),
-                    },
-                    out.clone().into(),
-                ));
-                out.into()
+                ExpandElement::Plain(expand_length_native(scope, *self.expand)).into()
             })
         }
 
@@ -232,10 +225,10 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::Operator;
+    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
     use crate::{
-        ir::{BinaryOperator, Instruction},
+        ir::Instruction,
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -251,14 +244,15 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_unchecked(&self, i: u32) -> &E
         where
-            Self: CubeIndex<u32>,
+            Self: CubeIndex,
         {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.item);
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndex(BinaryOperator {
-                        lhs: *self.expand,
-                        rhs: i.expand.consume(),
+                    Operator::UncheckedIndex(IndexOperator {
+                        list: *self.expand,
+                        index: i.expand.consume(),
+                        line_size: 0,
                     }),
                     *out,
                 ));
@@ -274,13 +268,14 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E)
         where
-            Self: CubeIndexMut<u32>,
+            Self: CubeIndexMut,
         {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(BinaryOperator {
-                        lhs: i.expand.consume(),
-                        rhs: value.expand.consume(),
+                    Operator::UncheckedIndexAssign(IndexAssignOperator {
+                        index: i.expand.consume(),
+                        value: value.expand.consume(),
+                        line_size: 0,
                     }),
                     *self.expand,
                 ));
@@ -304,7 +299,7 @@ impl<C: CubeType> ExpandElementBaseInit for Array<C> {
     }
 }
 
-impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Array<T> {
+impl<T: CubePrimitive> SizedContainer for Array<T> {
     type Item = T;
 }
 
@@ -328,11 +323,18 @@ impl<T: CubePrimitive> List<T> for Array<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index_unchecked::expand(scope, self.clone(), idx)
     }
 }
 
@@ -349,11 +351,11 @@ impl<T: CubePrimitive> ListMut<T> for Array<T> {
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

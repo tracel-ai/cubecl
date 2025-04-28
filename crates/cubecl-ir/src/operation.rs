@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
+use super::{Branch, CoopMma, Item, NonSemantic, Plane, Synchronization, Variable};
 use crate::{
     Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator, TmaOps,
     comparison::Comparison,
@@ -48,8 +48,6 @@ pub enum Operation {
     Plane(Plane),
     #[operation(nested)]
     CoopMma(CoopMma),
-    #[operation(nested)]
-    Pipeline(PipelineOps),
     #[operation(nested)]
     Barrier(BarrierOps),
     #[operation(nested)]
@@ -115,10 +113,10 @@ impl Display for Instruction {
                 op.len
             ),
             Operation::Operator(Operator::IndexAssign(op)) => {
-                write!(f, "{}[{}] = {}", self.out(), op.lhs, op.rhs)
+                write!(f, "{}[{}] = {}", self.out(), op.index, op.value)
             }
             Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
-                write!(f, "unchecked {}[{}] = {}", self.out(), op.lhs, op.rhs)
+                write!(f, "unchecked {}[{}] = {}", self.out(), op.index, op.value)
             }
             Operation::Operator(Operator::Cast(op)) => {
                 write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
@@ -152,7 +150,6 @@ impl Display for Operation {
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{}", variable),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
-            Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
         }
@@ -170,6 +167,25 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
             .join(", ");
         format!(", {str}")
     }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct IndexOperator {
+    pub list: Variable,
+    pub index: Variable,
+    pub line_size: u32, // 0 == same as list.
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct IndexAssignOperator {
+    // list is out.
+    pub index: Variable,
+    pub value: Variable,
+    pub line_size: u32, // 0 == same as list.
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

@@ -41,7 +41,7 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#frontend_path::#op::expand(scope, _array.into(), _index.into(), _value.into())],
+                    quote![#frontend_path::#op::expand(scope, _array, _index.into(), _value.into())],
                 );
                 quote! {
                     {
@@ -143,7 +143,7 @@ impl Expression {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #frontend_path::index_assign::expand(scope, _array.into(), _index.into(), _value.into())
+                        #frontend_path::index_assign::expand(scope, _array, _index.into(), _value.into())
                     }
                 }
             }
@@ -166,7 +166,7 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#index_fn::expand(scope, _array.into(), _index.into())],
+                    quote![#index_fn::expand(scope, _array, _index.into())],
                 );
                 quote! {
                     {

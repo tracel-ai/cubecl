@@ -78,9 +78,6 @@ pub enum VariableKind {
         id: Id,
         mat: Matrix,
     },
-    Slice {
-        id: Id,
-    },
     Builtin(Builtin),
     Pipeline {
         id: Id,
@@ -139,7 +136,6 @@ impl Variable {
             VariableKind::LocalMut { .. } => false,
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
-            VariableKind::Slice { .. } => false,
             VariableKind::LocalArray { .. } => false,
             VariableKind::GlobalInputArray { .. } => false,
             VariableKind::GlobalScalar { .. } => true,
@@ -164,16 +160,13 @@ impl Variable {
                 | VariableKind::SharedMemory { .. }
                 | VariableKind::LocalArray { .. }
                 | VariableKind::Matrix { .. }
-                | VariableKind::Slice { .. }
         )
     }
 
     pub fn has_length(&self) -> bool {
         matches!(
             self.kind,
-            VariableKind::GlobalInputArray { .. }
-                | VariableKind::GlobalOutputArray { .. }
-                | VariableKind::Slice { .. }
+            VariableKind::GlobalInputArray { .. } | VariableKind::GlobalOutputArray { .. }
         )
     }
 
@@ -457,7 +450,6 @@ impl Variable {
             | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
-            | VariableKind::Slice { id, .. }
             | VariableKind::ConstantArray { id, .. }
             | VariableKind::SharedMemory { id, .. }
             | VariableKind::LocalArray { id, .. }
@@ -491,7 +483,6 @@ impl Display for Variable {
             VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
-            VariableKind::Slice { id } => write!(f, "slice({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
             VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),

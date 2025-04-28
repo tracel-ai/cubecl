@@ -68,6 +68,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     let client = R::client(&device);
 
     for (b, m, n, k) in [
+        (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
         (1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
@@ -146,8 +147,9 @@ fn main() {
     #[cfg(feature = "cuda")]
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        run_benches::<cubecl::cuda::CudaRuntime, cubecl::flex32>();
-        //run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        // run_benches::<cubecl::cuda::CudaRuntime, cubecl::flex32>();
+        // run_benches::<cubecl::cuda::CudaRuntime, cubecl_std::SymQ8>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
