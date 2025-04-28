@@ -135,10 +135,8 @@ macro_rules! matmul_standard_tests {
         };
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
-        use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
-        use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
         pub fn simple_coalesced() {
@@ -253,39 +251,9 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn specialized() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SpecializedAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-            );
-        }
-
-        #[test]
-        pub fn double_buffering__() {
+        pub fn double_buffering() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-            );
-        }
-
-        #[test]
-        pub fn double_buffering_barrier() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(
