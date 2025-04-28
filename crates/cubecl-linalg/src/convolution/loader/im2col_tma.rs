@@ -23,7 +23,7 @@ pub type TmaIm2colReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaIm2col
 #[derive(CubeType)]
 pub struct TmaIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
     pub map: Im2colTmaReader<MP::EI>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>,
+    pub stages: Sequence<Stage<MP::ES, TmaIm2colTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<G>,
@@ -36,9 +36,19 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
+        #[comptime] num_stages: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
+        let mut stages = Sequence::new();
+
+        #[unroll]
+        for _ in 0..num_stages {
+            stages.push(Stage::new_aligned::<G::SmmConfig>(
+                Ident::Lhs,
+                128u32,
+                config.to_smm_config(),
+            ))
+        }
 
         let (nh_offset, w_offset) = runtime_args.out_w.div_mod(x_offset);
         let (n_offset, h_offset) = runtime_args.out_h.div_mod(nh_offset);
@@ -47,20 +57,27 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
         TmaIm2colLoader::<MP, G> {
             map,
-            stage,
+            stages,
             padded_channels: runtime_args.padded_channels,
             _config: PhantomData::<G>,
         }
     }
 
-    pub fn fill_stage(this: &mut Self, bar: &Barrier<MP::ES>, #[comptime] config: G) {
+    pub fn fill_stage(
+        this: &mut Self,
+        bar: &Barrier<MP::ES>,
+        #[comptime] stage_idx: u32,
+        #[comptime] config: G,
+    ) {
         let tmm = config.to_smm_config();
         let tiling_dims = tmm.tiling_dimensions(Ident::Lhs);
+        let stage = this.stages.index_mut(stage_idx);
+
         if UNIT_POS == 0 {
             let m_size = tiling_dims.total_row();
             let k_size = tiling_dims.tile_shape_col();
             let slice_size = m_size * k_size;
-            let mut full_stage = this.stage.as_slice_mut(1u32);
+            let mut full_stage = stage.as_slice_mut(1u32);
             let tensor = this.map.tensor.try_cast_unchecked();
 
             let in_h = (this.map.h_offset * config.stride(0)) as i32 - config.padding(0);
@@ -95,7 +112,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         this.map.update_view(k_offset);
     }
 
-    pub fn reader(this: &Self) -> TmaIm2colReader<MP> {
-        TmaIm2colReader::<MP>::new(this.stage, InputIdent::Lhs)
+    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaIm2colReader<MP> {
+        TmaIm2colReader::<MP>::new(*this.stages.index(stage_idx), InputIdent::Lhs)
     }
 }
