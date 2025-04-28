@@ -131,8 +131,8 @@ where
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        lhs_loader: Self::LhsLoader,
-        rhs_loader: Self::RhsLoader,
+        mut lhs_loader: Self::LhsLoader,
+        mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -151,18 +151,13 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let mut lhs_loader_a = lhs_loader.0;
-        let mut lhs_loader_b = lhs_loader.1;
-        let mut rhs_loader_a = rhs_loader.0;
-        let mut rhs_loader_b = rhs_loader.1;
+        let lhs_reader_a = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader.0);
+        let lhs_reader_b = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader.1);
+        let rhs_reader_a = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader.0);
+        let rhs_reader_b = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader.1);
 
-        let lhs_reader_a = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader_a);
-        let lhs_reader_b = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader_b);
-        let rhs_reader_a = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader_a);
-        let rhs_reader_b = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader_b);
-
-        SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader_a, config);
-        SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader_a, config);
+        SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader.0, config);
+        SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader.0, config);
 
         sync_units();
 
@@ -180,11 +175,11 @@ where
                 &mut rhs_tile_a,
                 acc,
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(&lhs_loader_b, &rhs_loader_b, config),
+                DoubleBufferingEventListener::new(&lhs_loader.1, &rhs_loader.1, config),
             );
 
-            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_a, loop_step);
-            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_a, loop_step);
+            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader.0, loop_step);
+            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader.0, loop_step);
 
             sync_units();
 
@@ -201,11 +196,11 @@ where
                 &mut rhs_tile_b,
                 acc,
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(&lhs_loader_a, &rhs_loader_a, config),
+                DoubleBufferingEventListener::new(&lhs_loader.0, &rhs_loader.0, config),
             );
 
-            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader_b, loop_step);
-            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader_b, loop_step);
+            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader.1, loop_step);
+            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader.1, loop_step);
 
             sync_units();
         }
@@ -223,7 +218,7 @@ where
             &mut rhs_tile_a,
             acc,
             config.to_smm_config(),
-            DoubleBufferingEventListener::new(&lhs_loader_b, &rhs_loader_b, config),
+            DoubleBufferingEventListener::new(&lhs_loader.1, &rhs_loader.1, config),
         );
 
         sync_units();
