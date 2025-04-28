@@ -41,7 +41,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
 }
 
 impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
-    type Input = (CompleteStageTiling, StageBuffering, StageVectorization);
+    type Input = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -60,7 +60,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
     }
 
     fn make_config(
-        (tiling, buffering, vectorization): Self::Input,
+        (tiling, buffering, vectorization, num_stages): Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
@@ -80,7 +80,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
             tile_count,
         };
 
-        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, buffering)
+        CommonStageConfig::new(
+            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages,
+        )
     }
 }
 

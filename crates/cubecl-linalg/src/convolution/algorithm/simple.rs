@@ -64,6 +64,11 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
             }
         }
     }
+
+    // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
+    fn num_stages() -> u32 {
+        1
+    }
 }
 
 fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {

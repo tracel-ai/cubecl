@@ -43,4 +43,8 @@ where
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
+
+    fn num_stages() -> u32 {
+        2
+    }
 }

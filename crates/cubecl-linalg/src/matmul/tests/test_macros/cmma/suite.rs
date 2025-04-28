@@ -57,7 +57,12 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization),
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     );
 }
@@ -111,7 +116,12 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization),
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     );
 }

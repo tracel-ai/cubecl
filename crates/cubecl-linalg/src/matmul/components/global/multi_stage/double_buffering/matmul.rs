@@ -1,10 +1,11 @@
+use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
 };
+use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
@@ -48,7 +49,7 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Input = SMM::Input;
-    type Config = CommonGlobalConfig<SMM::Config>;
+    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check::<Self::Config>(config, Ident::Lhs)?;
@@ -74,7 +75,7 @@ where
         let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
-        CommonGlobalConfig::new(
+        DoubleBufferingGlobalConfig::new(
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
             problem.n as u32 % stage_shape.n != 0,
@@ -116,7 +117,7 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Config = CommonGlobalConfig<SMM::Config>;
+    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = (
         SyncBufferLoader<MP, Self::Config, LL>,
         SyncBufferLoader<MP, Self::Config, LL>,

@@ -136,7 +136,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                     let y_tile_offset = tiling_dimensions.tile_count_col() * buffer_index;
                     let total_tile_count_x = tiling_dimensions.tile_count_row();
                     let total_tile_count_y =
-                        tiling_dimensions.tile_count_col() * config.num_buffers();
+                        tiling_dimensions.tile_count_col() * config.num_stages();
                     (
                         x_tile_offset,
                         y_tile_offset,
@@ -148,7 +148,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                     let x_tile_offset = tiling_dimensions.tile_count_row() * buffer_index;
                     let y_tile_offset = 0;
                     let total_tile_count_x =
-                        tiling_dimensions.tile_count_row() * config.num_buffers();
+                        tiling_dimensions.tile_count_row() * config.num_stages();
                     let total_tile_count_y = tiling_dimensions.tile_count_col();
                     (
                         x_tile_offset,
@@ -159,14 +159,14 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 }
             };
 
-        let (tile_shape_x, tile_shape_y, tile_slice_length, stride) = match matrix_layout {
+        let (tile_shape_x, tile_shape_y, tile_slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => {
                 let tile_shape_x = tiling_dimensions.tile_shape_row();
                 let tile_shape_y = tiling_dimensions.tile_shape_col() / stage_line_size;
                 let stride_x = comptime!(tile_shape_y * total_tile_count_col);
                 let length = (tile_shape_x - 1) * stride_x + tile_shape_y;
 
-                (tile_shape_x, tile_shape_y, length, stride_x)
+                (tile_shape_x, tile_shape_y, length)
             }
             MatrixLayout::ColMajor => {
                 let tile_shape_x = tiling_dimensions.tile_shape_row() / stage_line_size;
@@ -174,7 +174,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 let stride_y = comptime!(tile_shape_x * total_tile_count_row);
                 let length = (tile_shape_y - 1) * stride_y + tile_shape_x;
 
-                (tile_shape_x, tile_shape_y, length, stride_y)
+                (tile_shape_x, tile_shape_y, length)
             }
         };
 
@@ -230,10 +230,14 @@ impl TilingLayout for StridedTilingLayout {
         stage: &StageMemory<ES, Self>,
         x: u32,
         y: u32,
-        #[comptime] buffer_index: u32,
+        #[comptime] _buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
+        if config.num_stages() > 1 {
+            unimplemented!()
+        }
+
         let stage_line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);

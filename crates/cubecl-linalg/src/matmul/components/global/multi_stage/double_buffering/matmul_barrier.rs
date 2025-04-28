@@ -1,12 +1,13 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::InputIdent;
+use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     AsyncBufferLoader, AsyncBufferLoadingStrategy, BufferId,
 };
+use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::StageMemory;
@@ -58,7 +59,7 @@ where
     RL: AsyncBufferLoadingStrategy,
 {
     type Input = SMM::Input;
-    type Config = CommonGlobalConfig<SMM::Config>;
+    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check::<Self::Config>(config, Ident::Lhs)?;
@@ -92,7 +93,7 @@ where
         let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
-        CommonGlobalConfig::new(
+        DoubleBufferingGlobalConfig::new(
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
             problem.n as u32 % stage_shape.n != 0,
@@ -134,7 +135,7 @@ where
     LL: AsyncBufferLoadingStrategy,
     RL: AsyncBufferLoadingStrategy,
 {
-    type Config = CommonGlobalConfig<SMM::Config>;
+    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = AsyncBufferLoader<MP, SMM::Config, Barrier<MP::ES>, LL>;
     type RhsLoader = AsyncBufferLoader<MP, SMM::Config, Barrier<MP::ES>, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
@@ -149,9 +150,9 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let num_buffers = 2;
+        let num_stages = 2;
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
-        let k_step = num_buffers * buffer_step;
+        let k_step = num_stages * buffer_step;
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;

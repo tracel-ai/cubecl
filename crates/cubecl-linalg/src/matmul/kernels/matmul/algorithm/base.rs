@@ -10,6 +10,7 @@ type StageInput = (
     CompleteStageTiling,
     stage::StageBuffering,
     StageVectorization,
+    u32,
 );
 
 /// Specifications for a matmul algorithm
@@ -21,6 +22,9 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
+    fn num_stages() -> u32 {
+        1
+    }
 
     #[allow(clippy::type_complexity, clippy::result_large_err)]
     fn make_config(
