@@ -31,7 +31,7 @@ use cubecl_std::{
 };
 
 use super::base::{
-    config::{self, HomogeneousConfig},
+    config::{self, ConvolutionConfig},
     implicit_conv, shape_divmod,
 };
 
@@ -53,7 +53,7 @@ where
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
-    type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
+    type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
         SyncFullLoader<MP, SMM::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
@@ -188,14 +188,15 @@ impl<SMM> ConvolutionConfigFactory for SimpleConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::HomogeneousConfig<single_stage::Config<SMM::Config>>;
+    type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
     type Input = SMM::Input;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
     }
 
-    fn make_config(
+    fn make_config<R: Runtime, MP: MatmulPrecision>(
+        _client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
         cube_dim: &CubeDim,
@@ -210,7 +211,7 @@ where
         );
         let size = SMM::stage_shape(&smm_config);
 
-        config::HomogeneousConfig::new(
+        config::ConvolutionConfig::new(
             single_stage::Config::new(
                 smm_config,
                 // TODO: Find the correct condition to avoid check bounds.
@@ -229,6 +230,7 @@ where
             &problem.dilation,
             &problem.padding,
             problem.dimensionality,
+            1,
         )
     }
 

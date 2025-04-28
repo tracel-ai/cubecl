@@ -21,6 +21,22 @@ pub struct BinaryInstruction<D: Dialect> {
 }
 
 #[derive(Debug, Clone)]
+pub struct IndexInstruction<D: Dialect> {
+    pub list: Variable<D>,
+    pub index: Variable<D>,
+    pub line_size: u32,
+    pub out: Variable<D>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IndexAssignInstruction<D: Dialect> {
+    pub index: Variable<D>,
+    pub value: Variable<D>,
+    pub line_size: u32,
+    pub out: Variable<D>,
+}
+
+#[derive(Debug, Clone)]
 pub struct UnaryInstruction<D: Dialect> {
     pub input: Variable<D>,
     pub out: Variable<D>,
@@ -64,8 +80,8 @@ pub enum Instruction<D: Dialect> {
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
-    Index(BinaryInstruction<D>),
-    IndexAssign(BinaryInstruction<D>),
+    Index(IndexInstruction<D>),
+    IndexAssign(IndexAssignInstruction<D>),
     Assign(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -219,6 +235,7 @@ pub enum Instruction<D: Dialect> {
     Barrier(BarrierOps<D>),
     MemCopyAsyncTensorSharedToGlobal {
         smem_buffer: Variable<D>,
+        smem_offset: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
@@ -292,8 +309,10 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::Index(it) => Index::format(f, &it.list, &it.index, &it.out, it.line_size),
+            Instruction::IndexAssign(it) => {
+                IndexAssign::format(f, &it.index, &it.value, &it.out, it.line_size)
+            }
             Instruction::Copy {
                 input,
                 in_index,
@@ -617,6 +636,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             ),
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
+                smem_offset,
                 tensor_map,
                 indices,
             } => {
@@ -628,7 +648,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr} + {smem_offset});"
                 )
             }
         }

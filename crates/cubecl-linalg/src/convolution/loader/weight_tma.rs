@@ -19,7 +19,7 @@ pub type TmaWeightReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaWeight
 #[derive(CubeType)]
 pub struct TmaWeightLoader<MP: MatmulPrecision, S: StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, TmaWeightTiling>,
+    pub stages: Sequence<Stage<MP::ES, TmaWeightTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -33,6 +33,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
         y: u32,
         quantization: CubeOption<Quantization<MP>>,
         runtime_args: &RuntimeArgs,
+        #[comptime] num_stages: u32,
         #[comptime] config: G,
     ) -> Self {
         comptime! {
@@ -41,26 +42,42 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
             }
         }
 
-        let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
+        let mut stages = Sequence::new();
+
+        #[unroll]
+        for _ in 0..num_stages {
+            stages.push(Stage::new_aligned::<G::SmmConfig>(
+                Ident::Rhs,
+                128u32,
+                config.to_smm_config(),
+            ));
+        }
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, 0);
 
         TmaWeightLoader::<MP, S> {
             tensor_view,
-            stage,
+            stages,
             padded_channels: runtime_args.padded_channels,
             _config: PhantomData::<S>,
         }
     }
 
-    pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: S) {
+    pub fn fill_stage(
+        this: &mut Self,
+        barrier: &Barrier<MP::ES>,
+        #[comptime] stage_idx: u32,
+        #[comptime] config: S,
+    ) {
+        let stage = this.stages.index_mut(stage_idx);
+
         if UNIT_POS == 0 {
             let k = this.tensor_view.tile_x;
             let out_c = this.tensor_view.tile_y;
             let tiling_dims = config.tiling_dimensions(Ident::Rhs);
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
-            let mut stage = this.stage.as_slice_mut(1u32);
+            let mut stage = stage.as_slice_mut(1u32);
             let slice_size = tiling_dims.total_col() * tiling_dims.tile_shape_row();
 
             #[unroll]
@@ -76,8 +93,8 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
         }
     }
 
-    pub fn reader(this: &Self) -> TmaWeightReader<MP> {
-        TmaWeightReader::<MP>::new(this.stage, InputIdent::Rhs)
+    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaWeightReader<MP> {
+        TmaWeightReader::<MP>::new(*this.stages.index(stage_idx), InputIdent::Rhs)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {

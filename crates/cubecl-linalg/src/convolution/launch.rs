@@ -180,7 +180,7 @@ where
     let cube_dim = Alg::cube_dim(&selection);
     let cube_count = Alg::cube_count(&selection, &problem);
 
-    let config = Alg::make_config(config_input, &problem, &cube_dim, &cube_count)
+    let config = Alg::make_config::<R, MP>(client, config_input, &problem, &cube_dim, &cube_count)
         .map_err(MatmulLaunchError::InvalidConfig)?;
 
     Alg::check_availability::<R, MP>(client, &config)?;

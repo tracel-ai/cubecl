@@ -204,10 +204,6 @@ impl WgslCompiler {
                 id,
                 item: Self::compile_item(item),
             },
-            cube::VariableKind::Slice { id } => wgsl::Variable::Slice {
-                id,
-                item: Self::compile_item(item),
-            },
             cube::VariableKind::GlobalOutputArray(id) => {
                 wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
@@ -365,11 +361,6 @@ impl WgslCompiler {
         let processing = scope.process();
 
         for var in processing.variables {
-            // We don't declare slices.
-            if let cube::VariableKind::Slice { .. } = var.kind {
-                continue;
-            }
-
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
             });
@@ -415,9 +406,6 @@ impl WgslCompiler {
                 self.compile_comment(instructions, content)
             }
             cube::Operation::NonSemantic(_) => {}
-            cube::Operation::Pipeline(_) => {
-                panic!("Pipeline isn't supported on wgpu.")
-            }
             cube::Operation::Barrier(_) => {
                 panic!("Barrier isn't supported on wgpu.")
             }
@@ -889,12 +877,12 @@ impl WgslCompiler {
             }),
             cube::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked)
-                    && op.lhs.has_length()
+                    && op.list.has_length()
                     && !out.elem().is_atomic()
                 {
-                    let list = ExpandElement::Plain(op.lhs);
-                    let index = ExpandElement::Plain(op.rhs);
-                    scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
+                    let list = ExpandElement::Plain(op.list);
+                    let index = ExpandElement::Plain(op.index);
+                    scope.register_elem::<FloatExpand<0>>(op.list.elem());
 
                     let mut child_scope = scope.child();
                     let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
@@ -912,35 +900,35 @@ impl WgslCompiler {
                     })
                 } else {
                     instructions.push(wgsl::Instruction::Index {
-                        lhs: self.compile_variable(op.lhs),
-                        rhs: self.compile_variable(op.rhs),
+                        lhs: self.compile_variable(op.list),
+                        rhs: self.compile_variable(op.index),
                         out: self.compile_variable(out),
                     });
                 }
             }
             cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                lhs: self.compile_variable(op.list),
+                rhs: self.compile_variable(op.index),
                 out: self.compile_variable(out),
             }),
             cube::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
                     if out.has_length() {
-                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
+                        expand_checked_index_assign(scope, op.index, op.value, out);
                         instructions.extend(self.compile_scope(scope));
                         return;
                     }
                 };
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
+                    index: self.compile_variable(op.index),
+                    rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
             }
             cube::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
+                    index: self.compile_variable(op.index),
+                    rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
             }
@@ -958,38 +946,6 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::Slice(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
-                    let input = op.input;
-                    let input_len = *scope
-                        .create_local_mut(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match input.has_buffer_length() {
-                        true => cube::Metadata::BufferLength { var: input },
-                        false => cube::Metadata::Length { var: input },
-                    };
-
-                    instructions.push(self.compile_metadata(length, Some(input_len)));
-                    instructions.push(wgsl::Instruction::CheckedSlice {
-                        input: self.compile_variable(input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                        len: self.compile_variable(input_len),
-                    });
-                } else {
-                    instructions.push(wgsl::Instruction::Slice {
-                        input: self.compile_variable(op.input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                    });
-                }
-            }
-            cube::Operator::ReinterpretSlice(_) => {
-                todo!()
-            }
             cube::Operator::Reinterpret(op) => instructions.push(wgsl::Instruction::Bitcast {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

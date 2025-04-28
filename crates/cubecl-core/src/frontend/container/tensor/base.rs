@@ -3,7 +3,9 @@ use crate::{
         CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, SizedContainer,
     },
     ir::{Item, Metadata, Scope},
-    prelude::{Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::{
+        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
+    },
     unexpanded,
 };
 use cubecl_ir::ExpandElement;
@@ -143,10 +145,10 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::Operator;
+    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
     use crate::{
-        ir::{BinaryOperator, Instruction},
+        ir::Instruction,
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -162,14 +164,15 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_unchecked(&self, i: u32) -> &E
         where
-            Self: CubeIndex<u32>,
+            Self: CubeIndex,
         {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.item);
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndex(BinaryOperator {
-                        lhs: *self.expand,
-                        rhs: i.expand.consume(),
+                    Operator::UncheckedIndex(IndexOperator {
+                        list: *self.expand,
+                        index: i.expand.consume(),
+                        line_size: 0,
                     }),
                     *out,
                 ));
@@ -185,13 +188,14 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E)
         where
-            Self: CubeIndexMut<u32>,
+            Self: CubeIndexMut,
         {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(BinaryOperator {
-                        lhs: i.expand.consume(),
-                        rhs: value.expand.consume(),
+                    Operator::UncheckedIndexAssign(IndexAssignOperator {
+                        index: i.expand.consume(),
+                        value: value.expand.consume(),
+                        line_size: 0,
                     }),
                     *self.expand,
                 ));
@@ -242,7 +246,7 @@ mod line {
     }
 }
 
-impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Tensor<T> {
+impl<T: CubePrimitive> SizedContainer for Tensor<T> {
     type Item = T;
 }
 
@@ -285,11 +289,18 @@ impl<T: CubePrimitive> List<T> for Tensor<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index_unchecked::expand(scope, self.clone(), idx)
     }
 }
 
@@ -306,11 +317,11 @@ impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

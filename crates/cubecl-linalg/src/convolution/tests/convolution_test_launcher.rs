@@ -59,7 +59,13 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
 
-    let config = match A::make_config(input, &problem, &cube_dim, &cube_count) {
+    let config = match A::make_config::<R, (P::EG, P::ES, f32, P::EG)>(
+        &client,
+        input,
+        &problem,
+        &cube_dim,
+        &cube_count,
+    ) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {}", err);

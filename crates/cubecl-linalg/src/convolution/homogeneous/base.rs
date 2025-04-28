@@ -103,16 +103,17 @@ pub mod config {
     use super::*;
 
     #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-    pub struct HomogeneousConfig<M: GlobalConfig> {
+    pub struct ConvolutionConfig<M: GlobalConfig> {
         matmul: M,
         kernel_size: [u32; 3],
         stride: [u32; 3],
         dilation: [u32; 3],
         padding: [i32; 3],
         dimensionality: Dimensionality,
+        num_stages: u32,
     }
 
-    impl<M: GlobalConfig> Deref for HomogeneousConfig<M> {
+    impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
         type Target = M;
 
         fn deref(&self) -> &Self::Target {
@@ -120,7 +121,7 @@ pub mod config {
         }
     }
 
-    impl<M: GlobalConfig> GlobalConfig for HomogeneousConfig<M> {
+    impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         type SmmConfig = M::SmmConfig;
 
         fn to_smm_config(&self) -> Self::SmmConfig {
@@ -164,7 +165,7 @@ pub mod config {
         }
     }
 
-    impl<M: GlobalConfig> ConvGemmConfig for HomogeneousConfig<M> {
+    impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
         fn kernel_size(&self, dim: u32) -> u32 {
             self.kernel_size[dim as usize]
         }
@@ -184,11 +185,15 @@ pub mod config {
         fn dimensionality(&self) -> Dimensionality {
             self.dimensionality
         }
+
+        fn num_stages(&self) -> u32 {
+            self.num_stages
+        }
     }
 
-    impl<M: GlobalConfig> MatmulConfig for HomogeneousConfig<M> {}
+    impl<M: GlobalConfig> MatmulConfig for ConvolutionConfig<M> {}
 
-    impl<M: GlobalConfig> HomogeneousConfig<M> {
+    impl<M: GlobalConfig> ConvolutionConfig<M> {
         #[allow(clippy::too_many_arguments)]
         pub fn new(
             matmul: M,
@@ -197,6 +202,7 @@ pub mod config {
             dilation: &[u32],
             padding: &[i32],
             dim: Dimensionality,
+            num_stages: u32,
         ) -> Self {
             let dims = kernel_size.len();
             let mut this = Self {
@@ -206,6 +212,7 @@ pub mod config {
                 dilation: [0; 3],
                 padding: [0; 3],
                 dimensionality: dim,
+                num_stages,
             };
             this.kernel_size[0..dims].copy_from_slice(kernel_size);
             this.stride[0..dims].copy_from_slice(stride);
