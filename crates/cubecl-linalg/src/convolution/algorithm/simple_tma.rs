@@ -87,6 +87,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         ident: InputIdent,
     ) -> TensorHandle<R, E> {
         let rank = handle.shape.len();
+        let dim_c = rank - 1;
         let mut handle = if has_valid_layout(handle, ident) {
             TensorHandle::from_ref(handle)
         } else {
@@ -95,12 +96,12 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         match ident {
             InputIdent::Lhs => handle,
             InputIdent::Rhs => {
-                let k_size = handle.shape[1..rank - 1].iter().product();
-                handle.shape = vec![handle.shape[0], k_size, handle.shape[rank - 1]];
+                let k_size = handle.shape[1..dim_c].iter().product();
+                handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
                 handle.strides = vec![
                     handle.strides[0],
-                    handle.strides[rank - 2],
-                    handle.strides[rank - 1],
+                    handle.strides[dim_c - 1],
+                    handle.strides[dim_c],
                 ];
                 handle
             }
@@ -111,17 +112,18 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
 fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {
     let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
     let rank = handle.shape.len();
+    let dim_c = rank - 1;
 
-    let aligned = handle.strides[..rank - 1]
+    let aligned = handle.strides[..dim_c]
         .iter()
         .all(|stride| stride % stride_align == 0);
 
     let valid_layout = match ident {
-        InputIdent::Lhs => handle.strides[rank - 1] == 1,
+        InputIdent::Lhs => handle.strides[dim_c] == 1,
         InputIdent::Rhs => {
-            let c_major = handle.strides[rank - 1] == 1;
+            let c_major = handle.strides[dim_c] == 1;
             let mut kernel_contig = true;
-            for i in 1..rank - 2 {
+            for i in 1..dim_c - 1 {
                 kernel_contig &= handle.strides[i] == handle.strides[i + 1] * handle.shape[i + 1];
             }
             c_major && kernel_contig

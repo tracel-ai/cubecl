@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use crate::{
     convolution::{
-        ConvGemmConfig,
         base::{
             Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
             ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -256,7 +255,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
     ) {
         let size_m = problem.batches * problem.out_shape.iter().product::<usize>();
         let size_n = problem.n;
-        let size_k = config.kernel_size(0) * config.kernel_size(1) * problem.channels as u32;
+        let size_k = problem.kernel_size.iter().product::<u32>() * problem.channels as u32;
 
         let runtime_args = RuntimeArgsLaunch::new(
             ScalarArg::new(size_m as u32),

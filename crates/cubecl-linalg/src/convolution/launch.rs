@@ -65,14 +65,17 @@ where
         other => unimplemented!("Unsupported dimensionality {other}"),
     };
 
+    let rank = input.shape.len();
+    let dim_c = rank - 1;
+
     let n = input.shape[0];
-    let c = input.shape[N_SPATIAL + 1];
+    let c = input.shape[dim_c];
 
     let out_c = weight.shape[0];
 
-    let in_shape = &input.shape[1..N_SPATIAL + 1];
-    let kernel_shape = &weight.shape[1..N_SPATIAL + 1];
-    let out_shape = &out.shape[1..N_SPATIAL + 1];
+    let in_shape = &input.shape[1..dim_c];
+    let kernel_shape = &weight.shape[1..dim_c];
+    let out_shape = &out.shape[1..dim_c];
 
     let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
     let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
@@ -80,17 +83,21 @@ where
     let ei_elem = MP::EI::as_elem_native_unchecked();
     let eo_elem = MP::EO::as_elem_native_unchecked();
 
-    let lhs_line_size =
-        tensor_line_size_parallel(R::line_size_elem(&ei_elem), &input.shape, &input.strides, 3);
+    let lhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&ei_elem),
+        &input.shape,
+        &input.strides,
+        dim_c,
+    );
     let rhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&ei_elem),
         &weight.shape,
         &weight.strides,
-        3,
+        dim_c,
     );
 
     let out_line_size =
-        tensor_line_size_parallel(R::line_size_elem(&eo_elem), out.shape, out.strides, 3);
+        tensor_line_size_parallel(R::line_size_elem(&eo_elem), out.shape, out.strides, dim_c);
 
     let plane_dim = client
         .properties()
@@ -159,9 +166,12 @@ where
     Input<Alg, MP>: ConvInputsLaunch,
     Output<Alg, MP>: ConcreteOutputFactory,
 {
+    let rank = out.shape.len();
+    let dim_c = rank - 1;
+
     // Reshape out to (M, N)
-    let out_shape = [out.shape[0..3].iter().product(), out.shape[3]];
-    let out_strides = [out.strides[2], out.strides[3]];
+    let out_shape = [out.shape[0..dim_c].iter().product(), out.shape[dim_c]];
+    let out_strides = [out.strides[rank - 2], out.strides[dim_c]];
 
     let out = unsafe {
         TensorHandleRef::from_raw_parts(out.handle, &out_strides, &out_shape, out.elem_size)
