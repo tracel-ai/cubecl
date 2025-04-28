@@ -101,6 +101,7 @@ pub enum Variable<D: Dialect> {
     Tmp {
         id: Id,
         item: Item<D>,
+        is_declared: bool,
     },
 }
 
@@ -184,7 +185,10 @@ impl<D: Dialect> Component<D> for Variable<D> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(self, Variable::LocalConst { .. })
+        matches!(
+            self,
+            Variable::LocalConst { .. } | Variable::GlobalInputArray(..)
+        )
     }
 }
 
@@ -298,12 +302,31 @@ impl<D: Dialect> Variable<D> {
         self.item().is_optimized()
     }
 
+    /// Create a temporary variable.
+    ///
+    /// Also see [Self::tmp_declared] for a version that needs custom declaration.
     pub fn tmp(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         Variable::Tmp {
             id: inc as Id,
             item,
+            is_declared: false,
+        }
+    }
+
+    /// Create a temporary variable with a custom declaration.
+    ///
+    /// # Notes
+    ///
+    /// Calling `var.fmt_left()` will assume the variable already exist.
+    pub fn tmp_declared(item: Item<D>) -> Self {
+        let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        Variable::Tmp {
+            id: inc as Id,
+            item,
+            is_declared: true,
         }
     }
 
@@ -477,7 +500,15 @@ impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
             Self::LocalConst { item, .. } => format!("const {item} {self}"),
-            Variable::Tmp { item, .. } => format!("{item} {self}"),
+            Variable::Tmp {
+                item, is_declared, ..
+            } => {
+                if *is_declared {
+                    format!("{self}")
+                } else {
+                    format!("{item} {self}")
+                }
+            }
             var => format!("{var}"),
         }
     }

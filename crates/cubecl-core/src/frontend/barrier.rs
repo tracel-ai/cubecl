@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut, TensorMap,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, ReadOnly, ReadWrite, Slice,
+    SliceExpand, SliceMut, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -151,7 +152,7 @@ macro_rules! tensor_map_load {
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
@@ -164,17 +165,18 @@ macro_rules! tensor_map_load {
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     let barrier = *self.elem;
                     let source = *source.expand;
-                    let destination = *destination.expand;
+                    let (destination, destination_offset) = destination.__to_raw_parts();
 
                     let mem_copy = BarrierOps::TmaLoad {
                         barrier,
                         tensor_map: source,
                         indices: vec![$(*$arg.expand),*],
+                        offset_out: destination_offset
                     };
 
                     scope.register(Instruction::new(mem_copy, destination));
@@ -206,7 +208,7 @@ macro_rules! tensor_map_load_im2col {
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
@@ -220,19 +222,20 @@ macro_rules! tensor_map_load_im2col {
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
-                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
                     let barrier = *self.elem;
                     let source = *source.expand;
-                    let destination = *destination.expand;
+                    let (destination, destination_offset) = destination.__to_raw_parts();
 
                     let mem_copy = BarrierOps::TmaLoadIm2col {
                         barrier,
                         tensor_map: source,
                         indices: vec![$(*$arg.expand),*],
                         offsets: vec![$(*$offset.expand),*],
+                        offset_out: destination_offset,
                     };
 
                     scope.register(Instruction::new(mem_copy, destination));
@@ -329,8 +332,8 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: ExpandElementTyped<Slice<Line<C>>>,
-        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
@@ -369,14 +372,21 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<Slice<Line<C>>>,
-        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
         let barrier = *self.elem;
-        let source = *source.expand;
-        let destination = *destination.expand;
+        let source_length = *source.length.expand;
+        let (source, source_offset) = source.__to_raw_parts();
+        let (destination, destination_offset) = destination.__to_raw_parts();
 
-        let mem_copy = BarrierOps::MemCopyAsync { barrier, source };
+        let mem_copy = BarrierOps::MemCopyAsync {
+            barrier,
+            source,
+            source_length,
+            offset_source: source_offset,
+            offset_out: destination_offset,
+        };
 
         scope.register(Instruction::new(mem_copy, destination));
     }

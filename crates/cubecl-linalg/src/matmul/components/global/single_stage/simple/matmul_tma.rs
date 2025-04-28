@@ -1,6 +1,7 @@
 use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
+use crate::matmul::components::global::load::arrive_tma;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
@@ -144,6 +145,8 @@ where
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
+        let num_elems_stages = config.tiling_dimensions(Ident::Rhs).total_size()
+            + config.tiling_dimensions(Ident::Lhs).total_size();
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
@@ -157,13 +160,7 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
 
-            if UNIT_POS == 0 {
-                let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()
-                    + config.tiling_dimensions(Ident::Lhs).total_size();
-                barrier.arrive_tx(1, total_stage * MP::ES::elem_size());
-            } else {
-                barrier.arrive();
-            }
+            arrive_tma::<MP::ES>(&barrier, num_elems_stages);
 
             barrier.wait();
 

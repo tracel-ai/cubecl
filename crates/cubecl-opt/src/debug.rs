@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 
 use crate::{
     ControlFlow,
-    analyses::{const_len::Slices, liveness::Liveness, uniformity::Uniformity},
+    analyses::{liveness::Liveness, uniformity::Uniformity},
     gvn::{BlockSets, Constant, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
 
@@ -16,22 +16,6 @@ const DEBUG_GVN: bool = false;
 /// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let slices = self.analysis_cache.try_get::<Slices>().unwrap_or_default();
-
-        f.write_str("Slices:\n")?;
-        for (var_id, slice) in slices.iter() {
-            let end_op = slice.end_op.as_ref().map(|it| format!("{it}"));
-            writeln!(
-                f,
-                "slice{var_id:?}: {{ start: {}, end: {}, end_op: {}, const_len: {:?} }}",
-                slice.start,
-                slice.end,
-                end_op.unwrap_or("None".to_string()),
-                slice.const_len
-            )?;
-        }
-        f.write_str("\n\n")?;
-
         let global_nums = self
             .analysis_cache
             .try_get::<GlobalValues>()
@@ -256,7 +240,6 @@ impl Display for Value {
             Value::ConstArray(id, _, _) => write!(f, "const_array({id})"),
             Value::Builtin(builtin) => write!(f, "{builtin:?}"),
             Value::Output(id, _) => write!(f, "output({id})"),
-            Value::Slice(id, _) => write!(f, "slice({id})"),
         }
     }
 }

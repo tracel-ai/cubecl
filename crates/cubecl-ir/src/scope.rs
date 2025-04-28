@@ -25,7 +25,6 @@ pub struct Scope {
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
     barriers: Vec<Variable>,
-    slices: Vec<Variable>,
     shared_memories: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
     local_arrays: Vec<Variable>,
@@ -56,7 +55,6 @@ impl core::hash::Hash for Scope {
         self.matrices.hash(ra_expand_state);
         self.pipelines.hash(ra_expand_state);
         self.barriers.hash(ra_expand_state);
-        self.slices.hash(ra_expand_state);
         self.shared_memories.hash(ra_expand_state);
         self.const_arrays.hash(ra_expand_state);
         self.local_arrays.hash(ra_expand_state);
@@ -88,7 +86,6 @@ impl Scope {
             matrices: Vec::new(),
             pipelines: Vec::new(),
             barriers: Vec::new(),
-            slices: Vec::new(),
             local_arrays: Vec::new(),
             shared_memories: Vec::new(),
             const_arrays: Vec::new(),
@@ -136,17 +133,6 @@ impl Scope {
 
     pub fn add_barrier(&mut self, variable: Variable) {
         self.barriers.push(variable);
-    }
-
-    /// Create a new slice element.
-    pub fn create_slice(&mut self, item: Item) -> ExpandElement {
-        let slice = self.allocator.create_slice(item);
-        self.add_slice(*slice);
-        slice
-    }
-
-    pub fn add_slice(&mut self, slice: Variable) {
-        self.slices.push(slice);
     }
 
     /// Create a mutable variable of the given [item type](Item).
@@ -208,7 +194,6 @@ impl Scope {
             matrices: Vec::new(),
             pipelines: Vec::new(),
             barriers: Vec::new(),
-            slices: Vec::new(),
             shared_memories: Vec::new(),
             const_arrays: Vec::new(),
             local_arrays: Vec::new(),
@@ -229,9 +214,6 @@ impl Scope {
         let mut variables = core::mem::take(&mut self.locals);
 
         for var in self.matrices.drain(..) {
-            variables.push(var);
-        }
-        for var in self.slices.drain(..) {
             variables.push(var);
         }
 

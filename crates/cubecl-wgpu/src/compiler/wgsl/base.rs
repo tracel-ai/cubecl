@@ -20,10 +20,6 @@ pub enum Variable {
         item: Item,
         is_array: bool,
     },
-    Slice {
-        id: Id,
-        item: Item,
-    },
     // TODO: Potential cleanup, seems that variable is not used at all
     LocalScalar {
         id: Id,
@@ -102,7 +98,6 @@ impl Variable {
             Variable::LocalMut { .. } => false,
             Variable::LocalConst { .. } => false,
             Variable::Named { .. } => false,
-            Variable::Slice { .. } => false,
             Variable::WorkgroupIdX => true,
             Variable::WorkgroupIdY => true,
             Variable::WorkgroupIdZ => true,
@@ -135,7 +130,6 @@ impl Variable {
             Variable::GlobalScalar(_, elem, _) => elem.is_atomic(),
             Variable::LocalMut { item, .. } => item.elem().is_atomic(),
             Variable::Named { item, .. } => item.elem().is_atomic(),
-            Variable::Slice { item, .. } => item.elem().is_atomic(),
             Variable::LocalScalar { elem, .. } => elem.is_atomic(),
             Variable::SharedMemory(_, item, _) => item.elem().is_atomic(),
             Variable::LocalArray(_, item, _) => item.elem().is_atomic(),
@@ -152,7 +146,6 @@ impl Variable {
             Self::LocalArray(_, e, _) => *e,
             Self::LocalMut { item, .. } => *item,
             Self::LocalConst { item, .. } => *item,
-            Self::Slice { item, .. } => *item,
             Self::Named { item, .. } => *item,
             Self::ConstantScalar(_, e) => Item::Scalar(*e),
             Self::GlobalScalar(_, e, _) => Item::Scalar(*e),
@@ -285,7 +278,6 @@ impl Display for Variable {
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
-            Variable::Slice { id, .. } => write!(f, "slice_{id}"),
             Variable::GlobalOutputArray(number, _) => {
                 write!(f, "buffer_{number}_global")
             }
