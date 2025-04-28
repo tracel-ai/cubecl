@@ -293,7 +293,11 @@ impl<C: CubeType> CubeType for &Array<C> {
 }
 
 impl<C: CubeType> ExpandElementBaseInit for Array<C> {
-    fn init_elem(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(
+        _scope: &mut crate::ir::Scope,
+        elem: ExpandElement,
+        _is_mut: bool,
+    ) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
     }

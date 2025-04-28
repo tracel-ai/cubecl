@@ -94,7 +94,7 @@ mod empty {
             intrinsic!(|scope| {
                 let length = NonZero::new(size as u8);
                 scope
-                    .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
+                    .create_local(Item::vectorized(Self::as_elem(scope), length))
                     .into()
             })
         }
@@ -231,8 +231,8 @@ impl<P: CubePrimitive> CubeType for Line<P> {
 }
 
 impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
-    fn init_elem(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
-        P::init_elem(scope, elem)
+    fn init_elem(scope: &mut crate::ir::Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        P::init_elem(scope, elem, is_mut)
     }
 }
 

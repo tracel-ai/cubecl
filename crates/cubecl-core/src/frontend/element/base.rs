@@ -335,7 +335,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
 ) -> ExpandElement {
     let elem = element.into();
 
-    if elem.can_mut() {
+    if elem.can_mut() && !is_mut {
         // Can reuse inplace :)
         return elem;
     }
