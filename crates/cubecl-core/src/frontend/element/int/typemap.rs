@@ -12,7 +12,6 @@ use serde::Serialize;
 use crate::{
     Runtime,
     compute::{KernelBuilder, KernelLauncher},
-    prelude::Index,
     prelude::*,
 };
 
@@ -171,7 +170,7 @@ impl<const POS: u8> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> 
 impl<const POS: u8> IntoRuntime for IntExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
-        Init::init(expand, scope)
+        Init::init(expand, scope, false)
     }
 }
 
@@ -185,8 +184,8 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
 }
 
 impl<const POS: u8> ExpandElementBaseInit for IntExpand<POS> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        init_expand_element(scope, elem, is_mut)
     }
 }
 
@@ -203,11 +202,6 @@ impl<const POS: u8> CountOnes for IntExpand<POS> {}
 impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
 impl<const POS: u8> LeadingZeros for IntExpand<POS> {}
 
-impl<T: Index, const POS: u8> CubeIndex<T> for IntExpand<POS> {
-    type Output = Self;
-}
-impl<T: Index, const POS: u8> CubeIndexMut<T> for IntExpand<POS> {}
-
 impl<const POS: u8> Int for IntExpand<POS> {
     const BITS: u32 = 32;
 
@@ -221,7 +215,7 @@ impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(IntExpand::<POS>::as_elem(&builder.context))
+            .scalar(IntExpand::<POS>::as_elem(&builder.scope))
             .into()
     }
 }

@@ -68,9 +68,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     let client = R::client(&device);
 
     for (b, m, n, k) in [
+        (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
         (1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
+        (32, 1024, 1024, 1024),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
@@ -97,18 +99,18 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         Default::default(),
         matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
     );
+    // // run::<R, MP>(
+    // //     Default::default(),
+    // //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    // // );
+    // // run::<R, MP>(
+    // //     Default::default(),
+    // //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    // // );
     // run::<R, MP>(
     //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    //     matmul::Strategy::Tiling2D(Default::default()),
     // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
@@ -128,12 +130,13 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 fn main() {
     #[cfg(feature = "wgpu")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, cubecl::flex32>();
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
@@ -145,7 +148,8 @@ fn main() {
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
         run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        //run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
+        // run_benches::<cubecl::cuda::CudaRuntime, cubecl::flex32>();
+        // run_benches::<cubecl::cuda::CudaRuntime, cubecl_std::SymQ8>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();

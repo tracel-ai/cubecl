@@ -36,9 +36,9 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
 #[cube(launch_unchecked)]
 pub fn kernel_line_index_assign<F: Float>(output: &mut Array<Line<F>>) {
     if UNIT_POS == 0 {
-        let mut line = output[0];
-        line[0] = F::new(5.0);
-        output[0] = line;
+        let mut line = RuntimeCell::<Line<F>>::new(output[0]);
+        line.store_at(0, F::new(5.0));
+        output[0] = line.consume();
     }
 }
 

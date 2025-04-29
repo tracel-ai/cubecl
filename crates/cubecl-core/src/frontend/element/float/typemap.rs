@@ -199,7 +199,7 @@ impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<PO
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
-        Init::init(expand, scope)
+        Init::init(expand, scope, false)
     }
 }
 
@@ -213,8 +213,8 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
 }
 
 impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        init_expand_element(scope, elem, is_mut)
     }
 }
 
@@ -239,11 +239,6 @@ impl<const POS: u8> Sqrt for FloatExpand<POS> {}
 impl<const POS: u8> Round for FloatExpand<POS> {}
 impl<const POS: u8> Floor for FloatExpand<POS> {}
 impl<const POS: u8> Ceil for FloatExpand<POS> {}
-
-impl<T: Index, const POS: u8> CubeIndex<T> for FloatExpand<POS> {
-    type Output = Self;
-}
-impl<T: Index, const POS: u8> CubeIndexMut<T> for FloatExpand<POS> {}
 
 impl<const POS: u8> Float for FloatExpand<POS> {
     const DIGITS: u32 = 32;
@@ -282,7 +277,7 @@ impl<const POS: u8> LaunchArgExpand for FloatExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(FloatExpand::<POS>::as_elem(&builder.context))
+            .scalar(FloatExpand::<POS>::as_elem(&builder.scope))
             .into()
     }
 }

@@ -93,9 +93,18 @@ macro_rules! operator {
                 f: &mut std::fmt::Formatter<'_>,
                 lhs: Lhs,
                 rhs: Rhs,
-                _item: Item<D>,
+                out_item: Item<D>,
             ) -> std::fmt::Result {
-                write!(f, "{lhs} {} {rhs}", $op)
+                let out_elem = out_item.elem();
+                match out_elem {
+                    // prevent auto-promotion rules to kick-in in order to stay in the same type
+                    // this is because of fusion and vectorization that can do elemwise operations on vectorized type,
+                    // the resulting elements need to be of the same type.
+                    Elem::<D>::I16 | Elem::<D>::U16 | Elem::<D>::I8 | Elem::<D>::U8 => {
+                        write!(f, "{out_elem}({lhs} {} {rhs})", $op)
+                    }
+                    _ => write!(f, "{lhs} {} {rhs}", $op),
+                }
             }
         }
     };
@@ -243,8 +252,47 @@ impl<D: Dialect> Binary<D> for Min {
 pub struct IndexAssign;
 pub struct Index;
 
-impl<D: Dialect> Binary<D> for IndexAssign {
-    fn format_scalar<Lhs, Rhs>(
+impl IndexAssign {
+    pub fn format<D: Dialect>(
+        f: &mut Formatter<'_>,
+        index: &Variable<D>,
+        value: &Variable<D>,
+        out_list: &Variable<D>,
+        line_size: u32,
+    ) -> std::fmt::Result {
+        if matches!(
+            out_list,
+            Variable::LocalMut { .. } | Variable::LocalConst { .. }
+        ) {
+            return IndexAssignVector::format(f, index, value, out_list);
+        };
+
+        if line_size > 0 {
+            let mut item = out_list.item();
+            item.vectorization = line_size as usize;
+            let addr_space = D::address_space_for_variable(out_list);
+            let qualifier = out_list.const_qualifier();
+            let tmp = Variable::tmp_declared(item);
+
+            writeln!(
+                f,
+                "{qualifier} {addr_space}{item} *{tmp} = reinterpret_cast<{qualifier} {item}*>({out_list});"
+            )?;
+
+            return IndexAssign::format(f, index, value, &tmp, 0);
+        }
+
+        let out_item = out_list.item();
+
+        if index.item().vectorization == 1 {
+            write!(f, "{}[{index}] = ", out_list.fmt_left())?;
+            Self::format_scalar(f, *index, *value, out_item)?;
+            f.write_str(";\n")
+        } else {
+            Self::unroll_vec(f, index, value, out_list)
+        }
+    }
+    fn format_scalar<D: Dialect, Lhs, Rhs>(
         f: &mut Formatter<'_>,
         _lhs: Lhs,
         rhs: Rhs,
@@ -289,7 +337,7 @@ impl<D: Dialect> Binary<D> for IndexAssign {
         }
     }
 
-    fn unroll_vec(
+    fn unroll_vec<D: Dialect>(
         f: &mut Formatter<'_>,
         lhs: &Variable<D>,
         rhs: &Variable<D>,
@@ -309,53 +357,51 @@ impl<D: Dialect> Binary<D> for IndexAssign {
 
         Ok(())
     }
-
-    fn format(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> std::fmt::Result {
-        if matches!(out, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
-            return IndexAssignVector::format(f, lhs, rhs, out);
-        };
-
-        let out_item = out.item();
-
-        if lhs.item().vectorization == 1 {
-            write!(f, "{}[{lhs}] = ", out.fmt_left())?;
-            Self::format_scalar(f, *lhs, *rhs, out_item)?;
-            f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, lhs, rhs, out)
-        }
-    }
 }
 
-impl<D: Dialect> Binary<D> for Index {
-    fn format(
+impl Index {
+    pub(crate) fn format<D: Dialect>(
         f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
+        list: &Variable<D>,
+        index: &Variable<D>,
         out: &Variable<D>,
+        line_size: u32,
     ) -> std::fmt::Result {
-        if matches!(lhs, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
-            return IndexVector::format(f, lhs, rhs, out);
+        if matches!(
+            list,
+            Variable::LocalMut { .. } | Variable::LocalConst { .. }
+        ) {
+            return IndexVector::format(f, list, index, out);
+        }
+
+        if line_size > 0 {
+            let mut item = list.item();
+            item.vectorization = line_size as usize;
+            let addr_space = D::address_space_for_variable(list);
+            let qualifier = list.const_qualifier();
+            let tmp = Variable::tmp_declared(item);
+
+            writeln!(
+                f,
+                "{qualifier} {addr_space}{item} *{tmp} = reinterpret_cast<{qualifier} {item}*>({list});"
+            )?;
+
+            return Index::format(f, &tmp, index, out, 0);
         }
 
         let item_out = out.item();
         if let Elem::Atomic(inner) = item_out.elem {
-            let addr_space = D::address_space_for_variable(lhs);
-            writeln!(f, "{addr_space}{inner}* {out} = &{lhs}[{rhs}];")
+            let addr_space = D::address_space_for_variable(list);
+            writeln!(f, "{addr_space}{inner}* {out} = &{list}[{index}];")
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
-            Self::format_scalar(f, *lhs, *rhs, item_out)?;
+            Self::format_scalar(f, *list, *index, item_out)?;
             f.write_str(";\n")
         }
     }
 
-    fn format_scalar<Lhs, Rhs>(
+    fn format_scalar<D: Dialect, Lhs, Rhs>(
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,

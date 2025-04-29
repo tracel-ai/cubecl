@@ -1,12 +1,16 @@
-use cubecl_core::prelude::*;
-
+use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{
     CompleteStageTiling, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSelection,
     batch, global, stage, tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use cubecl_core::prelude::*;
 
-type StageInput = (CompleteStageTiling, stage::StageBuffering);
+type StageInput = (
+    CompleteStageTiling,
+    stage::StageBuffering,
+    StageVectorization,
+);
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {

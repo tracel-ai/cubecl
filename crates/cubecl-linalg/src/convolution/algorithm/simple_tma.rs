@@ -12,7 +12,7 @@ use crate::{
         homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     },
     matmul::components::{
-        InputIdent, InvalidConfigError, MatmulSelection,
+        InputIdent, InvalidConfigError, MatmulPrecision, MatmulSelection,
         global::args::TensorMapArgs,
         stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
         tile::TileMatmulFamily,
@@ -49,7 +49,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
     }
 
-    fn make_config(
+    fn make_config<R: Runtime, MP: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
         input: <Self::GlobalConvolution as ConvolutionConfigFactory>::Input,
         problem: &ConvolutionProblem,
         cube_dim: &CubeDim,
@@ -58,7 +59,9 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     {
         check_problem_tma(problem)?;
 
-        let config = Self::GlobalConvolution::make_config(input, problem, cube_dim, cube_count);
+        let config = Self::GlobalConvolution::make_config::<R, MP>(
+            client, input, problem, cube_dim, cube_count,
+        );
         Self::GlobalConvolution::check_config(&config)?;
         Ok(config)
     }
@@ -106,7 +109,10 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     }
 }
 
-fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {
+pub(crate) fn has_valid_layout<R: Runtime>(
+    handle: &TensorHandleRef<'_, R>,
+    ident: InputIdent,
+) -> bool {
     let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
 
     let aligned = handle.strides[..3]
@@ -125,7 +131,7 @@ fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIde
     valid_layout && aligned
 }
 
-fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {
+pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {
     fn check_range(
         value: isize,
         name: &str,

@@ -95,7 +95,6 @@ pub enum Value {
     Builtin(Builtin),
     // Metadata only
     Output(Id, Item),
-    Slice(Id, Item),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -142,7 +141,6 @@ impl Value {
             Value::ConstArray(_, item, _) => *item,
             Value::Builtin(_) => Item::new(Elem::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
-            Value::Slice(_, item) => *item,
         }
     }
 }

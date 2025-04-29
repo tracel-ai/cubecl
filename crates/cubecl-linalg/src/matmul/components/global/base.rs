@@ -5,7 +5,7 @@ use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
-    stage::{self, StageConfig, StageWriter},
+    stage::{self, StageWriter},
     tile,
 };
 use cubecl_std::{
@@ -106,7 +106,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
 pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sync {
-    fn fill_stage<S: StageConfig>(this: &mut Self, #[comptime] config: S);
+    fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G);
 
     /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
@@ -145,9 +145,6 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
-
-    /// Returns the line size for the stage of the given ident
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the [StageTiling] for the given ident
     fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions;

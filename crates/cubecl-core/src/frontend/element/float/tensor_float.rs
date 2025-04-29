@@ -24,7 +24,7 @@ impl CubePrimitive for tf32 {
 impl IntoRuntime for tf32 {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
-        Init::init(expand, scope)
+        Init::init(expand, scope, false)
     }
 }
 
@@ -38,8 +38,8 @@ impl Numeric for tf32 {
 }
 
 impl ExpandElementBaseInit for tf32 {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        init_expand_element(scope, elem, is_mut)
     }
 }
 
@@ -86,6 +86,6 @@ impl LaunchArgExpand for tf32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(tf32::as_elem(&builder.context)).into()
+        builder.scalar(tf32::as_elem(&builder.scope)).into()
     }
 }

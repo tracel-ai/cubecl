@@ -131,15 +131,16 @@ fn shared_sum_kernel<N: Numeric>(
     let line = sum_shared_memory(&mut shared_memory);
 
     // Sum all the elements within the line.
-    let mut sum = N::from_int(0);
+    let mut sum = RuntimeCell::<N>::new(N::from_int(0));
     #[unroll]
     for k in 0..line_size {
-        sum += line[k];
+        let update = line[k] + sum.read();
+        sum.store(update);
     }
 
     // Add the sum for the current cube to the output.
     if UNIT_POS == 0 {
-        Atomic::add(&output[0], sum);
+        Atomic::add(&output[0], sum.consume());
     }
 }
 

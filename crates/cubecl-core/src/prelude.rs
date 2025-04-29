@@ -5,7 +5,6 @@ pub use crate::compute::{
     CompiledKernel, CubeTask, KernelBuilder, KernelDefinition, KernelLauncher, KernelTask,
 };
 pub use crate::frontend::cmma;
-pub use crate::frontend::pipeline;
 pub use crate::frontend::{branch::*, synchronization::*};
 pub use crate::runtime::Runtime;
 

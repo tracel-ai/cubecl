@@ -74,6 +74,7 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
             input_ident,
             num_slices_per_tile,
             slice_length_in_lines,
+            line_size,
         }
     }
 
@@ -98,6 +99,8 @@ pub struct Job {
     num_slices_per_tile: u32,
     #[cube(comptime)]
     slice_length_in_lines: u32,
+    #[cube(comptime)]
+    line_size: u32,
 }
 
 #[cube]
@@ -134,7 +137,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
                 (nth_tile * this.num_slices_per_tile + nth_slice) * this.slice_length_in_lines;
 
             // Make destination start at offset
-            let mut destination = stage.as_slice_mut().slice_mut(
+            let mut destination = stage.as_slice_mut(this.line_size).slice_mut(
                 slice_destination_offset,
                 slice_destination_offset + this.slice_length_in_lines,
             );

@@ -24,6 +24,7 @@ type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<<MP as Mat
 type Output<Alg, MP> =
     <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;
 
+#[derive(Clone)]
 pub struct ConvolutionArgs {
     pub stride: (usize, usize),
     pub padding: (usize, usize),
@@ -159,7 +160,7 @@ where
     let cube_dim = Alg::cube_dim(&selection);
     let cube_count = Alg::cube_count(&selection, &problem);
 
-    let config = Alg::make_config(config_input, &problem, &cube_dim, &cube_count)
+    let config = Alg::make_config::<R, MP>(client, config_input, &problem, &cube_dim, &cube_count)
         .map_err(MatmulLaunchError::InvalidConfig)?;
 
     Alg::check_availability::<R, MP>(client, &config)?;

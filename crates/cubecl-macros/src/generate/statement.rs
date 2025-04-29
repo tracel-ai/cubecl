@@ -22,9 +22,7 @@ impl Statement {
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
                     {
                         let expand = frontend_type("ExpandElementTyped");
-                        Some(
-                            quote_spanned![as_const.span()=> #expand::from_lit(context, #as_const)],
-                        )
+                        Some(quote_spanned![as_const.span()=> #expand::from_lit(scope, #as_const)])
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {
                         Some(quote_spanned![as_const.span()=> #as_const.clone()])
@@ -46,7 +44,8 @@ impl Statement {
                 let init = match (is_mut, init) {
                     (true, Some(init)) => {
                         let init_ty = frontend_type("Init");
-                        let init_ty = quote_spanned![init.span()=> #init_ty::init(_init, context)];
+                        let init_ty =
+                            quote_spanned![init.span()=> #init_ty::init(_init, scope, true)];
                         Some(quote! {
                             {
                                 let _init = #init;
@@ -65,7 +64,7 @@ impl Statement {
 
                             quote![
                                 #test;
-                                #debug_var(context, #name_str, __init)
+                                #debug_var(scope, #name_str, __init)
                             ]
                         } else {
                             quote![__init]

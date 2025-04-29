@@ -124,7 +124,7 @@ impl<K: PartialOrd + Ord, V: CubeType> CubeType for Registry<K, V> {
 }
 
 impl<K: PartialOrd + Ord, V> Init for Registry<K, V> {
-    fn init(self, _scope: &mut crate::ir::Scope) -> Self {
+    fn init(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
         self
     }
 }

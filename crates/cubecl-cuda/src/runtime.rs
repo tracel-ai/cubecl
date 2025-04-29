@@ -11,6 +11,7 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
+use cudarc::driver::sys::cuDeviceTotalMem_v2;
 
 use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
@@ -69,7 +70,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     .unwrap();
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
-        cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+        cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
     let storage = CudaStorage::new(stream);
@@ -83,8 +84,11 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let hardware_props = unsafe {
         use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
         let warp_size = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_WARP_SIZE).unwrap() as u32;
-        let max_shared = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
-            .unwrap() as usize;
+        let max_shared = get_attribute(
+            device_ptr,
+            CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+        )
+        .unwrap() as usize;
         let max_threads =
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK).unwrap() as u32;
         let block_dim_x = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X).unwrap();
@@ -122,8 +126,12 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
-    let mut compilation_options = CompilationOptions::default();
-    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
+    let mut device_props = DeviceProperties::new(
+        &[Feature::Plane],
+        mem_properties,
+        hardware_props,
+        cubecl_runtime::TimeMeasurement::System,
+    );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     if arch.version >= 60 {
@@ -139,7 +147,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     if arch.version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
         device_props.register_feature(Feature::CubeCluster);
-        compilation_options.supports_clusters = true;
+        comp_opts.supports_clusters = true;
     }
     if arch.version >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));

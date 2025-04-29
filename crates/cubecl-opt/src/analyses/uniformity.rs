@@ -237,7 +237,6 @@ impl Uniformity {
             | VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
-            | VariableKind::Slice { .. }
             | VariableKind::Barrier { .. }
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)

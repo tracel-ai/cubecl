@@ -3,10 +3,7 @@ use cubecl_ir::{
     Operator, UIntKind, Variable, VariableKind,
 };
 
-use crate::{
-    AtomicCounter, Optimizer,
-    analyses::const_len::{Slice, Slices},
-};
+use crate::{AtomicCounter, Optimizer};
 
 use super::OptimizerPass;
 
@@ -16,8 +13,6 @@ pub struct ConstOperandSimplify;
 
 impl OptimizerPass for ConstOperandSimplify {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let slices = opt.analysis::<Slices>();
-
         for node in opt.program.node_indices().collect::<Vec<_>>() {
             let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
 
@@ -130,17 +125,6 @@ impl OptimizerPass for ConstOperandSimplify {
                         | VariableKind::LocalArray { length, .. } => {
                             op.operation = Operation::Copy(length.into());
                             changes.inc();
-                        }
-                        VariableKind::Slice { id } => {
-                            let slice = slices.get(&id);
-                            if let Some(Slice {
-                                const_len: Some(len),
-                                ..
-                            }) = slice
-                            {
-                                op.operation = Operation::Copy((*len).into());
-                                changes.inc();
-                            }
                         }
                         _ => {}
                     },
@@ -507,8 +491,6 @@ fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
         | Operator::Index(_)
         | Operator::CopyMemory(_)
         | Operator::CopyMemoryBulk(_)
-        | Operator::Slice(_)
-        | Operator::ReinterpretSlice(_)
         | Operator::UncheckedIndex(_)
         | Operator::IndexAssign(_)
         | Operator::InitLine(_)

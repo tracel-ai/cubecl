@@ -24,6 +24,7 @@ pub struct SharedMemory<D: Dialect> {
     pub item: Item<D>,
     pub size: u32,
     pub align: Option<u32>,
+    pub offset: u32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -54,6 +55,7 @@ impl<D: Dialect> SharedMemory<D> {
             item,
             size,
             align,
+            offset: 0, // initialized later
         }
     }
 }
@@ -75,12 +77,19 @@ pub struct ComputeKernel<D: Dialect> {
 
 impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
+        // Account for alignment padding between shared memory buffers
+        // Sorted to minimize that padding
+        let mut shared_memories = self.body.shared_memories.clone();
+        shared_memories.sort_by_key(|smem| smem.align.unwrap_or(smem.item.size() as u32));
+        shared_memories.reverse();
+
         let mut current = 0usize;
 
         for var in self.body.shared_memories.iter() {
-            let factor = var.item.vectorization;
-            let elem_size_bytes = var.item.elem().size();
-            current += (var.size as usize) * factor * elem_size_bytes;
+            let align = var.align.unwrap_or(var.item.size() as u32);
+            let size_bytes = var.size as usize * var.item.size();
+            let offset = current.next_multiple_of(align as usize);
+            current = offset + size_bytes;
         }
 
         current
@@ -216,14 +225,10 @@ pub fn compile_bindings<D: Dialect>(
     );
     args.extend(buffers.iter().map(|binding| match binding.vis {
         Visibility::Read => {
-            format!("{} buffer_{}[]", binding.item, binding.id)
-            // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-            // we should have multiple pointer types to enable that optimization.
-            //
-            // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+            format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
         }
         Visibility::ReadWrite => {
-            format!("{} buffer_{}[]", binding.item, binding.id)
+            format!("{}* buffer_{}", binding.item, binding.id)
         }
     }));
     args.extend(

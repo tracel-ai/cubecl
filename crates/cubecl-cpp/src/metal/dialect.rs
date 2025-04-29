@@ -73,7 +73,10 @@ using namespace metal;
         #[allow(clippy::single_match)]
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
-                register_extension(Extension::Erf(instruction.input, instruction.out));
+                register_extension(Extension::Erf(
+                    instruction.input.elem(),
+                    instruction.out.elem(),
+                ));
             }
             shared::Instruction::<Self>::FindFirstSet(instruction) => {
                 let input_elem = instruction.input.elem();
@@ -213,11 +216,21 @@ struct alignas({alignment}) {item} {{"
         write!(f, "thread")
     }
 
-    fn compile_shared_memory_qualifier(
+    fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        _shared: &SharedMemory<Self>,
+        shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        write!(f, "threadgroup")
+        let item = shared.item;
+        let index = shared.index;
+        let size = shared.size;
+        let alignment = shared
+            .align
+            .map(|align| format!("alignas({align})"))
+            .unwrap_or_default();
+        writeln!(
+            f,
+            "threadgroup {alignment} {item} shared_memory_{index}[{size}];",
+        )
     }
 }
 
@@ -687,56 +700,57 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     // unary
+    fn compile_instruction_find_first_set<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
+            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
+        }?;
+        write!(f, ")")
+    }
+
     fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<Self>,
+        out_elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "({output})(clz({input}))"),
-            Elem::I64 | Elem::U64 => {
-                panic!("leading_zeros instruction does not support 64-bit int")
-            }
-            elem => write!(
-                f,
-                "({output})(clz({})) - {}",
-                shared::unary::zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
+        write!(f, "{out_elem}(clz({input}))")
     }
 
     fn compile_instruction_popcount_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<Self>,
+        out_elem: Elem<Self>,
     ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "({output})(popcount({input}))"),
-            Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
-            _ => write!(
-                f,
-                "({output})(popcount({}))",
-                shared::unary::zero_extend(input)
-            ),
-        }
+            Elem::I32 | Elem::U32 | Elem::I64 | Elem::U64 => write!(f, "popcount({input})"),
+            _ => write!(f, "popcount({})", shared::unary::zero_extend(input)),
+        }?;
+        write!(f, ")")
     }
 
     fn compile_instruction_reverse_bits_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        output: Elem<Self>,
+        out_elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match output {
-            Elem::I32 | Elem::U32 => write!(f, "reverse_bits({input})"),
-            Elem::I64 | Elem::U64 => panic!("reverse_bits instruction does not support 64-bit int"),
+        write!(f, "{out_elem}(")?;
+        match out_elem {
+            Elem::I32 | Elem::U32 | Elem::I64 | Elem::U64 => write!(f, "reverse_bits({input})"),
             _ => write!(
                 f,
-                "{output}(reverse_bits({}) >> {})",
+                "reverse_bits({}) >> {}",
                 shared::unary::zero_extend(input),
-                (size_of::<u32>() - output.size()) * 8
+                (size_of::<u32>() - out_elem.size()) * 8
             ),
-        }
+        }?;
+        write!(f, ")")
     }
 
     // others
@@ -895,13 +909,14 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 frag,
                 value,
                 stride,
-                ..
+                offset,
+                layout: _layout,
             } => {
                 let transpose = match frag {
                     Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
                         Some(FragmentLayout::RowMajor) => false,
                         Some(FragmentLayout::ColMajor) => true,
-                        _ => panic!("unknown fragment layout!"),
+                        _ => false,
                     },
                     _ => panic!("should be a fragment"),
                 };
@@ -910,12 +925,12 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     let elem = item.elem;
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value}), {stride}, 0, {transpose});"
+                        "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value} + {offset}), {stride}, 0, {transpose});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, {value}, {stride}, 0, {transpose});"
+                        "simdgroup_load({frag}, {value} + {offset}, {stride}, 0, {transpose});"
                     )
                 }
             }
@@ -932,7 +947,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 output,
                 frag,
                 stride,
-                ..
+                offset,
+                layout: _layout,
             } => {
                 let item = output.item();
                 let mut reinterpret_cast = item.vectorization > 1;
@@ -946,10 +962,10 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output}), {stride});"
+                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output} + {offset}), {stride});"
                     )
                 } else {
-                    writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
+                    writeln!(f, "simdgroup_store({frag}, {output} + {offset}, {stride});")
                 }?;
                 writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")
             }

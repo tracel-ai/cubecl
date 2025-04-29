@@ -30,8 +30,9 @@ use cubecl_runtime::{
     server::{self, ComputeServer},
 };
 use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUctx_st, CUmemorytype, CUtensorMap, CUtensorMapDataType,
-    CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
+    CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
+    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
+    cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -66,6 +67,7 @@ pub(crate) struct CudaContext {
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
+    shared_mem_bytes: usize,
     cluster_dim: Option<(u32, u32, u32)>,
     ptx: Vec<i8>,
 }
@@ -73,6 +75,7 @@ pub struct PtxCacheEntry {
 #[derive(Debug)]
 struct CompiledKernel {
     cube_dim: CubeDim,
+    shared_mem_bytes: usize,
     func: *mut CUfunc_st,
 }
 
@@ -170,8 +173,7 @@ impl CudaServer {
             };
 
             unsafe {
-                let lib = cudarc::driver::sys::lib();
-                lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
             };
             result.push(data);
         }
@@ -273,8 +275,7 @@ impl ComputeServer for CudaServer {
         };
 
         unsafe {
-            let lib = cudarc::driver::sys::lib();
-            lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+            cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
         }
 
         (handle, strides)
@@ -410,7 +411,6 @@ impl ComputeServer for CudaServer {
                     device_ptr as usize % 16 == 0,
                     "Tensor pointer must be 16 byte aligned"
                 );
-                let lib = unsafe { cudarc::driver::sys::lib() };
                 let mut map_ptr = MaybeUninit::zeroed();
 
                 let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
@@ -433,7 +433,7 @@ impl ComputeServer for CudaServer {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
-                        lib.cuTensorMapEncodeTiled(
+                        cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
@@ -464,7 +464,7 @@ impl ComputeServer for CudaServer {
                         let upper_corner: Vec<_> =
                             pixel_box_upper_corner.iter().rev().copied().collect();
 
-                        lib.cuTensorMapEncodeIm2col(
+                        cuTensorMapEncodeIm2col(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
@@ -631,6 +631,7 @@ impl CudaContext {
                     y: entry.cube_dim.1,
                     z: entry.cube_dim.2,
                 },
+                entry.shared_mem_bytes,
             );
             return;
         }
@@ -665,7 +666,10 @@ impl CudaContext {
         let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
-            let program = cudarc::nvrtc::result::create_program(kernel_compiled.source).unwrap();
+            // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
+            // leave it `None` for now
+            let program =
+                cudarc::nvrtc::result::create_program(kernel_compiled.source, None).unwrap();
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
                 let log_ptr = log_raw.as_ptr();
@@ -684,6 +688,9 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
+        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect> =
+            kernel_compiled.repr.unwrap();
+
         #[cfg(feature = "compilation-cache")]
         self.ptx_cache
             .insert(
@@ -691,6 +698,7 @@ impl CudaContext {
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                    shared_mem_bytes: repr.shared_memory_size(),
                     cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
                     ptx: ptx.clone(),
                 },
@@ -702,6 +710,7 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
+            repr.shared_memory_size(),
         );
     }
 
@@ -711,6 +720,7 @@ impl CudaContext {
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
+        shared_mem_bytes: usize,
     ) {
         let func_name = CString::new(entrypoint_name).unwrap();
         let func = unsafe {
@@ -719,8 +729,14 @@ impl CudaContext {
             cudarc::driver::result::module::get_function(module, func_name).unwrap()
         };
 
-        self.module_names
-            .insert(kernel_id.clone(), CompiledKernel { cube_dim, func });
+        self.module_names.insert(
+            kernel_id.clone(),
+            CompiledKernel {
+                cube_dim,
+                shared_mem_bytes,
+                func,
+            },
+        );
     }
 
     fn execute_task(
@@ -741,14 +757,19 @@ impl CudaContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
+            cudarc::driver::result::function::set_function_attribute(
+                kernel.func,
+                CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                kernel.shared_mem_bytes as i32,
+            )
+            .unwrap();
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
                 (cube_dim.x, cube_dim.y, cube_dim.z),
-                // Shared memory is specified statically in the kernel, and no dynamic shared
-                // memory is supported yet in the kernel, which would be that value for the
-                // current kernel launch.
-                0,
+                // Shared memory is collected into a single buffer, with each shared memory being
+                // an offset pointer
+                kernel.shared_mem_bytes as u32,
                 self.stream,
                 &mut bindings,
             )

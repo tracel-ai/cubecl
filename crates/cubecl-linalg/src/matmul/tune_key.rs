@@ -21,7 +21,6 @@ pub struct MatmulAutotuneKey {
     #[autotune(anchor(exp(max = 256)))]
     batch: usize,
     elem_inputs: Elem,
-    elem_stage: Elem,
     elem_output: Elem,
     matrix_layout_lhs: MatrixBatchLayout,
     matrix_layout_rhs: MatrixBatchLayout,
@@ -36,7 +35,6 @@ impl MatmulAutotuneKey {
         lhs_strides: &[usize],
         rhs_strides: &[usize],
         elem_inputs: Elem,
-        elem_state: Elem,
         elem_output: Elem,
     ) -> Self {
         let ndims = lhs_shape.len();
@@ -70,7 +68,6 @@ impl MatmulAutotuneKey {
             n,
             batch_product,
             elem_inputs,
-            elem_state,
             elem_output,
             matrix_layout_lhs,
             matrix_layout_rhs,
@@ -99,7 +96,6 @@ mod tests {
             &rhs_strides,
             elem,
             elem,
-            elem,
         );
 
         assert!(key.round);
@@ -122,7 +118,6 @@ mod tests {
             &rhs_shape,
             &lhs_strides,
             &rhs_strides,
-            elem,
             elem,
             elem,
         );
@@ -148,7 +143,6 @@ mod tests {
             &rhs_shape,
             &lhs_strides,
             &rhs_strides,
-            elem,
             elem,
             elem,
         );

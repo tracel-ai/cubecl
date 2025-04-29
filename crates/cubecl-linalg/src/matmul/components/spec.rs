@@ -44,22 +44,28 @@ impl MatmulPrecision for f16 {
     const QUANTIZED: bool = false;
     type EI = f16;
     type ES = f16;
+    #[cfg(target_os = "macos")]
+    type EA = f16;
+    #[cfg(not(target_os = "macos"))]
     type EA = f32;
     type EO = f16;
 }
 
 impl MatmulPrecision for flex32 {
     const QUANTIZED: bool = false;
-    type EI = flex32;
+    type EI = f32;
     type ES = f16;
     type EA = f32;
-    type EO = flex32;
+    type EO = f32;
 }
 
 impl MatmulPrecision for bf16 {
     const QUANTIZED: bool = false;
     type EI = bf16;
     type ES = bf16;
+    #[cfg(target_os = "macos")]
+    type EA = bf16;
+    #[cfg(not(target_os = "macos"))]
     type EA = f32;
     type EO = bf16;
 }

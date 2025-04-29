@@ -4,8 +4,8 @@ use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
 use crate::matmul::components::stage::{Reader, ReaderFamily};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
-use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::TileMatmulFamily;
+use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
@@ -15,7 +15,7 @@ use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use super::shared::Accumulators;
+use super::shared::{Accumulators, StageVectorization};
 
 pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
@@ -30,6 +30,10 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
         config.tiling.tile_count
     }
 
+    fn tile_shape(config: &Self::Config) -> MatmulSize {
+        config.tiling.tile_shape
+    }
+
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
@@ -37,7 +41,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
 }
 
 impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
-    type Input = (CompleteStageTiling, StageBuffering);
+    type Input = (CompleteStageTiling, StageBuffering, StageVectorization);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -56,23 +60,27 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
     }
 
     fn make_config(
-        input: Self::Input,
+        (tilling, buffering, vectorization): Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = input.0.tile_shape;
-        let tile_count = input.0.tile_count;
+        let tile_shape = tilling.tile_shape;
+        let tile_count = tilling.tile_count;
 
-        let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
+        let tile_input = TileMatmulConfigInput {
+            vectorization,
+            size: tile_shape,
+        };
+        let tmm_config = TMM::make_config(tile_input, problem, cube_dim, cube_count, quantized);
 
         let tiling = CompleteStageTiling {
             tile_shape,
             tile_count,
         };
 
-        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, input.1)
+        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, buffering)
     }
 }
 
@@ -169,7 +177,6 @@ where
         #[unroll]
         for _ in 0..comptime!(shape.0) {
             lhs.push(TMM::allocate_lhs(tmm_config));
-            lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
         (
@@ -190,7 +197,7 @@ where
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
+        let out_smem_line_size = global_config.to_smm_config().stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
         let (m_iterations, n_iterations) = acc.shape;

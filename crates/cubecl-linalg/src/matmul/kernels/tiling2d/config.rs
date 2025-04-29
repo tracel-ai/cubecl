@@ -61,7 +61,7 @@ pub struct CubeTiling2dConfig {
 }
 
 impl Init for CubeTiling2dConfig {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }

@@ -8,7 +8,7 @@ use crate::{
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item,
-        SharedMemory, Variable, WarpInstruction,
+        SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
@@ -167,15 +167,20 @@ impl DialectTypes<Self> for CudaDialect {
         Ok(())
     }
 
-    fn compile_shared_memory_qualifier(
+    fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        let align = match shared.align {
-            Some(alignment) => format!("alignas({alignment})"),
-            None => "".to_string(),
-        };
-        write!(f, "__shared__ {align}")
+        let item = shared.item;
+        let index = shared.index;
+        let offset = shared.offset;
+        let size = shared.size;
+        let size_bytes = size * shared.item.size() as u32;
+        writeln!(f, "// Shared memory size: {}, {} bytes", size, size_bytes)?;
+        writeln!(
+            f,
+            "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
+        )
     }
 }
 
@@ -216,6 +221,27 @@ extern \"C\" __global__ void "
         //
         Ok(())
     }
+
+    fn compile_bindings_body(
+        f: &mut std::fmt::Formatter<'_>,
+        body: &shared::Body<Self>,
+    ) -> std::fmt::Result {
+        if !body.shared_memories.is_empty() {
+            let max_align = body
+                .shared_memories
+                .iter()
+                .map(|smem| smem.align.unwrap_or(smem.item.size() as u32))
+                .max()
+                .unwrap();
+            // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
+            // with `extern __shared__ alignas` and doesn't properly parse it.
+            writeln!(
+                f,
+                "extern __shared__ __align__({max_align}) uint8 dynamic_shared_mem[];"
+            )?;
+        }
+        Ok(())
+    }
 }
 
 // Cube builtins dialect
@@ -248,6 +274,44 @@ impl DialectInstructions<Self> for CudaDialect {
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__threadfence();")
+    }
+
+    // unary
+    fn compile_instruction_find_first_set<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 => write!(f, "__ffs({input})"),
+            Elem::U32 => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
+            Elem::I64 => write!(f, "__ffsll({input})"),
+            Elem::U64 => write!(f, "__ffsll({}({input}))", Elem::<Self>::I64),
+            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
+        }?;
+        write!(f, ")")
+    }
+
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 => write!(f, "__clz({input})"),
+            Elem::U32 => write!(f, "__clz({}({input}))", Elem::<Self>::I32),
+            Elem::I64 => write!(f, "__clzll({input})"),
+            Elem::U64 => write!(f, "__clzll({}({input}))", Elem::<Self>::I64),
+            in_elem => write!(
+                f,
+                "{out_elem}(__clz({}) - {})",
+                unary::zero_extend(input),
+                (size_of::<u32>() - in_elem.size()) * 8
+            ),
+        }?;
+        write!(f, ")")
     }
 
     // others

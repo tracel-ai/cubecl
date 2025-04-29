@@ -99,7 +99,8 @@ for (uint i = 0; i < uint(8); ++i) {{
                 frag,
                 value,
                 layout,
-                ..
+                offset,
+                stride: _stride,
             } => {
                 // Matrix A must be in column major layout (so fragments correspond to a row)
                 // Matrices B, C and D must be in row major layout (so fragments correspond to a column)
@@ -126,11 +127,11 @@ for (uint i = 0; i < uint(8); ++i) {{
                 // VGPR7      | 15,1 | 15,2 | 15,3 | 15,4 | ...  | 15,13| 15,14| 15,15| ...  | 16,1 | 16,2 | ...  | 16,15| 16,16|
                 // --------------------------------------------------------------------------------------------------------------
                 let item = value.item();
-                let mut value_ident = format!("{value}");
+                let mut value_ident = format!("{value} + {offset}");
                 if item.vectorization > 1 {
                     writeln!(
                         f,
-                        "__half* {value}_half = reinterpret_cast<__half*>({value});"
+                        "__half* {value}_half = reinterpret_cast<__half*>({value} + {offset});"
                     )?;
                     value_ident = format!("{value}_half");
                 }
@@ -250,14 +251,15 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 output,
                 frag,
                 layout,
-                ..
+                offset,
+                stride: _stride,
             } => {
                 let item = output.item();
-                let mut output_ident = format!("{output}");
+                let mut output_ident = format!("{output} + {offset}");
                 if item.vectorization > 1 {
                     writeln!(
                         f,
-                        "float* {output}_float = reinterpret_cast<float*>({output});"
+                        "float* {output}_float = reinterpret_cast<float*>({output} + {offset});"
                     )?;
                     output_ident = format!("{output}_float");
                 }

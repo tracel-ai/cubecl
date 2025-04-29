@@ -26,6 +26,9 @@ pub trait StageMatmulFamily:
     /// Returns the number of tiles in each axis of the stage.
     fn tile_count(config: &Self::Config) -> MatmulSize;
 
+    /// Returns the number of tiles in each axis of the stage.
+    fn tile_shape(config: &Self::Config) -> MatmulSize;
+
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
             Config = Self::Config,
@@ -145,7 +148,7 @@ pub trait StageConfig: MatmulConfig {
     fn to_tmm_config(self) -> Self::TmmConfig;
 
     /// Returns the line size for the given ident
-    fn line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageTiling] for the given ident
     fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;

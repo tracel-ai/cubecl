@@ -146,7 +146,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             };
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
-            let mut stage = this.stage.as_slice_mut();
+            let mut stage = this.stage.as_slice_mut(1u32);
             let slice_size = size_row * size_col;
             let batch = this.tensor_view.batch as i32;
 
@@ -168,5 +168,14 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view
             .update_view(k_offset, comptime!(this.ident.as_ident()));
+    }
+}
+
+#[cube]
+pub(crate) fn arrive_tma<E: CubePrimitive>(barrier: &Barrier<E>, #[comptime] num_elems: u32) {
+    if UNIT_POS == 0 {
+        barrier.arrive_tx(1, num_elems * E::elem_size());
+    } else {
+        barrier.arrive();
     }
 }
