@@ -129,14 +129,8 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             let ident = comptime!(this.ident.as_ident());
             // The tensor map is encoded as the transposed shape, so we need to swap coordinates
             let (row, col) = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => (
-                    this.tensor_view.tile_x.read(),
-                    this.tensor_view.tile_y.read(),
-                ),
-                MatrixLayout::ColMajor => (
-                    this.tensor_view.tile_y.read(),
-                    this.tensor_view.tile_x.read(),
-                ),
+                MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
+                MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
             };
 
             let tiling_dims = config.tiling_dimensions(ident);
