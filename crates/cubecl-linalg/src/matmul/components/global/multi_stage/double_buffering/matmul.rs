@@ -249,9 +249,8 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        // TODO fork tensor reader to not call new twice
         let tensor_reader_a = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
-        let tensor_reader_b = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
+        let tensor_reader_b = TensorReader::fork(&tensor_reader_a);
         let stage_memory =
             StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
 
@@ -284,9 +283,8 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        // TODO fork tensor reader to not call new twice
         let tensor_reader_a = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
-        let tensor_reader_b = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
+        let tensor_reader_b = TensorReader::fork(&tensor_reader_a);
         let stage_memory =
             StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
 
