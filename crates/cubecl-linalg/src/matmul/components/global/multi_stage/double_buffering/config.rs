@@ -1,13 +1,12 @@
 use crate::matmul::components::{
     Ident, MatmulConfig, MatrixLayout, TilingDimensions,
+    global::{GlobalConfig, PRECOMPUTE_JOB},
     stage::{self},
 };
 
-pub const PRECOMPUTE_JOB: bool = false;
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
-pub struct CommonGlobalConfig<S: stage::StageConfig> {
+pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub smm_config: S,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
@@ -20,7 +19,7 @@ pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub num_planes: u32,
 }
 
-impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -78,11 +77,15 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     fn precompute_job(&self) -> bool {
         PRECOMPUTE_JOB
     }
+
+    fn num_stages(&self) -> u32 {
+        2
+    }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
 
-impl<S: stage::StageConfig> CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,

@@ -7,7 +7,7 @@ use crate::matmul::components::global::{self};
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, single_stage};
 use crate::matmul::components::stage::FullReader;
 use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{self, StageMemory};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -33,7 +33,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
 #[derive(CubeType)]
 pub struct SyncFullLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy> {
     tensor_reader: TensorReader<MP::EI>,
-    stage: Stage<MP::ES, L::TilingLayout>,
+    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<MP>>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
@@ -55,7 +55,8 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(input_ident.as_ident(), config.to_smm_config());
+        let stage_memory =
+            StageMemory::new::<G::SmmConfig>(1u32, input_ident.as_ident(), config.to_smm_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
@@ -65,7 +66,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
 
         SyncFullLoader::<MP, S, L> {
             tensor_reader,
-            stage,
+            stage_memory,
             loading_job,
             quantization,
             input_ident,
@@ -74,7 +75,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     }
 
     pub fn reader(this: &Self) -> FullReader<MP::ES, L::TilingLayout> {
-        FullReader::new(this.stage, this.input_ident)
+        FullReader::new(this.stage_memory, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
@@ -93,7 +94,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
-                &mut this.stage,
+                &mut this.stage_memory,
                 &this.quantization,
                 config,
             );

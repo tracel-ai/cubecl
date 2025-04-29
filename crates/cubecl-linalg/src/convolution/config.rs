@@ -10,6 +10,4 @@ pub trait ConvGemmConfig: GlobalConfig {
     fn stride(&self, dim: u32) -> u32;
     /// The padding of the kernel at `dim`
     fn padding(&self, dim: u32) -> i32;
-    /// The number of stages in the convolution kernel
-    fn num_stages(&self) -> u32;
 }

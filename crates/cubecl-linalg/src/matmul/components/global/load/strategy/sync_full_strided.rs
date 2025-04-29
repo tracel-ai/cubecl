@@ -2,7 +2,7 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
-use crate::matmul::components::stage::{Stage, StridedTilingLayout};
+use crate::matmul::components::stage::{StageMemory, StridedTilingLayout};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -81,7 +81,7 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, StridedTilingLayout>,
+        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
