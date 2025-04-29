@@ -37,7 +37,7 @@ pub trait TileMatmulFamily:
 pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units
-    type Lhs: CubeType;
+    type Lhs: CubeType + Clone;
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units

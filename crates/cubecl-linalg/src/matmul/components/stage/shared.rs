@@ -17,6 +17,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub buffering: StageBuffering,
     pub num_stages: u32,
+    pub preload: bool,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -78,6 +79,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         quantized: bool,
         buffering: StageBuffering,
         num_stages: u32,
+        preload: bool,
     ) -> Self {
         Self {
             tmm_config,
@@ -86,6 +88,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
             num_stages,
+            preload,
         }
     }
 }
