@@ -111,16 +111,16 @@ impl<EG: Numeric> TensorReader<EG> {
 
     /// Instantiate a tensor_reader with values from another
     /// Useful if multiple tensor readers read the same tensor, to avoid reading metadata more than once
-    pub fn fork(tensor_reader: &TensorReader<EG>) -> Self {
+    pub fn fork(&self) -> Self {
         TensorReader::<EG> {
-            tensor: tensor_reader.tensor,
-            x_offset: tensor_reader.x_offset,
-            y_offset: tensor_reader.y_offset,
-            stride_x: tensor_reader.stride_x,
-            stride_y: tensor_reader.stride_y,
-            shape_x: tensor_reader.shape_x,
-            shape_y: tensor_reader.shape_y,
-            batch_offset: tensor_reader.batch_offset,
+            tensor: self.tensor,
+            x_offset: self.x_offset,
+            y_offset: self.y_offset,
+            stride_x: self.stride_x,
+            stride_y: self.stride_y,
+            shape_x: self.shape_x,
+            shape_y: self.shape_y,
+            batch_offset: self.batch_offset,
         }
     }
 
