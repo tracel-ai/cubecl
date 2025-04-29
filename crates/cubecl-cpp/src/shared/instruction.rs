@@ -351,7 +351,6 @@ impl<D: Dialect> Display for Instruction<D> {
                 write!(
                     f,
                     "
-#pragma unroll 1
 for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 )?;

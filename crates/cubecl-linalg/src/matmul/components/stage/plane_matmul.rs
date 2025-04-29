@@ -147,7 +147,12 @@ impl<MP: MatmulPrecision, TMM: tile::TileMatmul<MP>> LhsTileLoading<MP, TMM> {
             self.lhs_load_counter.load(Ordering::Relaxed)
         };
 
-        if comptime!(lhs_load_counter < self.m_iterations * (k_iter + 1)) {
+        if comptime!(
+            index == lhs_load_counter && lhs_load_counter < self.m_iterations * (k_iter + 1)
+        ) {
+            comptime! {
+                // println!("Loading lhs tile m={lhs_load_counter} k={k_iter} ...");
+            };
             let tile_lhs =
                 RL::read_tile::<TMM::Config>(lhs_reader, m_offset + index, k_iter, config);
 
@@ -166,6 +171,10 @@ impl<MP: MatmulPrecision, TMM: tile::TileMatmul<MP>> LhsTileLoading<MP, TMM> {
                     total: self.lhs_load_total
                 }],
             );
+        } else {
+            comptime! {
+                // println!("Reuse loaded tile m={index} k={k_iter} num_loaded={lhs_load_counter}");
+            };
         }
 
         self.tiles.index(index)
@@ -479,8 +488,6 @@ where
 
         let mut rhs_load_counter = comptime![0];
         let mut execute_counter = comptime![0];
-        // let mut lhs_load_counter = comptime![0];
-        // let lhs_load_total = comptime!(m_iterations * k_iterations);
 
         let rhs_load_total = comptime!(n_iterations * k_iterations);
         let execute_total = comptime!(m_iterations * n_iterations * k_iterations);
@@ -494,6 +501,22 @@ where
         #[unroll]
         for _ in 0..k_iterations {
             let mut n_iter = comptime![0u32];
+
+            if comptime! {config.preload} {
+                let mut m_iter = comptime![0u32];
+                #[unroll]
+                for _ in 0..m_iterations {
+                    let _lhs_fragment = lhs_loading.get_tile::<RL, SEL>(
+                        lhs_reader,
+                        m_offset,
+                        &mut listener,
+                        k_iter,
+                        m_iter,
+                        config,
+                    );
+                    comptime![m_iter += 1];
+                }
+            }
 
             let rhs_tile_first = RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_iter, config);
             TMM::fill_rhs(
@@ -537,14 +560,15 @@ where
                 #[unroll]
                 for _ in 0..m_iterations {
                     let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, n_iter);
-                    let lhs_fragment = lhs_loading.get_tile::<RL, SEL>(
-                        lhs_reader,
-                        m_offset,
-                        &mut listener,
-                        k_iter,
-                        m_iter,
-                        config,
-                    );
+                    let lhs_fragment = lhs_fragment.index(m_iter);
+                    // let lhs_fragment = lhs_loading.get_tile::<RL, SEL>(
+                    //     lhs_reader,
+                    //     m_offset,
+                    //     &mut listener,
+                    //     k_iter,
+                    //     m_iter,
+                    //     config,
+                    // );
                     TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
                     SEL::on_event(
                         &mut listener,
@@ -573,14 +597,15 @@ where
             #[unroll]
             for _ in 0..m_iterations {
                 let accumulator = Acc::<MP, Self>::get_at_mut(acc, m_iter, n_iter);
-                let lhs_fragment = lhs_loading.get_tile::<RL, SEL>(
-                    lhs_reader,
-                    m_offset,
-                    &mut listener,
-                    k_iter,
-                    m_iter,
-                    config,
-                );
+                let lhs_fragment = lhs_fragment.index(m_iter);
+                // let lhs_fragment = lhs_loading.get_tile::<RL, SEL>(
+                //     lhs_reader,
+                //     m_offset,
+                //     &mut listener,
+                //     k_iter,
+                //     m_iter,
+                //     config,
+                // );
                 TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
