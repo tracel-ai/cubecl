@@ -156,6 +156,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
 #[cube]
 impl Job {
+    #[allow(clippy::too_many_arguments)]
     fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
         tile: (u32, u32),
