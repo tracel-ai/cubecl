@@ -227,6 +227,7 @@ impl Expression {
                     *span,
                     quote![#ty_path::#name(scope, #(#arg_names),*)],
                 );
+                panic!("Ici");
                 quote_spanned! {*span=>
                     {
                         #(#args)*
@@ -397,7 +398,9 @@ impl Expression {
                     }
                 }
             }
-            Expression::Path { path, .. } => quote![#path],
+            Expression::Path { path, .. } => {
+                quote![#path]
+            }
             Expression::Range {
                 start,
                 end,

@@ -483,6 +483,8 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }
+
+    let mut is_trait_cast = false;
     match path {
         Expression::Path { path, .. } => {
             let second_last = path.segments.iter().nth_back(1)?;

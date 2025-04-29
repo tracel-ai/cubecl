@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::precision::ReducePrecision;
+
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction, ReduceRequirements, Sum};
 
 #[derive(Debug, CubeType, Clone)]
@@ -9,14 +11,22 @@ pub struct Mean {
 }
 
 impl ReduceFamily for Mean {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for Mean {
-    type AccumulatorItem = Line<In>;
-    type SharedAccumulator = SharedMemory<Line<In>>;
+fn null_input<P: ReducePrecision, SI: ReduceInstruction<P>>(
+    sum: &SI,
+    #[comptime] line_size: u32,
+) -> Line<P::EI> {
+    SI::null_input(sum, line_size)
+}
+
+#[cube]
+impl<P: ReducePrecision> ReduceInstruction<P> for Mean {
+    type AccumulatorItem = Line<P::EA>;
+    type SharedAccumulator = SharedMemory<Line<P::EA>>;
     type Config = ();
 
     fn requirements(_this: &Self) -> ReduceRequirements {
@@ -26,7 +36,7 @@ impl<In: Numeric> ReduceInstruction<In> for Mean {
         Mean { sum: Sum {} }
     }
 
-    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<In> {
+    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
         Sum::null_input(&this.sum, line_size)
     }
 
@@ -45,7 +55,7 @@ impl<In: Numeric> ReduceInstruction<In> for Mean {
     fn reduce(
         this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
+        item: Line<P::EI>,
         _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
