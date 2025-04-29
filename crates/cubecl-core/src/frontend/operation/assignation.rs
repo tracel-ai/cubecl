@@ -36,7 +36,10 @@ pub mod assign {
 
     use super::*;
 
-    /// Expand the assign operation on a mutable output varible.
+    /// Expand the assign operation.
+    ///
+    /// If you want to assign to a manually initialized const variable, look into
+    /// [expand_no_check()].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
@@ -51,8 +54,10 @@ pub mod assign {
 
         scope.register(Instruction::new(Operation::Copy(input), output));
     }
-    /// Expand the assign operation on an initialized const output varible.
-    pub fn expand_init<C: CubeType>(
+    /// Expand the assign operation without any check.
+    ///
+    /// You can't assign to a const variable with this [expand()].
+    pub fn expand_no_check<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
