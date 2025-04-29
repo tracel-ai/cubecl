@@ -109,21 +109,6 @@ impl<EG: Numeric> TensorReader<EG> {
         }
     }
 
-    /// Instantiate a tensor_reader with values from another
-    /// Useful if multiple tensor readers read the same tensor, to avoid reading metadata more than once
-    pub fn fork(&self) -> Self {
-        TensorReader::<EG> {
-            tensor: self.tensor,
-            x_offset: RuntimeCell::new(self.x_offset.read()),
-            y_offset: RuntimeCell::new(self.y_offset.read()),
-            stride_x: self.stride_x,
-            stride_y: self.stride_y,
-            shape_x: self.shape_x,
-            shape_y: self.shape_y,
-            batch_offset: self.batch_offset,
-        }
-    }
-
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
     pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: InputIdent) {
         match ident {

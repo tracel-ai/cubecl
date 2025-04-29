@@ -5,11 +5,10 @@ use crate::matmul::components::global::load::{
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::{BufferReader, StageMemory};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -118,14 +117,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
-    type LhsLoader = (
-        SyncBufferLoader<MP, Self::Config, LL>,
-        SyncBufferLoader<MP, Self::Config, LL>,
-    );
-    type RhsLoader = (
-        SyncBufferLoader<MP, Self::Config, RL>,
-        SyncBufferLoader<MP, Self::Config, RL>,
-    );
+    type LhsLoader = SyncBufferLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -151,13 +144,13 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_reader_a = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader.0);
-        let lhs_reader_b = SyncBufferLoader::<MP, Self::Config, LL>::reader(&lhs_loader.1);
-        let rhs_reader_a = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader.0);
-        let rhs_reader_b = SyncBufferLoader::<MP, Self::Config, RL>::reader(&rhs_loader.1);
+        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
+        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
+        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
+        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
-        SyncBufferLoader::<MP, Self::Config, LL>::fill_stage(&mut lhs_loader.0, config);
-        SyncBufferLoader::<MP, Self::Config, RL>::fill_stage(&mut rhs_loader.0, config);
+        Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
         sync_units();
 
@@ -175,11 +168,11 @@ where
                 &mut rhs_tile_a,
                 acc,
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(&lhs_loader.1, &rhs_loader.1, config),
+                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
-            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader.0, loop_step);
-            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader.0, loop_step);
+            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader, loop_step);
+            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader, loop_step);
 
             sync_units();
 
@@ -196,11 +189,8 @@ where
                 &mut rhs_tile_b,
                 acc,
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(&lhs_loader.0, &rhs_loader.0, config),
+                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
-
-            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader.1, loop_step);
-            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader.1, loop_step);
 
             sync_units();
         }
@@ -218,7 +208,7 @@ where
             &mut rhs_tile_a,
             acc,
             config.to_smm_config(),
-            DoubleBufferingEventListener::new(&lhs_loader.1, &rhs_loader.1, config),
+            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
         sync_units();
@@ -249,28 +239,14 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let tensor_reader_a = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
-        let tensor_reader_b = TensorReader::fork(&tensor_reader_a);
-        let stage_memory =
-            StageMemory::new::<SMM::Config>(2u32, Ident::Lhs, config.to_smm_config());
-
-        (
-            SyncBufferLoader::<MP, Self::Config, LL>::new(
-                tensor_reader_a,
-                stage_memory,
-                quantization,
-                BufferId::A,
-                InputIdent::Lhs,
-                config,
-            ),
-            SyncBufferLoader::<MP, Self::Config, LL>::new(
-                tensor_reader_b,
-                stage_memory,
-                quantization,
-                BufferId::B,
-                InputIdent::Lhs,
-                config,
-            ),
+        SyncBufferLoader::<MP, Self::Config, LL>::new(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Lhs,
+            config,
         )
     }
 
@@ -283,28 +259,14 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let tensor_reader_a = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
-        let tensor_reader_b = TensorReader::fork(&tensor_reader_a);
-        let stage_memory =
-            StageMemory::new::<SMM::Config>(2u32, Ident::Rhs, config.to_smm_config());
-
-        (
-            SyncBufferLoader::<MP, Self::Config, RL>::new(
-                tensor_reader_a,
-                stage_memory,
-                quantization,
-                BufferId::A,
-                InputIdent::Rhs,
-                config,
-            ),
-            SyncBufferLoader::<MP, Self::Config, RL>::new(
-                tensor_reader_b,
-                stage_memory,
-                quantization,
-                BufferId::B,
-                InputIdent::Rhs,
-                config,
-            ),
+        SyncBufferLoader::<MP, Self::Config, RL>::new(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Rhs,
+            config,
         )
     }
 
@@ -345,6 +307,8 @@ struct DoubleBufferingEventListener<
     Rhs: LoaderEventListener,
     G: GlobalConfig,
 > {
+    #[cube(comptime)]
+    buffer_id: BufferId,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
@@ -358,11 +322,13 @@ impl<Lhs: LoaderEventListener, Rhs: LoaderEventListener, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
     pub fn new(
+        #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
+            buffer_id,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
             config,
@@ -460,8 +426,8 @@ impl<
 > DoubleBufferingEventListener<SyncBufferLoader<MP, G, LL>, SyncBufferLoader<MP, G, RL>, G>
 {
     fn init(&mut self) {
-        let job_lhs = SyncBufferLoader::create_job(&self.loader_lhs, self.config);
-        let job_rhs = SyncBufferLoader::create_job(&self.loader_rhs, self.config);
+        let job_lhs = SyncBufferLoader::create_job(&self.loader_lhs, self.buffer_id, self.config);
+        let job_rhs = SyncBufferLoader::create_job(&self.loader_rhs, self.buffer_id, self.config);
 
         self.state_lhs.push(job_lhs);
         self.state_rhs.push(job_rhs);
