@@ -11,6 +11,7 @@ use crate::matmul::components::stage::{self, StageMemory};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -46,12 +47,18 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncFullLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor_reader: TensorReader<MP::EI>,
-        stage_memory: StageMemory<MP::ES, L::TilingLayout>,
+        tensor: VirtualTensor<MP::EI>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
+        let stage_memory =
+            StageMemory::new::<G::SmmConfig>(1u32, input_ident.as_ident(), config.to_smm_config());
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<MP, G>(input_ident, config)),
             false => CubeOption::new_None(),

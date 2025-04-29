@@ -9,9 +9,7 @@ use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::load::AsyncLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::stage::{FullReader, FullReaderFamily};
 use crate::matmul::{
     components::{
@@ -205,13 +203,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let tensor_reader = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
-        let stage_memory =
-            StageMemory::new::<SMM::Config>(1u32, Ident::Lhs, config.to_smm_config());
-
         Self::LhsLoader::new::<Self::Config>(
-            tensor_reader,
-            stage_memory,
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
             quantization,
             InputIdent::Lhs,
             config,
@@ -227,13 +223,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let tensor_reader = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
-        let stage_memory =
-            StageMemory::new::<SMM::Config>(1u32, Ident::Rhs, config.to_smm_config());
-
         Self::RhsLoader::new::<Self::Config>(
-            tensor_reader,
-            stage_memory,
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
             quantization,
             InputIdent::Rhs,
             config,

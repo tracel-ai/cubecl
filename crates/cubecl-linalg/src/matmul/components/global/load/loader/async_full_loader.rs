@@ -11,6 +11,7 @@ use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -57,8 +58,10 @@ impl<
 > AsyncLoader<MP, CM, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor_reader: TensorReader<MP::EI>,
-        mut stage_memory: StageMemory<MP::ES, L::TilingLayout>,
+        tensor: VirtualTensor<MP::EI>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
@@ -68,6 +71,10 @@ impl<
                 todo!();
             }
         }
+
+        let mut stage_memory =
+            StageMemory::new::<G::SmmConfig>(1u32, ident.as_ident(), config.to_smm_config());
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<MP, G>(ident, config)),

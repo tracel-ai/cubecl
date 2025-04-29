@@ -5,9 +5,8 @@ use crate::matmul::components::{
         load::{SyncFullLoader, SyncFullLoadingStrategy},
         output_loader::Unloader,
         single_stage::Config,
-        tensor_view::TensorReader,
     },
-    stage::{FullReader, StageMatmul, StageMemory},
+    stage::{FullReader, StageMatmul},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -180,13 +179,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let tensor_reader = TensorReader::new(lhs, x_offset, y_offset, batch_offset);
-        let stage_memory =
-            StageMemory::new::<SMM::Config>(1u32, Ident::Lhs, config.to_smm_config());
-
         Self::LhsLoader::new::<Self::Config>(
-            tensor_reader,
-            stage_memory,
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
             quantization,
             InputIdent::Lhs,
             config,
@@ -202,13 +199,11 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let tensor_reader = TensorReader::new(rhs, x_offset, y_offset, batch_offset);
-        let stage_memory =
-            StageMemory::new::<SMM::Config>(1u32, Ident::Rhs, config.to_smm_config());
-
         Self::RhsLoader::new::<Self::Config>(
-            tensor_reader,
-            stage_memory,
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
             quantization,
             InputIdent::Rhs,
             config,
