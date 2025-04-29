@@ -93,7 +93,8 @@ mod empty {
         pub fn empty(#[comptime] size: u32) -> Self {
             intrinsic!(|scope| {
                 let length = NonZero::new(size as u8);
-                // Not useful if not mut.
+                // We don't declare const variables in our compilers, only mut variables.
+                // So we need to create the variable as mut here.
                 scope
                     .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
                     .into()
