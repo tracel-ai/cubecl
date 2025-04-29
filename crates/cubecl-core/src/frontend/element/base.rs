@@ -335,8 +335,10 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
 ) -> ExpandElement {
     let elem = element.into();
 
-    if elem.can_mut() && !is_mut {
-        // Can reuse inplace :)
+    if !is_mut && matches!(elem.kind, VariableKind::LocalConst { .. }) {
+        return elem;
+    } else if is_mut && elem.can_mut() {
+        // If the elem is mut, we can check if we can reuse the same register.
         return elem;
     }
 
