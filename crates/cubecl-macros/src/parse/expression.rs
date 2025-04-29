@@ -95,6 +95,8 @@ impl Expression {
             }
             Expr::Break(_) => Expression::Break,
             Expr::Call(call) => {
+                panic!("{:?}", call);
+                panic!("{}", call.to_token_stream());
                 let span = call.span();
                 let func = Box::new(Expression::from_expr(*call.func, context)?);
                 let args = call
@@ -487,6 +489,7 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
     let mut is_trait_cast = false;
     match path {
         Expression::Path { path, .. } => {
+            panic!("ALLLLLLLLL {}", path.to_token_stream());
             let second_last = path.segments.iter().nth_back(1)?;
             let name = second_last.ident.to_string();
             let ch = name.chars().next();

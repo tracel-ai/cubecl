@@ -227,7 +227,7 @@ impl Expression {
                     *span,
                     quote![#ty_path::#name(scope, #(#arg_names),*)],
                 );
-                panic!("Ici");
+                panic!("{call}");
                 quote_spanned! {*span=>
                     {
                         #(#args)*
