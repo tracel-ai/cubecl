@@ -77,7 +77,7 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.map_body(name_expand, |f| quote!(#init::init(#f, scope))))
+                .map(|v| v.map_body(name_expand, |f| quote!(#init::init(#f, scope, is_mut))))
                 .collect(),
         );
 
@@ -96,7 +96,7 @@ impl CubeTypeEnum {
 
         quote! {
             impl #generics #init for #name_expand #generic_names #where_clause {
-                fn init(self, scope: &mut #scope) -> Self {
+                fn init(self, scope: &mut #scope, is_mut: bool) -> Self {
                     #body_init
                 }
             }

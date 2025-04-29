@@ -92,7 +92,7 @@ impl<C: CubeType> CubeType for Matrix<C> {
 }
 
 impl<C: CubeType> Init for MatrixExpand<C> {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }
@@ -474,7 +474,7 @@ impl CubeType for MatrixLayout {
 }
 
 impl Init for MatrixLayout {
-    fn init(self, _scope: &mut crate::ir::Scope) -> Self {
+    fn init(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
         self
     }
 }

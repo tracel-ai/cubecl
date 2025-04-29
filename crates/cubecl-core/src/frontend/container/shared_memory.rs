@@ -17,7 +17,7 @@ pub struct SharedMemory<T: CubeType> {
 }
 
 impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
-    fn init(self, _scope: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }

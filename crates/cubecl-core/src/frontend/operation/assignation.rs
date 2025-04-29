@@ -36,15 +36,36 @@ pub mod assign {
 
     use super::*;
 
+    /// Expand the assign operation.
+    ///
+    /// If you want to assign to a manually initialized const variable, look into
+    /// [expand_no_check()].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
     ) {
-        scope.register(Instruction::new(
-            Operation::Copy(*input.expand),
-            *output.expand,
-        ));
+        let output = *output.expand;
+        let input = *input.expand;
+
+        if output.is_immutable() {
+            panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
+        }
+
+        scope.register(Instruction::new(Operation::Copy(input), output));
+    }
+    /// Expand the assign operation without any check.
+    ///
+    /// You can't assign to a const variable with this [expand()].
+    pub fn expand_no_check<C: CubeType>(
+        scope: &mut Scope,
+        input: ExpandElementTyped<C>,
+        output: ExpandElementTyped<C>,
+    ) {
+        let output = *output.expand;
+        let input = *input.expand;
+
+        scope.register(Instruction::new(Operation::Copy(input), output));
     }
 }
 

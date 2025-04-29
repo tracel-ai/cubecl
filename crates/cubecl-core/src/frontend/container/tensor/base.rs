@@ -271,7 +271,7 @@ impl<T: CubeType> CubeType for *mut Tensor<T> {
 }
 
 impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
-    fn init_elem(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(_scope: &mut Scope, elem: ExpandElement, _is_mut: bool) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
     }

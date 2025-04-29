@@ -330,13 +330,13 @@ impl CubeTypeStruct {
                 if is_comptime {
                     quote![#ident: self.#ident]
                 } else {
-                    quote![#ident: #init::init(self.#ident, scope)]
+                    quote![#ident: #init::init(self.#ident, scope, is_mut)]
                 }
             });
 
         quote! {
             impl #generics #init for #name_expand #generic_names #where_clause {
-                fn init(self, scope: &mut #scope) -> Self {
+                fn init(self, scope: &mut #scope, is_mut: bool) -> Self {
                     Self {
                         #(#body),*
                     }
