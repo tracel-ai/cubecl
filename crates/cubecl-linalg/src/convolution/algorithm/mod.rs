@@ -18,7 +18,7 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
-pub type StageInput = (CompleteStageTiling, StageBuffering, StageVectorization);
+pub type StageInput = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
 
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
@@ -30,6 +30,7 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
+    fn num_stages() -> u32;
 
     /// Make a convolution config from a convolution problem, and launch options
     fn make_config<R: Runtime, MP: MatmulPrecision>(

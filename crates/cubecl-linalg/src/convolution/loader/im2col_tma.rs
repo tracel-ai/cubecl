@@ -5,14 +5,16 @@ use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::{
-    convolution::{ConvGemmConfig, base::RuntimeArgs},
-    matmul::components::{InputIdent, stage::Stage},
-};
-use crate::{
-    convolution::{base::Dimensionality, reader::tma::Im2colTmaReader},
+    convolution::{
+        ConvGemmConfig,
+        base::{Dimensionality, RuntimeArgs},
+        reader::tma::Im2colTmaReader,
+    },
     matmul::components::{
-        Ident, MatmulPrecision,
-        stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullReader, StageConfig},
+        Ident, InputIdent, MatmulPrecision,
+        stage::{
+            ColMajorTilingOrder, ContiguousTilingLayout, FullReader, StageConfig, StageMemory,
+        },
     },
 };
 
@@ -23,7 +25,7 @@ pub type TmaIm2colReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaIm2col
 #[derive(CubeType)]
 pub struct TmaIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
     pub map: Im2colTmaReader<MP::EI>,
-    pub stages: Sequence<Stage<MP::ES, TmaIm2colTiling>>,
+    pub stages: Sequence<StageMemory<MP::ES, TmaIm2colTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<G>,
@@ -43,7 +45,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(Stage::new_aligned::<G::SmmConfig>(
+            stages.push(StageMemory::new_aligned::<G::SmmConfig>(
                 Ident::Lhs,
                 128u32,
                 config.to_smm_config(),

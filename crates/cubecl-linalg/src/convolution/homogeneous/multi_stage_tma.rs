@@ -2,7 +2,6 @@ use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
     convolution::{
-        ConvGemmConfig,
         base::{
             Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
             ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,

@@ -28,8 +28,15 @@ pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
         stage_line_size: 0,
         stage_elem_padding: 0,
     };
-    // TODO Allows to select double buffering
-    (selection, (config_input, STAGE_BUFFERING, vectorization))
+    (
+        selection,
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
+    )
 }
 
 /// A heuristic to find the number of tiles in the stage.

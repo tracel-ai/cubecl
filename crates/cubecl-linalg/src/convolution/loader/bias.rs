@@ -7,7 +7,7 @@ use crate::{
     matmul::components::{
         Ident,
         global::{AccumulatorLoader, GlobalConfig},
-        stage::{Stage, StageConfig},
+        stage::{StageConfig, StageMemory},
         tile::{Tile, TileConfig, TileMatmul},
     },
 };
@@ -18,7 +18,7 @@ use crate::{convolution::reader::bias::BiasReader, matmul::components::MatmulPre
 pub enum BiasLoader<MP: MatmulPrecision> {
     Some {
         tensor_view: BiasReader<MP::EO>,
-        stage: Stage<MP::EA, ConvTilingLayout>,
+        stage: StageMemory<MP::EA, ConvTilingLayout>,
     },
     None,
 }
@@ -93,7 +93,9 @@ impl<MP: MatmulPrecision> BiasLoader<MP> {
 }
 
 #[cube]
-fn init_stage<ES: Numeric, G: GlobalConfig>(#[comptime] config: G) -> Stage<ES, ConvTilingLayout> {
+fn init_stage<ES: Numeric, G: GlobalConfig>(
+    #[comptime] config: G,
+) -> StageMemory<ES, ConvTilingLayout> {
     let line_size = config.to_smm_config().stage_line_size(Ident::Out);
 
     let smem = SharedMemory::new_lined(
@@ -101,10 +103,10 @@ fn init_stage<ES: Numeric, G: GlobalConfig>(#[comptime] config: G) -> Stage<ES, 
         line_size,
     );
 
-    Stage::<ES, ConvTilingLayout>::new_with_smem(smem)
+    StageMemory::<ES, ConvTilingLayout>::new_with_smem(smem, 1u32)
 }
 
 #[cube]
-fn init_empty_stage<ES: Numeric>() -> Stage<ES, ConvTilingLayout> {
-    Stage::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1))
+fn init_empty_stage<ES: Numeric>() -> StageMemory<ES, ConvTilingLayout> {
+    StageMemory::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1), 1u32)
 }

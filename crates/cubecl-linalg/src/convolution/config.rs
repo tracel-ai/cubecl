@@ -14,6 +14,4 @@ pub trait ConvGemmConfig: GlobalConfig {
     fn padding(&self, dim: u32) -> i32;
     /// The dimensionality of the kernel
     fn dimensionality(&self) -> Dimensionality;
-    /// The number of stages in the convolution kernel
-    fn num_stages(&self) -> u32;
 }

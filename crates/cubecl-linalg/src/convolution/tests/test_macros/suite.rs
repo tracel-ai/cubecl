@@ -105,7 +105,12 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     test_convolution_algorithm::<A, Args, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization), // TODO support double buffering
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     );
 }

@@ -163,6 +163,10 @@ pub mod config {
         fn precompute_job(&self) -> bool {
             PRECOMPUTE_JOB
         }
+
+        fn num_stages(&self) -> u32 {
+            self.num_stages
+        }
     }
 
     impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
@@ -184,10 +188,6 @@ pub mod config {
 
         fn dimensionality(&self) -> Dimensionality {
             self.dimensionality
-        }
-
-        fn num_stages(&self) -> u32 {
-            self.num_stages
         }
     }
 
