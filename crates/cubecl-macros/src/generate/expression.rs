@@ -439,7 +439,6 @@ impl Expression {
                     quote![(#(#elements),*)]
                 }
             }
-
             Expression::Slice { span, .. } => {
                 error!(*span, "Slice expressions not yet implemented")
             }
@@ -727,7 +726,7 @@ fn init_fields<'a>(
         quote! {
             #pat: {
                 let _init = #it;
-                #init::init(_init, scope)
+                #init::init(_init, scope, false) // No mut variable possible yet
             }
         }
     })

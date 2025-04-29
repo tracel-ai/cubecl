@@ -367,7 +367,7 @@ mod __cube_type {
     }
 
     impl<E: Numeric, IO> Init for VirtualTensorExpand<E, IO> {
-        fn init(self, _scope: &mut Scope) -> Self {
+        fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
             self
         }
     }

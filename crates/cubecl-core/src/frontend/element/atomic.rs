@@ -328,8 +328,8 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> ExpandElementBaseInit for Atomic<Inner> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        init_expand_element(scope, elem, is_mut)
     }
 }
 
