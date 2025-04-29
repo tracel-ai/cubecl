@@ -335,8 +335,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
 ) -> ExpandElement {
     let elem = element.into();
 
-    if elem.can_mut() && !is_mut {
-        // Can reuse inplace :)
+    if !is_mut && (matches!(elem.kind, VariableKind::LocalConst { .. }) || elem.can_mut()) {
         return elem;
     }
 
