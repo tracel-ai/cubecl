@@ -114,8 +114,8 @@ impl<EG: Numeric> TensorReader<EG> {
     pub fn fork(&self) -> Self {
         TensorReader::<EG> {
             tensor: self.tensor,
-            x_offset: self.x_offset,
-            y_offset: self.y_offset,
+            x_offset: RuntimeCell::new(self.x_offset.read()),
+            y_offset: RuntimeCell::new(self.y_offset.read()),
             stride_x: self.stride_x,
             stride_y: self.stride_y,
             shape_x: self.shape_x,

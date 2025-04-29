@@ -230,6 +230,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
 
     // Makes all rows the length of plane_dim
     let k = plane_dim / instruction_k as u32;
+    let k = 1;
 
     MatmulSelection {
         tile_shape: MatmulSize {
