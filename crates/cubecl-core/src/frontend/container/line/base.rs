@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use crate as cubecl;
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped},
+    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
     prelude::MulHi,
 };
 use crate::{
@@ -232,9 +232,13 @@ impl<P: CubePrimitive> CubeType for Line<P> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
-    fn init_elem(scope: &mut crate::ir::Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-        P::init_elem(scope, elem, is_mut)
+impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
+    fn elem_into_mut(
+        scope: &mut crate::ir::Scope,
+        elem: ExpandElement,
+        is_mut: bool,
+    ) -> ExpandElement {
+        P::elem_into_mut(scope, elem, is_mut)
     }
 }
 

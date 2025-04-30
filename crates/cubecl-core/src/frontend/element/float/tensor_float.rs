@@ -5,9 +5,9 @@ use half::f16;
 use crate::prelude::Numeric;
 
 use super::{
-    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime,
+    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, Float, IntoMut, IntoRuntime,
     KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
-    init_expand_element,
+    into_mut_expand_element,
 };
 
 impl CubeType for tf32 {
@@ -24,7 +24,7 @@ impl CubePrimitive for tf32 {
 impl IntoRuntime for tf32 {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
-        Init::init(expand, scope, false)
+        IntoMut::into_mut(expand, scope, false)
     }
 }
 
@@ -37,9 +37,9 @@ impl Numeric for tf32 {
     }
 }
 
-impl ExpandElementBaseInit for tf32 {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-        init_expand_element(scope, elem, is_mut)
+impl ExpandElementIntoMut for tf32 {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        into_mut_expand_element(scope, elem, is_mut)
     }
 }
 

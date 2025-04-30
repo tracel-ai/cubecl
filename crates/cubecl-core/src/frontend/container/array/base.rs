@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use cubecl_ir::{ExpandElement, Scope};
 
 use crate as cubecl;
-use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped};
+use crate::frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped};
 use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked};
 use crate::prelude::{assign, index, index_assign};
 use crate::{
@@ -292,8 +292,8 @@ impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = ExpandElementTyped<Array<C>>;
 }
 
-impl<C: CubeType> ExpandElementBaseInit for Array<C> {
-    fn init_elem(
+impl<C: CubeType> ExpandElementIntoMut for Array<C> {
+    fn elem_into_mut(
         _scope: &mut crate::ir::Scope,
         elem: ExpandElement,
         _is_mut: bool,

@@ -54,7 +54,7 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, ReadOnly, Slice, SliceExpand,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, ReadOnly, Slice, SliceExpand,
     SliceMut,
 };
 
@@ -91,8 +91,8 @@ impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand<C>;
 }
 
-impl<C: CubeType> Init for MatrixExpand<C> {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl<C: CubeType> IntoMut for MatrixExpand<C> {
+    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }
@@ -473,8 +473,8 @@ impl CubeType for MatrixLayout {
     type ExpandType = Self;
 }
 
-impl Init for MatrixLayout {
-    fn init(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
+impl IntoMut for MatrixLayout {
+    fn into_mut(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
         self
     }
 }

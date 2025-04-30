@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, ReadOnly, ReadWrite, Slice,
-    SliceExpand, SliceMut, TensorMap,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, Line, ReadOnly, ReadWrite,
+    Slice, SliceExpand, SliceMut, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -26,8 +26,8 @@ impl<C: CubePrimitive> CubeType for Barrier<C> {
     type ExpandType = BarrierExpand<C>;
 }
 
-impl<C: CubePrimitive> Init for BarrierExpand<C> {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl<C: CubePrimitive> IntoMut for BarrierExpand<C> {
+    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }
@@ -52,8 +52,8 @@ impl CubeType for BarrierLevel {
     type ExpandType = Self;
 }
 
-impl Init for BarrierLevel {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl IntoMut for BarrierLevel {
+    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }

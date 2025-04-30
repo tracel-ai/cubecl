@@ -6,8 +6,8 @@ use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 
 use super::{
-    ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime, LaunchArgExpand,
-    ScalarArgSettings, init_expand_element,
+    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, LaunchArgExpand,
+    ScalarArgSettings, into_mut_expand_element,
 };
 
 macro_rules! declare_uint {

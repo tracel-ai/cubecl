@@ -2,7 +2,7 @@ use cubecl_ir::{ExpandElement, Scope};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    frontend::{CubeType, ExpandElementTyped, Init, branch::Iterable, indexation::Index},
+    frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable, indexation::Index},
     prelude::CubeDebug,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -25,8 +25,8 @@ impl<T: CubeType> Default for Sequence<T> {
     }
 }
 
-impl<T: CubeType> Init for Sequence<T> {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl<T: CubeType> IntoMut for Sequence<T> {
+    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }
@@ -141,8 +141,8 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType> Init for SequenceExpand<T> {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl<T: CubeType> IntoMut for SequenceExpand<T> {
+    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
         self
     }
 }

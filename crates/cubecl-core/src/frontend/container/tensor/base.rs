@@ -1,7 +1,5 @@
 use crate::{
-    frontend::{
-        CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, SizedContainer,
-    },
+    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, SizedContainer},
     ir::{Item, Metadata, Scope},
     prelude::{
         Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
@@ -270,8 +268,8 @@ impl<T: CubeType> CubeType for *mut Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
-impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
-    fn init_elem(_scope: &mut Scope, elem: ExpandElement, _is_mut: bool) -> ExpandElement {
+impl<C: CubeType> ExpandElementIntoMut for Tensor<C> {
+    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement, _is_mut: bool) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
     }

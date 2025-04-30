@@ -15,7 +15,7 @@ use crate::{
     prelude::*,
 };
 
-use super::{Int, init_expand_element};
+use super::{Int, into_mut_expand_element};
 
 #[repr(transparent)]
 #[derive(
@@ -170,7 +170,7 @@ impl<const POS: u8> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> 
 impl<const POS: u8> IntoRuntime for IntExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
-        Init::init(expand, scope, false)
+        IntoMut::into_mut(expand, scope, false)
     }
 }
 
@@ -183,9 +183,9 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementBaseInit for IntExpand<POS> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-        init_expand_element(scope, elem, is_mut)
+impl<const POS: u8> ExpandElementIntoMut for IntExpand<POS> {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        into_mut_expand_element(scope, elem, is_mut)
     }
 }
 

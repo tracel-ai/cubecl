@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    __expand_new, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings, init_expand_element,
+    __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings, into_mut_expand_element,
 };
 
 mod typemap;

@@ -199,7 +199,7 @@ impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<PO
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
-        Init::init(expand, scope, false)
+        IntoMut::into_mut(expand, scope, false)
     }
 }
 
@@ -212,9 +212,9 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-        init_expand_element(scope, elem, is_mut)
+impl<const POS: u8> ExpandElementIntoMut for FloatExpand<POS> {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        into_mut_expand_element(scope, elem, is_mut)
     }
 }
 

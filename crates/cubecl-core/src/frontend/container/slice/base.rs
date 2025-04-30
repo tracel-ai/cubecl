@@ -206,8 +206,8 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
     type ExpandType = SliceExpand<E, IO>;
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> Init for SliceExpand<E, IO> {
-    fn init(self, _scope: &mut cubecl_ir::Scope, _is_mut: bool) -> Self {
+impl<E: CubePrimitive, IO: SliceVisibility> IntoMut for SliceExpand<E, IO> {
+    fn into_mut(self, _scope: &mut cubecl_ir::Scope, _is_mut: bool) -> Self {
         self
     }
 }

@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, Init};
+use crate::prelude::{CubeDebug, CubeType, IntoMut};
 
 /// It is similar to a map, but where the keys are stored at comptime, but the values can be runtime
 /// variables.
@@ -123,8 +123,8 @@ impl<K: PartialOrd + Ord, V: CubeType> CubeType for Registry<K, V> {
     type ExpandType = Registry<K, V::ExpandType>;
 }
 
-impl<K: PartialOrd + Ord, V> Init for Registry<K, V> {
-    fn init(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
+impl<K: PartialOrd + Ord, V> IntoMut for Registry<K, V> {
+    fn into_mut(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
         self
     }
 }

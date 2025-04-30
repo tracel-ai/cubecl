@@ -27,11 +27,14 @@ use variadics_please::all_tuples;
 /// the generated code.
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeType)]` on `{Self}`")]
 pub trait CubeType {
-    type ExpandType: Clone + Init + CubeDebug;
+    type ExpandType: Clone + IntoMut + CubeDebug;
 
     /// Wrapper around the init method, necessary to type inference.
     fn init(scope: &mut Scope, expand: Self::ExpandType, is_mut: bool) -> Self::ExpandType {
-        expand.init(scope, is_mut)
+        expand.into_mut(scope, is_mut)
+    }
+    fn runtime(self) -> Self {
+        self
     }
 }
 
@@ -44,13 +47,8 @@ pub trait IntoRuntime: CubeType + Sized {
     fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType;
 }
 
-/// Trait to be implemented by [cube types](CubeType) implementations.
-pub trait Init: Sized {
-    /// Initialize a type within a [scope](Scope).
-    ///
-    /// You can return the same value when the variable is a non-mutable data structure or
-    /// if the type can not be deeply cloned/copied.
-    fn init(self, scope: &mut Scope, is_mut: bool) -> Self;
+pub trait IntoMut: Sized {
+    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self;
 }
 
 pub trait CubeDebug: Sized {
@@ -218,12 +216,12 @@ macro_rules! tuple_cube_type {
 }
 macro_rules! tuple_init {
     ($($P:ident),*) => {
-        impl<$($P: Init),*> Init for ($($P,)*) {
+        impl<$($P: IntoMut),*> IntoMut for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn init(self, scope: &mut Scope, is_mut: bool) -> Self {
+            fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
                 let ($($P,)*) = self;
                 ($(
-                    $P.init(scope, is_mut),
+                    $P.into_mut(scope, is_mut),
                 )*)
             }
         }
@@ -255,13 +253,13 @@ all_tuples!(tuple_runtime, 0, 12, P);
 
 impl<P: CubePrimitive> CubeDebug for P {}
 
-pub trait ExpandElementBaseInit: CubeType {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement;
+pub trait ExpandElementIntoMut: CubeType {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement;
 }
 
-impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
-    fn init(self, scope: &mut Scope, is_mut: bool) -> Self {
-        <T as ExpandElementBaseInit>::init_elem(scope, self.into(), is_mut).into()
+impl<T: ExpandElementIntoMut> IntoMut for ExpandElementTyped<T> {
+    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
+        <T as ExpandElementIntoMut>::elem_into_mut(scope, self.into(), is_mut).into()
     }
 }
 
@@ -328,18 +326,25 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
     }
 }
 
-pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
+pub(crate) fn into_runtime_expand_element<E: Into<ExpandElement>>(
     scope: &mut Scope,
     element: E,
-    is_mut: bool,
 ) -> ExpandElement {
     let elem = element.into();
 
-    if !is_mut && (matches!(elem.kind, VariableKind::LocalConst { .. }) || elem.can_mut()) {
-        return elem;
+    match elem.kind {
+        VariableKind::ConstantScalar { .. } => init_expand(scope, elem, false, Operation::Copy),
+        _ => elem,
     }
+}
 
-    let mut init = |elem: ExpandElement| init_expand(scope, elem, is_mut, Operation::Copy);
+pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
+    scope: &mut Scope,
+    element: E,
+) -> ExpandElement {
+    let elem = element.into();
+
+    let mut init = |elem: ExpandElement| init_expand(scope, elem, true, Operation::Copy);
 
     match elem.kind {
         VariableKind::GlobalScalar { .. } => init(elem),
@@ -360,15 +365,15 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
     }
 }
 
-impl Init for ExpandElement {
-    fn init(self, scope: &mut Scope, is_mut: bool) -> Self {
-        init_expand_element(scope, self, is_mut)
+impl IntoMut for ExpandElement {
+    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
+        into_mut_expand_element(scope, self)
     }
 }
 
-impl<T: Init> Init for Option<T> {
-    fn init(self, scope: &mut Scope, is_mut: bool) -> Self {
-        self.map(|o| Init::init(o, scope, is_mut))
+impl<T: IntoMut> IntoMut for Option<T> {
+    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
+        self.map(|o| IntoMut::into_mut(o, scope, is_mut))
     }
 }
 
@@ -380,9 +385,11 @@ impl<T: CubeType> CubeType for &mut Vec<T> {
     type ExpandType = Vec<T::ExpandType>;
 }
 
-impl<T: Init> Init for Vec<T> {
-    fn init(self, scope: &mut Scope, is_mut: bool) -> Self {
-        self.into_iter().map(|e| e.init(scope, is_mut)).collect()
+impl<T: IntoMut> IntoMut for Vec<T> {
+    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
+        self.into_iter()
+            .map(|e| e.into_mut(scope, is_mut))
+            .collect()
     }
 }
 impl<T: CubeDebug> CubeDebug for Vec<T> {}
