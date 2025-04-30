@@ -134,7 +134,7 @@ macro_rules! matmul_standard_tests {
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
         };
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
-        use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
+        use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm};
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
 
@@ -250,65 +250,95 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // #[test]
-        // pub fn double_buffering_single_row_cyclic() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         DoubleBufferingAlgorithm<TMM, sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>, sync_buffer_cyclic::LoadingStrategy<ColMajorTilingOrder>>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn double_buffering_single_row_cyclic() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                CyclicDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn double_buffering_multi_row_cyclic() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         DoubleBufferingAlgorithm<TMM, sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>, sync_buffer_cyclic::LoadingStrategy<ColMajorTilingOrder>>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         2,
-        //     );
-        // }
+        #[test]
+        pub fn double_buffering_multi_row_cyclic() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                CyclicDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
 
-        // #[test]
-        // pub fn double_buffering_single_row_tilewise() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         DoubleBufferingAlgorithm<TMM, sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>, sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         1,
-        //     );
-        // }
+        #[test]
+        pub fn double_buffering_single_row_tilewise() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                TilewiseDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
 
-        // #[test]
-        // pub fn double_buffering_multi_row_tilewise() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         DoubleBufferingAlgorithm<TMM, sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>, sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         2,
-        //     );
-        // }
+        #[test]
+        pub fn double_buffering_multi_row_tilewise() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                TilewiseDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_single_row_hybrid() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                HybridDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_multi_row_hybrid() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                HybridDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
     };
 
     (tma; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {

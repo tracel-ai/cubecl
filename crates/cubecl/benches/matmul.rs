@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_linalg::matmul::SyncLoadingStrategy;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
+use cubecl_linalg::matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
@@ -96,11 +96,15 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncLoadingStrategy::Tilewise),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
     );
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncLoadingStrategy::Cyclic),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
     );
     // // run::<R, MP>(
     // //     Default::default(),

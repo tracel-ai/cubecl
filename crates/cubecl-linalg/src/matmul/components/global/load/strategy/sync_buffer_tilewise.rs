@@ -21,6 +21,8 @@ use super::LoadingJob;
 /// In this case, a plane loads contiguous tiles following the `TilingOrder`,
 /// until it would otherwise write to the opposite buffer. At that point, it continues on the next
 /// row or column of the same buffer, skipping over the memory region of the other buffer.
+///
+/// Only supports RowMajorTilingOrder for Lhs and ColMajorTilingOrder for Rhs
 pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
@@ -56,6 +58,8 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
                 )
             }));
         }
+
+        // TODO abort if tiling order is not the right for ident
 
         Ok(())
     }
