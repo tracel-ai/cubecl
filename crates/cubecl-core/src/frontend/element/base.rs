@@ -44,6 +44,7 @@ pub trait IntoRuntime: CubeType + Sized {
     fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType;
 }
 
+/// Convert an expand type to a version with mutable registers when necessary.
 pub trait IntoMut: Sized {
     fn into_mut(self, scope: &mut Scope) -> Self;
 }
