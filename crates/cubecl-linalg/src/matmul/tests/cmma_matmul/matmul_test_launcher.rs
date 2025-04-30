@@ -71,9 +71,6 @@ pub fn test_matmul_algorithm<A, P, R>(
         &out.strides,
         out.strides.len() - 1,
     );
-    problem.lhs_line_size = 1;
-    problem.rhs_line_size = 1;
-    problem.out_line_size = 1;
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
