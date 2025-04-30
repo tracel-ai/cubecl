@@ -3,31 +3,37 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
+use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::stage::{
-    self, BufferReaderFamily, ColMajorTilingOrder, RowMajorTilingOrder,
+    self, BufferReaderFamily, 
 };
 use crate::matmul::components::{MatmulSelection, tile};
 use crate::matmul::components::{batch, global};
 
 use super::base;
 
-pub struct DoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
-    pub _tmm: PhantomData<TMM>,
-    pub _dispatch: PhantomData<Dispatch>,
+pub struct DoubleBufferingAlgorithm<
+    TMM,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+    Dispatch = batch::TransposedDispatch,
+> {
+    pub _phantom: PhantomData<(TMM, LL, RL, Dispatch)>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for DoubleBufferingAlgorithm<TMM, Dispatch>
+impl<TMM, LL, RL, Dispatch> base::Algorithm for DoubleBufferingAlgorithm<TMM, LL, RL, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+        LL,
+        RL,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;

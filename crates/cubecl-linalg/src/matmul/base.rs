@@ -7,7 +7,8 @@ use super::{
         MatmulPrecision,
         global::load::{
             async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
-            async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
+            async_full_maximize_unit_count, sync_buffer_cyclic, sync_buffer_tilewise,
+            sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
         tile::accelerated::Accelerated,
@@ -27,7 +28,7 @@ use super::{
 pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
-    DoubleBuffering,
+    DoubleBuffering(SyncLoadingStrategy),
     Naive,
     Tiling2D(Tiling2dConfig),
     #[default]
@@ -135,11 +136,27 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 SimpleTmaAlgorithm<Accelerated>,
             >(client, lhs, rhs, out, (false, false)),
         },
-        Strategy::DoubleBuffering => {
-            matmul::launch_ref::<R, MP, DoubleBufferingAlgorithm<Accelerated>>(
-                client, lhs, rhs, out,
-            )
-        }
+        Strategy::DoubleBuffering(loading_strategy) => match loading_strategy {
+            SyncLoadingStrategy::Cyclic => matmul::launch_ref::<
+                R,
+                MP,
+                DoubleBufferingAlgorithm<
+                    Accelerated,
+                    sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+                    sync_buffer_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+                >,
+            >(client, lhs, rhs, out),
+            SyncLoadingStrategy::Tilewise => matmul::launch_ref::<
+                R,
+                MP,
+                DoubleBufferingAlgorithm<
+                    Accelerated,
+                    sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+                    sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+                >,
+            >(client, lhs, rhs, out),
+            _ => panic!("Unsupported strategy: {:?}", loading_strategy),
+        },
         Strategy::Tiling2D(config) => {
             // TODO Implement tiling2d with EI and EO
             tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());

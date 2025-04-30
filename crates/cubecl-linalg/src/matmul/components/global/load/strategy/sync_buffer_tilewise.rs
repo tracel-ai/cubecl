@@ -90,39 +90,13 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let row_col_stride = num_stages * stage_width;
         let buffer_offset = stage_width * buffer_index;
 
-        comptime! {
-            println!("-------------");
-            println!("input_ident: {:?}", input_ident);
-            println!("line_size: {:?}", line_size);
-            println!("num_planes: {:?}", num_planes);
-            println!("num_tiles: {:?}", num_tiles);
-            println!("plane_dim: {:?}", plane_dim);
-            println!("num_tiles_per_plane: {:?}", num_tiles_per_plane);
-            println!("num_lines_per_tile: {:?}", num_lines_per_tile);
-            println!("num_lines_per_plane: {:?}", num_lines_per_plane);
-            println!("num_lines_per_unit: {:?}", num_lines_per_unit);
-            println!("num_stages: {:?}", num_stages);
-            println!("stage_width: {:?}", stage_width);
-            println!("row_col_stride: {:?}", row_col_stride);
-            println!("buffer_index: {:?}", buffer_index);
-            println!("buffer_offset: {:?}", buffer_offset);
-        }
-
-        // 0..4 * 8 = 0,8,..32
         let starting_tile_within_stage = UNIT_POS_Y * num_tiles_per_plane;
-        // 0,8,..32 / 4 = 0,2,4,6
         let row_col_index = starting_tile_within_stage / stage_width;
-        // 0,8,..32 % 4 = 0
         let inner_offset = starting_tile_within_stage % stage_width;
-        // 0,2,4,6 * 8 + 0 + 0 = 0,16,32,48 OR 4,20,36,52
         let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + buffer_offset;
-        // 0,16,32,48 * 8 = 0,128,256,384 OR 32,160,288,416
-        let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
         Job {
             num_tiles_to_skip,
-            num_lines_to_skip,
-            buffer_index,
             row_col_stride,
             stage_width,
             num_lines_per_tile,
@@ -137,10 +111,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
     num_tiles_to_skip: u32,
-    num_lines_to_skip: u32,
 
-    #[cube(comptime)]
-    buffer_index: u32,
     #[cube(comptime)]
     row_col_stride: u32,
     #[cube(comptime)]
@@ -167,34 +138,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
-        // 0..2 * 32 + 0..32 = 0..64
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
-        // 0..64 / 8 = 0...1...2...,7...
         let nth_tile_for_this_plane = pos_across_tiles / this.num_lines_per_tile;
-        // 0..64 % 8 = 0..7,0..7,0..7,0..7,0..7,0..7,0..7,0..7
         let line_index_within_tile = pos_across_tiles % this.num_lines_per_tile;
 
-        // 0...1...2...,7... / 4 = 0....................1...................
-        // 0000000011111111222222223333333344444444555555556666666677777777 / 4 =
-        // 0000000000000000000000000000000011111111111111111111111111111111
         let row_col_index_local = nth_tile_for_this_plane / this.stage_width;
-        // 0...1...2...,7... % 4 = 0...1...2...3...0...1...2...3...
-        // 0000000011111111222222223333333344444444555555556666666677777777 % 4 =
-        // 0000000011111111222222223333333300000000111111112222222233333333
         let inner_offset = nth_tile_for_this_plane % this.stage_width;
-        // 0....................1................... * 8 + 0...1...2...3...0...1...2...3...
-        // 0000000000000000000000000000000088888888888888888888888888888888 +
-        // 0000000011111111222222223333333300000000111111112222222233333333 =
-        // 000000001111111122222222333333338888888899999999AAAAAAAABBBBBBBB
         let num_tiles_to_skip_local = row_col_index_local * this.row_col_stride + inner_offset;
-        // 0,16,32,48 + 000000001111111122222222333333338888888899999999AAAAAAAABBBBBBBB
-        // OR
-        // 4,20,36,52 + 000000001111111122222222333333338888888899999999AAAAAAAABBBBBBBB
-        // Are they all there?
-        // 0,1,2,3
-        // 4,5,6,7
-        // 8,9,10,11
-        // 12,13,14,15 etc. yes
         let nth_tile_global = this.num_tiles_to_skip + num_tiles_to_skip_local;
 
         let (total_tile_count_row, total_tile_count_col) = match comptime!(this.input_ident) {
@@ -227,7 +177,6 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         Job::load_and_store_line::<MP, TO, G>(
             this,
             tile,
-            // 0..7,0..7,0..7,0..7,0..7,0..7,0..7,0..7
             line_index_within_tile,
             num_lines_to_skip_global,
             tensor_reader,
