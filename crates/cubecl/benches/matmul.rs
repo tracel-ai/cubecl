@@ -68,11 +68,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     let client = R::client(&device);
 
     for (b, m, n, k) in [
-        // (1, 8192, 8192, 8192),
+        (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
-        // (1, 5000, 5000, 5000),
-        // (2, 4096, 4096, 4096),
-        // (32, 1024, 1024, 1024),
+        (1, 5000, 5000, 5000),
+        (2, 4096, 4096, 4096),
+        (32, 1024, 1024, 1024),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
