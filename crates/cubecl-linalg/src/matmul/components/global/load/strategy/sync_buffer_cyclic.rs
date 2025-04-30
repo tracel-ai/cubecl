@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
-use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
+use crate::matmul::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -30,10 +30,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
 
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
-        let num_tiles_in_buffer = comptime! {match ident.as_input_ident() {
-            InputIdent::Lhs => tile_count_row,
-            InputIdent::Rhs => tile_count_col,
-        }};
+        let num_tiles_in_buffer = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
         let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
 
@@ -75,10 +72,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
 
-        let num_tiles_in_buffer = comptime! {match input_ident {
-            InputIdent::Lhs => tile_count_row,
-            InputIdent::Rhs => tile_count_col,
-        }};
+        let num_tiles_in_buffer = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
         let num_tasks = (total_num_lines + total_units - 1) / total_units;
 
@@ -118,7 +112,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
@@ -134,25 +128,38 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
-        // We assume unit_position < total_num_lines * line_size;
-        // This is caught by the loading validation
-
-        let unit_pos_in_buffer = unit_position / tile_size;
+        let tile_index = unit_position / tile_size;
         let pos_within_tile = unit_position % tile_size;
 
-        let (tile_x, tile_y) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (unit_pos_in_buffer, this.buffer_index.runtime()),
-            InputIdent::Rhs => (this.buffer_index.runtime(), unit_pos_in_buffer),
+        let (total_tile_count_row, total_tile_count_col) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (
+                comptime!(tile_count_row),
+                comptime!(tile_count_col * config.num_stages()),
+            ),
+            InputIdent::Rhs => (
+                comptime!(tile_count_row * config.num_stages()),
+                comptime!(tile_count_col),
+            ),
         };
 
-        let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
-            tile_x,
-            tile_y,
+        let (tile_x_within_buffer, tile_y_within_buffer) = TO::to_row_col::<G::SmmConfig>(
+            tile_index,
             tile_count_row,
             tile_count_col,
             comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
+            comptime!(config.to_smm_config()),
         );
+
+        let (tile_x, tile_y) = match comptime!(this.input_ident) {
+            InputIdent::Lhs => (
+                tile_x_within_buffer,
+                this.buffer_index * tile_count_col + tile_y_within_buffer,
+            ),
+            InputIdent::Rhs => (
+                this.buffer_index * tile_count_row + tile_x_within_buffer,
+                tile_y_within_buffer,
+            ),
+        };
 
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
             tile_x,
@@ -162,7 +169,16 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config,
         );
 
-        let tile_start = nth_tile * this.num_lines_per_tile;
+        let nth_tile_in_stage = TO::to_nth_tile::<G::SmmConfig>(
+            tile_x,
+            tile_y,
+            total_tile_count_row,
+            total_tile_count_col,
+            comptime!(this.input_ident.as_ident()),
+            config.to_smm_config(),
+        );
+
+        let tile_start = nth_tile_in_stage * this.num_lines_per_tile;
         let tile_end = tile_start + this.num_lines_per_tile;
         let mut tile_slice = stage
             .as_slice_mut(line_size)

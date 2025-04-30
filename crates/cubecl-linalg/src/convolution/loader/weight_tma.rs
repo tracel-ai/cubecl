@@ -9,7 +9,7 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{
     global::{self, tensor_view::MappedTensorReader},
-    stage::{ContiguousTilingLayout, Stage, StageConfig},
+    stage::{ContiguousTilingLayout, StageConfig, StageMemory},
 };
 use crate::{convolution::base::RuntimeArgs, matmul::components::stage::RowMajorTilingOrder};
 
@@ -19,7 +19,7 @@ pub type TmaWeightReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaWeight
 #[derive(CubeType)]
 pub struct TmaWeightLoader<MP: MatmulPrecision, S: StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stages: Sequence<Stage<MP::ES, TmaWeightTiling>>,
+    pub stages: Sequence<StageMemory<MP::ES, TmaWeightTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -46,7 +46,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(Stage::new_aligned::<G::SmmConfig>(
+            stages.push(StageMemory::new_aligned::<G::SmmConfig>(
                 Ident::Rhs,
                 128u32,
                 config.to_smm_config(),

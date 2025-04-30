@@ -4,7 +4,7 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
-use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
+use crate::matmul::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -91,7 +91,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
@@ -117,7 +117,7 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     job: &Job,
     unit_position: u32,
     tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+    stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
     quantization: &CubeOption<Quantization<MP>>,
     #[comptime] config: G,
 ) {

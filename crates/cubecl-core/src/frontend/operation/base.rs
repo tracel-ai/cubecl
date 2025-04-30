@@ -173,6 +173,9 @@ where
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
 {
+    if lhs.is_immutable() {
+        panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
+    }
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
 
@@ -224,17 +227,24 @@ where
     output
 }
 
-pub fn init_expand<F>(scope: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
+pub fn init_expand<F>(
+    scope: &mut Scope,
+    input: ExpandElement,
+    mutable: bool,
+    func: F,
+) -> ExpandElement
 where
     F: Fn(Variable) -> Operation,
 {
-    if input.can_mut() {
-        return input;
-    }
     let input_var: Variable = *input;
     let item = input.item;
 
-    let out = scope.create_local_mut(item); // TODO: The mut is safe, but unnecessary if the variable is immutable.
+    let out = if mutable {
+        scope.create_local_mut(item)
+    } else {
+        scope.create_local(item)
+    };
+
     let out_var = *out;
 
     let op = func(input_var);

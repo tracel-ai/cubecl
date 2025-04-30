@@ -168,7 +168,7 @@ mod vectorization {
                         self.clone(),
                         ExpandElementTyped::from_lit(scope, 0u32),
                     );
-                    assign::expand::<T>(scope, element, new_var.clone().into());
+                    assign::expand_no_check::<T>(scope, element, new_var.clone().into());
                     new_var
                 } else {
                     let new_var = scope.create_local_mut(item);
@@ -293,7 +293,11 @@ impl<C: CubeType> CubeType for &Array<C> {
 }
 
 impl<C: CubeType> ExpandElementBaseInit for Array<C> {
-    fn init_elem(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(
+        _scope: &mut crate::ir::Scope,
+        elem: ExpandElement,
+        _is_mut: bool,
+    ) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
     }

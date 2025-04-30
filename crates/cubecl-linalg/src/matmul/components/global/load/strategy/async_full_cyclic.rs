@@ -6,7 +6,7 @@ use crate::matmul::components::{
         CopyMechanism, GlobalConfig, LoadingValidation, load::AsyncFullLoadingStrategy,
         tensor_view::TensorReader,
     },
-    stage::{ContiguousTilingLayout, Stage, TilingOrder},
+    stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -109,7 +109,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {

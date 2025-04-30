@@ -151,6 +151,10 @@ pub mod config {
         fn precompute_job(&self) -> bool {
             PRECOMPUTE_JOB
         }
+
+        fn num_stages(&self) -> u32 {
+            self.num_stages
+        }
     }
 
     impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
@@ -184,10 +188,6 @@ pub mod config {
                 1 => self.padding.1,
                 _ => unreachable!(),
             }
-        }
-
-        fn num_stages(&self) -> u32 {
-            self.num_stages
         }
     }
 

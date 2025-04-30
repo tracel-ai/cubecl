@@ -16,6 +16,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub num_planes: u32,
     pub quantized: bool,
     pub buffering: StageBuffering,
+    pub num_stages: u32,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -60,6 +61,10 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     fn buffering(&self) -> StageBuffering {
         self.buffering
     }
+
+    fn num_stages(&self) -> u32 {
+        self.num_stages
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
@@ -72,6 +77,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         num_planes: u32,
         quantized: bool,
         buffering: StageBuffering,
+        num_stages: u32,
     ) -> Self {
         Self {
             tmm_config,
@@ -79,6 +85,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             num_planes,
             quantized,
             buffering,
+            num_stages,
         }
     }
 }

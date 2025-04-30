@@ -23,7 +23,7 @@ impl CubePrimitive for flex32 {
 impl IntoRuntime for flex32 {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
-        Init::init(expand, scope)
+        Init::init(expand, scope, false)
     }
 }
 
@@ -37,8 +37,8 @@ impl Numeric for flex32 {
 }
 
 impl ExpandElementBaseInit for flex32 {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
+        init_expand_element(scope, elem, is_mut)
     }
 }
 

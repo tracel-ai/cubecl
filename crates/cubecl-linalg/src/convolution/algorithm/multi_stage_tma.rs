@@ -107,4 +107,9 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
             }
         }
     }
+
+    // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
+    fn num_stages() -> u32 {
+        1
+    }
 }

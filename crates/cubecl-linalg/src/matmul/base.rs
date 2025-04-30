@@ -15,10 +15,8 @@ use super::{
     kernels::{
         MatmulLaunchError,
         matmul::{
-            self, double_buffering::DoubleBufferingAlgorithm,
-            double_buffering_barrier::DoubleBufferingBarrierAlgorithm, simple::SimpleAlgorithm,
+            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm, simple_tma::SimpleTmaAlgorithm,
-            specialized::SpecializedAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -30,8 +28,6 @@ pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
     DoubleBuffering,
-    DoubleBufferingBarrier,
-    Specialized,
     Naive,
     Tiling2D(Tiling2dConfig),
     #[default]
@@ -143,14 +139,6 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             matmul::launch_ref::<R, MP, DoubleBufferingAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,
             )
-        }
-        Strategy::DoubleBufferingBarrier => {
-            matmul::launch_ref::<R, MP, DoubleBufferingBarrierAlgorithm<Accelerated>>(
-                client, lhs, rhs, out,
-            )
-        }
-        Strategy::Specialized => {
-            matmul::launch_ref::<R, MP, SpecializedAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::Tiling2D(config) => {
             // TODO Implement tiling2d with EI and EO

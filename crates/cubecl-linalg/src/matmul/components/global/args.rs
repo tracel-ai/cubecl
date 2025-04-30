@@ -909,8 +909,8 @@ mod __input {
     }
 
     impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Init for TensorInputExpand<EI, EO, GA> {
-        fn init(mut self, scope: &mut Scope) -> Self {
-            self.state = self.state.init(scope);
+        fn init(mut self, scope: &mut Scope, is_mut: bool) -> Self {
+            self.state = self.state.init(scope, is_mut);
             self
         }
     }
@@ -949,8 +949,8 @@ mod __output {
     }
 
     impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Init for TensorOutputExpand<EI, EO, GA> {
-        fn init(mut self, scope: &mut Scope) -> Self {
-            self.state = self.state.init(scope);
+        fn init(mut self, scope: &mut Scope, is_mut: bool) -> Self {
+            self.state = self.state.init(scope, is_mut);
             self
         }
     }
