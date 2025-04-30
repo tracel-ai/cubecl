@@ -8,6 +8,7 @@ use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
 use crate::matmul::components::global::{Quantization, load::TmaReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::{Ident, MatmulPrecision};
+use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -43,7 +44,7 @@ impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily,
 {
-    type Input = (SMM::Input, bool);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {

@@ -11,6 +11,7 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::{FullReader, FullReaderFamily};
+use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
@@ -54,7 +55,7 @@ where
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Input = (SMM::Input, bool);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -97,7 +98,7 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            input.1
+            input.1,
         )
     }
 }

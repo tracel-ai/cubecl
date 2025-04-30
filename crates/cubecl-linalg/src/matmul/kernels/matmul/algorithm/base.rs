@@ -6,7 +6,7 @@ use crate::matmul::components::{
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::prelude::*;
 
-type GlobalInput = (StageInput, bool);
+type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
 
 type StageInput = (
     CompleteStageTiling,
@@ -24,6 +24,7 @@ pub enum MultiRowStrategy {
     Adaptive { minimum_stage_count: usize },
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LoadingPrecomputeStrategy {
     /// Don't precompute anything in loading jobs
     Never,

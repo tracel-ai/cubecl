@@ -15,6 +15,7 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -47,7 +48,7 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Input = (SMM::Input, bool);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {

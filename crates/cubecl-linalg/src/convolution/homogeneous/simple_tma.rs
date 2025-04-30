@@ -23,7 +23,7 @@ use crate::{
             },
             stage::{FullReader, FullReaderFamily, StageMatmul, StageMatmulFamily},
         },
-        kernels::MatmulAvailabilityError,
+        kernels::{MatmulAvailabilityError, matmul::LoadingPrecomputeStrategy},
     },
 };
 use cubecl_core::prelude::*;
@@ -199,7 +199,7 @@ where
     SMM: StageMatmulFamily,
 {
     type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = (SMM::Input, bool);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())

@@ -21,7 +21,7 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
-pub type GlobalInput = (StageInput, bool);
+pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
 pub type StageInput = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
 
 /// Specifications for a convolution algorithm
