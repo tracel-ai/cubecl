@@ -269,8 +269,7 @@ impl<T: CubeType> CubeType for *mut Tensor<T> {
 }
 
 impl<C: CubeType> ExpandElementIntoMut for Tensor<C> {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement, _is_mut: bool) -> ExpandElement {
-        // The type can't be deeply cloned/copied.
+    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }

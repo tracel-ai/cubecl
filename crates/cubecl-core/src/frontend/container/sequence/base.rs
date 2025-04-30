@@ -26,7 +26,7 @@ impl<T: CubeType> Default for Sequence<T> {
 }
 
 impl<T: CubeType> IntoMut for Sequence<T> {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, scope: &mut Scope) -> Self {
         self
     }
 }
@@ -142,7 +142,7 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
 }
 
 impl<T: CubeType> IntoMut for SequenceExpand<T> {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, scope: &mut Scope) -> Self {
         self
     }
 }

@@ -207,7 +207,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> IntoMut for SliceExpand<E, IO> {
-    fn into_mut(self, _scope: &mut cubecl_ir::Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut cubecl_ir::Scope) -> Self {
         self
     }
 }

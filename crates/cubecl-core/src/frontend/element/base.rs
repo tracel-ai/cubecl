@@ -30,11 +30,8 @@ pub trait CubeType {
     type ExpandType: Clone + IntoMut + CubeDebug;
 
     /// Wrapper around the init method, necessary to type inference.
-    fn init(scope: &mut Scope, expand: Self::ExpandType, is_mut: bool) -> Self::ExpandType {
-        expand.into_mut(scope, is_mut)
-    }
-    fn runtime(self) -> Self {
-        self
+    fn into_mut(scope: &mut Scope, expand: Self::ExpandType) -> Self::ExpandType {
+        expand.into_mut(scope)
     }
 }
 
@@ -48,7 +45,7 @@ pub trait IntoRuntime: CubeType + Sized {
 }
 
 pub trait IntoMut: Sized {
-    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self;
+    fn into_mut(self, scope: &mut Scope) -> Self;
 }
 
 pub trait CubeDebug: Sized {
@@ -218,10 +215,10 @@ macro_rules! tuple_init {
     ($($P:ident),*) => {
         impl<$($P: IntoMut),*> IntoMut for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
+            fn into_mut(self, scope: &mut Scope) -> Self {
                 let ($($P,)*) = self;
                 ($(
-                    $P.into_mut(scope, is_mut),
+                    $P.into_mut(scope),
                 )*)
             }
         }
@@ -254,12 +251,12 @@ all_tuples!(tuple_runtime, 0, 12, P);
 impl<P: CubePrimitive> CubeDebug for P {}
 
 pub trait ExpandElementIntoMut: CubeType {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement;
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement;
 }
 
 impl<T: ExpandElementIntoMut> IntoMut for ExpandElementTyped<T> {
-    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
-        <T as ExpandElementIntoMut>::elem_into_mut(scope, self.into(), is_mut).into()
+    fn into_mut(self, scope: &mut Scope) -> Self {
+        <T as ExpandElementIntoMut>::elem_into_mut(scope, self.into()).into()
     }
 }
 
@@ -366,14 +363,14 @@ pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
 }
 
 impl IntoMut for ExpandElement {
-    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
+    fn into_mut(self, scope: &mut Scope) -> Self {
         into_mut_expand_element(scope, self)
     }
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {
-    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
-        self.map(|o| IntoMut::into_mut(o, scope, is_mut))
+    fn into_mut(self, scope: &mut Scope) -> Self {
+        self.map(|o| IntoMut::into_mut(o, scope))
     }
 }
 
@@ -386,10 +383,8 @@ impl<T: CubeType> CubeType for &mut Vec<T> {
 }
 
 impl<T: IntoMut> IntoMut for Vec<T> {
-    fn into_mut(self, scope: &mut Scope, is_mut: bool) -> Self {
-        self.into_iter()
-            .map(|e| e.into_mut(scope, is_mut))
-            .collect()
+    fn into_mut(self, scope: &mut Scope) -> Self {
+        self.into_iter().map(|e| e.into_mut(scope)).collect()
     }
 }
 impl<T: CubeDebug> CubeDebug for Vec<T> {}

@@ -92,7 +92,7 @@ impl<C: CubeType> CubeType for Matrix<C> {
 }
 
 impl<C: CubeType> IntoMut for MatrixExpand<C> {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -474,7 +474,7 @@ impl CubeType for MatrixLayout {
 }
 
 impl IntoMut for MatrixLayout {
-    fn into_mut(self, _scope: &mut crate::ir::Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
         self
     }
 }

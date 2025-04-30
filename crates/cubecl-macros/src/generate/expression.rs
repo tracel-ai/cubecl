@@ -711,7 +711,7 @@ fn init_fields<'a>(
     context: &'a mut Context,
 ) -> impl Iterator<Item = TokenStream> + 'a {
     fields.iter().map(|(pat, it)| {
-        let init = frontend_type("Init");
+        let into_mut = frontend_type("IntoMut");
         let it = if let Some(as_const) = it.as_const(context) {
             let it = quote_spanned![as_const.span()=> #as_const];
             return quote! {
@@ -726,7 +726,8 @@ fn init_fields<'a>(
         quote! {
             #pat: {
                 let _init = #it;
-                #init::init(_init, scope, false) // No mut variable possible yet
+                // #into_mut::into_mut(_init, scope)
+                _init
             }
         }
     })

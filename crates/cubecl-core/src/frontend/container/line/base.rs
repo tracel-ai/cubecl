@@ -233,12 +233,8 @@ impl<P: CubePrimitive> CubeType for Line<P> {
 }
 
 impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
-    fn elem_into_mut(
-        scope: &mut crate::ir::Scope,
-        elem: ExpandElement,
-        is_mut: bool,
-    ) -> ExpandElement {
-        P::elem_into_mut(scope, elem, is_mut)
+    fn elem_into_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+        P::elem_into_mut(scope, elem)
     }
 }
 

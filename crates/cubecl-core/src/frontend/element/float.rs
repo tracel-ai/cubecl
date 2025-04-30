@@ -86,8 +86,8 @@ macro_rules! impl_float {
 
         impl IntoRuntime for $primitive {
             fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let expand: ExpandElementTyped<Self> = self.into();
-                IntoRuntime::runtime(expand, scope)
+                let elem: ExpandElementTyped<Self> = self.into();
+                into_runtime_expand_element(scope, elem).into()
             }
         }
 
@@ -103,6 +103,12 @@ macro_rules! impl_float {
         impl ExpandElementIntoMut for $primitive {
             fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
                 into_mut_expand_element(scope, elem)
+            }
+        }
+
+        impl IntoMut for $primitive {
+            fn into_mut(self, _scope: &mut Scope) -> Self {
+                self
             }
         }
 

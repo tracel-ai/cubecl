@@ -27,7 +27,7 @@ impl<C: CubePrimitive> CubeType for Barrier<C> {
 }
 
 impl<C: CubePrimitive> IntoMut for BarrierExpand<C> {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -53,7 +53,7 @@ impl CubeType for BarrierLevel {
 }
 
 impl IntoMut for BarrierLevel {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }

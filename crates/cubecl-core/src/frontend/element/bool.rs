@@ -36,12 +36,12 @@ impl CubePrimitive for bool {
 impl IntoRuntime for bool {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
-        IntoMut::into_mut(expand, scope, false)
+        IntoMut::into_mut(expand, scope)
     }
 }
 
 impl ExpandElementIntoMut for bool {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-        into_mut_expand_element(scope, elem, is_mut)
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        into_mut_expand_element(scope, elem)
     }
 }

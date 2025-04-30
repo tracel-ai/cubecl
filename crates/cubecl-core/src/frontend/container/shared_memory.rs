@@ -17,7 +17,7 @@ pub struct SharedMemory<T: CubeType> {
 }
 
 impl<T: CubePrimitive> IntoMut for ExpandElementTyped<SharedMemory<T>> {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }

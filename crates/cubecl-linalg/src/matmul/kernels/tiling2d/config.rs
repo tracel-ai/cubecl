@@ -61,7 +61,7 @@ pub struct CubeTiling2dConfig {
 }
 
 impl IntoMut for CubeTiling2dConfig {
-    fn into_mut(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
