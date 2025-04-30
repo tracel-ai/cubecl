@@ -123,9 +123,14 @@ impl<K: PartialOrd + Ord, V: CubeType> CubeType for Registry<K, V> {
     type ExpandType = Registry<K, V::ExpandType>;
 }
 
-impl<K: PartialOrd + Ord, V> IntoMut for Registry<K, V> {
+impl<K: PartialOrd + Ord, V: IntoMut + Clone> IntoMut for Registry<K, V> {
     fn into_mut(self, scope: &mut crate::ir::Scope) -> Self {
-        // TODO
+        let mut map = self.map.borrow_mut();
+        map.iter_mut().for_each(|(_k, v)| {
+            *v = IntoMut::into_mut(v.clone(), scope);
+        });
+        core::mem::drop(map);
+
         self
     }
 }

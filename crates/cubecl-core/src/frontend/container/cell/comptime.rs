@@ -60,7 +60,7 @@ impl<T: CubeType + Clone> ComptimeCellExpand<T> {
 }
 
 impl<T: CubeType> IntoMut for ComptimeCellExpand<T> {
-    fn into_mut(self, scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }

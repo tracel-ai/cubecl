@@ -26,7 +26,7 @@ impl<T: CubeType> Default for Sequence<T> {
 }
 
 impl<T: CubeType> IntoMut for Sequence<T> {
-    fn into_mut(self, scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -143,6 +143,12 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
 
 impl<T: CubeType> IntoMut for SequenceExpand<T> {
     fn into_mut(self, scope: &mut Scope) -> Self {
+        let mut values = self.values.borrow_mut();
+        values.iter_mut().for_each(|v| {
+            *v = IntoMut::into_mut(v.clone(), scope);
+        });
+        core::mem::drop(values);
+
         self
     }
 }
