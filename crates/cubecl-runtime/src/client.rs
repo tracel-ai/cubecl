@@ -63,8 +63,11 @@ where
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_async(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        self.channel.read(bindings).await
+    pub fn read_async(
+        &self,
+        bindings: Vec<Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<Server, Channel> {
+        self.channel.read(bindings)
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -74,11 +77,6 @@ where
     /// Panics if the read operation fails.
     pub fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
         cubecl_common::reader::read_sync(self.channel.read(bindings))
-    }
-
-    /// Given a binding, returns owned resource as bytes.
-    pub async fn read_one_async(&self, binding: Binding) -> Vec<u8> {
-        self.channel.read([binding].into()).await.remove(0)
     }
 
     /// Given a binding, returns owned resource as bytes.

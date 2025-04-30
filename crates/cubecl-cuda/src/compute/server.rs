@@ -1,4 +1,5 @@
 use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::future::{self, DynFut};
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
@@ -36,7 +37,6 @@ use cudarc::driver::sys::{
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
@@ -82,28 +82,10 @@ struct CompiledKernel {
 unsafe impl Send for CudaServer {}
 
 impl CudaServer {
-    fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
-        let ctx = self.get_context();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .expect("Failed to find resource");
-
-        let mut data = uninit_vec(resource.size() as usize);
-
-        unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
-        };
-
-        ctx.sync();
-
-        data
-    }
-
     fn read_async(
         &mut self,
         bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
         let ctx = self.get_context();
         let mut result = Vec::with_capacity(bindings.len());
 
@@ -123,8 +105,9 @@ impl CudaServer {
         }
 
         let fence = ctx.fence();
-
         async move {
+            // Wait for the fence. This is still sync, so the future will still complete in a
+            // single poll.
             fence.wait();
             result
         }
@@ -133,7 +116,7 @@ impl CudaServer {
     fn read_tensor_async(
         &mut self,
         handles: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
         let ctx = self.get_context();
         let mut result = Vec::with_capacity(handles.len());
 
@@ -186,14 +169,13 @@ impl CudaServer {
         }
     }
 
-    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + 'static + Send {
+    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + Send + use<> {
         let ctx = self.get_context();
         // We can't use a fence here because no action has been recorded on the context.
         // We need at least one action to be recorded after the context is initialized
         // with `cudarc::driver::result::ctx::set_current(self.ctx.context)` for the fence
         // to have any effect. Otherwise, it seems to be ignored.
         let sync = ctx.lazy_sync_stream();
-
         async move {
             sync.wait();
         }
@@ -206,18 +188,12 @@ impl ComputeServer for CudaServer {
     type Feature = Feature;
     type Info = ();
 
-    fn read(
-        &mut self,
-        bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.read_async(bindings)
+    fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
+        Box::pin(self.read_async(bindings))
     }
 
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.read_tensor_async(bindings)
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        Box::pin(self.read_tensor_async(bindings))
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -335,8 +311,8 @@ impl ComputeServer for CudaServer {
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
-                let data = self.read_sync(binding);
-                let data = bytemuck::cast_slice(&data);
+                let data = future::block_on(self.read_async(vec![binding]));
+                let data = bytemuck::cast_slice(&data[0]);
                 assert!(
                     data.len() == 3,
                     "Dynamic cube count should contain 3 values"
@@ -532,9 +508,9 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self) {}
 
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> DynFut<()> {
         self.logger.profile_summary();
-        self.sync_stream_async()
+        Box::pin(self.sync_stream_async())
     }
 
     fn start_profile(&mut self) {
