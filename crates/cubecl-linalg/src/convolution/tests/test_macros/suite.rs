@@ -8,9 +8,7 @@ use crate::{
 };
 use crate::{
     convolution::tests::convolution_test_launcher::test_convolution_algorithm,
-    matmul::components::{
-        MatmulSelection, MatmulSize, global::args::MatmulArgs, stage::STAGE_BUFFERING,
-    },
+    matmul::components::{MatmulSelection, MatmulSize, global::args::MatmulArgs},
 };
 use cubecl_core::Runtime;
 
@@ -96,10 +94,13 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         client,
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy().into(),
         ),
         selection,
     );

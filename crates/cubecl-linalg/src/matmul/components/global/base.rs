@@ -15,8 +15,6 @@ use cubecl_std::{
 
 use super::Quantization;
 
-pub const PRECOMPUTE_JOB: bool = false;
-
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
     MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static

@@ -265,7 +265,7 @@ where
     SMM: StageMatmulFamily,
 {
     type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = SMM::Input;
+    type Input = (SMM::Input, bool);
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
@@ -286,7 +286,7 @@ where
         problem.rhs_line_size = 1;
 
         let smm_config = SMM::make_config(
-            input,
+            input.0,
             &problem.as_matmul_problem(),
             cube_dim,
             cube_count,
@@ -311,6 +311,7 @@ where
                 problem.rhs_line_size as u32,
                 problem.out_line_size as u32,
                 size.k,
+                input.1,
             ),
             problem.kernel_size,
             problem.stride,

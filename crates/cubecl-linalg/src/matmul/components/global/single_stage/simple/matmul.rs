@@ -49,7 +49,7 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type Input = SMM::Input;
+    type Input = (SMM::Input, bool);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -72,7 +72,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -86,6 +86,7 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
+            input.1
         )
     }
 }

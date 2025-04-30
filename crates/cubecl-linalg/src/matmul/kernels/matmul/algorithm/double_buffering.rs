@@ -10,7 +10,7 @@ use crate::matmul::components::stage::{
 use crate::matmul::components::{MatmulSelection, tile};
 use crate::matmul::components::{batch, global};
 
-use super::base;
+use super::base::{self, MultiRowStrategy};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
@@ -56,6 +56,12 @@ where
     fn num_stages() -> u32 {
         2
     }
+
+    fn multi_row_strategy() -> MultiRowStrategy {
+        MultiRowStrategy::Adaptive {
+            minimum_stage_count: 8,
+        }
+    }
 }
 
 impl<TMM, Dispatch> base::Algorithm for TilewiseDoubleBufferingAlgorithm<TMM, Dispatch>
@@ -91,6 +97,12 @@ where
     fn num_stages() -> u32 {
         2
     }
+
+    fn multi_row_strategy() -> MultiRowStrategy {
+        MultiRowStrategy::Adaptive {
+            minimum_stage_count: 8,
+        }
+    }
 }
 
 impl<TMM, Dispatch> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM, Dispatch>
@@ -124,5 +136,11 @@ where
 
     fn num_stages() -> u32 {
         2
+    }
+
+    fn multi_row_strategy() -> MultiRowStrategy {
+        MultiRowStrategy::Adaptive {
+            minimum_stage_count: 8,
+        }
     }
 }

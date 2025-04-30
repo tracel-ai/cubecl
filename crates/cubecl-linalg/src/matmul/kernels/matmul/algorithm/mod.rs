@@ -7,4 +7,5 @@ pub mod simple_barrier;
 pub mod simple_tma;
 
 pub use base::Algorithm;
+pub use base::{LoadingPrecomputeStrategy, MultiRowStrategy};
 pub use selector::*;

@@ -6,7 +6,10 @@ use crate::{
             stage::{StageBuffering, StageMatmulFamily, StageVectorization},
             tile::TileMatmulFamily,
         },
-        kernels::MatmulAvailabilityError,
+        kernels::{
+            MatmulAvailabilityError,
+            matmul::{LoadingPrecomputeStrategy, MultiRowStrategy},
+        },
     },
     tensor::TensorHandle,
 };
@@ -18,19 +21,32 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
+pub type GlobalInput = (StageInput, bool);
 pub type StageInput = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
 
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
-    type GlobalConvolution: ConvolutionFamily<Input = StageInput>;
+    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput>;
 
     type Args: MatmulArgs;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
     fn num_stages() -> u32;
+
+    fn multi_row_strategy() -> MultiRowStrategy {
+        MultiRowStrategy::Never
+    }
+
+    fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
+        LoadingPrecomputeStrategy::Never
+    }
+
+    fn stage_buffering_strategy() -> StageBuffering {
+        StageBuffering::Double
+    }
 
     /// Make a convolution config from a convolution problem, and launch options
     fn make_config<R: Runtime, MP: MatmulPrecision>(

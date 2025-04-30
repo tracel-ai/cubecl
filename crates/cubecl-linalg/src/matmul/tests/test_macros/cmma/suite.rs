@@ -1,4 +1,4 @@
-use crate::matmul::components::stage::{STAGE_BUFFERING, StageVectorization};
+use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
@@ -58,10 +58,13 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         client,
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy().into(),
         ),
         selection,
     );
@@ -117,10 +120,13 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         client,
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy().into(),
         ),
         selection,
     );

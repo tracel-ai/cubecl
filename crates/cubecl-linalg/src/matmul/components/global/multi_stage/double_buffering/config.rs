@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     Ident, MatmulConfig, MatrixLayout, TilingDimensions,
-    global::{GlobalConfig, PRECOMPUTE_JOB},
+    global::GlobalConfig,
     stage::{self},
 };
 
@@ -17,6 +17,7 @@ pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub rhs_line_size: u32,
     pub out_line_size: u32,
     pub num_planes: u32,
+    precompute_job: bool,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
@@ -75,7 +76,7 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     }
 
     fn precompute_job(&self) -> bool {
-        PRECOMPUTE_JOB
+        self.precompute_job
     }
 
     fn num_stages(&self) -> u32 {
@@ -98,6 +99,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
+        precompute_job: bool,
     ) -> Self {
         Self {
             smm_config,
@@ -110,6 +112,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
+            precompute_job,
         }
     }
 }
