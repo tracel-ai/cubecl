@@ -178,7 +178,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_tilewise() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleAlgorithm<TMM, sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>, sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>>,
+                SimpleAlgorithm<TMM, sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>, sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>>,
                 Precision,
                 TestRuntime,
             >(
