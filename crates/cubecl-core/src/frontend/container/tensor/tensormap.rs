@@ -92,8 +92,8 @@ impl<E: CubePrimitive> TensorMap<E> {
     }
 }
 
-impl<E: CubePrimitive> ExpandElementBaseInit for TensorMap<E> {
-    fn init_elem(_scope: &mut Scope, elem: ExpandElement, _is_mut: bool) -> ExpandElement {
+impl<E: CubePrimitive> ExpandElementIntoMut for TensorMap<E> {
+    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }

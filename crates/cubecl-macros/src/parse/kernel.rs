@@ -391,7 +391,7 @@ impl KernelFn {
         })
     }
 
-    /// We need to call Init::init on mutable owned inputs since their local variables need to be
+    /// We need to call IntoMut::into_mut on mutable owned inputs since their local variables need to be
     /// identified as mut, which is done at initialization.
     ///
     /// However, we don't specify mutability during initialization when we don't need to mutate the
@@ -399,14 +399,14 @@ impl KernelFn {
     /// as input. Therefore, we need to adjust the mutability here.
     fn patch_mut_owned_inputs(block: &mut Block, sig: &KernelSignature) {
         let mut mappings = Vec::new();
-        let init = frontend_type("Init");
+        let into_mut = frontend_type("IntoMut");
 
         for s in sig.parameters.iter() {
             if !s.is_ref && s.is_mut {
                 let name = s.name.clone();
                 let expression = Expression::Verbatim {
                     tokens: quote! {
-                        let mut #name = #init::init(#name, scope, true);
+                        let mut #name = #into_mut::into_mut(#name, scope);
                     },
                 };
                 let stmt = Statement::Expression {
