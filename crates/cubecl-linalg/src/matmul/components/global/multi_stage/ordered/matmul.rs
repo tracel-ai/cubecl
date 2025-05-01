@@ -148,8 +148,9 @@ where
         let num_loops = (num_stage_matmuls - 2) / 2;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
-        let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
-        let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
+        let mut lhs_tile = SMM::init_lhs_tile_inputs(config.to_smm_config());
+        let mut rhs_tile_a = SMM::init_rhs_tile_inputs(config.to_smm_config());
+        let mut rhs_tile_b = SMM::init_rhs_tile_inputs(config.to_smm_config());
 
         let lhs_reader = Self::LhsLoader::reader(&lhs_loader);
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
@@ -166,13 +167,17 @@ where
             >(
                 &lhs_reader,
                 &rhs_reader_a,
-                &mut lhs_tile_a,
+                &mut lhs_tile,
                 &mut rhs_tile_a,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
+            // Rhs is advanced by 2 * k because Buffer B shares the same global memory state as Buffer A,
+            // but it is implicitly offset by one buffer's worth (k elements) when reading.
+            // Lhs, on the other hand, is advanced by k twice — once per load/execute cycle —
+            // because it does not use a second, offset buffer; it simply progresses linearly through global memory.
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
@@ -183,7 +188,7 @@ where
             >(
                 &lhs_reader,
                 &rhs_reader_b,
-                &mut lhs_tile_b,
+                &mut lhs_tile,
                 &mut rhs_tile_b,
                 acc,
                 config.to_smm_config(),
@@ -200,7 +205,7 @@ where
         >(
             &lhs_reader,
             &rhs_reader_a,
-            &mut lhs_tile_a,
+            &mut lhs_tile,
             &mut rhs_tile_a,
             acc,
             config.to_smm_config(),
@@ -212,7 +217,7 @@ where
         SMM::execute(
             &lhs_reader,
             &rhs_reader_b,
-            &mut lhs_tile_b,
+            &mut lhs_tile,
             &mut rhs_tile_b,
             acc,
             config.to_smm_config(),

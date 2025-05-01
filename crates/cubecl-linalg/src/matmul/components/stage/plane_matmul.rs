@@ -172,6 +172,13 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
+        (
+            PlaneMatmul::<MP, TMM, RL, RR>::init_lhs_tile_inputs(config),
+            PlaneMatmul::<MP, TMM, RL, RR>::init_rhs_tile_inputs(config),
+        )
+    }
+
+    fn init_lhs_tile_inputs(#[comptime] config: Self::Config) -> Self::LhsTile {
         let shape = (
             config.tile_count().m / config.num_planes(),
             config.tile_count().n,
@@ -185,16 +192,18 @@ where
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
-        (
-            lhs,
-            match config.buffering() {
-                StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
-                StageBuffering::Double => RhsTile::new_Double((
-                    TMM::allocate_rhs(tmm_config),
-                    TMM::allocate_rhs(tmm_config),
-                )),
-            },
-        )
+        lhs
+    }
+
+    fn init_rhs_tile_inputs(#[comptime] config: Self::Config) -> Self::RhsTile {
+        let tmm_config = config.to_tmm_config();
+
+        match config.buffering() {
+            StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
+            StageBuffering::Double => {
+                RhsTile::new_Double((TMM::allocate_rhs(tmm_config), TMM::allocate_rhs(tmm_config)))
+            }
+        }
     }
 
     fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(

@@ -169,6 +169,8 @@ where
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
+            // We always advance by 2 * k because Buffer B shares the same global memory state as Buffer A,
+            // but it is implicitly offset by one buffer's worth (k elements) when reading.
             Self::LhsLoader::advance_view(&mut lhs_loader, loop_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
