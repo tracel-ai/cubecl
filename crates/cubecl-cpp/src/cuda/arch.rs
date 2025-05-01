@@ -36,4 +36,8 @@ impl Architecture for CudaArchitecture {
     fn is_mfma_capable(&self) -> bool {
         false
     }
+
+    fn get_version(&self) -> u32 {
+        self.version
+    }
 }

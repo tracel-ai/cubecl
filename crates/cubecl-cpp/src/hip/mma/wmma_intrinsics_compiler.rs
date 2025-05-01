@@ -2,7 +2,7 @@ use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Fragment, FragmentIdent,
-        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -26,32 +26,39 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
-    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
         // in other words fragments are duplicated
         // so lanes 0,16 / 1,17 / ... / 15, 31 are the same
         f.write_str("uint wmmaLane = uint(threadIdx.x % 16);\n")
     }
 
-    fn compile_fragment_ident(
-        _ident: &FragmentIdent<HipDialect<Self>>,
-        _f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        // nothing to do
-        Ok(())
-    }
-
-    fn compile_fragment_layout(
-        _layout: &FragmentLayout<HipDialect<Self>>,
-        _f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        // nothing to do
-        Ok(())
-    }
-
-    fn compile_fragment(
-        fragment: &Fragment<HipDialect<Self>>,
+    fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
+        var: &crate::shared::Variable<HipDialect<Self>>,
+    ) -> std::fmt::Result {
+        wmma_api_base::compile_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        _f: &mut std::fmt::Formatter<'_>,
+        _ident: &FragmentIdent<HipDialect<Self>>,
+    ) -> std::fmt::Result {
+        // nothing to do
+        Ok(())
+    }
+
+    fn compile_wmma_fragment_layout(
+        _f: &mut std::fmt::Formatter<'_>,
+        _layout: &FragmentLayout<HipDialect<Self>>,
+    ) -> std::fmt::Result {
+        // nothing to do
+        Ok(())
+    }
+
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
+        fragment: &Fragment<HipDialect<Self>>,
     ) -> std::fmt::Result {
         match fragment.ident {
             FragmentIdent::A | FragmentIdent::B => match fragment.elem {
@@ -69,9 +76,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         }
     }
 
-    fn compile_instruction(
-        instruction: &WmmaInstruction<HipDialect<Self>>,
+    fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
+        instruction: &WmmaInstruction<HipDialect<Self>>,
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {

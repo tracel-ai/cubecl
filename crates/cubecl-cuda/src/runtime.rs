@@ -1,4 +1,5 @@
 use std::mem::MaybeUninit;
+use std::str::FromStr;
 
 use cubecl_core::{
     AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime, TmaFeature,
@@ -14,14 +15,15 @@ use cubecl_runtime::{
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
 
 use crate::{
+    CudaWmmaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
 use cubecl_cpp::{
-    CudaCompiler, DialectWmmaCompiler,
-    cuda::{arch::CudaArchitecture, mma::CudaWmmaCompiler},
+    DialectWmmaCompiler,
+    cuda::{CudaDialect, arch::CudaArchitecture},
     register_supported_types,
-    shared::{CompilationOptions, register_wmma_features},
+    shared::{Architecture, CompilationOptions, CppCompiler, register_wmma_features},
 };
 
 /// Options configuring the CUDA runtime.
@@ -39,7 +41,12 @@ type Channel = MutexComputeChannel<Server>;
 
 static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
 
-fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
+pub type CudaCompiler = CppCompiler<CudaDialect<CudaWmmaCompiler>>;
+
+fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
+    device: &CudaDevice,
+    options: RuntimeOptions,
+) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
@@ -56,7 +63,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         .unwrap();
         major * 10 + minor
     } as u32;
-    let arch = CudaArchitecture { version: arch };
+    let arch = M::Architecture::from_str(&format!("{arch}")).unwrap();
 
     let ctx = unsafe {
         let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
@@ -106,7 +113,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         let num_streaming_multiprocessors = Some(
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
         );
-        let num_tensor_cores = tensor_cores_per_sm(arch.version);
+        let num_tensor_cores = tensor_cores_per_sm(arch.get_version());
 
         comp_opts.warp_size = warp_size;
 
@@ -134,11 +141,10 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
-
-    if arch.version >= 60 {
+    if arch.get_version() >= 60 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
     }
-    if arch.version >= 70 {
+    if arch.get_version() >= 70 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
@@ -146,19 +152,21 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
         comp_opts.grid_constants = true;
     }
-    if arch.version >= 90 {
+    if arch.get_version() >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
         device_props.register_feature(Feature::CubeCluster);
         comp_opts.supports_clusters = true;
     }
-    if arch.version >= 100 {
+    if arch.get_version() >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
     }
     // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
-    // if arch.version >= 80 {
+    // if arch.get_version() >= 80 {
     //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
     // }
-    let supported_wmma_combinations = CudaWmmaCompiler::supported_wmma_combinations(&arch);
+    // Ask the wmma compiler for its supported combinations
+    let arch = M::Architecture::from_str(&format!("{}", arch.get_version())).unwrap();
+    let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
@@ -166,6 +174,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
     device_props.register_feature(Feature::DynamicLineSize);
 
+    let arch = CudaArchitecture::from_str(&format!("{}", arch.get_version())).unwrap();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
@@ -188,7 +197,7 @@ impl Runtime for CudaRuntime {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            create_client(device, RuntimeOptions::default())
+            create_client::<CudaWmmaCompiler>(device, RuntimeOptions::default())
         })
     }
 

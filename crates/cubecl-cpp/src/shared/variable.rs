@@ -102,6 +102,7 @@ pub enum Variable<D: Dialect> {
         id: Id,
         item: Item<D>,
         is_declared: bool,
+        is_ptr: bool,
     },
 }
 
@@ -312,6 +313,21 @@ impl<D: Dialect> Variable<D> {
             id: inc as Id,
             item,
             is_declared: false,
+            is_ptr: false,
+        }
+    }
+
+    /// Create a temporary pointer variable.
+    ///
+    /// Also see [Self::tmp_declared] for a version that needs custom declaration.
+    pub fn tmp_ptr(item: Item<D>) -> Self {
+        let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        Variable::Tmp {
+            id: inc as Id,
+            item,
+            is_declared: false,
+            is_ptr: true,
         }
     }
 
@@ -327,6 +343,7 @@ impl<D: Dialect> Variable<D> {
             id: inc as Id,
             item,
             is_declared: true,
+            is_ptr: false,
         }
     }
 
@@ -501,10 +518,15 @@ impl<D: Dialect> FmtLeft for Variable<D> {
         match self {
             Self::LocalConst { item, .. } => format!("const {item} {self}"),
             Variable::Tmp {
-                item, is_declared, ..
+                item,
+                is_declared,
+                is_ptr,
+                ..
             } => {
                 if *is_declared {
                     format!("{self}")
+                } else if *is_ptr {
+                    format!("{item} *{self}")
                 } else {
                     format!("{item} {self}")
                 }
@@ -568,7 +590,13 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
     fn fmt_left(&self) -> String {
         match self.var {
             Variable::LocalConst { item, .. } => format!("const {item} {self}"),
-            Variable::Tmp { item, .. } => format!("{item} {self}"),
+            Variable::Tmp { item, is_ptr, .. } => {
+                if is_ptr {
+                    format!("{item} *{self}")
+                } else {
+                    format!("{item} {self}")
+                }
+            }
             _ => format!("{self}"),
         }
     }

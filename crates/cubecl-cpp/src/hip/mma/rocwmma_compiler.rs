@@ -23,36 +23,43 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         Ok(())
     }
 
-    fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
-    fn compile_fragment_ident(
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &crate::shared::Variable<HipDialect<Self>>,
+    ) -> std::fmt::Result {
+        wmma_api_base::compile_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &FragmentIdent<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_ident(ROCWMMA_NAMESPACE, ident, f)
+        wmma_api_base::compile_fragment_ident(f, ROCWMMA_NAMESPACE, ident)
     }
 
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &FragmentLayout<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_layout(ROCWMMA_NAMESPACE, layout, f)
+        wmma_api_base::compile_fragment_layout(f, ROCWMMA_NAMESPACE, layout)
     }
 
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &Fragment<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment(ROCWMMA_NAMESPACE, fragment, f)
+        wmma_api_base::compile_fragment(f, ROCWMMA_NAMESPACE, fragment)
     }
 
-    fn compile_instruction(
-        instruction: &WmmaInstruction<HipDialect<Self>>,
+    fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
+        instruction: &WmmaInstruction<HipDialect<Self>>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_instruction(ROCWMMA_NAMESPACE, instruction, f)
+        wmma_api_base::compile_instruction(f, ROCWMMA_NAMESPACE, instruction)
     }
 
     fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {

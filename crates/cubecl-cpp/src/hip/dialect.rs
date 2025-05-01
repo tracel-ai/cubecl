@@ -8,7 +8,6 @@ use crate::shared::{
 };
 use crate::{
     Dialect,
-    cuda::CudaDialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
         DialectWmmaCompiler, Flags, Item,
@@ -259,15 +258,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {
 
 impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaDialect::compile_instruction_sync_threads(f)
+        writeln!(f, "__syncthreads();\n")
     }
 
     fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaDialect::compile_instruction_sync_warp(f)
+        writeln!(f, "__syncwarp();\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaDialect::compile_instruction_thread_fence(f)
+        writeln!(f, "__threadfence();")
     }
 
     // unary
@@ -403,36 +402,43 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
         M::compile_wmma_type_definitions(f)
     }
 
-    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_local_variables(f)
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::compile_wmma_local_variables(f)
     }
 
-    fn compile_fragment_ident(
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &Variable<Self>,
+    ) -> std::fmt::Result {
+        M::compile_wmma_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &crate::shared::FragmentIdent<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        M::compile_fragment_ident(ident, f)
+        M::compile_wwma_fragment_ident(f, ident)
     }
 
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &crate::shared::FragmentLayout<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        M::compile_fragment_layout(layout, f)
+        M::compile_wmma_fragment_layout(f, layout)
     }
 
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &crate::shared::Fragment<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        M::compile_fragment(fragment, f)
+        M::compile_wmma_fragment(f, fragment)
     }
 
-    fn compile_instruction(
-        instruction: &crate::shared::WmmaInstruction<Self>,
+    fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
+        instruction: &crate::shared::WmmaInstruction<Self>,
     ) -> std::fmt::Result {
-        M::compile_instruction(instruction, f)
+        M::compile_wmma_instruction(f, instruction)
     }
 
     fn supported_wmma_combinations(
