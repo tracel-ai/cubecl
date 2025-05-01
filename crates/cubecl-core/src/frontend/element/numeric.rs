@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    ArgSettings, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime, LaunchArg, LaunchArgExpand,
+    ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg, LaunchArgExpand,
 };
 
 /// Type that encompasses both (unsigned or signed) integers and floats
@@ -28,7 +28,7 @@ pub trait Numeric:
     + IntoRuntime
     + LaunchArgExpand<CompilationArg = ()>
     + ScalarArgSettings
-    + ExpandElementBaseInit
+    + ExpandElementIntoMut
     + Into<ExpandElementTyped<Self>>
     + num_traits::NumCast
     + std::ops::AddAssign

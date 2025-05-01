@@ -66,7 +66,7 @@ impl CubeTypeEnum {
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let scope = prelude_type("Scope");
-        let init = prelude_type("Init");
+        let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
 
         let name = &self.ident;
@@ -77,7 +77,7 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.map_body(name_expand, |f| quote!(#init::init(#f, scope, is_mut))))
+                .map(|v| v.map_body(name_expand, |f| quote!(#into_mut::into_mut(#f, scope))))
                 .collect(),
         );
 
@@ -95,8 +95,8 @@ impl CubeTypeEnum {
             .map(|v| v.new_variant_function(name_expand, &generic_names));
 
         quote! {
-            impl #generics #init for #name_expand #generic_names #where_clause {
-                fn init(self, scope: &mut #scope, is_mut: bool) -> Self {
+            impl #generics #into_mut for #name_expand #generic_names #where_clause {
+                fn into_mut(self, scope: &mut #scope) -> Self {
                     #body_init
                 }
             }

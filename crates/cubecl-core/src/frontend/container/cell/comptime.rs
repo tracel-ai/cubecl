@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, Init};
+use crate::prelude::{CubeDebug, CubeType, IntoMut};
 
 #[derive(Debug, Clone)]
 /// A cell that can store and mutate a cube type during comptime.
@@ -59,8 +59,8 @@ impl<T: CubeType + Clone> ComptimeCellExpand<T> {
     }
 }
 
-impl<T: CubeType> Init for ComptimeCellExpand<T> {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl<T: CubeType> IntoMut for ComptimeCellExpand<T> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }

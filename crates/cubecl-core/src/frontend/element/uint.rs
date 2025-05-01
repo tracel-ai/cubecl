@@ -6,8 +6,8 @@ use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 
 use super::{
-    ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime, LaunchArgExpand,
-    ScalarArgSettings, init_expand_element,
+    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, LaunchArgExpand,
+    ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
 };
 
 macro_rules! declare_uint {
@@ -16,28 +16,28 @@ macro_rules! declare_uint {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
-        impl ExpandElementBaseInit for $primitive {
-            fn init_elem(scope: &mut Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-                init_expand_element(scope, elem, is_mut)
-            }
-        }
-
         impl CubePrimitive for $primitive {
             fn as_elem_native() -> Option<Elem> {
                 Some(Elem::UInt(UIntKind::$kind))
             }
         }
 
-        impl Init for $primitive {
-            fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+        impl IntoRuntime for $primitive {
+            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+                let elem: ExpandElementTyped<Self> = self.into();
+                into_runtime_expand_element(scope, elem).into()
+            }
+        }
+
+        impl IntoMut for $primitive {
+            fn into_mut(self, _scope: &mut Scope) -> Self {
                 self
             }
         }
 
-        impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, scope, false)
+        impl ExpandElementIntoMut for $primitive {
+            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                into_mut_expand_element(scope, elem)
             }
         }
 

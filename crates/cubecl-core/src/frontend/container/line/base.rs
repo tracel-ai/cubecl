@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use crate as cubecl;
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped},
+    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
     prelude::MulHi,
 };
 use crate::{
@@ -93,7 +93,8 @@ mod empty {
         pub fn empty(#[comptime] size: u32) -> Self {
             intrinsic!(|scope| {
                 let length = NonZero::new(size as u8);
-                // Not useful if not mut.
+                // We don't declare const variables in our compilers, only mut variables.
+                // So we need to create the variable as mut here.
                 scope
                     .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
                     .into()
@@ -231,9 +232,9 @@ impl<P: CubePrimitive> CubeType for Line<P> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
-    fn init_elem(scope: &mut crate::ir::Scope, elem: ExpandElement, is_mut: bool) -> ExpandElement {
-        P::init_elem(scope, elem, is_mut)
+impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
+    fn elem_into_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+        P::elem_into_mut(scope, elem)
     }
 }
 
