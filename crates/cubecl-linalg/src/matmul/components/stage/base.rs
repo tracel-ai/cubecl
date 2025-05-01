@@ -95,8 +95,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
-    fn init_lhs_tile_inputs(#[comptime] config: Self::Config) -> Self::LhsTile;
-    fn init_rhs_tile_inputs(#[comptime] config: Self::Config) -> Self::RhsTile;
 
     /// Reads the result of the accumulator and hands it to the stage writer
     ///

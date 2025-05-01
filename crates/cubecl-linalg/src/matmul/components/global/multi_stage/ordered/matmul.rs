@@ -149,8 +149,7 @@ where
 
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let mut lhs_tile = SMM::init_lhs_tile_inputs(config.to_smm_config());
-        let mut rhs_tile = SMM::init_rhs_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         let lhs_reader = Self::LhsLoader::reader(&lhs_loader);
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
@@ -503,7 +502,6 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
     ) {
         if comptime![!event_lhs_completed && should_handle_event(event_lhs, current, total)] {
             let lhs_job = self.state_lhs.index_mut(0);
-            panic!("NO NUMTI LASKAS");
 
             SyncFullLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
         }
