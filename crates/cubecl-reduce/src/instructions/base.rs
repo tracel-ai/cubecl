@@ -38,7 +38,7 @@ pub trait ReduceInstruction<P: ReducePrecision>:
     /// When multiple agents are collaborating to reduce a single slice,
     /// we need a share accumulator to store multiple `AccumulatorItem`.
     /// This is most likely a `SharedMemory<Line<T>>` or a struct or tuple of lined shared memories.
-    type SharedAccumulator: SharedAccumulator<P::EA, Item = Self::AccumulatorItem>;
+    type SharedAccumulator: SharedAccumulator<Item = Self::AccumulatorItem>;
 
     fn from_config(#[comptime] config: Self::Config) -> Self;
     /// A input such that `Self::reduce(accumulator, Self::null_input(), coordinate, use_planes)`
@@ -98,7 +98,7 @@ pub enum ReduceCoordinate {
 
 /// A simple trait that abstract over a single or multiple shared memory.
 #[cube]
-pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
+pub trait SharedAccumulator: CubeType + Send + Sync + 'static {
     type Item: CubeType;
 
     fn allocate(
@@ -113,7 +113,7 @@ pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
 }
 
 #[cube]
-impl<In: Numeric> SharedAccumulator<In> for SharedMemory<Line<In>> {
+impl<In: Numeric> SharedAccumulator for SharedMemory<Line<In>> {
     type Item = Line<In>;
 
     fn allocate(
@@ -141,7 +141,7 @@ pub struct ArgAccumulator<N: Numeric> {
 }
 
 #[cube]
-impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
+impl<In: Numeric> SharedAccumulator for ArgAccumulator<In> {
     type Item = (Line<In>, Line<u32>);
 
     fn allocate(

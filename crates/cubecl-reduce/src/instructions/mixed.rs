@@ -51,7 +51,7 @@ pub struct DynamicAccumulatorItem<N: Numeric> {
 }
 
 #[cube]
-impl<In: Numeric> SharedAccumulator<In> for DynamicAccumulator<In> {
+impl<In: Numeric> SharedAccumulator for DynamicAccumulator<In> {
     type Item = DynamicAccumulatorItem<In>;
 
     fn allocate(
