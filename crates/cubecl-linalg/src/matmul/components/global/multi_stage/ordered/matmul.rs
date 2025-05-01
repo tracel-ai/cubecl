@@ -361,8 +361,9 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig> StageE
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::LhsLoaded { current, total } = event {
-            this.lhs_loaded_current
-                .store(TaskCounter { counter: current });
+            this.lhs_loaded_current.store(TaskCounter {
+                counter: current + 1, // Current starts at 0.
+            });
             this.lhs_loaded_total.store(TaskCounter { counter: total });
         }
 
@@ -493,7 +494,12 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
                 let lhs_loaded_smem_unit_ratio = 1.0 / lhs_job.num_tasks as f32;
                 let lhs_loaded_smem_next = lhs_loaded_smem_ratio + lhs_loaded_smem_unit_ratio;
 
-                let event_lhs = if lhs_loaded_smem_next < lhs_loaded_frag_ratio {
+                // println!("lhs_loaded_frag_ratio {lhs_loaded_frag_ratio}");
+                // println!("lhs_loaded_smem_ratio {lhs_loaded_smem_ratio}");
+                // println!("LHS loaded smem unit ratio {lhs_loaded_smem_unit_ratio}");
+                // println!("LHS loaded smem next {lhs_loaded_smem_next}");
+
+                let event_lhs = if lhs_loaded_smem_next <= lhs_loaded_frag_ratio {
                     let event = lhs_num_task_executed * STEP + START;
 
                     if event < index {
@@ -506,7 +512,8 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
                         event
                     }
                 } else {
-                    1000u32 // Max value
+                    // println!("SKIP");
+                    index + 1
                 };
 
                 let event_lhs_completed = lhs_num_task_executed >= lhs_job.num_tasks;
@@ -551,6 +558,7 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
         if comptime![!event_lhs_completed && should_handle_event(event_lhs, current, total)] {
             let lhs_job = self.state_lhs.index_mut(0);
 
+            // comptime!(println!("Executing LHS {event_lhs}"));
             SyncFullLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
         }
 
