@@ -111,11 +111,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-<<<<<<< HEAD
-        (config_input, STAGE_BUFFERING),
-=======
         (config_input, STAGE_BUFFERING, vectorization),
->>>>>>> main
         selection,
     );
 }
@@ -183,24 +179,6 @@ macro_rules! matmul_standard_tests {
                 $stage,
                 $problem,
                 1,
-<<<<<<< HEAD
-            );
-        }
-
-        #[test]
-        pub fn simple_pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimplePipelinedAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-=======
->>>>>>> main
             );
         }
 
@@ -295,8 +273,6 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-<<<<<<< HEAD
-=======
         pub fn double_buffering_barrier() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingBarrierAlgorithm<TMM>,
@@ -312,7 +288,6 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
->>>>>>> main
         pub fn double_buffering_multi_rows() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,

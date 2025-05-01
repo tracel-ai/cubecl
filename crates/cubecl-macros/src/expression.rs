@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
     AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
-    PathSegment, Type,
+    PathSegment, QSelf, Type,
 };
 
 use crate::{
@@ -33,6 +33,7 @@ pub enum Expression {
     },
     Path {
         path: Path,
+        qself: Option<QSelf>,
     },
     Literal {
         value: Lit,
@@ -47,7 +48,7 @@ pub enum Expression {
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
-        associated_type: Option<(Path, PathSegment)>,
+        associated_type: Option<(Path, Option<QSelf>, PathSegment)>,
         span: Span,
     },
     CompilerIntrinsic {
