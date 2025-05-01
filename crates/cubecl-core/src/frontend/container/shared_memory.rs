@@ -4,7 +4,7 @@ use crate as cubecl;
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
+    frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut, indexation::Index},
     ir::{Item, Scope},
     prelude::{
         Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
@@ -16,8 +16,8 @@ pub struct SharedMemory<T: CubeType> {
     _val: PhantomData<T>,
 }
 
-impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
-    fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+impl<T: CubePrimitive> IntoMut for ExpandElementTyped<SharedMemory<T>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
