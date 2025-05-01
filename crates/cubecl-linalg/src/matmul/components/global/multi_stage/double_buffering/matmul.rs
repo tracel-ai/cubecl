@@ -143,8 +143,7 @@ where
         let num_loops = (num_stage_matmuls - 2) / 2;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
-        let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
-        let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
         let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
@@ -162,8 +161,8 @@ where
             >(
                 &lhs_reader_a,
                 &rhs_reader_a,
-                &mut lhs_tile_a,
-                &mut rhs_tile_a,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
@@ -181,8 +180,8 @@ where
             >(
                 &lhs_reader_b,
                 &rhs_reader_b,
-                &mut lhs_tile_b,
-                &mut rhs_tile_b,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
@@ -196,8 +195,8 @@ where
         >(
             &lhs_reader_a,
             &rhs_reader_a,
-            &mut lhs_tile_a,
-            &mut rhs_tile_a,
+            &mut lhs_tile,
+            &mut rhs_tile,
             acc,
             config.to_smm_config(),
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
@@ -208,8 +207,8 @@ where
         SMM::execute(
             &lhs_reader_b,
             &rhs_reader_b,
-            &mut lhs_tile_b,
-            &mut rhs_tile_b,
+            &mut lhs_tile,
+            &mut rhs_tile,
             acc,
             config.to_smm_config(),
         );

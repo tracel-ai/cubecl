@@ -148,9 +148,9 @@ where
         let num_loops = (num_stage_matmuls - 2) / 2;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
+
         let mut lhs_tile = SMM::init_lhs_tile_inputs(config.to_smm_config());
-        let mut rhs_tile_a = SMM::init_rhs_tile_inputs(config.to_smm_config());
-        let mut rhs_tile_b = SMM::init_rhs_tile_inputs(config.to_smm_config());
+        let mut rhs_tile = SMM::init_rhs_tile_inputs(config.to_smm_config());
 
         let lhs_reader = Self::LhsLoader::reader(&lhs_loader);
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
@@ -158,6 +158,8 @@ where
 
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+
+        Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
         sync_units();
 
@@ -168,7 +170,7 @@ where
                 &lhs_reader,
                 &rhs_reader_a,
                 &mut lhs_tile,
-                &mut rhs_tile_a,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
@@ -178,7 +180,7 @@ where
             // but it is implicitly offset by one buffer's worth (k elements) when reading.
             // Lhs, on the other hand, is advanced by k twice — once per load/execute cycle —
             // because it does not use a second, offset buffer; it simply progresses linearly through global memory.
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_units();
@@ -189,7 +191,7 @@ where
                 &lhs_reader,
                 &rhs_reader_b,
                 &mut lhs_tile,
-                &mut rhs_tile_b,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
@@ -197,7 +199,7 @@ where
 
             sync_units();
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
         }
 
         SMM::execute_with_listener::<
@@ -206,7 +208,7 @@ where
             &lhs_reader,
             &rhs_reader_a,
             &mut lhs_tile,
-            &mut rhs_tile_a,
+            &mut rhs_tile,
             acc,
             config.to_smm_config(),
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
@@ -218,7 +220,7 @@ where
             &lhs_reader,
             &rhs_reader_b,
             &mut lhs_tile,
-            &mut rhs_tile_b,
+            &mut rhs_tile,
             acc,
             config.to_smm_config(),
         );
@@ -440,7 +442,7 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
         let rhs_job = self.state_rhs.index(0);
         let num_tasks_total = comptime!(lhs_job.num_tasks + rhs_job.num_tasks);
 
-        if comptime!(num_tasks_total * STEP + (START) >= total) {
+        if comptime!(num_tasks_total * STEP + (START) >= total || true) {
             comptime! {
                 EventListenerMode::Full {
                     ratio_lhs: 0.1,
@@ -476,6 +478,9 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
             for _ in 0..lhs_job.num_tasks {
                 SyncFullLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
             }
+
+            let buffer_step = comptime!(self.config.tiling_dimensions(Ident::Lhs).total_col());
+            SyncFullLoader::advance_view(&mut self.loader_lhs, buffer_step);
         }
         if comptime![should_handle_event_ratio(ratio_rhs, current, total)] {
             let rhs_job = self.state_rhs.index_mut(0);
@@ -498,6 +503,7 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
     ) {
         if comptime![!event_lhs_completed && should_handle_event(event_lhs, current, total)] {
             let lhs_job = self.state_lhs.index_mut(0);
+            panic!("NO NUMTI LASKAS");
 
             SyncFullLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
         }
