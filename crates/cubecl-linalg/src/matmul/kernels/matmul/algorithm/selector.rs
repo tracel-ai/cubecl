@@ -11,13 +11,13 @@ use crate::matmul::{
         CompleteStageTiling, InputArg, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
         MatmulSpec, OutputArg,
         global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
-        stage::STAGE_BUFFERING,
         tile::TileMatmulFamily,
     },
     kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
 
 use super::Algorithm;
+use super::base::MultiRowStrategy;
 
 pub(crate) const NUM_SM_APPROX: u32 = 50;
 pub(crate) const NUM_TENSOR_CORES_APPROX: u32 = 4;
@@ -39,8 +39,12 @@ where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let selection =
-        matmul_selection::<A::TileMatmul, MS::Precision, R>(client, &problem, plane_dim);
+    let selection = matmul_selection::<A::TileMatmul, MS::Precision, R>(
+        client,
+        &problem,
+        plane_dim,
+        A::multi_row_strategy(),
+    );
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
@@ -56,10 +60,13 @@ where
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
         ),
         selection,
     )
@@ -73,8 +80,12 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    let selection =
-        matmul_selection::<A::TileMatmul, MS::Precision, R>(client, &problem, plane_dim);
+    let selection = matmul_selection::<A::TileMatmul, MS::Precision, R>(
+        client,
+        &problem,
+        plane_dim,
+        A::multi_row_strategy(),
+    );
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
@@ -89,10 +100,13 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         output,
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
         ),
         selection,
     )
@@ -183,6 +197,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
+    multi_row_strategy: MultiRowStrategy,
 ) -> MatmulSelection {
     let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
         if TMM::requires_tensor_cores() {
@@ -225,8 +240,8 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         instruction_n,
     );
 
-    let (rows_per_plane, stage_size_m, stage_size_n) =
-        change_rows_per_plane(stage_size, instruction_m, problem.m);
+    let (rows_per_plane, stage_size_m) =
+        change_rows_per_plane(multi_row_strategy, stage_size, instruction_m, problem.m);
 
     // Makes all rows the length of plane_dim
     let k = plane_dim / instruction_k as u32;
@@ -239,7 +254,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         },
         tile_count: MatmulSize {
             m: stage_size_m as u32,
-            n: stage_size_n as u32,
+            n: stage_size as u32,
             k,
         },
         plane_dim,
@@ -247,20 +262,20 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
     }
 }
 
-const MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE: usize = 8;
-const MULTI_ROW_ENABLED: bool = false;
-
 fn change_rows_per_plane(
+    strategy: MultiRowStrategy,
     stage_size: usize,
     instruction_m: usize,
     problem_m: usize,
-) -> (usize, usize, usize) {
-    if MULTI_ROW_ENABLED {
-        let num_row_per_stage_m = stage_size * instruction_m;
-        if problem_m > num_row_per_stage_m * MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE {
-            return (2, stage_size * 2, stage_size);
-        }
-    }
+) -> (usize, usize) {
+    let use_multi = match strategy {
+        MultiRowStrategy::Never => false,
+        MultiRowStrategy::Always => true,
+        MultiRowStrategy::Adaptive {
+            minimum_stage_count,
+        } => problem_m > stage_size * instruction_m * minimum_stage_count,
+    };
 
-    (1, stage_size, stage_size)
+    let rows = if use_multi { 2 } else { 1 };
+    (rows, stage_size * rows)
 }

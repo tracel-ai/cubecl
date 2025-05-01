@@ -8,6 +8,7 @@ use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
 use crate::matmul::components::global::{Quantization, load::TmaReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::{Ident, MatmulPrecision};
+use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -43,7 +44,7 @@ impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily,
 {
-    type Input = SMM::Input;
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -96,7 +97,7 @@ where
         problem.lhs_line_size = 1;
         problem.rhs_line_size = 1;
 
-        let smm_config = SMM::make_config(input, &problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(input.0, &problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -110,6 +111,7 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
+            input.1,
         )
     }
 }

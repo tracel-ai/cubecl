@@ -8,19 +8,22 @@ use crate::{
         },
         loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
     },
-    matmul::components::{
-        EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
-        MatmulSpec, OutputRuntimeArg,
-        global::{
-            AccumulatorLoader, GlobalConfig,
-            load::{SyncFullLoader, sync_full_cyclic},
-            output_loader::Unloader,
-            single_stage,
+    matmul::{
+        components::{
+            EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
+            MatmulSpec, OutputRuntimeArg,
+            global::{
+                AccumulatorLoader, GlobalConfig,
+                load::{SyncFullLoader, sync_full_cyclic},
+                output_loader::Unloader,
+                single_stage,
+            },
+            stage::{
+                ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder,
+                StageMatmul, StageMatmulFamily,
+            },
         },
-        stage::{
-            ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder, StageMatmul,
-            StageMatmulFamily,
-        },
+        kernels::matmul::LoadingPrecomputeStrategy,
     },
 };
 use cubecl_core as cubecl;
@@ -189,7 +192,7 @@ where
     SMM: StageMatmulFamily,
 {
     type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = SMM::Input;
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
@@ -203,7 +206,7 @@ where
         cube_count: &CubeCount,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
-            input,
+            input.0,
             &problem.as_matmul_problem(),
             cube_dim,
             cube_count,
@@ -224,6 +227,7 @@ where
                 problem.rhs_line_size as u32,
                 problem.out_line_size as u32,
                 size.k,
+                input.1,
             ),
             &problem.kernel_size,
             &problem.stride,
