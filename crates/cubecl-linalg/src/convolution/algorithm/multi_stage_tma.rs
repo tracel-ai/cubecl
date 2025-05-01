@@ -31,7 +31,7 @@ pub struct MultiStageTmaConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = MultiStageTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;

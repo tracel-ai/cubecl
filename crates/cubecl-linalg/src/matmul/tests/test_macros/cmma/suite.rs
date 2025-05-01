@@ -140,7 +140,9 @@ macro_rules! matmul_standard_tests {
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
         };
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
-        use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm};
+        use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm,
+            HybridDoubleBufferingAlgorithm};
+        use $crate::matmul::kernels::matmul::ordered_double_buffering::OrderedDoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
 
@@ -335,6 +337,36 @@ macro_rules! matmul_standard_tests {
         pub fn double_buffering_multi_row_hybrid() {
             cubecl_linalg::matmul::tests::test_algo::<
                 HybridDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
+
+        #[test]
+        pub fn ordered_double_buffering_single_row() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                OrderedDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn ordered_double_buffering_multi_row() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                OrderedDoubleBufferingAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

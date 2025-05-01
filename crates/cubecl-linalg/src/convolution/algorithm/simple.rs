@@ -26,7 +26,7 @@ pub struct SimpleConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorArgs;

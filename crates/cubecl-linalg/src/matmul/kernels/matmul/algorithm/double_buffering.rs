@@ -30,7 +30,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
+        Self::TileMatmul,
+        BufferReaderFamily,
+        BufferReaderFamily,
+    >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
@@ -70,7 +74,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
+        Self::TileMatmul,
+        BufferReaderFamily,
+        BufferReaderFamily,
+    >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
@@ -111,7 +119,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
+        Self::TileMatmul,
+        BufferReaderFamily,
+        BufferReaderFamily,
+    >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,

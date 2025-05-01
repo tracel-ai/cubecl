@@ -17,11 +17,13 @@ use cubecl_core as cubecl;
 
 use super::shared::{Accumulators, StageVectorization};
 
-pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
-    _phantom: PhantomData<(TMM, RF)>,
+pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
+    _phantom: PhantomData<(TMM, LRF, RRF)>,
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulFamily<TMM, RF> {
+impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFamily
+    for PlaneMatmulFamily<TMM, LRF, RRF>
+{
     fn stage_shape(config: &Self::Config) -> MatmulSize {
         config.tiling.total_shape()
     }
@@ -34,13 +36,15 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
         config.tiling.tile_shape
     }
 
-    type LhsReader = RF;
-    type RhsReader = RF;
+    type LhsReader = LRF;
+    type RhsReader = RRF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
+        PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
+impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFactory
+    for PlaneMatmulFamily<TMM, LRF, RRF>
+{
     type Input = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
     type Config = CommonStageConfig<TMM::Config>;
 

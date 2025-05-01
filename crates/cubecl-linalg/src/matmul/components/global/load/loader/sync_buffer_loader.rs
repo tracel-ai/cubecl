@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
+use super::TaskCounter;
 use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalConfig;
@@ -169,10 +170,4 @@ pub struct SyncBufferLoaderJob<MP: MatmulPrecision, L: SyncBufferLoadingStrategy
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
-}
-
-#[derive(CubeType, Clone)]
-pub struct TaskCounter {
-    #[cube(comptime)]
-    pub counter: u32,
 }

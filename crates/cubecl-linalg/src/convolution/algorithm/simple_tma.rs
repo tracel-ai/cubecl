@@ -31,7 +31,7 @@ pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;

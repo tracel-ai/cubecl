@@ -1,44 +1,36 @@
-use super::base;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::matmul::components::{
-    MatmulProblem, MatmulSelection,
-    batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{
-        self,
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
-    },
-    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder},
-    tile,
+use crate::matmul::components::MatmulProblem;
+use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
+use crate::matmul::components::global::load::sync_buffer_cyclic;
+use crate::matmul::components::stage::{
+    self, BufferReaderFamily, FullReaderFamily, RowMajorTilingOrder,
 };
+use crate::matmul::components::{MatmulSelection, tile};
+use crate::matmul::components::{batch, global};
 
-pub struct SimpleAlgorithm<
-    TMM,
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-    Dispatch = batch::TransposedDispatch,
-> {
-    pub _tmm: PhantomData<TMM>,
-    pub _ll: PhantomData<LL>,
-    pub _rl: PhantomData<RL>,
-    pub _dispatch: PhantomData<Dispatch>,
+use super::base::{self, MultiRowStrategy};
+
+pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+    pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
-impl<TMM, LL, RL, Dispatch> base::Algorithm for SimpleAlgorithm<TMM, LL, RL, Dispatch>
+impl<TMM, Dispatch> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
         Self::TileMatmul,
         FullReaderFamily,
-        FullReaderFamily,
+        BufferReaderFamily,
     >;
-    type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type GlobalMatmul = global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily<
+        Self::StageMatmul,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+    >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 
@@ -54,5 +46,15 @@ where
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
+    }
+
+    fn num_stages() -> u32 {
+        2
+    }
+
+    fn multi_row_strategy() -> MultiRowStrategy {
+        MultiRowStrategy::Adaptive {
+            minimum_stage_count: 8,
+        }
     }
 }

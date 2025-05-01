@@ -59,7 +59,7 @@ where
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
-        SyncFullLoader<MP, SMM::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
+        SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Out = Unloader<MP::EO>;
@@ -95,7 +95,7 @@ where
             sync_units();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config.to_matmul_config());
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
@@ -142,7 +142,7 @@ where
         _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
+        Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,
