@@ -626,7 +626,7 @@ fn hip_path() -> Option<PathBuf> {
     Some(PathBuf::from("/opt/rocm"))
 }
 
-fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {

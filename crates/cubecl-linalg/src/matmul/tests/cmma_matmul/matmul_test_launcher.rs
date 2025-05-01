@@ -90,7 +90,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
-    if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
+    if let Err(err) = A::check_availability::<R, P::MP>(&client, &config) {
         let msg = format!("Skipped - not supported: {:?}", err);
         if panic_on_launch_err {
             panic!("{msg}")
@@ -102,7 +102,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     }
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<(P::EG, P::ES, P::EA, P::EG), R>(
+        A::BatchMatmul::launch_unchecked::<P::MP, R>(
             &client,
             cube_dim,
             cube_count,
@@ -163,7 +163,8 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
             let mut quant_params = None;
 
-            let tensor_shape = shape(problem, Ident::Lhs);
+            let mut tensor_shape = shape(problem, Ident::Lhs);
+            let rank = tensor_shape.len();
 
             if let Some(params) = P::quantization_params(Ident::Lhs) {
                 let scaling = P::EG::as_bytes(&params.scaling);
@@ -178,6 +179,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
+                    tensor_shape.swap(rank - 1, rank - 2);
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
@@ -194,7 +196,13 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
 
             let mut tensors = client.create_tensors(data, shape, elem_size);
-            let (handle, strides) = tensors.remove(0);
+            let (handle, mut strides) = tensors.remove(0);
+
+            if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
+                tensor_shape.swap(rank - 1, rank - 2);
+                strides.swap(rank - 1, rank - 2);
+            }
+
             let _offs = tensors.pop();
             let scale = tensors.pop().map(|it| it.0);
 
@@ -211,7 +219,8 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
             let mut quant_params = None;
 
-            let tensor_shape = shape(problem, Ident::Rhs);
+            let mut tensor_shape = shape(problem, Ident::Rhs);
+            let rank = tensor_shape.len();
 
             if let Some(params) = P::quantization_params(Ident::Rhs) {
                 let scaling = P::EG::as_bytes(&params.scaling);
@@ -226,6 +235,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
+                    tensor_shape.swap(rank - 1, rank - 2);
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.k, problem.n)
                 }
             };
@@ -243,9 +253,14 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
 
             let mut tensors = client.create_tensors(data, shape, elem_size);
-            let (handle, strides) = tensors.remove(0);
+            let (handle, mut strides) = tensors.remove(0);
             let _offs = tensors.pop();
             let scale = tensors.pop().map(|it| it.0);
+
+            if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
+                tensor_shape.swap(rank - 1, rank - 2);
+                strides.swap(rank - 1, rank - 2);
+            }
 
             TensorRawParts {
                 handle,

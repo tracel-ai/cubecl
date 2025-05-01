@@ -13,7 +13,7 @@ pub use cubecl_std::SymQ8;
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem},
+        components::{Ident, MatmulPrecision, MatmulProblem},
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
@@ -28,6 +28,7 @@ pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
     type ES: Numeric + Display + CastInto<Self::EA>;
     type EA: Numeric + Display + CastInto<Self::EG>;
+    type MP: MatmulPrecision;
     const QUANTIZED: bool;
 
     fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
@@ -49,13 +50,14 @@ pub trait TestPrecision {
 
 impl<EG, ES> TestPrecision for (EG, ES)
 where
-    EG: Float + CubeElement + Display + CastInto<ES> + Sample,
+    EG: Float + CubeElement + Display + CastInto<ES> + Sample + MatmulPrecision,
     ES: Numeric + Display + CastInto<f32>,
     f32: CastInto<EG>,
 {
     type EG = EG;
     type ES = ES;
     type EA = f32;
+    type MP = EG;
     const QUANTIZED: bool = false;
 
     fn quantization_params(_: Ident) -> Option<QuantizationParams<Self::EG>> {
@@ -157,6 +159,7 @@ impl TestPrecision for SymQ8 {
     type EG = u8;
     type ES = u16;
     type EA = i32;
+    type MP = SymQ8;
 
     const QUANTIZED: bool = true;
 
