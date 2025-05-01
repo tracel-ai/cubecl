@@ -81,7 +81,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
         terminate!();
     }
 
-    reduce_kernel_inner::<(In, Acc), Out, R, RA>(
+    reduce_kernel_inner::<(In, Acc), Out, R>(
         &input,
         &mut output,
         axis_reduce,
@@ -92,7 +92,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
 }
 
 #[cube]
-fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>(
+fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily>(
     input: &VirtualTensor<P::EI>,
     output: &mut VirtualTensor<Out, ReadWrite>,
     axis_reduce: u32,
@@ -106,7 +106,7 @@ fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily, RA: Re
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
             let mut accumulator = reduce_slice_shared::<P, VirtualTensor<P::EI>, R::Instruction<P>>(
-                &input,
+                input,
                 inst,
                 range,
                 accumulator_size,
@@ -119,7 +119,7 @@ fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily, RA: Re
             reduce_tree::<P, R::Instruction<P>>(inst, &mut accumulator, accumulator_size)
         }
         (None, true) => reduce_slice_plane::<P, VirtualTensor<P::EI>, R::Instruction<P>>(
-            &input,
+            input,
             inst,
             range,
             params.line_size_input,
@@ -127,7 +127,7 @@ fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily, RA: Re
             params.bound_checks_inner,
         ),
         (None, false) => reduce_slice::<P, VirtualTensor<P::EI>, R::Instruction<P>>(
-            &input,
+            input,
             range,
             inst,
             params.line_size_input,
