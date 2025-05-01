@@ -26,7 +26,7 @@ pub use config::*;
 pub use error::*;
 pub use instructions::ReduceFamily;
 pub use instructions::ReduceInstruction;
-use precision::ReducePrecision;
+pub use precision::ReducePrecision;
 pub use shared_sum::*;
 pub use strategy::*;
 
