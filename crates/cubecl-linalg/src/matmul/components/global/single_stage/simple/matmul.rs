@@ -142,14 +142,14 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
+        let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+        let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
+
         for _ in 0..num_loops {
             sync_units();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-
-            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             sync_units();
 
