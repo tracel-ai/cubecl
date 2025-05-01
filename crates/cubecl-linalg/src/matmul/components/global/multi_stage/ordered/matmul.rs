@@ -1,7 +1,7 @@
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy, SyncFullLoader,
-    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_tilewise,
+    SyncFullLoaderJob, SyncFullLoadingStrategy, TaskCounter, sync_full_tilewise,
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
@@ -326,6 +326,10 @@ struct DoubleBufferingEventListener<
     loader_rhs: Rhs,
     #[cube(comptime)]
     config: G,
+    state_lhs: Sequence<Lhs::State>,
+    state_rhs: Sequence<Rhs::State>,
+    lhs_loaded_current: ComptimeCell<TaskCounter>,
+    lhs_loaded_total: ComptimeCell<TaskCounter>,
 }
 
 #[cube]
@@ -343,6 +347,10 @@ impl<Lhs: LhsLoaderEventListener, Rhs: RhsLoaderEventListener, G: GlobalConfig>
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
             config,
+            state_lhs: Sequence::new(),
+            state_rhs: Sequence::new(),
+            lhs_loaded_current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
+            lhs_loaded_total: ComptimeCell::new(TaskCounter { counter: 0u32 }),
         }
     }
 }
@@ -352,14 +360,204 @@ impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig> StageE
     for DoubleBufferingEventListener<SyncFullLoader<MP, G, LL>, SyncBufferLoader<MP, G, RL>, G>
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
+        if let StageEvent::LhsLoaded { current, total } = event {
+            this.lhs_loaded_current
+                .store(TaskCounter { counter: current });
+            this.lhs_loaded_total.store(TaskCounter { counter: total });
+        }
+
+        if let StageEvent::TmmCompleted { current, total } = event {
+            if comptime![current == 0] {
+                this.init();
+            }
+
+            let mode = this.mode(current, total);
+
+            match comptime!(mode) {
+                EventListenerMode::Full { ratio_rhs } => {
+                    this.on_full_event(ratio_rhs, current, total)
+                }
+                EventListenerMode::Splitted {
+                    event_lhs,
+                    event_lhs_completed,
+                    event_rhs,
+                    event_rhs_completed,
+                } => this.on_splitted_event(
+                    event_lhs,
+                    event_lhs_completed,
+                    event_rhs,
+                    event_rhs_completed,
+                    current,
+                    total,
+                ),
+            }
+        }
+
         if let StageEvent::Finish = event {
-            comptime![println!("Loaded Stuff")];
-            sync_units();
-            SyncFullLoader::fill_stage(&mut this.loader_lhs, this.config);
+            let lhs_job = this.state_lhs.index_mut(0);
+            let lhs_num_task_executed = lhs_job.current.read().counter;
+
+            #[unroll]
+            for _ in lhs_num_task_executed..lhs_job.num_tasks {
+                SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            }
+
             let buffer_step = comptime!(this.config.tiling_dimensions(Ident::Lhs).total_col());
             SyncFullLoader::advance_view(&mut this.loader_lhs, buffer_step);
-            SyncBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
-            sync_units();
+
+            let rhs_job = this.state_rhs.index_mut(0);
+            let rhs_num_task_executed = rhs_job.current.read().counter;
+
+            #[unroll]
+            for _ in rhs_num_task_executed..rhs_job.num_tasks {
+                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+/// How events are handled for double buffering.
+///
+/// The goal is to overlap computation instructions with memory instructions.
+enum EventListenerMode {
+    /// We execute memory instructions based on the given ratio (between 0 and 1) of the
+    /// computation that is completed.
+    Full {
+        /// The ratio to be waited for with RHS.
+        ratio_rhs: f32,
+    },
+    /// We execute memory instructions for each [STEP] after [START] compute tasks are executed.
+    Splitted {
+        /// The event number to execute the next LHS task.
+        event_lhs: u32,
+        /// If no more tasks need to be executed for LHS.
+        event_lhs_completed: bool,
+        /// The event number to execute the next RHS task.
+        event_rhs: u32,
+        /// If no more tasks need to be executed for RHS.
+        event_rhs_completed: bool,
+    },
+}
+
+impl CubeDebug for EventListenerMode {}
+
+const STEP: u32 = 2;
+const START: u32 = 1;
+
+fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> bool {
+    current_event == expected_event || (total <= expected_event && current_event + 1 == total)
+}
+
+fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
+    should_handle_event(f32::ceil(ratio * total as f32) as u32, current_event, total)
+}
+
+#[cube]
+impl<MP: MatmulPrecision, RL: SyncBufferLoadingStrategy, G: GlobalConfig>
+    DoubleBufferingEventListener<SyncFullLoader<MP, G, LL>, SyncBufferLoader<MP, G, RL>, G>
+{
+    fn init(&mut self) {
+        let job_lhs = SyncFullLoader::create_job(&self.loader_lhs, self.config);
+        let job_rhs = SyncBufferLoader::create_job(&self.loader_rhs, self.buffer_id, self.config);
+
+        self.state_lhs.push(job_lhs);
+        self.state_rhs.push(job_rhs);
+    }
+
+    fn mode(
+        &self,
+        #[comptime] index: u32,
+        #[comptime] total: u32,
+    ) -> comptime_type!(EventListenerMode) {
+        let lhs_job = self.state_lhs.index(0);
+        let rhs_job = self.state_rhs.index(0);
+        let num_tasks_total = comptime!(lhs_job.num_tasks + rhs_job.num_tasks);
+
+        if comptime!(num_tasks_total * STEP + (START) >= total) {
+            comptime! {
+                EventListenerMode::Full {
+                    ratio_rhs: 0.1,
+                }
+            }
+        } else {
+            let lhs_frag_current = self.lhs_loaded_current.read().counter;
+            let lhs_frag_total = self.lhs_loaded_total.read().counter;
+            let lhs_num_task_executed = lhs_job.current.read().counter;
+            let rhs_num_task_executed = rhs_job.current.read().counter;
+
+            comptime! {
+                let lhs_loaded_frag_ratio = lhs_frag_current as f32 / lhs_frag_total as f32;
+                let lhs_loaded_smem_ratio = lhs_num_task_executed as f32 / lhs_job.num_tasks as f32;
+
+                let lhs_loaded_smem_unit_ratio = 1.0 / lhs_job.num_tasks as f32;
+                let lhs_loaded_smem_next = lhs_loaded_smem_ratio + lhs_loaded_smem_unit_ratio;
+
+                let event_lhs = if lhs_loaded_smem_next < lhs_loaded_frag_ratio {
+                    let event = lhs_num_task_executed * STEP + START;
+
+                    if event < index {
+                        if (index + START) % STEP == 0 {
+                            index
+                        } else {
+                            index + 1
+                        }
+                    } else {
+                        event
+                    }
+                } else {
+                    1000u32 // Max value
+                };
+
+                let event_lhs_completed = lhs_num_task_executed >= lhs_job.num_tasks;
+                let event_rhs = rhs_num_task_executed * STEP + (lhs_job.num_tasks * STEP) + START;
+                let event_rhs_completed = rhs_num_task_executed >= rhs_job.num_tasks;
+
+                EventListenerMode::Splitted {
+                    event_lhs,
+                    event_lhs_completed,
+                    event_rhs,
+                    event_rhs_completed,
+                }
+            }
+        }
+    }
+
+    fn on_full_event(
+        &mut self,
+        #[comptime] ratio_rhs: f32,
+        #[comptime] current: u32,
+        #[comptime] total: u32,
+    ) {
+        if comptime![should_handle_event_ratio(ratio_rhs, current, total)] {
+            let rhs_job = self.state_rhs.index_mut(0);
+
+            #[unroll]
+            for _ in 0..rhs_job.num_tasks {
+                SyncBufferLoader::execute_task(&mut self.loader_rhs, rhs_job, self.config);
+            }
+        }
+    }
+
+    fn on_splitted_event(
+        &mut self,
+        #[comptime] event_lhs: u32,
+        #[comptime] event_lhs_completed: bool,
+        #[comptime] event_rhs: u32,
+        #[comptime] event_rhs_completed: bool,
+        #[comptime] current: u32,
+        #[comptime] total: u32,
+    ) {
+        if comptime![!event_lhs_completed && should_handle_event(event_lhs, current, total)] {
+            let lhs_job = self.state_lhs.index_mut(0);
+
+            SyncFullLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
+        }
+
+        if comptime![!event_rhs_completed && should_handle_event(event_rhs, current, total)] {
+            let rhs_job = self.state_rhs.index_mut(0);
+
+            SyncBufferLoader::execute_task(&mut self.loader_rhs, rhs_job, self.config);
         }
     }
 }
