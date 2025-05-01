@@ -32,12 +32,16 @@ pub trait TestPrecision {
 
     fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
 
+    #[allow(clippy::too_many_arguments)]
     fn assert_result<R: Runtime>(
         lhs: &[Self::EG],
+        lhs_quant: Option<(f32, i32)>,
         rhs: &[Self::EG],
+        rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
+        out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     );
@@ -60,10 +64,13 @@ where
 
     fn assert_result<R: Runtime>(
         lhs: &[EG],
+        _lhs_quant: Option<(f32, i32)>,
         rhs: &[EG],
+        _rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
+        _out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     ) {
@@ -174,10 +181,13 @@ impl TestPrecision for SymQ8 {
 
     fn assert_result<R: Runtime>(
         lhs: &[u8],
+        lhs_quant: Option<(f32, i32)>,
         rhs: &[u8],
+        rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
+        out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     ) {
@@ -188,9 +198,9 @@ impl TestPrecision for SymQ8 {
         ));
         let out = u8::from_bytes(&out);
 
-        let (lhs_scaling, lhs_offset) = read_quantized_metadata(lhs);
-        let (rhs_scaling, rhs_offset) = read_quantized_metadata(rhs);
-        let (out_scaling, out_offset) = read_quantized_metadata(out);
+        let (lhs_scaling, lhs_offset) = lhs_quant.unwrap();
+        let (rhs_scaling, rhs_offset) = rhs_quant.unwrap();
+        let (out_scaling, out_offset) = out_quant.unwrap();
 
         // TODO Move to some better place and wrap into a function.
         let scaling_factor = (lhs_scaling * rhs_scaling) / out_scaling;
@@ -236,25 +246,6 @@ impl ApproxScaling {
         let prod_with_rounding = prod + self.rounding;
         (prod_with_rounding >> self.shift) as i32
     }
-}
-
-fn read_quantized_metadata(data: &[u8]) -> (f32, i32) {
-    let start = data.len() - 8;
-    let scaling = f32::from_be_bytes([
-        data[start],
-        data[start + 1],
-        data[start + 2],
-        data[start + 3],
-    ]);
-
-    let start = data.len() - 4;
-    let offset = i32::from_be_bytes([
-        data[start],
-        data[start + 1],
-        data[start + 2],
-        data[start + 3],
-    ]);
-    (scaling, offset)
 }
 
 pub trait CastInto<E> {

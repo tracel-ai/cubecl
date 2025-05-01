@@ -260,22 +260,54 @@ impl ComputeServer for WgpuServer {
         self.read(bindings)
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        _elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let handle = self.create(data);
-        (handle, strides)
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_size);
+
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+
+            self.stream.copy_to_handle(handle.clone(), data);
+        }
+
+        handles_strides
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let size = shape.iter().product::<usize>() * elem_size;
-        let handle = self.empty(size);
-        (handle, strides)
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let mut strides = Vec::new();
+        let mut total_size = 0;
+
+        for (shape, elem_size) in shape.into_iter().zip(elem_size) {
+            let size = shape.iter().product::<usize>();
+            let size_bytes = (size * elem_size).next_multiple_of(align);
+            total_size += size_bytes;
+            strides.push((size_bytes, contiguous_strides(shape)));
+        }
+
+        let mut offset = 0;
+        let mut out = Vec::new();
+        let mem_handle = self.empty(total_size);
+
+        for (size, strides) in strides {
+            let handle = mem_handle
+                .clone()
+                .offset_start(offset as u64)
+                .offset_end((total_size - offset - size) as u64);
+            out.push((handle, strides));
+            offset += size;
+        }
+
+        out
     }
 }
 
@@ -289,7 +321,7 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     }
 }
 
-fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {

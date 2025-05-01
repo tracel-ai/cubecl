@@ -3,7 +3,7 @@ use std::any::TypeId;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, server::TensorMapMeta};
 use cubecl_std::{
-    ReinterpretSlice,
+    CubeOption, CubeOptionExpand,
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
@@ -15,7 +15,9 @@ use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSele
 pub trait ConcreteInputsFactory: LaunchArg {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
+        lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
+        rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         selection: &MatmulSelection,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R>;
@@ -441,20 +443,26 @@ pub struct TensorArgs;
 pub struct TensorInputs<EG: Numeric> {
     /// The lhs tensor.
     pub lhs: Tensor<Line<EG>>,
+    pub lhs_scale: CubeOption<Tensor<f32>>,
     /// The rhs tensor.
     pub rhs: Tensor<Line<EG>>,
+    pub rhs_scale: CubeOption<Tensor<f32>>,
 }
 
 impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
+        lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
+        rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         _selection: &MatmulSelection,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
             lhs.as_tensor_arg(problem.lhs_line_size),
+            lhs_scale.as_ref().map(|it| it.as_tensor_arg(1)).into(),
             rhs.as_tensor_arg(problem.rhs_line_size),
+            rhs_scale.as_ref().map(|it| it.as_tensor_arg(1)).into(),
         )
     }
 }
@@ -477,13 +485,23 @@ impl MatmulArgs for TensorArgs {
         *const Tensor<Line<EI>>,
         *const Tensor<Line<EI>>,
         *mut Tensor<Line<EO>>,
+        CubeOption<f32>,
+        CubeOption<f32>,
     );
 
     fn init_state<EI: Numeric, EO: Numeric>(
         input: &Self::Input<EI>,
         output: &mut Self::Output<EO>,
     ) -> Self::State<EI, EO> {
-        (&input.lhs, &input.rhs, output)
+        let lhs_scale = match &input.lhs_scale {
+            CubeOption::Some(scale) => CubeOption::new_Some(scale[0]),
+            CubeOption::None => CubeOption::new_None(),
+        };
+        let rhs_scale = match &input.rhs_scale {
+            CubeOption::Some(scale) => CubeOption::new_Some(scale[0]),
+            CubeOption::None => CubeOption::new_None(),
+        };
+        (&input.lhs, &input.rhs, output, lhs_scale, rhs_scale)
     }
 
     fn read_lhs<EI: Numeric, EO: Numeric>(
@@ -601,28 +619,13 @@ impl MatmulArgs for TensorArgs {
         // TODO Currently, this assume that the scaling is always the last value in the buffer.
         //      Also, in burn the scaling is presently fix to f32, hence the extra conversions.
 
-        let (lhs, rhs, _) = *state;
-        unsafe {
-            let buffer_len_lhs = Self::buffer_len_lhs(state);
-            let line_size_lhs = (*lhs).line_size();
-            let reinterpreted_len_lhs = buffer_len_lhs * line_size_lhs / 4; // TODO Change this when we stop using u32 to pack 4 i8 in burn.
+        let (_, _, _, scaling_lhs, scaling_rhs) = *state;
+        let scaling_lhs = scaling_lhs.unwrap();
+        let scaling_rhs = scaling_rhs.unwrap();
 
-            let scaling_lhs =
-                ReinterpretSlice::<MP::EI, f32>::new((*lhs).to_slice(), line_size_lhs)
-                    .read(reinterpreted_len_lhs - 1);
-
-            let buffer_len_rhs = Self::buffer_len_rhs(state);
-            let line_size_rhs = (*rhs).line_size();
-            let reinterpreted_len_rhs = buffer_len_rhs * line_size_rhs / 4; // TODO See above comment.
-
-            let scaling_rhs =
-                ReinterpretSlice::<MP::EI, f32>::new((*rhs).to_slice(), line_size_rhs)
-                    .read(reinterpreted_len_rhs - 1);
-
-            Quantization::<MP> {
-                scaling_lhs: MP::ES::cast_from(scaling_lhs),
-                scaling_rhs: MP::ES::cast_from(scaling_rhs),
-            }
+        Quantization::<MP> {
+            scaling_lhs: MP::ES::cast_from(scaling_lhs),
+            scaling_rhs: MP::ES::cast_from(scaling_rhs),
         }
     }
 }
@@ -645,7 +648,9 @@ pub struct TensorMapInputs<EG: Numeric> {
 impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
+        _lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
+        _rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         selection: &MatmulSelection,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R> {

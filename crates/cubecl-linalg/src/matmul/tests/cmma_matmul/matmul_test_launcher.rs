@@ -16,9 +16,11 @@ use crate::matmul::tests::test_utils::TestPrecision;
 #[derive(Debug)]
 pub(crate) struct TensorRawParts<N: Numeric + CubeElement> {
     pub handle: server::Handle,
+    pub scale: Option<server::Handle>,
     pub shape: Vec<usize>,
     pub strides: Vec<usize>,
     pub original_data: Option<Vec<N>>,
+    pub quant_params: Option<(f32, i32)>,
 }
 
 /// Test the correctness of the specified Matmul on the given device,
@@ -111,12 +113,20 @@ pub fn test_matmul_algorithm<A, P, R>(
                     &lhs.shape,
                     problem.lhs_line_size,
                 ),
+                lhs.scale
+                    .as_ref()
+                    .map(|it| TensorArg::<R>::from_raw_parts::<P::EG>(it, &[1], &[1], 1))
+                    .into(),
                 TensorArg::<R>::from_raw_parts::<P::EG>(
                     &rhs.handle,
                     &rhs.strides,
                     &rhs.shape,
                     problem.rhs_line_size,
                 ),
+                rhs.scale
+                    .as_ref()
+                    .map(|it| TensorArg::<R>::from_raw_parts::<P::EG>(it, &[1], &[1], 1))
+                    .into(),
             ),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,
@@ -131,10 +141,13 @@ pub fn test_matmul_algorithm<A, P, R>(
 
     P::assert_result::<R>(
         &lhs.original_data.unwrap(),
+        lhs.quant_params,
         &rhs.original_data.unwrap(),
+        rhs.quant_params,
         &problem,
         &client,
         out.handle,
+        out.quant_params,
         &out.shape,
         &out.strides,
     );
@@ -147,12 +160,19 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
+            let original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
+            let mut quant_params = None;
+
+            let tensor_shape = shape(problem, Ident::Lhs);
 
             if let Some(params) = P::quantization_params(Ident::Lhs) {
-                original_data.extend_from_slice(&params.scaling);
+                let scaling = P::EG::as_bytes(&params.scaling);
+                let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
                 let zero = P::EG::from_int(0);
-                original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
+                let offset = &[zero, zero, zero, params.zero_offset];
+                let offset = P::EG::as_bytes(offset);
+                let offset = i32::from_be_bytes([offset[0], offset[1], offset[2], offset[3]]);
+                quant_params = Some((scaling, offset));
             }
 
             let data = match problem.lhs_layout {
@@ -161,23 +181,46 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
+            let mut data = vec![P::EG::as_bytes(&data)];
+            let mut shape = vec![tensor_shape.as_slice()];
+            let mut elem_size = vec![size_of::<P::EG>()];
 
-            let handle = client.create(P::EG::as_bytes(&data));
+            if let Some((scaling, offset)) = &quant_params {
+                data.push(bytemuck::bytes_of(scaling));
+                data.push(bytemuck::bytes_of(offset));
+                shape.push(&[1]);
+                shape.push(&[1]);
+                elem_size.extend(&[size_of::<f32>(), size_of::<i32>()]);
+            }
+
+            let mut tensors = client.create_tensors(data, shape, elem_size);
+            let (handle, strides) = tensors.remove(0);
+            let _offs = tensors.pop();
+            let scale = tensors.pop().map(|it| it.0);
 
             TensorRawParts {
                 handle,
-                shape: shape(problem, Ident::Lhs),
-                strides: strides(problem, Ident::Lhs),
+                scale,
+                shape: tensor_shape,
+                strides,
                 original_data: Some(original_data),
+                quant_params,
             }
         }
         Ident::Rhs => {
-            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
+            let original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
+            let mut quant_params = None;
+
+            let tensor_shape = shape(problem, Ident::Rhs);
 
             if let Some(params) = P::quantization_params(Ident::Rhs) {
-                original_data.extend_from_slice(&params.scaling);
+                let scaling = P::EG::as_bytes(&params.scaling);
+                let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
                 let zero = P::EG::from_int(0);
-                original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
+                let offset = &[zero, zero, zero, params.zero_offset];
+                let offset = P::EG::as_bytes(offset);
+                let offset = i32::from_be_bytes([offset[0], offset[1], offset[2], offset[3]]);
+                quant_params = Some((scaling, offset));
             }
 
             let data = match problem.rhs_layout {
@@ -187,33 +230,74 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let handle = client.create(P::EG::as_bytes(&data));
+            let mut data = vec![P::EG::as_bytes(&data)];
+            let mut shape = vec![tensor_shape.as_slice()];
+            let mut elem_size = vec![size_of::<P::EG>()];
+
+            if let Some((scaling, offset)) = &quant_params {
+                data.push(bytemuck::bytes_of(scaling));
+                data.push(bytemuck::bytes_of(offset));
+                shape.push(&[1]);
+                shape.push(&[1]);
+                elem_size.extend(&[size_of::<f32>(), size_of::<i32>()])
+            }
+
+            let mut tensors = client.create_tensors(data, shape, elem_size);
+            let (handle, strides) = tensors.remove(0);
+            let _offs = tensors.pop();
+            let scale = tensors.pop().map(|it| it.0);
 
             TensorRawParts {
                 handle,
-                shape: shape(problem, Ident::Rhs),
-                strides: strides(problem, Ident::Rhs),
+                scale,
+                shape: tensor_shape,
+                strides,
                 original_data: Some(original_data),
+                quant_params,
             }
         }
         Ident::Out => {
             let zero = P::EG::from_int(0);
 
-            let mut data = vec![zero; tensor_size(problem, Ident::Out)];
+            let data = vec![zero; tensor_size(problem, Ident::Out)];
+            let mut quant_params = None;
+
+            let tensor_shape = shape(problem, Ident::Out);
 
             if let Some(params) = P::quantization_params(Ident::Out) {
-                data.extend_from_slice(&params.scaling);
-                data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
+                let scaling = P::EG::as_bytes(&params.scaling);
+                let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
+                let zero = P::EG::from_int(0);
+                let offset = &[zero, zero, zero, params.zero_offset];
+                let offset = P::EG::as_bytes(offset);
+                let offset = i32::from_be_bytes([offset[0], offset[1], offset[2], offset[3]]);
+                quant_params = Some((scaling, offset));
             }
 
-            let shape = shape(problem, Ident::Out);
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let mut data = vec![P::EG::as_bytes(&data)];
+            let mut shape = vec![tensor_shape.as_slice()];
+            let mut elem_size = vec![size_of::<P::EG>()];
+
+            if let Some((scaling, offset)) = &quant_params {
+                data.push(bytemuck::bytes_of(scaling));
+                data.push(bytemuck::bytes_of(offset));
+                shape.push(&[1]);
+                shape.push(&[1]);
+                elem_size.extend(&[size_of::<f32>(), size_of::<i32>()])
+            }
+
+            let mut tensors = client.create_tensors(data, shape, elem_size);
+            let (handle, strides) = tensors.remove(0);
+            let _offs = tensors.pop();
+            let scale = tensors.pop().map(|it| it.0);
+
             TensorRawParts {
                 handle,
-                shape,
+                scale,
+                shape: tensor_shape,
                 strides,
                 original_data: None,
+                quant_params,
             }
         }
     }
