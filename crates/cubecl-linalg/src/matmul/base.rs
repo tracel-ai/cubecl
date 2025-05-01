@@ -15,8 +15,14 @@ use super::{
     kernels::{
         MatmulLaunchError,
         matmul::{
-            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
-            simple_barrier::SimpleBarrierAlgorithm, simple_tma::SimpleTmaAlgorithm,
+            self,
+            double_buffering::{
+                CyclicDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm,
+                TilewiseDoubleBufferingAlgorithm,
+            },
+            simple::SimpleAlgorithm,
+            simple_barrier::SimpleBarrierAlgorithm,
+            simple_tma::SimpleTmaAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -27,7 +33,7 @@ use super::{
 pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
-    DoubleBuffering,
+    DoubleBuffering(SyncBufferLoadingStrategy),
     Naive,
     Tiling2D(Tiling2dConfig),
     #[default]
@@ -39,6 +45,13 @@ pub enum SyncLoadingStrategy {
     Cyclic,
     Strided,
     Tilewise,
+}
+
+#[derive(Debug, Clone)]
+pub enum SyncBufferLoadingStrategy {
+    Cyclic,
+    Tilewise,
+    Hybrid,
 }
 
 #[derive(Debug, Clone)]
@@ -135,11 +148,23 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 SimpleTmaAlgorithm<Accelerated>,
             >(client, lhs, rhs, out, (false, false)),
         },
-        Strategy::DoubleBuffering => {
-            matmul::launch_ref::<R, MP, DoubleBufferingAlgorithm<Accelerated>>(
-                client, lhs, rhs, out,
-            )
-        }
+        Strategy::DoubleBuffering(loading_strategy) => match loading_strategy {
+            SyncBufferLoadingStrategy::Cyclic => {
+                matmul::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out,
+                )
+            }
+            SyncBufferLoadingStrategy::Tilewise => {
+                matmul::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out,
+                )
+            }
+            SyncBufferLoadingStrategy::Hybrid => {
+                matmul::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out,
+                )
+            }
+        },
         Strategy::Tiling2D(config) => {
             // TODO Implement tiling2d with EI and EO
             tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());

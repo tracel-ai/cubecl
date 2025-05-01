@@ -11,6 +11,7 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::{FullReader, FullReaderFamily};
+use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
@@ -54,7 +55,7 @@ where
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Input = SMM::Input;
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -83,7 +84,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -97,6 +98,7 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
+            input.1,
         )
     }
 }

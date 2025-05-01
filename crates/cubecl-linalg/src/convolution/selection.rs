@@ -7,8 +7,7 @@ use super::{
 use crate::matmul::{
     components::{
         CompleteStageTiling, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
-        stage::{STAGE_BUFFERING, StageVectorization},
-        tile::TileMatmulFamily,
+        stage::StageVectorization, tile::TileMatmulFamily,
     },
     kernels::matmul::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_shape},
 };
@@ -32,7 +31,7 @@ pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
         selection,
         (
             config_input,
-            STAGE_BUFFERING,
+            A::stage_buffering_strategy(),
             vectorization,
             A::num_stages(),
         ),
