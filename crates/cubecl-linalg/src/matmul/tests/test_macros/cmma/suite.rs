@@ -1,4 +1,4 @@
-use crate::matmul::components::stage::{STAGE_BUFFERING, StageVectorization};
+use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
@@ -58,10 +58,13 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         client,
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
         ),
         selection,
     );
@@ -117,10 +120,13 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         client,
         problem,
         (
-            config_input,
-            STAGE_BUFFERING,
-            vectorization,
-            A::num_stages(),
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
         ),
         selection,
     );
@@ -134,12 +140,12 @@ macro_rules! matmul_standard_tests {
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
         };
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
-        use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
+        use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm};
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
 
         #[test]
-        pub fn simple_coalesced() {
+        pub fn simple_cyclic() {
             cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
@@ -150,7 +156,7 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn simple_coalesced_multi_rows() {
+        pub fn simple_cyclic_multi_rows() {
             cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
@@ -251,9 +257,9 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn double_buffering() {
+        pub fn double_buffering_single_row_cyclic() {
             cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingAlgorithm<TMM>,
+                CyclicDoubleBufferingAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(
@@ -266,9 +272,69 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn double_buffering_multi_rows() {
+        pub fn double_buffering_multi_row_cyclic() {
             cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingAlgorithm<TMM>,
+                CyclicDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_single_row_tilewise() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                TilewiseDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_multi_row_tilewise() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                TilewiseDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_single_row_hybrid() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                HybridDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_multi_row_hybrid() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                HybridDoubleBufferingAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

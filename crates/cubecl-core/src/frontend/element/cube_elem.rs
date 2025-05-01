@@ -4,13 +4,13 @@ use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::Com
 use crate::ir::{Elem, Scope};
 use crate::{Feature, frontend::CubeType};
 
-use super::{ExpandElementBaseInit, ExpandElementTyped};
+use super::{ExpandElementIntoMut, ExpandElementTyped};
 
 /// Form of CubeType that encapsulates all primitive types:
 /// Numeric, UInt, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
-    + ExpandElementBaseInit
+    + ExpandElementIntoMut
     // + IntoRuntime
     + core::cmp::PartialEq
     + Send
