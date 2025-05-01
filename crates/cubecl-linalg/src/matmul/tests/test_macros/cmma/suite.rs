@@ -57,7 +57,12 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization),
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     );
 }
@@ -111,7 +116,12 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization),
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     );
 }
@@ -125,10 +135,8 @@ macro_rules! matmul_standard_tests {
         };
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
-        use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
-        use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
         pub fn simple_coalesced() {
@@ -170,7 +178,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_tilewise() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleAlgorithm<TMM, sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>, sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>>,
+                SimpleAlgorithm<TMM, sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>, sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>>,
                 Precision,
                 TestRuntime,
             >(
@@ -243,39 +251,9 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn specialized() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SpecializedAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-            );
-        }
-
-        #[test]
         pub fn double_buffering() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-            );
-        }
-
-        #[test]
-        pub fn double_buffering_barrier() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(
@@ -451,6 +429,17 @@ macro_rules! matmul_standard_tests {
                 $rhs_layout,
                 $tile,
                 MatmulSize { m: 2, n: 2, k: 2 }
+            );
+        }
+
+        mod s8x8x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 8, n: 8, k: 4 }
             );
         }
 

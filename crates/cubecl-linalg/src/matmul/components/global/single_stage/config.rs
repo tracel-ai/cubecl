@@ -77,6 +77,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     fn precompute_job(&self) -> bool {
         PRECOMPUTE_JOB
     }
+
+    fn num_stages(&self) -> u32 {
+        1
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for Config<S> {}

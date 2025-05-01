@@ -316,8 +316,8 @@ mod __tensor_arg {
         type ExpandType = TensorArgExpand<P, RA, Tag>;
     }
 
-    impl<P: ReduceDType, RA: ReduceArgs, Tag> Init for TensorArgExpand<P, RA, Tag> {
-        fn init(self, _scope: &mut Scope, _is_mut: bool) -> Self {
+    impl<P: ReduceDType, RA: ReduceArgs, Tag> IntoMut for TensorArgExpand<P, RA, Tag> {
+        fn into_mut(self, _scope: &mut Scope) -> Self {
             self
         }
     }

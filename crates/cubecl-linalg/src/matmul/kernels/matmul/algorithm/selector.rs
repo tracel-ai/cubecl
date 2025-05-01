@@ -55,7 +55,12 @@ where
         <InputArg<MS> as ConcreteInputsFactory>::create(lhs, rhs, &selection, &problem),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
         problem,
-        (config_input, STAGE_BUFFERING, vectorization),
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     )
 }
@@ -83,7 +88,12 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization),
+        (
+            config_input,
+            STAGE_BUFFERING,
+            vectorization,
+            A::num_stages(),
+        ),
         selection,
     )
 }

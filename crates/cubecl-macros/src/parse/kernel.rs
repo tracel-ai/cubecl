@@ -1,4 +1,9 @@
-use crate::{expression::Block, paths::prelude_type, scope::Context, statement::Pattern};
+use crate::{
+    expression::{Block, Expression},
+    paths::{frontend_type, prelude_type},
+    scope::Context,
+    statement::{Pattern, Statement},
+};
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
@@ -370,7 +375,9 @@ impl KernelFn {
 
         Desugar.visit_block_mut(&mut block);
 
-        let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
+        let (mut block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
+
+        Self::patch_mut_owned_inputs(&mut block, &sig);
 
         Ok(KernelFn {
             vis,
@@ -382,6 +389,38 @@ impl KernelFn {
             context,
             debug_symbols,
         })
+    }
+
+    /// We need to call IntoMut::into_mut on mutable owned inputs since their local variables need to be
+    /// identified as mut, which is done at initialization.
+    ///
+    /// However, we don't specify mutability during initialization when we don't need to mutate the
+    /// type in the current scope; it is done in the function that receives the mutable parameter
+    /// as input. Therefore, we need to adjust the mutability here.
+    fn patch_mut_owned_inputs(block: &mut Block, sig: &KernelSignature) {
+        let mut mappings = Vec::new();
+        let into_mut = frontend_type("IntoMut");
+
+        for s in sig.parameters.iter() {
+            if !s.is_ref && s.is_mut {
+                let name = s.name.clone();
+                let expression = Expression::Verbatim {
+                    tokens: quote! {
+                        let mut #name = #into_mut::into_mut(#name, scope);
+                    },
+                };
+                let stmt = Statement::Expression {
+                    expression: Box::new(expression),
+                    terminated: false,
+                };
+                mappings.push(stmt);
+            }
+        }
+
+        if !mappings.is_empty() {
+            mappings.append(&mut block.inner);
+            block.inner = mappings;
+        }
     }
 }
 

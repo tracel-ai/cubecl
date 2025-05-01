@@ -5,11 +5,11 @@ mod event_listener;
 mod layout;
 mod reader;
 pub(super) mod shared;
-mod staging;
+mod stage_memory;
 
 pub use base::*;
 pub use event_listener::*;
 pub use layout::*;
 pub use reader::*;
 pub use shared::StageVectorization;
-pub use staging::Stage;
+pub use stage_memory::StageMemory;

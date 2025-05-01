@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
-    stage::{Stage, StridedTilingLayout},
+    stage::{StageMemory, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -67,7 +67,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, StridedTilingLayout>,
+        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {

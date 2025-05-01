@@ -9,7 +9,7 @@ use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::BufferReader;
-use crate::matmul::components::stage::Stage;
+use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::stage::TilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -36,7 +36,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
 #[derive(Clone, CubeType)]
 pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
     tensor_reader: TensorReader<MP::EI>,
-    stage: Stage<MP::ES, L::TilingLayout>,
+    stage: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
@@ -58,7 +58,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(input_ident.as_ident(), config.to_smm_config());
+        let stage =
+            StageMemory::new::<G::SmmConfig>(2u32, input_ident.as_ident(), config.to_smm_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
