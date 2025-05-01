@@ -6,6 +6,7 @@ use crate::{
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use spin::Mutex;
