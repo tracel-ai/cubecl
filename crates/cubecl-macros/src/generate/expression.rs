@@ -407,8 +407,7 @@ impl Expression {
             Expression::Path { path, qself } => {
                 if let Some(qself) = qself {
                     let ty = &qself.ty;
-                    panic!("{:?}", ty);
-                    // quote![<#ty as #path>]
+                    quote![<#ty as #path>]
                 } else {
                     quote![#path]
                 }

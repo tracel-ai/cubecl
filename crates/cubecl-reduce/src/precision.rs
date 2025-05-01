@@ -13,6 +13,9 @@ impl<EI: Numeric, EA: Numeric> ReducePrecision for (EI, EA) {
     type EA = EA;
 }
 
+// The below implementations are suggestion for reduction that can accumulate precision errors like
+// summations.
+
 impl ReducePrecision for f64 {
     type EI = f64;
     type EA = f64;
