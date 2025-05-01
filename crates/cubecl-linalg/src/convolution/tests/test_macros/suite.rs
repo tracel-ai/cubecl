@@ -100,7 +100,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
                 vectorization,
                 A::num_stages(),
             ),
-            A::loading_precompute_strategy().into(),
+            A::loading_precompute_strategy(),
         ),
         selection,
     );

@@ -162,7 +162,7 @@ where
 
     let config = Alg::make_config::<R, MP>(
         client,
-        (config_input, Alg::loading_precompute_strategy().into()),
+        (config_input, Alg::loading_precompute_strategy()),
         &problem,
         &cube_dim,
         &cube_count,

@@ -66,7 +66,7 @@ where
                 vectorization,
                 A::num_stages(),
             ),
-            A::loading_precompute_strategy().into(),
+            A::loading_precompute_strategy(),
         ),
         selection,
     )
@@ -106,7 +106,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
                 vectorization,
                 A::num_stages(),
             ),
-            A::loading_precompute_strategy().into(),
+            A::loading_precompute_strategy(),
         ),
         selection,
     )

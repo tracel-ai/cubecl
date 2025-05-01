@@ -64,7 +64,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
                 vectorization,
                 A::num_stages(),
             ),
-            A::loading_precompute_strategy().into(),
+            A::loading_precompute_strategy(),
         ),
         selection,
     );
@@ -126,7 +126,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
                 vectorization,
                 A::num_stages(),
             ),
-            A::loading_precompute_strategy().into(),
+            A::loading_precompute_strategy(),
         ),
         selection,
     );
