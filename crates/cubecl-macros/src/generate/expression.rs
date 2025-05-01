@@ -704,14 +704,11 @@ fn map_args(args: &[Expression], context: &mut Context) -> (Vec<TokenStream>, Ve
     (values, names)
 }
 
-/// Since we no longer (unnecessarily) init immutable locals, we do need to init all struct fields
-/// because of interior mutability.
 fn init_fields<'a>(
     fields: &'a [(Member, Expression)],
     context: &'a mut Context,
 ) -> impl Iterator<Item = TokenStream> + 'a {
     fields.iter().map(|(pat, it)| {
-        let init = frontend_type("Init");
         let it = if let Some(as_const) = it.as_const(context) {
             let it = quote_spanned![as_const.span()=> #as_const];
             return quote! {
@@ -726,7 +723,7 @@ fn init_fields<'a>(
         quote! {
             #pat: {
                 let _init = #it;
-                #init::init(_init, scope, false) // No mut variable possible yet
+                _init
             }
         }
     })

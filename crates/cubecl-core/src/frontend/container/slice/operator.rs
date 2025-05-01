@@ -1,6 +1,6 @@
 use super::{ReadOnly, ReadWrite, Slice, SliceExpand, SliceOriginExpand, SliceVisibility};
 use crate::{
-    frontend::{Array, CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
+    frontend::{Array, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, indexation::Index},
     ir::Scope,
     prelude::{CubeDebug, SharedMemory, Tensor, expand_length_native},
     unexpanded,
@@ -277,7 +277,7 @@ pub trait SliceOperator<E: CubePrimitive>: CubeType<ExpandType: SliceOperatorExp
     }
 }
 
-pub trait SliceOperatorExpand<E: CubePrimitive>: Clone + Init + CubeDebug {
+pub trait SliceOperatorExpand<E: CubePrimitive>: Clone + IntoMut + CubeDebug {
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
