@@ -341,43 +341,19 @@ impl<Lhs: LoaderEventListener, Rhs: LoaderEventListener, G: GlobalConfig>
 }
 
 #[derive(Clone)]
-/// How events are handled for double buffering.
-///
-/// The goal is to overlap computation instructions with memory instructions.
-enum EventListenerMode {
-    /// We execute memory instructions based on the given ratio (between 0 and 1) of the
-    /// computation that is completed.
-    Full {
-        /// The ratio to be waited for with LHS.
-        ratio_lhs: f32,
-        /// The ratio to be waited for with RHS.
-        ratio_rhs: f32,
-    },
-    /// We execute memory instructions for each [STEP] after [START] compute tasks are executed.
-    Splitted {
-        /// The event number to execute the next LHS task.
-        event_lhs: u32,
-        /// If no more tasks need to be executed for LHS.
-        event_lhs_completed: bool,
-        /// The event number to execute the next RHS task.
-        event_rhs: u32,
-        /// If no more tasks need to be executed for RHS.
-        event_rhs_completed: bool,
-    },
+/// Analysis of [StageEvent] that reports when lhs and rhs should execute a task.
+struct EventAnalysis {
+    /// The event count to execute the next lhs task.
+    lhs: u32,
+    /// If no more tasks need to be executed for lhs.
+    lhs_completed: bool,
+    /// The event count to execute the next rhs task.
+    rhs: u32,
+    /// If no more tasks need to be executed for rhs.
+    rhs_completed: bool,
 }
 
-impl CubeDebug for EventListenerMode {}
-
-const STEP: u32 = 2;
-const START: u32 = 1;
-
-fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> bool {
-    current_event == expected_event || (total <= expected_event && current_event + 1 == total)
-}
-
-fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
-    should_handle_event(f32::ceil(ratio * total as f32) as u32, current_event, total)
-}
+impl CubeDebug for EventAnalysis {}
 
 #[cube]
 impl<
@@ -389,33 +365,44 @@ impl<
     for DoubleBufferingEventListener<SyncBufferLoader<MP, G, LL>, SyncBufferLoader<MP, G, RL>, G>
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
+        if let StageEvent::Begin = event {
+            this.init();
+        }
+
         if let StageEvent::TmmCompleted { current, total } = event {
-            if comptime![current == 0] {
-                this.init();
+            let analysis = this.analyse(total);
+
+            if comptime![!analysis.lhs_completed && analysis.lhs == current] {
+                let lhs_job = this.state_lhs.index_mut(0);
+
+                SyncBufferLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
             }
 
-            let mode = this.mode(total);
+            if comptime![!analysis.rhs_completed && analysis.rhs == current] {
+                let rhs_job = this.state_rhs.index_mut(0);
 
-            match comptime!(mode) {
-                EventListenerMode::Full {
-                    ratio_lhs,
-                    ratio_rhs,
-                } => this.on_full_event(ratio_lhs, ratio_rhs, current, total),
-                EventListenerMode::Splitted {
-                    event_lhs,
-                    event_lhs_completed,
-                    event_rhs,
-                    event_rhs_completed,
-                } => this.on_splitted_event(
-                    event_lhs,
-                    event_lhs_completed,
-                    event_rhs,
-                    event_rhs_completed,
-                    current,
-                    total,
-                ),
+                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
             }
-        };
+        }
+
+        // Cleanup remaining tasks if any.
+        if let StageEvent::Finish = event {
+            let lhs_job = this.state_lhs.index_mut(0);
+            let lhs_num_task_executed = lhs_job.current.read().counter;
+
+            #[unroll]
+            for _ in lhs_num_task_executed..lhs_job.num_tasks {
+                SyncBufferLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            }
+
+            let rhs_job = this.state_rhs.index_mut(0);
+            let rhs_num_task_executed = rhs_job.current.read().counter;
+
+            #[unroll]
+            for _ in rhs_num_task_executed..rhs_job.num_tasks {
+                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            }
+        }
     }
 }
 
@@ -435,77 +422,24 @@ impl<
         self.state_rhs.push(job_rhs);
     }
 
-    fn mode(&self, #[comptime] total: u32) -> comptime_type!(EventListenerMode) {
+    fn analyse(&self, #[comptime] event_count_total: u32) -> comptime_type!(EventAnalysis) {
         let lhs_job = self.state_lhs.index(0);
         let rhs_job = self.state_rhs.index(0);
         let num_tasks_total = comptime!(lhs_job.num_tasks + rhs_job.num_tasks);
 
-        if comptime!(num_tasks_total * STEP + (START) >= total) {
-            comptime! {
-                EventListenerMode::Full {
-                    ratio_lhs: 0.1,
-                    ratio_rhs: 0.3,
-                }
+        let lhs_num_task_executed = lhs_job.current.read().counter;
+        let rhs_num_task_executed = rhs_job.current.read().counter;
+
+        comptime! {
+            let step = 1u32;
+            let start = event_count_total - (step * num_tasks_total);
+
+            EventAnalysis {
+                lhs: lhs_num_task_executed * step + start,
+                lhs_completed: lhs_num_task_executed >= lhs_job.num_tasks,
+                rhs: rhs_num_task_executed * step + (lhs_job.num_tasks * step) + start,
+                rhs_completed: rhs_num_task_executed >= rhs_job.num_tasks,
             }
-        } else {
-            let lhs_num_task_executed = lhs_job.current.read().counter;
-            let rhs_num_task_executed = rhs_job.current.read().counter;
-
-            comptime! {
-                EventListenerMode::Splitted {
-                    event_lhs: lhs_num_task_executed  * STEP + START,
-                    event_lhs_completed: lhs_num_task_executed >= lhs_job.num_tasks,
-                    event_rhs: rhs_num_task_executed  * STEP + (lhs_job.num_tasks * STEP) + START,
-                    event_rhs_completed: rhs_num_task_executed >= rhs_job.num_tasks,
-                }
-            }
-        }
-    }
-
-    fn on_full_event(
-        &mut self,
-        #[comptime] ratio_lhs: f32,
-        #[comptime] ratio_rhs: f32,
-        #[comptime] current: u32,
-        #[comptime] total: u32,
-    ) {
-        if comptime![should_handle_event_ratio(ratio_lhs, current, total)] {
-            let lhs_job = self.state_lhs.index_mut(0);
-
-            #[unroll]
-            for _ in 0..lhs_job.num_tasks {
-                SyncBufferLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
-            }
-        }
-        if comptime![should_handle_event_ratio(ratio_rhs, current, total)] {
-            let rhs_job = self.state_rhs.index_mut(0);
-
-            #[unroll]
-            for _ in 0..rhs_job.num_tasks {
-                SyncBufferLoader::execute_task(&mut self.loader_rhs, rhs_job, self.config);
-            }
-        }
-    }
-
-    fn on_splitted_event(
-        &mut self,
-        #[comptime] event_lhs: u32,
-        #[comptime] event_lhs_completed: bool,
-        #[comptime] event_rhs: u32,
-        #[comptime] event_rhs_completed: bool,
-        #[comptime] current: u32,
-        #[comptime] total: u32,
-    ) {
-        if comptime![!event_lhs_completed && should_handle_event(event_lhs, current, total)] {
-            let lhs_job = self.state_lhs.index_mut(0);
-
-            SyncBufferLoader::execute_task(&mut self.loader_lhs, lhs_job, self.config);
-        }
-
-        if comptime![!event_rhs_completed && should_handle_event(event_rhs, current, total)] {
-            let rhs_job = self.state_rhs.index_mut(0);
-
-            SyncBufferLoader::execute_task(&mut self.loader_rhs, rhs_job, self.config);
         }
     }
 }
