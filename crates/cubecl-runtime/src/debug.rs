@@ -275,27 +275,27 @@ impl DebugLoggerKind {
 
         let mut profile = None;
 
-        match logger.config.profiling_level {
-            crate::config::ProfilingLevel::Disabled => {}
-            crate::config::ProfilingLevel::Basic => {
+        match logger.config.profiling.logger.level {
+            crate::config::ProfilingLogLevel::Disabled => {}
+            crate::config::ProfilingLogLevel::Basic => {
                 profile = Some(ProfileLevel::Basic);
             }
-            crate::config::ProfilingLevel::Medium => {
+            crate::config::ProfilingLogLevel::Medium => {
                 profile = Some(ProfileLevel::Medium);
             }
-            crate::config::ProfilingLevel::Full => {
+            crate::config::ProfilingLogLevel::Full => {
                 profile = Some(ProfileLevel::Full);
             }
         };
 
         let option = if let Some(level) = profile {
-            if let CompilationLogLevel::Full = logger.config.compilation_log_level {
+            if let CompilationLogLevel::Full = logger.config.compilation.logger.level {
                 DebugOptions::All(level)
             } else {
                 DebugOptions::Profile(level)
             }
         } else {
-            if let CompilationLogLevel::Disabled = logger.config.compilation_log_level {
+            if let CompilationLogLevel::Disabled = logger.config.compilation.logger.level {
                 return Self::None;
             }
 

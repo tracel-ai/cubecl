@@ -42,7 +42,8 @@ pub struct Cache<K, V> {
 pub struct CacheOption {
     separator: Option<Vec<u8>>,
     version: Option<String>,
-    root: Option<String>,
+    name: Option<String>,
+    root: Option<PathBuf>,
     lock_max_duration: Option<Duration>,
 }
 
@@ -81,25 +82,39 @@ impl CacheOption {
         self
     }
 
-    /// The root directory for the cache.
+    /// The name for the cache.
     ///
-    /// It will appear in the directory "$HOME/.cache/{root}/"
-    pub fn root<R: Into<String>>(mut self, root: R) -> Self {
-        self.root = Some(root.into());
+    /// It will appear in the directory "$HOME/.cache/{name}/"
+    pub fn name<R: Into<String>>(mut self, name: R) -> Self {
+        self.name = Some(name.into());
         self
     }
 
-    fn resolve(self) -> (Vec<u8>, String, String, Duration) {
+    /// The root path for the cache.
+    ///
+    /// It will appear in the directory "{path}/{name}/"
+    pub fn root<R: Into<PathBuf>>(mut self, path: R) -> Self {
+        self.root = Some(path.into());
+        self
+    }
+
+    fn resolve(self) -> (Vec<u8>, String, String, PathBuf, Duration) {
         let separator = self.separator.unwrap_or_else(|| b"\n".to_vec());
         let version = self
             .version
             .unwrap_or_else(|| std::env!("CARGO_PKG_VERSION").to_string());
-        let root = self.root.unwrap_or_else(|| "cubecl".to_string());
+        let name = self.name.unwrap_or_else(|| "cubecl".to_string());
         let duration = self
             .lock_max_duration
             .unwrap_or_else(|| Duration::from_secs(30));
+        let root = match self.root {
+            Some(root) => root,
+            None => dirs::home_dir()
+                .expect("An home directory should exist")
+                .join(".cache"),
+        };
 
-        (separator, root, version, duration)
+        (separator, name, version, root, duration)
     }
 }
 
@@ -114,8 +129,8 @@ impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> CacheValue for T 
 impl<K: CacheKey, V: CacheValue> Cache<K, V> {
     /// Create a new cache and load the data from the provided path if it exists.
     pub fn new<P: AsRef<Path>>(path: P, option: CacheOption) -> Self {
-        let (separator, root, version, lock_max_duration) = option.resolve();
-        let path = get_persistent_cache_file_path(path, root, version);
+        let (separator, name, version, root, lock_max_duration) = option.resolve();
+        let path = get_persistent_cache_file_path(path, root, name, version);
 
         let mut this = Self {
             in_memory_cache: HashMap::new(),
@@ -271,22 +286,19 @@ impl<K: CacheKey, V: CacheValue> Display for Cache<K, V> {
 
 fn get_persistent_cache_file_path<P: AsRef<Path>>(
     path_partial: P,
-    root: String,
+    root: PathBuf,
+    name: String,
     version: String,
 ) -> PathBuf {
     let path_partial: &Path = path_partial.as_ref();
-    let home_dir = dirs::home_dir().expect("An home directory should exist");
     let add_extension = !path_partial.ends_with("json.log");
 
-    let mut path = home_dir
-        .join(".cache")
-        .join(sanitize_path_segment(&root))
+    let mut path = root
+        .join(sanitize_path_segment(&name))
         .join(sanitize_path_segment(&version));
 
     for segment in path_partial.iter() {
-        // Skip the root directory since it resets the previous path segments.
-        //
-        // "/path/file" == "path/file" => "$HOME/.cache/tracel-ai/path/file"
+        // Skip the name directory since it resets the previous path segments.
         if segment == "/" {
             continue;
         }
