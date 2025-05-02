@@ -80,7 +80,10 @@ impl<K: AutotuneKey> TuneCache<K> {
             let options = cubecl_common::cache::CacheOption::default();
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Cache::new(format!("{device_id}/{name}"), options.root(root)),
+                persistent_cache: Cache::new(
+                    format!("{device_id}/{name}"),
+                    options.root(root).name("autotune"),
+                ),
             };
             cache.load();
             cache

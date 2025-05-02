@@ -1,5 +1,4 @@
 use alloc::sync::Arc;
-use core::fmt::Display;
 
 static CUBE_GLOBAL_CONFIG: spin::Mutex<Option<Arc<CubeGlobalConfig>>> = spin::Mutex::new(None);
 
@@ -16,6 +15,7 @@ pub struct CubeGlobalConfig {
 impl LogLevel for u32 {}
 impl LogLevel for BinaryLogLevel {}
 impl LogLevel for ProfilingLogLevel {}
+impl LogLevel for AutotuneLogLevel {}
 
 pub trait LogLevel:
     serde::de::DeserializeOwned + serde::Serialize + Clone + core::fmt::Debug + Default
@@ -35,7 +35,20 @@ pub struct SingleLoggerConfig<L: LogLevel> {
     #[serde(default)]
     stderr: bool,
     #[serde(default)]
+    log: Option<LogCrateLevel>,
+    #[serde(default)]
     pub level: L,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum LogCrateLevel {
+    #[default]
+    #[serde(rename = "info")]
+    Info,
+    #[serde(rename = "debug")]
+    Debug,
+    #[serde(rename = "trace")]
+    Trace,
 }
 
 fn append_default() -> bool {
@@ -56,6 +69,9 @@ pub enum TestConfig {
     /// Log information into standard error output.
     #[serde(rename = "stderr")]
     Stderr,
+    /// Log information with the log crate.
+    #[serde(rename = "log")]
+    Log,
 }
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -82,8 +98,9 @@ pub struct AutotuneConfig {
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AutotuneCache {
-    #[default]
     Local,
+    #[default]
+    Target,
     Global,
     File(std::path::PathBuf),
 }
@@ -92,6 +109,22 @@ impl AutotuneCache {
     pub fn root(&self) -> std::path::PathBuf {
         match self {
             AutotuneCache::Local => std::env::current_dir().unwrap(),
+            AutotuneCache::Target => {
+                let dir_original = std::env::current_dir().unwrap();
+                let mut dir = dir_original.clone();
+
+                loop {
+                    if let Ok(true) = std::fs::exists(dir.join("Cargo.toml")) {
+                        return dir.join("target");
+                    }
+
+                    if !dir.pop() {
+                        break;
+                    }
+                }
+
+                dir_original.join("target")
+            }
             AutotuneCache::Global => dirs::config_local_dir().unwrap(),
             AutotuneCache::File(path_buf) => path_buf.clone(),
         }
@@ -101,36 +134,57 @@ impl AutotuneCache {
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BinaryLogLevel {
     #[default]
+    #[serde(rename = "disabled")]
     Disabled,
+    #[serde(rename = "full")]
     Full,
 }
 
 pub type CompilationLogLevel = BinaryLogLevel;
-pub type AutotuneLogLevel = BinaryLogLevel;
+
+#[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub enum AutotuneLogLevel {
+    #[serde(rename = "disabled")]
+    Disabled,
+    #[default]
+    #[serde(rename = "minimal")]
+    Minmal,
+    #[serde(rename = "full")]
+    Full,
+}
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ProfilingLogLevel {
     #[default]
+    #[serde(rename = "disabled")]
     Disabled,
+    #[serde(rename = "basic")]
     Basic,
+    #[serde(rename = "medium")]
     Medium,
+    #[serde(rename = "full")]
     Full,
 }
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AutotuneLevel {
+    #[serde(rename = "minimal")]
     Minimal,
     #[default]
+    #[serde(rename = "balanced")]
     Medium,
+    #[serde(rename = "more")]
     More,
+    #[serde(rename = "full")]
     Full,
 }
 
 impl CubeGlobalConfig {
     pub fn get() -> Arc<Self> {
-        let state = CUBE_GLOBAL_CONFIG.lock();
+        let mut state = CUBE_GLOBAL_CONFIG.lock();
         if let None = state.as_ref() {
-            Self::from_current_dir();
+            let config = Self::from_current_dir();
+            *state = Some(Arc::new(config));
         }
 
         state.as_ref().cloned().unwrap()
@@ -141,33 +195,34 @@ impl CubeGlobalConfig {
         *state = Some(Arc::new(config));
     }
 
-    pub fn from_current_dir() {
-        let dir = std::env::current_dir().unwrap();
-        println!("{:?}", dir.join("CubeCL.toml"));
-        if let Ok(_) = Self::from_file_path(dir.join("CubeCL.toml")) {
-            return;
-        }
-        if let Ok(_) = Self::from_file_path(dir.join("cubecl.toml")) {
-            return;
+    fn from_current_dir() -> Self {
+        let mut dir = std::env::current_dir().unwrap();
+
+        loop {
+            if let Ok(content) = Self::from_file_path(dir.join("cubecl.toml")) {
+                return content;
+            }
+
+            if let Ok(content) = Self::from_file_path(dir.join("CubeCL.toml")) {
+                return content;
+            }
+
+            if !dir.pop() {
+                break;
+            }
         }
 
-        Self::set(Self::default());
+        Self::default()
     }
 
-    pub fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<()> {
-        let p: &std::path::Path = path.as_ref();
-        println!("Reading to string {p:?}");
+    fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        println!("Content {:?}", content);
         let config: Self = match toml::from_str(&content) {
             Ok(val) => val,
             Err(err) => panic!("The file provided doesn't have the right format => {err:?}"),
         };
-        panic!("{config:?}");
 
-        Self::set(config);
-
-        Ok(())
+        Ok(config)
     }
 }
 
@@ -193,7 +248,7 @@ mod logger {
 #[cfg(feature = "std")]
 mod logger {
     use hashbrown::HashMap;
-    use std::path::PathBuf;
+    use std::{fmt::Display, path::PathBuf};
 
     use super::{file::FileLogger, *};
 
@@ -207,6 +262,9 @@ mod logger {
     }
 
     impl Logger {
+        pub fn autotune_log_level(&self) -> AutotuneLogLevel {
+            self.config.autotune.logger.level
+        }
         pub fn new() -> Self {
             let config = CubeGlobalConfig::get();
             let mut loggers = Vec::new();
@@ -240,6 +298,15 @@ mod logger {
                 loggers.push(LoggerKind::Stdout);
             }
 
+            fn new_log_logger(
+                setting_index: &mut Vec<usize>,
+                loggers: &mut Vec<LoggerKind>,
+                level: LogCrateLevel,
+            ) {
+                setting_index.push(loggers.len());
+                loggers.push(LoggerKind::Log(level));
+            }
+
             fn new_stderr_logger(setting_index: &mut Vec<usize>, loggers: &mut Vec<LoggerKind>) {
                 setting_index.push(loggers.len());
                 loggers.push(LoggerKind::Stderr);
@@ -248,6 +315,7 @@ mod logger {
             fn register_logger<L: LogLevel>(
                 kind: &SingleLoggerConfig<L>,
                 append: bool,
+                level: Option<LogCrateLevel>,
                 setting_index: &mut Vec<usize>,
                 loggers: &mut Vec<LoggerKind>,
                 path2index: &mut HashMap<PathBuf, usize>,
@@ -263,12 +331,17 @@ mod logger {
                 if kind.stderr {
                     new_stderr_logger(setting_index, loggers)
                 }
+
+                if let Some(level) = level {
+                    new_log_logger(setting_index, loggers, level)
+                }
             }
 
             if let CompilationLogLevel::Full = config.compilation.logger.level {
                 register_logger(
                     &config.compilation.logger,
                     config.compilation.logger.append,
+                    config.compilation.logger.log,
                     &mut compilation_index,
                     &mut loggers,
                     &mut path2index,
@@ -281,16 +354,19 @@ mod logger {
                 register_logger(
                     &config.profiling.logger,
                     config.profiling.logger.append,
+                    config.profiling.logger.log,
                     &mut profiling_index,
                     &mut loggers,
                     &mut path2index,
                 )
             }
 
-            if let BinaryLogLevel::Full = config.autotune.logger.level {
+            if let AutotuneLogLevel::Full | AutotuneLogLevel::Minmal = config.autotune.logger.level
+            {
                 register_logger(
                     &config.autotune.logger,
                     config.autotune.logger.append,
+                    config.autotune.logger.log,
                     &mut autotune_index,
                     &mut loggers,
                     &mut path2index,
@@ -356,6 +432,7 @@ mod logger {
         Stdout,
         /// Log debugging information into standard output.
         Stderr,
+        Log(LogCrateLevel),
     }
 
     impl LoggerKind {
@@ -364,6 +441,11 @@ mod logger {
                 LoggerKind::File(file_logger) => file_logger.log(msg),
                 LoggerKind::Stdout => println!("{msg}"),
                 LoggerKind::Stderr => eprintln!("{msg}"),
+                LoggerKind::Log(level) => match level {
+                    LogCrateLevel::Info => log::info!("{msg}"),
+                    LogCrateLevel::Trace => log::debug!("{msg}"),
+                    LogCrateLevel::Debug => log::trace!("{msg}"),
+                },
             }
         }
     }

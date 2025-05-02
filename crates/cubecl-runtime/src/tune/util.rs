@@ -45,12 +45,14 @@ fn load_autotune_level() -> u32 {
     let autotune_level = AUTOTUNE_LEVEL.load(Ordering::Relaxed);
     if autotune_level == -1 {
         let config = CubeGlobalConfig::get();
-        match config.autotune.level {
+        let level = match config.autotune.level {
             crate::config::AutotuneLevel::Minimal => 0,
             crate::config::AutotuneLevel::Medium => 1,
             crate::config::AutotuneLevel::More => 2,
             crate::config::AutotuneLevel::Full => 3,
-        }
+        };
+        AUTOTUNE_LEVEL.store(level, Ordering::Relaxed);
+        level as u32
     } else {
         autotune_level as u32
     }

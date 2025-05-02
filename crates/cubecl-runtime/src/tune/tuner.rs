@@ -11,6 +11,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
+use crate::config::{AutotuneLogLevel, Logger};
 use crate::server::ComputeServer;
 use crate::tune::{TuneBenchmark, TuneCache};
 
@@ -20,6 +21,7 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult};
 /// Executes autotune benchmarking and caching
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
+    logger: Logger,
     channel: (Sender<AutotuneMessage<K>>, Receiver<AutotuneMessage<K>>),
     pub(crate) autotuning: HashSet<K>,
 }
@@ -35,6 +37,17 @@ pub struct AutotuneOutcome {
     index: usize,
     computation: BenchmarkComputations,
 }
+
+impl core::fmt::Display for AutotuneOutcome {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "Autotune[{}] name {} => {:?}",
+            self.index, self.name, self.computation
+        )
+    }
+}
+
 enum AutotuneMessage<K> {
     Done {
         key: K,
@@ -71,6 +84,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
         Self {
             tune_cache: TuneCache::new(name, device_id),
+            logger: Logger::new(),
             channel,
             autotuning: HashSet::new(),
         }
@@ -84,6 +98,10 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
     #[cfg(autotune_persistent_cache)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
+        if let AutotuneLogLevel::Full = self.logger.autotune_log_level() {
+            self.logger
+                .log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
+        }
         self.tune_cache.validate_checksum(key, checksum)
     }
 
@@ -103,6 +121,54 @@ impl<K: AutotuneKey> Tuner<K> {
                 #[cfg(feature = "autotune-checks")]
                     autotune_checks: check,
             } => {
+                match self.logger.autotune_log_level() {
+                    AutotuneLogLevel::Minmal => {
+                        let top_times = results
+                            .iter()
+                            .map(|r| {
+                                let time = r
+                                    .as_ref()
+                                    .map(|r| r.computation.median)
+                                    .unwrap_or(Duration::MAX);
+
+                                let index = r.as_ref().map(|r| r.index).unwrap_or_default();
+                                (index, time)
+                            })
+                            .take(3)
+                            .collect::<Vec<_>>();
+
+                        let result = results
+                            .first()
+                            .expect("At least one kernel needed.")
+                            .as_ref()
+                            .expect("At least one kernel has to succeed.");
+
+                        self.logger.log_autotune(&format!(
+                            "Fastest result {}-{key}. \n Top 3 times: {top_times:?}",
+                            result.name,
+                        ));
+                    }
+                    AutotuneLogLevel::Full => {
+                        let result = results
+                            .first()
+                            .expect("At least one kernel needed.")
+                            .as_ref()
+                            .expect("At least one kernel has to succeed.");
+
+                        self.logger
+                            .log_autotune(&format!("Fastest result {}-{key}.", result.name,));
+                        for result in results.iter() {
+                            match result {
+                                Ok(val) => {
+                                    self.logger.log_autotune(&format!("{val}"));
+                                }
+                                Err(_) => todo!(),
+                            }
+                        }
+                    }
+                    AutotuneLogLevel::Disabled => {}
+                };
+
                 self.tune_cache.cache_insert(key.clone(), fastest_index);
 
                 #[cfg(feature = "autotune-checks")]
@@ -233,25 +299,6 @@ impl<K: AutotuneKey> Tuner<K> {
                     .expect("At least one kernel needed.")
                     .as_ref()
                     .expect("At least one kernel has to succeed.");
-
-                let top_times = bench_results
-                    .iter()
-                    .map(|r| {
-                        let time = r
-                            .as_ref()
-                            .map(|r| r.computation.median)
-                            .unwrap_or(Duration::MAX);
-
-                        let index = r.as_ref().map(|r| r.index).unwrap_or_default();
-                        (index, time)
-                    })
-                    .take(3)
-                    .collect::<Vec<_>>();
-
-                log::info!(
-                    "Fastest result {}-{key_clone}. \n Top 3 times: {top_times:?}",
-                    result.name,
-                );
 
                 AutotuneMessage::Done {
                     key: key_clone,
