@@ -135,20 +135,20 @@ pub(crate) fn conv_cpu_reference<P: TestPrecision>(
 where
 {
     let n = problem.batches;
-    let h = problem.height;
-    let w = problem.width;
+    let h = problem.shape[0];
+    let w = problem.shape[1];
     let c = problem.channels;
 
-    let out_h = problem.out_h;
-    let out_w = problem.out_w;
+    let out_h = problem.out_shape[0];
+    let out_w = problem.out_shape[1];
     let out_channels = problem.n;
 
-    let kh = problem.kernel_size.0 as usize;
-    let kw = problem.kernel_size.1 as usize;
+    let kh = problem.kernel_size[0] as usize;
+    let kw = problem.kernel_size[1] as usize;
 
-    let padding = problem.padding;
-    let stride = problem.stride;
-    let dilation = problem.dilation;
+    let padding = &problem.padding;
+    let stride = &problem.stride;
+    let dilation = &problem.dilation;
 
     let lhs_stride_n = h * w * c;
     let lhs_stride_h = w * c;
@@ -192,12 +192,12 @@ where
                             for kx in 0..kw {
                                 let weight_pos = weight_offset + kx * rhs_stride_kw;
 
-                                let in_y = out_y as i32 * stride.0 as i32
-                                    + ky as i32 * dilation.0 as i32
-                                    - padding.0;
-                                let in_x = out_x as i32 * stride.1 as i32
-                                    + kx as i32 * dilation.1 as i32
-                                    - padding.1;
+                                let in_y = out_y as i32 * stride[0] as i32
+                                    + ky as i32 * dilation[0] as i32
+                                    - padding[0];
+                                let in_x = out_x as i32 * stride[1] as i32
+                                    + kx as i32 * dilation[1] as i32
+                                    - padding[1];
 
                                 if in_y >= 0 && in_y < h as i32 && in_x >= 0 && in_x < w as i32 {
                                     let in_pos = in_offset

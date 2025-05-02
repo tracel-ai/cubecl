@@ -85,6 +85,9 @@ pub fn register_types(props: &mut DeviceProperties<Feature>, adapter: &wgpu::Ada
     if feats.contains(wgpu::Features::SHADER_F64) {
         register(Elem::Float(FloatKind::F64));
     }
+    if feats.contains(wgpu::Features::SHADER_F16) {
+        register(Elem::Float(FloatKind::F16));
+    }
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         register(Elem::AtomicFloat(FloatKind::F32));
         props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));

@@ -1,5 +1,6 @@
 use crate::convolution::{
-    algorithm::Algorithm, args::ConvInputsLaunch, tests::test_utils::TestPrecision,
+    algorithm::Algorithm, args::ConvInputsLaunch, base::Dimensionality,
+    tests::test_utils::TestPrecision,
 };
 use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{CompleteStageTiling, MatrixLayout};
@@ -44,20 +45,30 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
 
     // TODO: Automate more params
     let batches = 2;
-    let kernel_size = (4, 3);
-    let stride = (1, 1);
-    let padding = (3, 1);
-    let dilation = (3, 2);
+    let kernel_size = vec![4, 3];
+    let stride = vec![1, 1];
+    let padding = vec![3, 1];
+    let dilation = vec![3, 2];
 
-    let out_h =
-        calculate_conv_output_size(kernel_size.0, stride.0, padding.0, dilation.0, problem.h);
-    let out_w =
-        calculate_conv_output_size(kernel_size.1, stride.1, padding.1, dilation.1, problem.w);
+    let out_h = calculate_conv_output_size(
+        kernel_size[0],
+        stride[0],
+        padding[0],
+        dilation[0],
+        problem.h,
+    );
+    let out_w = calculate_conv_output_size(
+        kernel_size[1],
+        stride[1],
+        padding[1],
+        dilation[1],
+        problem.w,
+    );
 
     let problem = ConvolutionProblem {
         m: batches * out_h * out_w,
         n: problem.out_c,
-        k: kernel_size.0 as usize * kernel_size.1 as usize * problem.c,
+        k: kernel_size.iter().product::<u32>() as usize * problem.c,
         lhs_layout: MatrixLayout::RowMajor,
         rhs_layout: MatrixLayout::ColMajor,
         lhs_line_size: 1,
@@ -68,11 +79,10 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         padding,
         dilation,
         batches,
-        height: problem.h,
-        width: problem.w,
+        shape: vec![problem.h, problem.w],
         channels: problem.c,
-        out_h,
-        out_w,
+        out_shape: vec![out_h, out_w],
+        dimensionality: Dimensionality::Dim2,
     };
 
     let selection = MatmulSelection {

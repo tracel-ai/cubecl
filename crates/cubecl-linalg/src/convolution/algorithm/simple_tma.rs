@@ -8,7 +8,7 @@ use cubecl_core::{
 
 use crate::{
     convolution::{
-        base::{ConvolutionConfigFactory, ConvolutionProblem},
+        base::{ConvolutionConfigFactory, ConvolutionProblem, Dimensionality},
         homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     },
     matmul::components::{
@@ -89,23 +89,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
     ) -> TensorHandle<R, E> {
-        let mut handle = if has_valid_layout(handle, ident) {
-            TensorHandle::from_ref(handle)
-        } else {
-            into_contiguous_pitched(client, handle)
-        };
-        match ident {
-            InputIdent::Lhs => handle,
-            InputIdent::Rhs => {
-                handle.shape = vec![
-                    handle.shape[0],
-                    handle.shape[1] * handle.shape[2],
-                    handle.shape[3],
-                ];
-                handle.strides = vec![handle.strides[0], handle.strides[2], handle.strides[3]];
-                handle
-            }
-        }
+        into_tensor_handle_tma(client, handle, ident)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
@@ -114,21 +98,53 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     }
 }
 
+pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    handle: &TensorHandleRef<'_, R>,
+    ident: InputIdent,
+) -> TensorHandle<R, E> {
+    let rank = handle.shape.len();
+    let dim_c = rank - 1;
+    let mut handle = if has_valid_layout(handle, ident) {
+        TensorHandle::from_ref(handle)
+    } else {
+        into_contiguous_pitched(client, handle)
+    };
+    match ident {
+        InputIdent::Lhs => handle,
+        InputIdent::Rhs => {
+            let k_size = handle.shape[1..dim_c].iter().product();
+            handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
+            handle.strides = vec![
+                handle.strides[0],
+                handle.strides[dim_c - 1],
+                handle.strides[dim_c],
+            ];
+            handle
+        }
+    }
+}
+
 pub(crate) fn has_valid_layout<R: Runtime>(
     handle: &TensorHandleRef<'_, R>,
     ident: InputIdent,
 ) -> bool {
     let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
+    let rank = handle.shape.len();
+    let dim_c = rank - 1;
 
-    let aligned = handle.strides[..3]
+    let aligned = handle.strides[..dim_c]
         .iter()
         .all(|stride| stride % stride_align == 0);
 
     let valid_layout = match ident {
-        InputIdent::Lhs => handle.strides[3] == 1,
+        InputIdent::Lhs => handle.strides[dim_c] == 1,
         InputIdent::Rhs => {
-            let c_major = handle.strides[3] == 1;
-            let kernel_contig = handle.strides[2] * handle.shape[2] == handle.strides[1];
+            let c_major = handle.strides[dim_c] == 1;
+            let mut kernel_contig = true;
+            for i in 1..dim_c - 1 {
+                kernel_contig &= handle.strides[i] == handle.strides[i + 1] * handle.shape[i + 1];
+            }
             c_major && kernel_contig
         }
     };
@@ -139,11 +155,12 @@ pub(crate) fn has_valid_layout<R: Runtime>(
 pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {
     fn check_range(
         value: isize,
-        name: &str,
+        name: impl FnOnce() -> String,
         min: isize,
         max: isize,
     ) -> Result<(), InvalidConfigError> {
         if value < min || value > max {
+            let name = name();
             Err(Box::new(format!(
                 "value {name} outside of valid range ({min}, {max})"
             )))
@@ -152,28 +169,53 @@ pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), Inva
         }
     }
 
-    let corner = calculate_upper_corner(problem.padding, problem.kernel_size, problem.dilation);
-    check_range(corner[0] as isize, "corner_h", -128, 127)?;
-    check_range(corner[1] as isize, "corner_w", -128, 127)?;
+    let (corner_min, corner_max) = match problem.dimensionality {
+        Dimensionality::Dim1 => (-(2isize.pow(15)), 2isize.pow(15) - 1),
+        Dimensionality::Dim2 => (-(2isize.pow(7)), 2isize.pow(7) - 1),
+        Dimensionality::Dim3 => (-(2isize.pow(4)), 2isize.pow(4) - 1),
+    };
 
-    let offset_h = (problem.kernel_size.0 - 1) * problem.dilation.0;
-    let offset_w = (problem.kernel_size.1 - 1) * problem.dilation.1;
-    check_range(offset_h as isize, "kernel size h", 0, 255)?;
-    check_range(offset_w as isize, "kernel size w", 0, 255)?;
+    let corner = calculate_upper_corner(&problem.padding, &problem.kernel_size, &problem.dilation);
+    for (i, offs) in corner.iter().enumerate() {
+        check_range(
+            *offs as isize,
+            || format!("corner[{i}]"),
+            corner_min,
+            corner_max,
+        )?;
+    }
 
-    check_range(problem.stride.0 as isize, "stride_h", 1, 8)?;
-    check_range(problem.stride.1 as isize, "stride_w", 1, 8)?;
+    let offset_max = match problem.dimensionality {
+        Dimensionality::Dim1 => 2isize.pow(16) - 1,
+        Dimensionality::Dim2 => 2isize.pow(8) - 1,
+        Dimensionality::Dim3 => 2isize.pow(5) - 1,
+    };
+
+    for i in 0..problem.kernel_size.len() {
+        let offset = (problem.kernel_size[i] - 1) * problem.dilation[i];
+        check_range(
+            offset as isize,
+            || format!("kernel size {i}"),
+            0,
+            offset_max,
+        )?;
+        check_range(problem.stride[i] as isize, || format!("stride[{i}]"), 1, 8)?;
+    }
 
     Ok(())
 }
 
-pub fn calculate_upper_corner(
-    padding: (i32, i32),
-    kernel_size: (u32, u32),
-    dilation: (u32, u32),
-) -> Vec<i32> {
-    let corner_h = padding.0 - (kernel_size.0 - 1) as i32 * dilation.0 as i32;
-    let corner_w = padding.1 - (kernel_size.1 - 1) as i32 * dilation.1 as i32;
+pub fn calculate_lower_corner(padding: &[i32]) -> Vec<i32> {
+    padding.iter().map(|padding| -*padding).collect()
+}
 
-    vec![corner_h, corner_w]
+pub fn calculate_upper_corner(padding: &[i32], kernel_size: &[u32], dilation: &[u32]) -> Vec<i32> {
+    padding
+        .iter()
+        .zip(kernel_size)
+        .zip(dilation)
+        .map(|((padding, kernel_size), dilation)| {
+            *padding - (*kernel_size - 1) as i32 * *dilation as i32
+        })
+        .collect()
 }

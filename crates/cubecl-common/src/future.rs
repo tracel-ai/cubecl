@@ -1,4 +1,9 @@
-use core::future::Future;
+use alloc::boxed::Box;
+use core::{future::Future, pin::Pin};
+
+/// A dynamically typed, boxed, future. Useful for futures that need to ensure they
+/// are not capturing any of their inputs.
+pub type DynFut<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// Block until the [future](Future) is completed and returns the result.
 pub fn block_on<O>(fut: impl Future<Output = O>) -> O {

@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use crate::{
     convolution::{
-        ConvGemmConfig,
         base::{
             Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
             ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -36,7 +35,7 @@ use cubecl_std::{
 
 use super::base::{
     config::{self, ConvolutionConfig},
-    implicit_conv,
+    implicit_conv, shape_divmod,
 };
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
@@ -230,10 +229,11 @@ where
                 size.k,
                 input.1,
             ),
-            problem.kernel_size,
-            problem.stride,
-            problem.dilation,
-            problem.padding,
+            &problem.kernel_size,
+            &problem.stride,
+            &problem.dilation,
+            &problem.padding,
+            problem.dimensionality,
             1,
         )
     }
@@ -259,17 +259,12 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        let size_m = problem.batches * problem.out_h * problem.out_w;
-        let size_n = problem.n;
-        let size_k = config.kernel_size(0) * config.kernel_size(1) * problem.channels as u32;
-
         let runtime_args = RuntimeArgsLaunch::new(
-            ScalarArg::new(size_m as u32),
-            ScalarArg::new(size_n as u32),
-            ScalarArg::new(size_k),
+            ScalarArg::new(problem.m as u32),
+            ScalarArg::new(problem.n as u32),
+            ScalarArg::new(problem.k as u32),
             FastDivmodArgs::new(client, problem.channels as u32),
-            FastDivmodArgs::new(client, problem.out_h as u32),
-            FastDivmodArgs::new(client, problem.out_w as u32),
+            shape_divmod(client, &problem.out_shape),
         );
 
         unsafe {

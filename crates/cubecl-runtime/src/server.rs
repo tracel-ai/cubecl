@@ -8,8 +8,8 @@ use crate::{
 };
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use core::{fmt::Debug, future::Future};
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use core::fmt::Debug;
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -30,16 +30,13 @@ where
     type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given bindings, returns the owned resources as bytes.
-    fn read(
-        &mut self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
+    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>>;
 
     /// Given tensor handles, returns the owned resources as bytes.
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>>;
+
+    /// Wait for the completion of every task in the server.
+    fn sync(&mut self) -> DynFut<()>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -86,9 +83,6 @@ where
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self);
-
-    /// Wait for the completion of every task in the server.
-    fn sync(&mut self) -> impl Future<Output = ()> + Send + 'static;
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;
