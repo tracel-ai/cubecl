@@ -10,6 +10,8 @@ use std::{
 #[cfg(feature = "std")]
 use profile::*;
 
+use crate::config::Logger;
+
 #[cfg(feature = "std")]
 mod profile {
     use core::fmt::Display;
@@ -194,12 +196,7 @@ pub struct DebugLogger {
 /// Debugging logger.
 #[derive(Debug)]
 pub enum DebugLoggerKind {
-    #[cfg(feature = "std")]
-    /// Log debugging information into a file.
-    File(DebugFileLogger, DebugOptions),
-    #[cfg(feature = "std")]
-    /// Log debugging information into standard output.
-    Stdout(DebugOptions),
+    Activated(Logger, DebugOptions),
     /// Don't log debugging information.
     None,
 }
@@ -253,12 +250,9 @@ impl DebugLogger {
             core::mem::swap(&mut self.profiled, &mut profiled);
 
             match &mut self.kind {
-                #[cfg(feature = "std")]
-                DebugLoggerKind::File(file, _) => {
-                    file.log(&format!("{}", profiled));
+                DebugLoggerKind::Activated(logger, _) => {
+                    logger.log_profiling(&profiled);
                 }
-                #[cfg(feature = "std")]
-                DebugLoggerKind::Stdout(_) => println!("{profiled}"),
                 _ => (),
             }
         }
@@ -275,72 +269,46 @@ impl DebugLoggerKind {
     /// Create a new debug logger.
     #[cfg(feature = "std")]
     pub fn new() -> Self {
-        let flag = match std::env::var("CUBECL_DEBUG_LOG") {
-            Ok(val) => val,
-            Err(_) => return Self::None,
-        };
-        let level = match std::env::var("CUBECL_DEBUG_OPTION") {
-            Ok(val) => val,
-            Err(_) => "debug|profile".to_string(),
-        };
+        use crate::config::CompilationLogLevel;
 
-        let mut debug = false;
+        let logger = Logger::new();
+
         let mut profile = None;
-        level.as_str().split("|").for_each(|flag| match flag {
-            "debug" => {
-                debug = true;
-            }
-            "profile" => {
+
+        match logger.config.profiling_level {
+            crate::config::ProfilingLevel::Disabled => {}
+            crate::config::ProfilingLevel::Basic => {
                 profile = Some(ProfileLevel::Basic);
             }
-            "profile-medium" => {
+            crate::config::ProfilingLevel::Medium => {
                 profile = Some(ProfileLevel::Medium);
             }
-            "profile-full" => {
+            crate::config::ProfilingLevel::Full => {
                 profile = Some(ProfileLevel::Full);
             }
-            _ => {}
-        });
+        };
 
         let option = if let Some(level) = profile {
-            if debug {
+            if let CompilationLogLevel::Full = logger.config.compilation_log_level {
                 DebugOptions::All(level)
             } else {
                 DebugOptions::Profile(level)
             }
         } else {
+            if let CompilationLogLevel::Disabled = logger.config.compilation_log_level {
+                return Self::None;
+            }
+
             DebugOptions::Debug
         };
 
-        if let Ok(activated) = str::parse::<u8>(&flag) {
-            if activated == 1 {
-                return Self::File(DebugFileLogger::new(None), option);
-            } else {
-                return Self::None;
-            }
-        };
-
-        if let Ok(activated) = str::parse::<bool>(&flag) {
-            if activated {
-                return Self::File(DebugFileLogger::new(None), option);
-            } else {
-                return Self::None;
-            }
-        };
-
-        if let "stdout" = flag.as_str() {
-            Self::Stdout(option)
-        } else {
-            Self::File(DebugFileLogger::new(Some(&flag)), option)
-        }
+        Self::Activated(logger, option)
     }
 
     /// Returns the profile level, none if profiling is deactivated.
-    #[cfg(feature = "std")]
     fn profile_level(&self) -> Option<ProfileLevel> {
         let option = match self {
-            DebugLoggerKind::File(_, option) => option,
-            DebugLoggerKind::Stdout(option) => option,
+            DebugLoggerKind::Activated(_, option) => option,
             DebugLoggerKind::None => {
                 return None;
             }
@@ -361,12 +329,9 @@ impl DebugLoggerKind {
     #[cfg(feature = "std")]
     fn register_profiled(&mut self, name: String, duration: core::time::Duration) {
         match self {
-            #[cfg(feature = "std")]
-            DebugLoggerKind::File(file, _) => {
-                file.log(&format!("| {duration:<10?} | {name}"));
+            DebugLoggerKind::Activated(logger, _) => {
+                logger.log_profiling(&format!("| {duration:<10?} | {name}"));
             }
-            #[cfg(feature = "std")]
-            DebugLoggerKind::Stdout(_) => println!("| {duration:<10?} | {name}"),
             _ => (),
         }
     }
@@ -376,21 +341,10 @@ impl DebugLoggerKind {
         I: Display,
     {
         match self {
-            #[cfg(feature = "std")]
-            DebugLoggerKind::File(file, option) => {
+            DebugLoggerKind::Activated(logger, option) => {
                 match option {
                     DebugOptions::Debug | DebugOptions::All(_) => {
-                        file.log(&arg);
-                    }
-                    DebugOptions::Profile(_) => (),
-                };
-                arg
-            }
-            #[cfg(feature = "std")]
-            DebugLoggerKind::Stdout(option) => {
-                match option {
-                    DebugOptions::Debug | DebugOptions::All(_) => {
-                        println!("{arg}");
+                        logger.log_compilation(&arg);
                     }
                     DebugOptions::Profile(_) => (),
                 };

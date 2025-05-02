@@ -25,6 +25,9 @@ pub mod server;
 /// Compute Storage module.
 pub mod storage;
 
+/// CubeCL config module.
+pub mod config;
+
 mod feature_set;
 
 mod base;
