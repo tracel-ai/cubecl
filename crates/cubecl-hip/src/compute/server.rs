@@ -7,6 +7,7 @@ use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
 use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::future::DynFut;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
@@ -87,7 +88,7 @@ impl HipServer {
     fn read_async(
         &mut self,
         bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
         let ctx = self.get_context();
         let mut result = Vec::with_capacity(bindings.len());
 
@@ -118,7 +119,7 @@ impl HipServer {
         }
     }
 
-    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + 'static + Send {
+    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + Send + use<> {
         let ctx = self.get_context();
         // We can't use a fence here because no action has been recorded on the context.
         // We need at least one action to be recorded after the context is initialized
@@ -138,19 +139,13 @@ impl ComputeServer for HipServer {
     type Feature = Feature;
     type Info = ();
 
-    fn read(
-        &mut self,
-        bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.read_async(bindings)
+    fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
+        Box::pin(self.read_async(bindings))
     }
 
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<server::BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+    fn read_tensor(&mut self, bindings: Vec<server::BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
-        self.read_async(bindings)
+        Box::pin(self.read_async(bindings))
     }
 
     fn memory_usage(&self) -> MemoryUsage {
@@ -291,9 +286,9 @@ impl ComputeServer for HipServer {
 
     fn flush(&mut self) {}
 
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> DynFut<()> {
         self.logger.profile_summary();
-        self.sync_stream_async()
+        Box::pin(self.sync_stream_async())
     }
 
     fn start_profile(&mut self) {

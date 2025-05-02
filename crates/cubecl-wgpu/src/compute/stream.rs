@@ -1,7 +1,7 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     benchmark::ProfileDuration,
-    future,
+    future::{self, DynFut},
     server::{Binding, Bindings, Handle},
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
@@ -175,10 +175,7 @@ impl WgpuStream {
         self.flush_if_needed();
     }
 
-    pub fn read_buffers(
-        &mut self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+    pub fn read_buffers(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         self.compute_pass = None;
         let mut staging_buffers = Vec::with_capacity(bindings.len());
         let mut callbacks = Vec::with_capacity(bindings.len());
@@ -223,7 +220,7 @@ impl WgpuStream {
 
         let poll = self.poll.start_polling();
 
-        async move {
+        Box::pin(async move {
             for callback in callbacks {
                 callback
                     .recv()
@@ -249,7 +246,7 @@ impl WgpuStream {
                 staging_buffer.unmap();
             }
             result
-        }
+        })
     }
 
     pub fn is_profiling(&self) -> bool {

@@ -5,6 +5,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
 use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::future::DynFut;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -44,20 +45,19 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        let future = {
-            let mut server = self.server.borrow_mut();
-            server.read(bindings)
-        };
-        future.await
+    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+        let mut server = self.server.borrow_mut();
+        server.read(bindings)
     }
 
-    async fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
-        let future = {
-            let mut server = self.server.borrow_mut();
-            server.read_tensor(bindings)
-        };
-        future.await
+    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let mut server = self.server.borrow_mut();
+        server.read_tensor(bindings)
+    }
+
+    fn sync(&self) -> DynFut<()> {
+        let mut server = self.server.borrow_mut();
+        server.sync()
     }
 
     fn get_resource(
@@ -106,14 +106,6 @@ where
 
     fn flush(&self) {
         self.server.borrow_mut().flush()
-    }
-
-    async fn sync(&self) {
-        let future = {
-            let mut server = self.server.borrow_mut();
-            server.sync()
-        };
-        future.await
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
