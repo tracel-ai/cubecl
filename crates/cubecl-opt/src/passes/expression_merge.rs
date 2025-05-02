@@ -54,10 +54,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
             match op.operation {
                 Operation::Copy(input)
                 | Operation::Operator(Operator::Cast(UnaryOperator { input }))
-                | Operation::Operator(Operator::ReinterpretSlice(ReinterpretSliceOperator {
-                    input,
-                    ..
-                }))
+                | Operation::Operator(Operator::Reinterpret(UnaryOperator { input }))
                 | Operation::CoopMma(CoopMma::Cast { input }) => {
                     if (input.is_immutable() || input.is_array())
                         && (op.out().is_immutable() || op.out().is_array())
