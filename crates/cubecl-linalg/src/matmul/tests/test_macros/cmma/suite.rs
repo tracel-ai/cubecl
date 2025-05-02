@@ -508,6 +508,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(target_os="macos")]
         mod s16x16x1 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -530,6 +531,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(target_os="macos")]
         mod s8x8x4 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -541,6 +543,19 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(target_os="macos")]
+        mod s16x8x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 16, n: 8, k: 4 }
+            );
+        }
+
+        #[cfg(not(target_os="macos"))]
         mod s4x4x2 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -549,6 +564,18 @@ macro_rules! matmul_standard_tests {
                 $rhs_layout,
                 $tile,
                 MatmulSize { m: 4, n: 4, k: 2 }
+            );
+        }
+
+        #[cfg(not(target_os="macos"))]
+        mod s8x4x2 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 8, n: 4, k: 2 }
             );
         }
     };
