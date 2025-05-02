@@ -108,7 +108,7 @@ impl Display for CoopMma {
                     .unwrap_or(String::new());
                 write!(
                     f,
-                    "matrix_load({}, stride: {}{layout}, offset: {:?})",
+                    "matrix_load({}, stride: {}{layout}, offset: {})",
                     value, stride, offset
                 )
             }
@@ -124,7 +124,7 @@ impl Display for CoopMma {
                 layout,
             } => write!(
                 f,
-                "matrix_store({}, stride: {}, layout: {:?}, offset: {:?})",
+                "matrix_store({}, stride: {}, layout: {:?}, offset: {})",
                 mat, stride, layout, offset
             ),
             CoopMma::Cast { input } => {
