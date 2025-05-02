@@ -2,6 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
+use crate::precision::ReducePrecision;
+
 use super::{
     ArgMax, ArgMin, Max, MaxAbs, Mean, Min, Prod, ReduceCoordinate, ReduceFamily,
     ReduceInstruction, ReduceRequirements, SharedAccumulator, Sum,
@@ -32,7 +34,7 @@ pub enum ReduceFnConfig {
 }
 
 impl ReduceFamily for ReduceFn {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ReduceFnConfig;
 }
 
@@ -49,7 +51,7 @@ pub struct DynamicAccumulatorItem<N: Numeric> {
 }
 
 #[cube]
-impl<In: Numeric> SharedAccumulator<In> for DynamicAccumulator<In> {
+impl<In: Numeric> SharedAccumulator for DynamicAccumulator<In> {
     type Item = DynamicAccumulatorItem<In>;
 
     fn allocate(
@@ -92,9 +94,9 @@ impl<In: Numeric> SharedAccumulator<In> for DynamicAccumulator<In> {
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
-    type AccumulatorItem = DynamicAccumulatorItem<In>;
-    type SharedAccumulator = DynamicAccumulator<In>;
+impl<P: ReducePrecision> ReduceInstruction<P> for ReduceFn {
+    type AccumulatorItem = DynamicAccumulatorItem<P::EA>;
+    type SharedAccumulator = DynamicAccumulator<P::EA>;
     type Config = ReduceFnConfig;
 
     fn requirements(this: &Self) -> ReduceRequirements {
@@ -126,81 +128,90 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
         }
     }
 
-    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<In> {
+    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
         match this {
-            ReduceFn::Sum(sum) => Sum::null_input(sum, line_size),
-            ReduceFn::Prod(prod) => Prod::null_input(prod, line_size),
-            ReduceFn::Mean(mean) => Mean::null_input(mean, line_size),
-            ReduceFn::MaxAbs(maxabs) => MaxAbs::null_input(maxabs, line_size),
-            ReduceFn::ArgMax(argmax) => ArgMax::null_input(argmax, line_size),
-            ReduceFn::ArgMin(argmin) => ArgMin::null_input(argmin, line_size),
-            ReduceFn::Max(max) => Max::null_input(max, line_size),
-            ReduceFn::Min(min) => Min::null_input(min, line_size),
+            ReduceFn::Sum(sum) => <Sum as ReduceInstruction<P>>::null_input(sum, line_size),
+            ReduceFn::Prod(prod) => <Prod as ReduceInstruction<P>>::null_input(prod, line_size),
+            ReduceFn::Mean(mean) => <Mean as ReduceInstruction<P>>::null_input(mean, line_size),
+            ReduceFn::MaxAbs(maxabs) => {
+                <MaxAbs as ReduceInstruction<P>>::null_input(maxabs, line_size)
+            }
+            ReduceFn::ArgMax(argmax) => {
+                <ArgMax as ReduceInstruction<P>>::null_input(argmax, line_size)
+            }
+            ReduceFn::ArgMin(argmin) => {
+                <ArgMin as ReduceInstruction<P>>::null_input(argmin, line_size)
+            }
+            ReduceFn::Max(max) => <Max as ReduceInstruction<P>>::null_input(max, line_size),
+            ReduceFn::Min(min) => <Min as ReduceInstruction<P>>::null_input(min, line_size),
         }
     }
 
     fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
         match this {
             ReduceFn::Sum(sum) => {
-                let elements = Sum::null_accumulator(sum, line_size);
+                let elements = <Sum as ReduceInstruction<P>>::null_accumulator(sum, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Mean(sum) => {
-                let elements = Mean::null_accumulator(sum, line_size);
+                let elements = <Mean as ReduceInstruction<P>>::null_accumulator(sum, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Prod(sum) => {
-                let elements = Prod::null_accumulator(sum, line_size);
+                let elements = <Prod as ReduceInstruction<P>>::null_accumulator(sum, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::MaxAbs(maxabs) => {
-                let elements = MaxAbs::null_accumulator(maxabs, line_size);
+                let elements =
+                    <MaxAbs as ReduceInstruction<P>>::null_accumulator(maxabs, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::ArgMax(argmax) => {
-                let (elements, args) = ArgMax::null_accumulator(argmax, line_size);
+                let (elements, args) =
+                    <ArgMax as ReduceInstruction<P>>::null_accumulator(argmax, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_Some(args),
                 }
             }
             ReduceFn::ArgMin(argmin) => {
-                let (elements, args) = ArgMin::null_accumulator(argmin, line_size);
+                let (elements, args) =
+                    <ArgMin as ReduceInstruction<P>>::null_accumulator(argmin, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_Some(args),
                 }
             }
             ReduceFn::Max(max) => {
-                let elements = Max::null_accumulator(max, line_size);
+                let elements = <Max as ReduceInstruction<P>>::null_accumulator(max, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Min(min) => {
-                let elements = Min::null_accumulator(min, line_size);
+                let elements = <Min as ReduceInstruction<P>>::null_accumulator(min, line_size);
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
@@ -224,45 +235,65 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
     fn reduce(
         this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
+        item: Line<P::EI>,
         coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         match this {
             ReduceFn::Sum(sum) => {
-                let elements =
-                    Sum::reduce(sum, &accumulator.elements, item, coordinate, use_planes);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Sum as ReduceInstruction<P>>::reduce(
+                    sum,
+                    &accumulator.elements,
+                    item,
+                    coordinate,
+                    use_planes,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Prod(sum) => {
-                let elements =
-                    Prod::reduce(sum, &accumulator.elements, item, coordinate, use_planes);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Prod as ReduceInstruction<P>>::reduce(
+                    sum,
+                    &accumulator.elements,
+                    item,
+                    coordinate,
+                    use_planes,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Mean(sum) => {
-                let elements =
-                    Mean::reduce(sum, &accumulator.elements, item, coordinate, use_planes);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Mean as ReduceInstruction<P>>::reduce(
+                    sum,
+                    &accumulator.elements,
+                    item,
+                    coordinate,
+                    use_planes,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::MaxAbs(maxabs) => {
-                let elements =
-                    MaxAbs::reduce(maxabs, &accumulator.elements, item, coordinate, use_planes);
-                DynamicAccumulatorItem::<In> {
+                let elements = <MaxAbs as ReduceInstruction<P>>::reduce(
+                    maxabs,
+                    &accumulator.elements,
+                    item,
+                    coordinate,
+                    use_planes,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::ArgMax(argmax) => {
-                let (elements, args) = ArgMax::reduce(
+                let (elements, args) = <ArgMax as ReduceInstruction<P>>::reduce(
                     argmax,
                     &(accumulator.elements, accumulator.args.unwrap()),
                     item,
@@ -270,13 +301,13 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                     use_planes,
                 );
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_Some(args),
                 }
             }
             ReduceFn::ArgMin(argmin) => {
-                let (elements, args) = ArgMin::reduce(
+                let (elements, args) = <ArgMin as ReduceInstruction<P>>::reduce(
                     argmin,
                     &(accumulator.elements, accumulator.args.unwrap()),
                     item,
@@ -284,23 +315,33 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                     use_planes,
                 );
 
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_Some(args),
                 }
             }
             ReduceFn::Max(max) => {
-                let elements =
-                    Max::reduce(max, &accumulator.elements, item, coordinate, use_planes);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Max as ReduceInstruction<P>>::reduce(
+                    max,
+                    &accumulator.elements,
+                    item,
+                    coordinate,
+                    use_planes,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Min(min) => {
-                let elements =
-                    Min::reduce(min, &accumulator.elements, item, coordinate, use_planes);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Min as ReduceInstruction<P>>::reduce(
+                    min,
+                    &accumulator.elements,
+                    item,
+                    coordinate,
+                    use_planes,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
@@ -315,65 +356,89 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
     ) -> Self::AccumulatorItem {
         match this {
             ReduceFn::Sum(sum) => {
-                let elements = Sum::fuse_accumulators(sum, lhs.elements, rhs.elements);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Sum as ReduceInstruction<P>>::fuse_accumulators(
+                    sum,
+                    lhs.elements,
+                    rhs.elements,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Prod(prod) => {
-                let elements = Prod::fuse_accumulators(prod, lhs.elements, rhs.elements);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Prod as ReduceInstruction<P>>::fuse_accumulators(
+                    prod,
+                    lhs.elements,
+                    rhs.elements,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Mean(mean) => {
-                let elements = Mean::fuse_accumulators(mean, lhs.elements, rhs.elements);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Mean as ReduceInstruction<P>>::fuse_accumulators(
+                    mean,
+                    lhs.elements,
+                    rhs.elements,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::MaxAbs(maxabs) => {
-                let elements = MaxAbs::fuse_accumulators(maxabs, lhs.elements, rhs.elements);
-                DynamicAccumulatorItem::<In> {
+                let elements = <MaxAbs as ReduceInstruction<P>>::fuse_accumulators(
+                    maxabs,
+                    lhs.elements,
+                    rhs.elements,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::ArgMax(argmax) => {
-                let (elements, args) = ArgMax::fuse_accumulators(
+                let (elements, args) = <ArgMax as ReduceInstruction<P>>::fuse_accumulators(
                     argmax,
                     (lhs.elements, lhs.args.unwrap()),
                     (rhs.elements, rhs.args.unwrap()),
                 );
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_Some(args),
                 }
             }
             ReduceFn::ArgMin(argmin) => {
-                let (elements, args) = ArgMin::fuse_accumulators(
+                let (elements, args) = <ArgMin as ReduceInstruction<P>>::fuse_accumulators(
                     argmin,
                     (lhs.elements, lhs.args.unwrap()),
                     (rhs.elements, rhs.args.unwrap()),
                 );
-                DynamicAccumulatorItem::<In> {
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_Some(args),
                 }
             }
             ReduceFn::Max(max) => {
-                let elements = Max::fuse_accumulators(max, lhs.elements, rhs.elements);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Max as ReduceInstruction<P>>::fuse_accumulators(
+                    max,
+                    lhs.elements,
+                    rhs.elements,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
             }
             ReduceFn::Min(min) => {
-                let elements = Min::fuse_accumulators(min, lhs.elements, rhs.elements);
-                DynamicAccumulatorItem::<In> {
+                let elements = <Min as ReduceInstruction<P>>::fuse_accumulators(
+                    min,
+                    lhs.elements,
+                    rhs.elements,
+                );
+                DynamicAccumulatorItem::<P::EA> {
                     elements,
                     args: CubeOption::new_None(),
                 }
@@ -389,34 +454,46 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
         shape_axis_reduce: u32,
     ) -> Out {
         match this {
-            ReduceFn::Sum(sum) => {
-                Sum::merge_line::<Out>(sum, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::Prod(prod) => {
-                Prod::merge_line::<Out>(prod, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::Mean(mean) => {
-                Mean::merge_line::<Out>(mean, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::MaxAbs(maxabs) => {
-                MaxAbs::merge_line::<Out>(maxabs, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::ArgMax(argmax) => ArgMax::merge_line::<Out>(
+            ReduceFn::Sum(sum) => <Sum as ReduceInstruction<P>>::merge_line::<Out>(
+                sum,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
+            ReduceFn::Prod(prod) => <Prod as ReduceInstruction<P>>::merge_line::<Out>(
+                prod,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
+            ReduceFn::Mean(mean) => <Mean as ReduceInstruction<P>>::merge_line::<Out>(
+                mean,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
+            ReduceFn::MaxAbs(maxabs) => <MaxAbs as ReduceInstruction<P>>::merge_line::<Out>(
+                maxabs,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
+            ReduceFn::ArgMax(argmax) => <ArgMax as ReduceInstruction<P>>::merge_line::<Out>(
                 argmax,
                 (accumulator.elements, accumulator.args.unwrap()),
                 shape_axis_reduce,
             ),
-            ReduceFn::ArgMin(argmin) => ArgMin::merge_line::<Out>(
+            ReduceFn::ArgMin(argmin) => <ArgMin as ReduceInstruction<P>>::merge_line::<Out>(
                 argmin,
                 (accumulator.elements, accumulator.args.unwrap()),
                 shape_axis_reduce,
             ),
-            ReduceFn::Max(max) => {
-                Max::merge_line::<Out>(max, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::Min(min) => {
-                Min::merge_line::<Out>(min, accumulator.elements, shape_axis_reduce)
-            }
+            ReduceFn::Max(max) => <Max as ReduceInstruction<P>>::merge_line::<Out>(
+                max,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
+            ReduceFn::Min(min) => <Min as ReduceInstruction<P>>::merge_line::<Out>(
+                min,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
         }
     }
 
@@ -426,36 +503,52 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
         shape_axis_reduce: u32,
     ) -> Line<Out> {
         match this {
-            ReduceFn::Sum(sum) => {
-                Sum::to_output_perpendicular::<Out>(sum, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::Prod(prod) => {
-                Prod::to_output_perpendicular::<Out>(prod, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::Mean(mean) => {
-                Mean::to_output_perpendicular::<Out>(mean, accumulator.elements, shape_axis_reduce)
-            }
-            ReduceFn::MaxAbs(maxabs) => MaxAbs::to_output_perpendicular::<Out>(
-                maxabs,
+            ReduceFn::Sum(sum) => <Sum as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                sum,
                 accumulator.elements,
                 shape_axis_reduce,
             ),
-            ReduceFn::ArgMax(args) => ArgMax::to_output_perpendicular::<Out>(
-                args,
-                (accumulator.elements, accumulator.args.unwrap()),
+            ReduceFn::Prod(prod) => <Prod as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                prod,
+                accumulator.elements,
                 shape_axis_reduce,
             ),
-            ReduceFn::ArgMin(args) => ArgMin::to_output_perpendicular::<Out>(
-                args,
-                (accumulator.elements, accumulator.args.unwrap()),
+            ReduceFn::Mean(mean) => <Mean as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                mean,
+                accumulator.elements,
                 shape_axis_reduce,
             ),
-            ReduceFn::Max(max) => {
-                Max::to_output_perpendicular::<Out>(max, accumulator.elements, shape_axis_reduce)
+            ReduceFn::MaxAbs(maxabs) => {
+                <MaxAbs as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                    maxabs,
+                    accumulator.elements,
+                    shape_axis_reduce,
+                )
             }
-            ReduceFn::Min(min) => {
-                Min::to_output_perpendicular::<Out>(min, accumulator.elements, shape_axis_reduce)
+            ReduceFn::ArgMax(args) => {
+                <ArgMax as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                    args,
+                    (accumulator.elements, accumulator.args.unwrap()),
+                    shape_axis_reduce,
+                )
             }
+            ReduceFn::ArgMin(args) => {
+                <ArgMin as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                    args,
+                    (accumulator.elements, accumulator.args.unwrap()),
+                    shape_axis_reduce,
+                )
+            }
+            ReduceFn::Max(max) => <Max as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                max,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
+            ReduceFn::Min(min) => <Min as ReduceInstruction<P>>::to_output_perpendicular::<Out>(
+                min,
+                accumulator.elements,
+                shape_axis_reduce,
+            ),
         }
     }
 }

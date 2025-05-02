@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::instructions::ReduceRequirements;
+use crate::{instructions::ReduceRequirements, precision::ReducePrecision};
 
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
@@ -9,14 +9,14 @@ use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 pub struct Prod {}
 
 impl ReduceFamily for Prod {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for Prod {
-    type AccumulatorItem = Line<In>;
-    type SharedAccumulator = SharedMemory<Line<In>>;
+impl<P: ReducePrecision> ReduceInstruction<P> for Prod {
+    type AccumulatorItem = Line<P::EA>;
+    type SharedAccumulator = SharedMemory<Line<P::EA>>;
     type Config = ();
 
     fn requirements(_this: &Self) -> ReduceRequirements {
@@ -26,12 +26,12 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
     fn from_config(_config: Self::Config) -> Self {
         Prod {}
     }
-    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::from_int(1))
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
+        Line::empty(line_size).fill(P::EI::from_int(1))
     }
 
-    fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
-        Self::null_input(this, line_size)
+    fn null_accumulator(_this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
+        Line::empty(line_size).fill(P::EA::from_int(1))
     }
 
     fn assign_accumulator(
@@ -45,10 +45,11 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
     fn reduce(
         _this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
+        item: Line<P::EI>,
         _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
+        let item = Line::cast_from(item);
         if use_planes {
             *accumulator * plane_prod(item)
         } else {
@@ -69,7 +70,7 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut prod = In::from_int(1);
+        let mut prod = P::EA::from_int(1);
         #[unroll]
         for k in 0..accumulator.size() {
             prod *= accumulator[k];

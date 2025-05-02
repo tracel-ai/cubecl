@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::instructions::ReduceRequirements;
+use crate::{instructions::ReduceRequirements, precision::ReducePrecision};
 
 use super::{
     ArgAccumulator, ReduceCoordinate, ReduceCoordinateExpand, ReduceFamily, ReduceInstruction,
@@ -35,14 +35,14 @@ impl ArgMax {
 }
 
 impl ReduceFamily for ArgMax {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for ArgMax {
-    type AccumulatorItem = (Line<In>, Line<u32>);
-    type SharedAccumulator = ArgAccumulator<In>;
+impl<P: ReducePrecision> ReduceInstruction<P> for ArgMax {
+    type AccumulatorItem = (Line<P::EA>, Line<u32>);
+    type SharedAccumulator = ArgAccumulator<P::EA>;
     type Config = ();
 
     fn requirements(_this: &Self) -> ReduceRequirements {
@@ -53,13 +53,13 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
         ArgMax {}
     }
 
-    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::min_value())
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
+        Line::empty(line_size).fill(P::EI::min_value())
     }
 
-    fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
+    fn null_accumulator(_this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
         (
-            Self::null_input(this, line_size),
+            Line::empty(line_size).fill(P::EA::min_value()),
             Line::empty(line_size).fill(u32::MAX),
         )
     }
@@ -76,7 +76,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
     fn reduce(
         _this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
+        item: Line<P::EI>,
         coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
@@ -98,7 +98,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
         };
 
         Self::choose_argmax(
-            candidate_item,
+            Line::cast_from(candidate_item),
             candidate_coordinate,
             accumulator.0,
             accumulator.1,
@@ -120,7 +120,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
     ) -> Out {
         let line_size = accumulator.0.size();
         if comptime!(line_size > 1) {
-            let mut max = In::min_value();
+            let mut max = P::EA::min_value();
             let mut coordinate = u32::MAX.runtime();
             #[unroll]
             for k in 0..line_size {
