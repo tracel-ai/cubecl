@@ -17,11 +17,11 @@ use cubecl_core as cubecl;
 
 use super::shared::{Accumulators, StageVectorization};
 
-pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
+pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulFamily<TMM, RF> {
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFamily<TMM, RF> {
     fn stage_shape(config: &Self::Config) -> MatmulSize {
         config.tiling.total_shape()
     }
@@ -37,22 +37,23 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
+        UnitMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmulFamily<TMM, RF> {
     type Input = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_rows = config.tiling_dimensions(Ident::Lhs).tile_count_row();
-        let num_planes = config.num_planes();
+        // TODO not in unit matmul
+        // let num_rows = config.tiling_dimensions(Ident::Lhs).tile_count_row();
+        // let num_planes = config.num_planes();
 
-        if num_rows % num_planes != 0 {
-            return Err(Box::new(format!(
-                "Error: Number of planes {num_planes} should divide number of rows {num_rows}."
-            )));
-        }
+        // if num_rows % num_planes != 0 {
+        //     return Err(Box::new(format!(
+        //         "Error: Number of planes {num_planes} should divide number of rows {num_rows}."
+        //     )));
+        // }
 
         TMM::check_config(&config.to_tmm_config())
     }
@@ -97,7 +98,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct PlaneMatmul<
+pub struct UnitMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: Reader<MP::ES>,
@@ -107,7 +108,7 @@ pub struct PlaneMatmul<
 }
 
 #[cube]
-impl<MP, TMM, RL, RR> StageMatmul<MP> for PlaneMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR> StageMatmul<MP> for UnitMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
@@ -173,6 +174,8 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
+        // TODO divide by num units instead, ie num_planes * plane_dim
+        // Should not be row-based
         let shape = (
             config.tile_count().m / config.num_planes(),
             config.tile_count().n,
@@ -267,7 +270,7 @@ where
 type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
 
 #[cube]
-impl<MP, TMM, RL, RR> PlaneMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR> UnitMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: TileMatmul<MP>,
@@ -291,6 +294,7 @@ where
 
         let mut k_iter = comptime![0u32];
 
+        // TODO it's per unit, so UNIT_POS
         let m_offset = UNIT_POS_Y * m_iterations;
 
         let mut lhs_load_counter = comptime![0];
@@ -396,6 +400,7 @@ where
         let k_iterations = config.tiling.tile_count.k;
 
         let mut k_iter = comptime![0u32];
+        // TODO it's per unit, so UNIT_POS
         let m_offset = UNIT_POS_Y * m_iterations;
 
         let mut lhs_load_counter = comptime![0];
