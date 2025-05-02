@@ -103,7 +103,7 @@ impl FileLock {
             .to_str()
             .expect("File name to be valid");
         let mut path_lock = path.to_path_buf();
-        path_lock.set_file_name(format!("{}.lock", file_name));
+        path_lock.set_file_name(format!("{file_name}.lock"));
 
         Self {
             path_lock,

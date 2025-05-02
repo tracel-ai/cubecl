@@ -200,7 +200,6 @@ impl ComputeServer for HipServer {
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
     ) -> Vec<(server::Handle, Vec<usize>)> {
-        let ctx = self.get_context();
         let align = <Self::Storage as ComputeStorage>::ALIGNMENT as usize;
 
         let mut total_size = 0;
