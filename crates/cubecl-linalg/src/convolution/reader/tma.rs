@@ -9,8 +9,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 pub struct Im2colTmaReader<E: Numeric> {
     pub tensor: TensorMap<E>,
     pub n_offset: u32,
-    pub h_offset: u32,
-    pub w_offset: u32,
+    pub spatial_offsets: Sequence<u32>,
     pub k_offset: u32,
 }
 
@@ -20,8 +19,7 @@ impl<E: Numeric> Im2colTmaReader<E> {
     pub fn new(
         tensor: VirtualTensor<E>,
         n_offset: u32,
-        h_offset: u32,
-        w_offset: u32,
+        spatial_offsets: Sequence<u32>,
         k_offset: u32,
     ) -> Im2colTmaReader<E> {
         let map = tensor.as_tensor_map();
@@ -29,8 +27,7 @@ impl<E: Numeric> Im2colTmaReader<E> {
         Im2colTmaReader::<E> {
             tensor: map,
             n_offset,
-            h_offset,
-            w_offset,
+            spatial_offsets,
             k_offset,
         }
     }

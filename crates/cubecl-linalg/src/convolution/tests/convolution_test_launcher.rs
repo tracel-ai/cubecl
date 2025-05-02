@@ -202,16 +202,19 @@ pub(crate) fn shape(problem: &ConvolutionProblem, ident: Ident) -> Vec<usize> {
     match ident {
         Ident::Lhs => vec![
             problem.batches,
-            problem.height,
-            problem.width,
+            problem.shape[0],
+            problem.shape[1],
             problem.channels,
         ],
         Ident::Rhs => vec![
             problem.n,
-            problem.kernel_size.0 as usize,
-            problem.kernel_size.1 as usize,
+            problem.kernel_size[0] as usize,
+            problem.kernel_size[1] as usize,
             problem.channels,
         ],
-        Ident::Out => vec![problem.batches * problem.out_h * problem.out_w, problem.n],
+        Ident::Out => vec![
+            problem.batches * problem.out_shape.iter().product::<usize>(),
+            problem.n,
+        ],
     }
 }
