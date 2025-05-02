@@ -24,7 +24,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn from_bits(bits: u32) -> tf32 {
-        tf32(unsafe { f32::from_bits(bits) })
+        tf32(f32::from_bits(bits))
     }
 
     /// Constructs a [`tf32`] value from a 32-bit floating point value.
@@ -54,7 +54,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn to_bits(self) -> u32 {
-        unsafe { f32::to_bits(self.0) }
+        f32::to_bits(self.0)
     }
 
     /// Converts a [`tf32`] value into an [`f32`] value.

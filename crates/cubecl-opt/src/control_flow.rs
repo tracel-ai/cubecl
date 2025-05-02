@@ -164,7 +164,7 @@ impl Optimizer {
                     !is_break
                 };
                 let val = match val.as_const().expect("Switch value must be constant") {
-                    ConstantScalarValue::Int(val, _) => unsafe { i32::cast_unsigned(val as i32) },
+                    ConstantScalarValue::Int(val, _) => i32::cast_unsigned(val as i32),
                     ConstantScalarValue::UInt(val, _) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };

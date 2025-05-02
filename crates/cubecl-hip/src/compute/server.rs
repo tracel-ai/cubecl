@@ -3,11 +3,8 @@ use cubecl_cpp::shared::CompilationOptions;
 
 use crate::runtime::HipCompiler;
 
+use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
-use super::{
-    Binding,
-    fence::{Fence, SyncStream},
-};
 use super::{HipResource, uninit_vec};
 use cubecl_common::benchmark::ProfileDuration;
 use cubecl_core::compute::DebugInformation;
@@ -203,7 +200,6 @@ impl ComputeServer for HipServer {
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
     ) -> Vec<(server::Handle, Vec<usize>)> {
-        let ctx = self.get_context();
         let align = <Self::Storage as ComputeStorage>::ALIGNMENT as usize;
 
         let mut total_size = 0;
@@ -597,7 +593,7 @@ impl HipContext {
                 std::ptr::null_mut(),
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
-                panic!("Error: Cannot launch kernel (Out of memory)\n{}", kernel_id)
+                panic!("Error: Cannot launch kernel (Out of memory)\n{kernel_id}")
             }
             assert_eq!(status, HIP_SUCCESS, "Should launch the kernel");
         };

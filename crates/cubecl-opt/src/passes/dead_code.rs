@@ -131,9 +131,7 @@ impl OptimizerPass for EliminateConstBranches {
                     ..
                 } if value.as_const().is_some() => {
                     let value = match value.as_const().unwrap() {
-                        ConstantScalarValue::Int(val, _) => unsafe {
-                            i32::cast_unsigned(val as i32)
-                        },
+                        ConstantScalarValue::Int(val, _) => i32::cast_unsigned(val as i32),
                         ConstantScalarValue::UInt(val, _) => val as u32,
                         _ => unreachable!("Switch cases must be integer"),
                     };
