@@ -347,7 +347,7 @@ where
     let git_hash = String::from_utf8(output.stdout).unwrap().trim().to_string();
     let durations = benchmark.run(TimingMethod::Full);
 
-    BenchmarkResult {
+    let result = BenchmarkResult {
         raw: durations.clone(),
         computed: BenchmarkComputations::new(&durations),
         git_hash,
@@ -355,7 +355,10 @@ where
         options: benchmark.options(),
         shapes: benchmark.shapes(),
         timestamp,
-    }
+    };
+
+    println!("{result}");
+    result
 }
 
 #[cfg(test)]
