@@ -82,6 +82,7 @@ pub struct ComputeShader {
     pub extensions: Vec<Extension>,
     pub kernel_name: String,
     pub subgroup_instructions_used: bool,
+    pub f16_used: bool,
 }
 
 impl Display for ComputeShader {
@@ -91,6 +92,10 @@ impl Display for ComputeShader {
         if self.subgroup_instructions_used {
             #[cfg(target_family = "wasm")]
             f.write_str("enable subgroups;")?;
+        }
+
+        if self.f16_used {
+            f.write_str("enable f16;")?;
         }
 
         Self::format_bindings(f, "buffer", &self.buffers, 0)?;

@@ -1,4 +1,4 @@
-use std::{future::Future, time::Duration};
+use std::time::Duration;
 
 use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
@@ -6,6 +6,7 @@ use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::future::DynFut;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
@@ -126,10 +127,7 @@ impl ComputeServer for WgpuServer {
     type Feature = Feature;
     type Info = wgpu::Backend;
 
-    fn read(
-        &mut self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         self.stream.read_buffers(bindings)
     }
 
@@ -221,7 +219,7 @@ impl ComputeServer for WgpuServer {
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> DynFut<()> {
         self.logger.profile_summary();
         self.stream.sync()
     }
@@ -252,10 +250,7 @@ impl ComputeServer for WgpuServer {
         self.stream.mem_manage.memory_cleanup(true);
     }
 
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
         self.read(bindings)
     }
