@@ -432,7 +432,7 @@ impl<
 
         comptime! {
             let step = 1u32;
-            let start = event_count_total - (step * num_tasks_total);
+            let start = event_count_total.saturating_sub(step * num_tasks_total);
 
             EventAnalysis {
                 lhs: lhs_num_task_executed * step + start,
