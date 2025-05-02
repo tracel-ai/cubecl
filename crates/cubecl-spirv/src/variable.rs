@@ -103,12 +103,14 @@ impl ConstVal {
     }
 
     pub fn as_int(&self, width: u32) -> i64 {
-        match width {
-            64 => u64::cast_signed(self.as_u64()),
-            32 => u32::cast_signed(self.as_u32()) as i64,
-            16 => u16::cast_signed(self.as_u32() as u16) as i64,
-            8 => u8::cast_signed(self.as_u32() as u8) as i64,
-            _ => unreachable!(),
+        unsafe {
+            match width {
+                64 => u64::cast_signed(self.as_u64()),
+                32 => u32::cast_signed(self.as_u32()) as i64,
+                16 => u16::cast_signed(self.as_u32() as u16) as i64,
+                8 => u8::cast_signed(self.as_u32() as u8) as i64,
+                _ => unreachable!(),
+            }
         }
     }
 
@@ -123,10 +125,10 @@ impl ConstVal {
 
     pub fn from_int(value: i64, width: u32) -> Self {
         match width {
-            64 => ConstVal::Bit64(i64::cast_unsigned(value)),
-            32 => ConstVal::Bit32(i32::cast_unsigned(value as i32)),
-            16 => ConstVal::Bit32(i16::cast_unsigned(value as i16) as u32),
-            8 => ConstVal::Bit32(i8::cast_unsigned(value as i8) as u32),
+            64 => ConstVal::Bit64(unsafe { i64::cast_unsigned(value) }),
+            32 => ConstVal::Bit32(unsafe { i32::cast_unsigned(value as i32) }),
+            16 => ConstVal::Bit32(unsafe { i16::cast_unsigned(value as i16) } as u32),
+            8 => ConstVal::Bit32(unsafe { i8::cast_unsigned(value as i8) } as u32),
             _ => unreachable!(),
         }
     }
