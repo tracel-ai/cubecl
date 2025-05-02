@@ -7,7 +7,7 @@ use crate::matmul::components::global::multi_stage::double_buffering::DoubleBuff
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, LoadingValidation};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::{BufferReader, ColMajorTilingOrder};
+use crate::matmul::components::stage::{BufferReader, ColMajorTilingOrder, StageConfig};
 use crate::matmul::components::stage::{FullReader, StageEvent};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
 use crate::matmul::components::{
@@ -22,6 +22,8 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
+
+use super::OrderedDoubleBufferingGlobalConfig;
 
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -56,11 +58,22 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Input = (SMM::Input, LoadingPrecomputeStrategy);
-    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
+    type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         <LL as LoadingValidation>::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
+
+        // Check necessary for multi row.
+        let stage_n = config
+            .to_smm_config()
+            .tiling_dimensions(Ident::Rhs)
+            .tile_count_col();
+        if stage_n != config.num_planes() {
+            return Err(Box::new(format!(
+                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row."
+            )));
+        }
 
         SMM::check_config(&config.to_smm_config())
     }
@@ -82,7 +95,7 @@ where
         let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
-        DoubleBufferingGlobalConfig::new(
+        OrderedDoubleBufferingGlobalConfig::new(
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
             problem.n as u32 % stage_shape.n != 0,
@@ -123,7 +136,7 @@ where
         >,
     RL: SyncBufferLoadingStrategy,
 {
-    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
+    type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
@@ -365,21 +378,21 @@ impl<
             this.init();
         }
 
-        // if let StageEvent::TmmCompleted { current, total } = event {
-        //     let analysis = this.analyse(total);
+        if let StageEvent::TmmCompleted { current, total } = event {
+            let analysis = this.analyse(total);
 
-        //     if comptime![!analysis.lhs_completed && analysis.lhs == current] {
-        //         let lhs_job = this.state_lhs.index_mut(0);
+            if comptime![!analysis.lhs_completed && analysis.lhs == current] {
+                let lhs_job = this.state_lhs.index_mut(0);
 
-        //         SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
-        //     }
+                SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            }
 
-        //     if comptime![!analysis.rhs_completed && analysis.rhs == current] {
-        //         let rhs_job = this.state_rhs.index_mut(0);
+            if comptime![!analysis.rhs_completed && analysis.rhs == current] {
+                let rhs_job = this.state_rhs.index_mut(0);
 
-        //         SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
-        //     }
-        // }
+                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            }
+        }
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
@@ -398,6 +411,8 @@ impl<
             for _ in rhs_num_task_executed..rhs_job.num_tasks {
                 SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
             }
+
+            sync_units();
         }
     }
 }
@@ -443,7 +458,7 @@ impl<
 
         comptime! {
             let step = 1u32;
-            let start = event_count_total - (step * num_tasks_total);
+            let start = event_count_total.saturating_sub(step * num_tasks_total);
 
             EventAnalysis {
                 lhs: lhs_num_task_executed * step + start,

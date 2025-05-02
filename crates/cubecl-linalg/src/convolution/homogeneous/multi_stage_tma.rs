@@ -14,8 +14,8 @@ use crate::{
     },
     matmul::{
         components::{
-            EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
-            MatmulSize, MatmulSpec, OutputRuntimeArg,
+            EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
+            MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
             global::{
                 AccumulatorLoader, GlobalConfig, load::arrive_tma, output_loader::Unloader,
                 single_stage,
@@ -87,7 +87,8 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let num_stages = config.num_stages();
+        // Arbitrarily using Lhs, they should be the same
+        let num_stages = config.num_stages(InputIdent::Lhs);
         let smm_config = config.to_smm_config();
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
@@ -203,7 +204,7 @@ where
             x_offset,
             y_offset,
             runtime_args,
-            config.num_stages(),
+            config.num_stages(InputIdent::Lhs),
             config,
         )
     }
@@ -221,7 +222,7 @@ where
             y_offset,
             CubeOption::new_None(),
             runtime_args,
-            config.num_stages(),
+            config.num_stages(InputIdent::Rhs),
             config,
         )
     }

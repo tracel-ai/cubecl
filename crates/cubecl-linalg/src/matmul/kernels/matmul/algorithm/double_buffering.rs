@@ -57,8 +57,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> u32 {
-        2
+    fn num_stages() -> (u32, u32) {
+        (2, 2)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {
@@ -102,8 +102,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> u32 {
-        2
+    fn num_stages() -> (u32, u32) {
+        (2, 2)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {
@@ -146,8 +146,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> u32 {
-        2
+    fn num_stages() -> (u32, u32) {
+        (2, 2)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {

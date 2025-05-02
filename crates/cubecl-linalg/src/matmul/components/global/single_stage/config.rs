@@ -1,5 +1,5 @@
 use crate::matmul::{
-    components::{Ident, MatmulConfig, MatrixLayout, TilingDimensions, global, stage},
+    components::{Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, global, stage},
     kernels::matmul::LoadingPrecomputeStrategy,
 };
 
@@ -74,7 +74,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.check_k_bounds
     }
 
-    fn num_stages(&self) -> u32 {
+    fn num_stages(&self, _ident: InputIdent) -> u32 {
         1
     }
 

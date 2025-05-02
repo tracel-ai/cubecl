@@ -136,7 +136,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                     let y_tile_offset = tiling_dimensions.tile_count_col() * buffer_index;
                     let total_tile_count_x = tiling_dimensions.tile_count_row();
                     let total_tile_count_y =
-                        tiling_dimensions.tile_count_col() * config.num_stages();
+                        tiling_dimensions.tile_count_col() * config.num_stages(InputIdent::Lhs);
                     (
                         x_tile_offset,
                         y_tile_offset,
@@ -148,7 +148,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                     let x_tile_offset = tiling_dimensions.tile_count_row() * buffer_index;
                     let y_tile_offset = 0;
                     let total_tile_count_x =
-                        tiling_dimensions.tile_count_row() * config.num_stages();
+                        tiling_dimensions.tile_count_row() * config.num_stages(InputIdent::Rhs);
                     let total_tile_count_y = tiling_dimensions.tile_count_col();
                     (
                         x_tile_offset,
@@ -234,7 +234,7 @@ impl TilingLayout for StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        if config.num_stages() > 1 {
+        if comptime!(config.num_stages(ident.as_input_ident()) > 1) {
             unimplemented!()
         }
 

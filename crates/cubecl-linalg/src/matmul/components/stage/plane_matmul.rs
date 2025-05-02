@@ -45,7 +45,12 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
 impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFactory
     for PlaneMatmulFamily<TMM, LRF, RRF>
 {
-    type Input = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
+    type Input = (
+        CompleteStageTiling,
+        StageBuffering,
+        StageVectorization,
+        (u32, u32),
+    );
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {

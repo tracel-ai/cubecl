@@ -12,7 +12,7 @@ type StageInput = (
     CompleteStageTiling,
     stage::StageBuffering,
     StageVectorization,
-    u32,
+    (u32, u32),
 );
 
 pub enum MultiRowStrategy {
@@ -50,8 +50,8 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
-    fn num_stages() -> u32 {
-        1
+    fn num_stages() -> (u32, u32) {
+        (1, 1)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {
