@@ -5,6 +5,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
 use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::future::DynFut;
 use spin::Mutex;
 
 /// The MutexComputeChannel ensures thread-safety by locking the server
@@ -37,24 +38,19 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
-    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        // Nb: The order here is really important - the mutex guard has to be dropped before
-        // the future is polled. Just calling lock().read().await can deadlock.
-        let fut = {
-            let mut server = self.server.lock();
-            server.read(bindings)
-        };
-        fut.await
+    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+        let mut server = self.server.lock();
+        server.read(bindings)
     }
 
-    async fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
-        // Nb: The order here is really important - the mutex guard has to be dropped before
-        // the future is polled. Just calling lock().read().await can deadlock.
-        let fut = {
-            let mut server = self.server.lock();
-            server.read_tensor(bindings)
-        };
-        fut.await
+    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let mut server = self.server.lock();
+        server.read_tensor(bindings)
+    }
+
+    fn sync(&self) -> DynFut<()> {
+        let mut server = self.server.lock();
+        server.sync()
     }
 
     fn get_resource(
@@ -97,16 +93,6 @@ where
 
     fn flush(&self) {
         self.server.lock().flush();
-    }
-
-    async fn sync(&self) {
-        // Nb: The order here is really important - the mutex guard has to be dropped before
-        // the future is polled. Just calling lock().sync().await can deadlock.
-        let fut = {
-            let mut server = self.server.lock();
-            server.sync()
-        };
-        fut.await
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {

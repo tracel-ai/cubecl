@@ -2,7 +2,6 @@ use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
     convolution::{
-        ConvGemmConfig,
         base::{
             Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
             ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -38,7 +37,7 @@ use cubecl_std::{
 
 use super::base::{
     config::{self, ConvolutionConfig},
-    implicit_conv,
+    implicit_conv, shape_divmod,
 };
 
 /// Performs convolution at the global level, with each plane sharing the same responsibilities
@@ -313,10 +312,11 @@ where
                 size.k,
                 input.1,
             ),
-            problem.kernel_size,
-            problem.stride,
-            problem.dilation,
-            problem.padding,
+            &problem.kernel_size,
+            &problem.stride,
+            &problem.dilation,
+            &problem.padding,
+            problem.dimensionality,
             num_stages,
         )
     }
@@ -354,17 +354,14 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         let padded_channels =
             (problem.channels as u32).next_multiple_of(tiling_dims.tile_shape_col());
 
-        let size_m = problem.batches * problem.out_h * problem.out_w;
-        let size_n = problem.n;
-        let size_k = config.kernel_size(0) * config.kernel_size(1) * padded_channels;
+        let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 
         let runtime_args = RuntimeArgsLaunch::new(
-            ScalarArg::new(size_m as u32),
-            ScalarArg::new(size_n as u32),
+            ScalarArg::new(problem.m as u32),
+            ScalarArg::new(problem.n as u32),
             ScalarArg::new(size_k),
             FastDivmodArgs::new(client, padded_channels),
-            FastDivmodArgs::new(client, problem.out_h as u32),
-            FastDivmodArgs::new(client, problem.out_w as u32),
+            shape_divmod(client, &problem.out_shape),
         );
 
         unsafe {

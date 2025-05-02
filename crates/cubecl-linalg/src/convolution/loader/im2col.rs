@@ -35,19 +35,16 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         #[comptime] config: G,
     ) -> Self {
         let stage = StageMemory::new::<G::SmmConfig>(1u32, Ident::Lhs, config.to_smm_config());
-        let shape_channel = tensor.shape(3);
 
         let shape_m = runtime_args.size_m;
         let shape_k = runtime_args.size_k;
 
         let tensor_view = Im2colReader::<MP::EI>::new(
             tensor,
-            runtime_args.out_h,
-            runtime_args.out_w,
+            comptime![runtime_args.out_shape.clone()],
             x_offset,
             y_offset,
             shape_k,
-            shape_channel,
             shape_m,
         );
 

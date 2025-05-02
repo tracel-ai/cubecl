@@ -1,5 +1,7 @@
 use crate::matmul::components::global::GlobalConfig;
 
+use super::base::Dimensionality;
+
 /// Convolution specific config, extends regular matmul [`Config`](global::Config)
 pub trait ConvGemmConfig: GlobalConfig {
     /// The size of the convolution kernel at `dim`
@@ -10,4 +12,6 @@ pub trait ConvGemmConfig: GlobalConfig {
     fn stride(&self, dim: u32) -> u32;
     /// The padding of the kernel at `dim`
     fn padding(&self, dim: u32) -> i32;
+    /// The dimensionality of the kernel
+    fn dimensionality(&self) -> Dimensionality;
 }

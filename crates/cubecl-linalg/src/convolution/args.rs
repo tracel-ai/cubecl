@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::{
-    convolution::algorithm::simple_tma::calculate_upper_corner,
+    convolution::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner},
     matmul::components::{
         MatmulSelection,
         global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
@@ -69,13 +69,19 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             EI::as_elem_native_unchecked()
         };
 
+        let mut elem_stride = vec![1; 2 + problem.stride.len()];
+
+        for (i, stride) in problem.stride.iter().enumerate() {
+            elem_stride[i + 1] = *stride as usize;
+        }
+
         let lhs = TensorMapArg::new(
             TensorMapFormat::Im2col {
-                pixel_box_lower_corner: vec![-problem.padding.0, -problem.padding.1],
+                pixel_box_lower_corner: calculate_lower_corner(&problem.padding),
                 pixel_box_upper_corner: calculate_upper_corner(
-                    problem.padding,
-                    problem.kernel_size,
-                    problem.dilation,
+                    &problem.padding,
+                    &problem.kernel_size,
+                    &problem.dilation,
                 ),
                 channels_per_pixel: selection.tile_shape.k,
                 pixels_per_column: stage_m,
@@ -83,12 +89,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             lhs.as_tensor_arg(problem.lhs_line_size),
             elem,
         )
-        .with_elem_stride(vec![
-            1,
-            problem.stride.0 as usize,
-            problem.stride.1 as usize,
-            1,
-        ])
+        .with_elem_stride(elem_stride)
         .with_prefetch(prefetch_lhs);
 
         let rhs = TensorMapArg::new(
