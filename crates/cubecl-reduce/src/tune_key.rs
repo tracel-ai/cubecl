@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct ReduceAutotuneKey {
     elem_input: Elem,
     elem_output: Elem,
+    elem_acc: Elem,
     potential_line_size: u8,
     axis_is_contiguous: bool,
     #[autotune(anchor(exp(min = 16, max = 4096)))]
@@ -20,6 +21,7 @@ impl ReduceAutotuneKey {
     pub fn generate(
         elem_input: Elem,
         elem_output: Elem,
+        elem_acc: Elem,
         input_shape: &[usize],
         axis_is_contiguous: bool,
         axis: usize,
@@ -43,6 +45,7 @@ impl ReduceAutotuneKey {
         ReduceAutotuneKey::new(
             elem_input,
             elem_output,
+            elem_acc,
             potential_line_size,
             axis_is_contiguous,
             reduce_axis_shape,

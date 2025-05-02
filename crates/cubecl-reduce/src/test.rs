@@ -7,7 +7,9 @@ use rand::{
     rngs::StdRng,
 };
 
-use crate::{ReduceError, ReduceStrategy, instructions::*, reduce, shared_sum};
+use crate::{
+    ReduceError, ReduceStrategy, instructions::*, precision::ReducePrecision, reduce, shared_sum,
+};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.
@@ -329,10 +331,11 @@ pub struct TestCase {
 impl TestCase {
     pub fn test_argmax<F, R>(&self, device: &R::Device)
     where
-        F: Float + CubeElement + std::fmt::Display,
+        F: ReducePrecision + std::fmt::Display,
+        F::EI: CubeElement + Float,
         R: Runtime,
     {
-        let input_values: Vec<F> = self.random_input_values();
+        let input_values: Vec<F::EI> = self.random_input_values();
         let expected_values = match self.axis {
             Some(axis) if self.stride[axis] == 0 => vec![0; input_values.len()],
             _ => self.cpu_argmax(&input_values),
@@ -356,10 +359,11 @@ impl TestCase {
 
     pub fn test_argmin<F, R>(&self, device: &R::Device)
     where
-        F: Float + CubeElement + std::fmt::Display,
+        F: ReducePrecision + std::fmt::Display,
+        F::EI: CubeElement + Float,
         R: Runtime,
     {
-        let input_values: Vec<F> = self.random_input_values();
+        let input_values: Vec<F::EI> = self.random_input_values();
         let expected_values = match self.axis {
             Some(axis) if self.stride[axis] == 0 => vec![0; input_values.len()],
             _ => self.cpu_argmin(&input_values),
@@ -383,15 +387,16 @@ impl TestCase {
 
     pub fn test_mean<F, R>(&self, device: &R::Device)
     where
-        F: Float + CubeElement + std::fmt::Display,
+        F: ReducePrecision + std::fmt::Display,
+        F::EI: CubeElement + Float + std::fmt::Display,
         R: Runtime,
     {
-        let input_values: Vec<F> = self.random_input_values();
+        let input_values: Vec<F::EI> = self.random_input_values();
         let expected_values = match self.axis {
             Some(axis) if self.stride[axis] == 0 => input_values.clone(),
             _ => self.cpu_mean(&input_values),
         };
-        self.run_reduce_test::<F, F, R, Mean>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F::EI, R, Mean>(device, input_values, expected_values)
     }
 
     fn cpu_mean<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -403,10 +408,11 @@ impl TestCase {
 
     pub fn test_prod<F, R>(&self, device: &R::Device)
     where
-        F: Float + CubeElement + std::fmt::Display,
+        F: ReducePrecision + std::fmt::Display,
+        F::EI: CubeElement + Float + std::fmt::Display,
         R: Runtime,
     {
-        let input_values: Vec<F> = self.random_input_values();
+        let input_values: Vec<F::EI> = self.random_input_values();
         let expected_values = match self.axis {
             Some(axis) if self.stride[axis] == 0 => input_values
                 .iter()
@@ -414,7 +420,7 @@ impl TestCase {
                 .collect(),
             _ => self.cpu_prod(&input_values),
         };
-        self.run_reduce_test::<F, F, R, Prod>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F::EI, R, Prod>(device, input_values, expected_values)
     }
 
     fn powf<F: Float>(base: F, power: usize) -> F {
@@ -438,18 +444,19 @@ impl TestCase {
 
     pub fn test_sum<F, R>(&self, device: &R::Device)
     where
-        F: Float + CubeElement + std::fmt::Display,
+        F: ReducePrecision + std::fmt::Display,
+        F::EI: CubeElement + Float + std::fmt::Display,
         R: Runtime,
     {
-        let input_values: Vec<F> = self.random_input_values();
+        let input_values: Vec<F::EI> = self.random_input_values();
         let expected_values = match self.axis {
             Some(axis) if self.stride[axis] == 0 => input_values
                 .iter()
-                .map(|v| *v * F::from_int(self.shape[axis] as i64))
+                .map(|v| *v * F::EI::from_int(self.shape[axis] as i64))
                 .collect(),
             _ => self.cpu_sum(&input_values),
         };
-        self.run_reduce_test::<F, F, R, Sum>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F::EI, R, Sum>(device, input_values, expected_values)
     }
 
     fn cpu_sum<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -476,20 +483,21 @@ impl TestCase {
         self.run_shared_sum_test::<F, R>(device, input_values, expected);
     }
 
-    pub fn run_reduce_test<I, O, R, K>(
+    pub fn run_reduce_test<P, O, R, K>(
         &self,
         device: &R::Device,
-        input_values: Vec<I>,
+        input_values: Vec<P::EI>,
         expected_values: Vec<O>,
     ) where
-        I: Numeric + CubeElement + std::fmt::Display,
+        P: ReducePrecision,
+        P::EI: CubeElement,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
         K: ReduceFamily<Config = ()>,
     {
         let client = R::client(device);
 
-        let input_handle = client.create(I::as_bytes(&input_values));
+        let input_handle = client.create(<P::EI as CubeElement>::as_bytes(&input_values));
 
         // Zero initialize a tensor with the same shape as input
         // except for the `self.axis` axis where the shape is 1.
@@ -504,7 +512,7 @@ impl TestCase {
                 &input_handle,
                 &self.stride,
                 &self.shape,
-                size_of::<I>(),
+                size_of::<P>(),
             )
         };
         let output = unsafe {
@@ -516,7 +524,7 @@ impl TestCase {
             )
         };
 
-        let result = reduce::<R, I, O, K>(
+        let result = reduce::<R, P, O, K>(
             &client,
             input,
             output,
