@@ -30,6 +30,10 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
         config.tiling.tile_count
     }
 
+    fn tile_shape(config: &Self::Config) -> MatmulSize {
+        config.tiling.tile_shape
+    }
+
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
@@ -37,7 +41,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
 }
 
 impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
-    type Input = (CompleteStageTiling, StageBuffering, StageVectorization);
+    type Input = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -56,14 +60,14 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
     }
 
     fn make_config(
-        (tilling, buffering, vectorization): Self::Input,
+        (tiling, buffering, vectorization, num_stages): Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = tilling.tile_shape;
-        let tile_count = tilling.tile_count;
+        let tile_shape = tiling.tile_shape;
+        let tile_count = tiling.tile_count;
 
         let tile_input = TileMatmulConfigInput {
             vectorization,
@@ -76,7 +80,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmu
             tile_count,
         };
 
-        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, buffering)
+        CommonStageConfig::new(
+            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages,
+        )
     }
 }
 
@@ -286,7 +292,7 @@ where
         SEL::on_event(&mut listener, StageEvent::Begin);
 
         let (m_iterations, n_iterations) = acc.shape;
-        let k_iterations = comptime!(RL::num_k_iterations(config));
+        let k_iterations = config.tiling.tile_count.k;
 
         let mut k_iter = comptime![0u32];
 
@@ -392,8 +398,7 @@ where
         SEL::on_event(&mut listener, StageEvent::Begin);
 
         let (m_iterations, n_iterations) = acc.shape;
-
-        let k_iterations = comptime!(RL::num_k_iterations(config));
+        let k_iterations = config.tiling.tile_count.k;
 
         let mut k_iter = comptime![0u32];
         let m_offset = UNIT_POS_Y * m_iterations;

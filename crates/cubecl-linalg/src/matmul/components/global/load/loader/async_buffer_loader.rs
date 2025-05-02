@@ -1,13 +1,12 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
 use crate::matmul::components::global::load::AsyncLoadingJob;
+use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{
-    CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
-};
+use crate::matmul::components::global::{CopyMechanism, LoadingValidation, Quantization};
 use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{self, StageMemory};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
@@ -44,7 +43,7 @@ pub struct AsyncBufferLoader<
     L: AsyncBufferLoadingStrategy,
 > {
     tensor_reader: TensorReader<MP::EI>,
-    stage: Stage<MP::ES, L::TilingLayout>,
+    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     #[cube(comptime)]
     input_ident: InputIdent,
@@ -67,27 +66,29 @@ impl<
         batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
-        #[comptime] config: CommonGlobalConfig<S>,
+        #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
+        let stage_memory =
+            StageMemory::new::<S>(2u32, input_ident.as_ident(), config.to_smm_config());
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+
         comptime! {
             if quantization.is_some() {
                 todo!();
             }
         }
 
-        let stage = Stage::new::<S>(input_ident.as_ident(), config.to_smm_config());
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
-                L::new_job::<MP, CommonGlobalConfig<S>>(0u32, input_ident, config),
-                L::new_job::<MP, CommonGlobalConfig<S>>(1u32, input_ident, config),
+                L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(0u32, input_ident, config),
+                L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(1u32, input_ident, config),
             )),
             false => CubeOption::new_None(),
         };
 
         AsyncBufferLoader::<MP, S, CM, L> {
             tensor_reader,
-            stage,
+            stage_memory,
             loading_job,
             input_ident,
             _phantom: PhantomData::<(S, CM)>,
@@ -98,7 +99,7 @@ impl<
         this: &Self,
         #[comptime] buffer_id: BufferId,
     ) -> BufferReader<MP::ES, L::TilingLayout> {
-        BufferReader::new(this.stage, buffer_id, this.input_ident)
+        BufferReader::new(this.stage_memory, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
@@ -109,7 +110,7 @@ impl<
         this: &mut Self,
         mechanism: &CM,
         #[comptime] buffer_id: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
+        #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(job) => match buffer_id {
@@ -118,21 +119,21 @@ impl<
             },
             CubeOption::None => match buffer_id {
                 BufferId::A => {
-                    L::new_job::<MP, CommonGlobalConfig<S>>(0u32, this.input_ident, config)
+                    L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(0u32, this.input_ident, config)
                 }
                 BufferId::B => {
-                    L::new_job::<MP, CommonGlobalConfig<S>>(1u32, this.input_ident, config)
+                    L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(1u32, this.input_ident, config)
                 }
             },
         };
 
         let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
-            L::Job::<MP>::execute_task::<CM, CommonGlobalConfig<S>>(
+            L::Job::<MP>::execute_task::<CM, DoubleBufferingGlobalConfig<S>>(
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
-                &mut this.stage,
+                &mut this.stage_memory,
                 mechanism,
                 config,
             );
@@ -142,9 +143,9 @@ impl<
     pub fn clear_stage(
         this: &mut Self,
         #[comptime] buffer_id: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
+        #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
-        this.stage
+        this.stage_memory
             .clear_buffer::<S>(buffer_id, this.input_ident, config.to_smm_config())
     }
 }

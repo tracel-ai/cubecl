@@ -41,7 +41,7 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#frontend_path::#op::expand(scope, _array.into(), _index.into(), _value.into())],
+                    quote![#frontend_path::#op::expand(scope, _array, _index.into(), _value.into())],
                 );
                 quote! {
                     {
@@ -143,7 +143,7 @@ impl Expression {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #frontend_path::index_assign::expand(scope, _array.into(), _index.into(), _value.into())
+                        #frontend_path::index_assign::expand(scope, _array, _index.into(), _value.into())
                     }
                 }
             }
@@ -166,7 +166,7 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#index_fn::expand(scope, _array.into(), _index.into())],
+                    quote![#index_fn::expand(scope, _array, _index.into())],
                 );
                 quote! {
                     {
@@ -215,10 +215,17 @@ impl Expression {
             }
             Expression::FunctionCall {
                 args,
-                associated_type: Some((ty_path, func)),
+                associated_type: Some((ty_path, qself, func)),
                 span,
                 ..
             } => {
+                let ty_path = if let Some(qself) = qself {
+                    let ty = &qself.ty;
+                    quote![<#ty as #ty_path>]
+                } else {
+                    quote![#ty_path]
+                };
+
                 let (args, arg_names) = map_args(args, context);
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
@@ -397,7 +404,14 @@ impl Expression {
                     }
                 }
             }
-            Expression::Path { path, .. } => quote![#path],
+            Expression::Path { path, qself } => {
+                if let Some(qself) = qself {
+                    let ty = &qself.ty;
+                    quote![<#ty as #path>]
+                } else {
+                    quote![#path]
+                }
+            }
             Expression::Range {
                 start,
                 end,
@@ -439,7 +453,6 @@ impl Expression {
                     quote![(#(#elements),*)]
                 }
             }
-
             Expression::Slice { span, .. } => {
                 error!(*span, "Slice expressions not yet implemented")
             }
@@ -705,14 +718,11 @@ fn map_args(args: &[Expression], context: &mut Context) -> (Vec<TokenStream>, Ve
     (values, names)
 }
 
-/// Since we no longer (unnecessarily) init immutable locals, we do need to init all struct fields
-/// because of interior mutability.
 fn init_fields<'a>(
     fields: &'a [(Member, Expression)],
     context: &'a mut Context,
 ) -> impl Iterator<Item = TokenStream> + 'a {
     fields.iter().map(|(pat, it)| {
-        let init = frontend_type("Init");
         let it = if let Some(as_const) = it.as_const(context) {
             let it = quote_spanned![as_const.span()=> #as_const];
             return quote! {
@@ -727,7 +737,7 @@ fn init_fields<'a>(
         quote! {
             #pat: {
                 let _init = #it;
-                #init::init(_init, scope)
+                _init
             }
         }
     })

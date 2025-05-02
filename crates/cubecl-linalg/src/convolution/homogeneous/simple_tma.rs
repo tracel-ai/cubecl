@@ -17,10 +17,13 @@ use crate::{
         components::{
             EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
             MatmulSpec, OutputRuntimeArg,
-            global::{AccumulatorLoader, GlobalConfig, output_loader::Unloader, single_stage},
+            global::{
+                AccumulatorLoader, GlobalConfig, load::arrive_tma, output_loader::Unloader,
+                single_stage,
+            },
             stage::{FullReader, FullReaderFamily, StageMatmul, StageMatmulFamily},
         },
-        kernels::MatmulAvailabilityError,
+        kernels::{MatmulAvailabilityError, matmul::LoadingPrecomputeStrategy},
     },
 };
 use cubecl_core::prelude::*;
@@ -34,7 +37,7 @@ use cubecl_std::{
 };
 
 use super::base::{
-    config::{self, HomogeneousConfig},
+    config::{self, ConvolutionConfig},
     implicit_conv,
 };
 
@@ -56,7 +59,7 @@ where
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
-    type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
+    type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
@@ -78,6 +81,9 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
+        let total_stage_elems = config.tiling_dimensions(Ident::Rhs).total_size()
+            + config.tiling_dimensions(Ident::Lhs).total_size();
+
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
@@ -94,21 +100,15 @@ where
         for _ in 0..num_loops {
             sync_units();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config.to_smm_config());
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.to_smm_config());
 
-            if UNIT_POS == 0 {
-                let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()
-                    + config.tiling_dimensions(Ident::Lhs).total_size();
-                barrier.arrive_tx(1, total_stage * MP::ES::elem_size());
-            } else {
-                barrier.arrive();
-            }
+            arrive_tma::<MP::ES>(&barrier, total_stage_elems);
 
             barrier.wait();
 
-            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, 0u32);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, 0u32);
 
             SMM::execute(
                 lhs_stage_reader,
@@ -140,7 +140,7 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, 1u32, config)
     }
 
     fn init_rhs_loader(
@@ -156,6 +156,7 @@ where
             y_offset,
             CubeOption::new_None(),
             runtime_args,
+            1u32,
             config,
         )
     }
@@ -197,14 +198,15 @@ impl<SMM> ConvolutionConfigFactory for SimpleTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type Input = SMM::Input;
+    type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
     }
 
-    fn make_config(
+    fn make_config<R: Runtime, MP: MatmulPrecision>(
+        _client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
         cube_dim: &CubeDim,
@@ -218,7 +220,7 @@ where
         problem.rhs_line_size = 1;
 
         let smm_config = SMM::make_config(
-            input,
+            input.0,
             &problem.as_matmul_problem(),
             cube_dim,
             cube_count,
@@ -226,7 +228,7 @@ where
         );
         let size = SMM::stage_shape(&smm_config);
 
-        config::HomogeneousConfig::new(
+        config::ConvolutionConfig::new(
             single_stage::Config::new(
                 smm_config,
                 // TODO: Find the correct condition to avoid check bounds.
@@ -239,11 +241,13 @@ where
                 problem.rhs_line_size as u32,
                 problem.out_line_size as u32,
                 size.k,
+                input.1,
             ),
             problem.kernel_size,
             problem.stride,
             problem.dilation,
             problem.padding,
+            1,
         )
     }
 

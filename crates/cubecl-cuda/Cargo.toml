@@ -33,10 +33,11 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-featur
 ] }
 
 bytemuck = { workspace = true }
-cudarc = { version = "0.16.1", features = [
+cudarc = { version = "0.16.2", features = [
     "std",
     "driver",
     "cuda-version-from-build-system",
+    "dynamic-loading",
 ], default-features = false }
 
 derive-new = { workspace = true }

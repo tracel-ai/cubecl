@@ -11,7 +11,9 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{
     global::{self, GlobalConfig, tensor_view::MappedTensorReader},
-    stage::{self, ColMajorTilingOrder, ContiguousTilingLayout, Stage, StageConfig, TilingOrder},
+    stage::{
+        self, ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder,
+    },
 };
 
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
@@ -78,7 +80,7 @@ impl TilingOrder for TmaTilingOrder {
 #[derive(CubeType)]
 pub struct TmaLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, TmaTiling>,
+    pub stage: StageMemory<MP::ES, TmaTiling>,
     #[cube(comptime)]
     ident: InputIdent,
     #[cube(comptime)]
@@ -102,7 +104,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             }
         }
 
-        let stage = Stage::new_aligned::<G::SmmConfig>(
+        let stage = StageMemory::new_aligned::<G::SmmConfig>(
             comptime!(ident.as_ident()),
             128u32,
             config.to_smm_config(),
@@ -168,5 +170,14 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view
             .update_view(k_offset, comptime!(this.ident.as_ident()));
+    }
+}
+
+#[cube]
+pub(crate) fn arrive_tma<E: CubePrimitive>(barrier: &Barrier<E>, #[comptime] num_elems: u32) {
+    if UNIT_POS == 0 {
+        barrier.arrive_tx(1, num_elems * E::elem_size());
+    } else {
+        barrier.arrive();
     }
 }

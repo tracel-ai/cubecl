@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    __expand_new, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings, init_expand_element,
+    __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
 };
 
 mod typemap;
@@ -72,8 +72,14 @@ macro_rules! impl_int {
 
         impl IntoRuntime for $type {
             fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, scope)
+                let elem: ExpandElementTyped<Self> = self.into();
+                into_runtime_expand_element(scope, elem).into()
+            }
+        }
+
+        impl IntoMut for $type {
+            fn into_mut(self, _scope: &mut Scope) -> Self {
+                self
             }
         }
 
@@ -86,9 +92,9 @@ macro_rules! impl_int {
             }
         }
 
-        impl ExpandElementBaseInit for $type {
-            fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(scope, elem)
+        impl ExpandElementIntoMut for $type {
+            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                into_mut_expand_element(scope, elem)
             }
         }
 

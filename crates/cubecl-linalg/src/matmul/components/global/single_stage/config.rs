@@ -1,7 +1,6 @@
-use crate::matmul::components::{
-    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
-    global::{self, PRECOMPUTE_JOB},
-    stage::{self},
+use crate::matmul::{
+    components::{Ident, MatmulConfig, MatrixLayout, TilingDimensions, global, stage},
+    kernels::matmul::LoadingPrecomputeStrategy,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -17,6 +16,7 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     pub k_step: u32,
+    precompute_job: LoadingPrecomputeStrategy,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -74,8 +74,12 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.check_k_bounds
     }
 
+    fn num_stages(&self) -> u32 {
+        1
+    }
+
     fn precompute_job(&self) -> bool {
-        PRECOMPUTE_JOB
+        self.precompute_job.into()
     }
 }
 
@@ -94,6 +98,7 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         k_step: u32,
+        precompute_job: LoadingPrecomputeStrategy,
     ) -> Self {
         Self {
             smm_config,
@@ -106,6 +111,7 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             k_step,
+            precompute_job,
         }
     }
 }

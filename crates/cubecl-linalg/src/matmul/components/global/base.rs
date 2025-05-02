@@ -168,4 +168,6 @@ pub trait GlobalConfig: MatmulConfig {
     fn check_k_bounds(&self) -> bool;
 
     fn precompute_job(&self) -> bool;
+
+    fn num_stages(&self) -> u32;
 }

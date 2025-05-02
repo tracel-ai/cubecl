@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::instructions::ReduceRequirements;
+use crate::{instructions::ReduceRequirements, precision::ReducePrecision};
 
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
@@ -11,14 +11,14 @@ use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 pub struct Max;
 
 impl ReduceFamily for Max {
-    type Instruction<In: Numeric> = Self;
+    type Instruction<P: ReducePrecision> = Self;
     type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for Max {
-    type AccumulatorItem = Line<In>;
-    type SharedAccumulator = SharedMemory<Line<In>>;
+impl<P: ReducePrecision> ReduceInstruction<P> for Max {
+    type AccumulatorItem = Line<P::EA>;
+    type SharedAccumulator = SharedMemory<Line<P::EA>>;
     type Config = ();
 
     fn requirements(_this: &Self) -> ReduceRequirements {
@@ -29,12 +29,12 @@ impl<In: Numeric> ReduceInstruction<In> for Max {
         Max {}
     }
 
-    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::min_value())
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
+        Line::empty(line_size).fill(P::EI::min_value())
     }
 
-    fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
-        Self::null_input(this, line_size)
+    fn null_accumulator(_this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
+        Line::empty(line_size).fill(P::EA::min_value())
     }
 
     fn assign_accumulator(
@@ -48,18 +48,19 @@ impl<In: Numeric> ReduceInstruction<In> for Max {
     fn reduce(
         _this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
+        item: Line<P::EI>,
         _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
-            let candidate_item = plane_max(item);
+            let candidate_item = Line::cast_from(plane_max(item));
             select_many(
                 accumulator.greater_than(candidate_item),
                 *accumulator,
                 candidate_item,
             )
         } else {
+            let item = Line::cast_from(item);
             select_many(accumulator.greater_than(item), *accumulator, item)
         }
     }
@@ -77,7 +78,7 @@ impl<In: Numeric> ReduceInstruction<In> for Max {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut max = In::min_value();
+        let mut max = P::EA::min_value();
         #[unroll]
         for k in 0..accumulator.size() {
             let candidate = accumulator[k];

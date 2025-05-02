@@ -92,8 +92,8 @@ impl<E: CubePrimitive> TensorMap<E> {
     }
 }
 
-impl<E: CubePrimitive> ExpandElementBaseInit for TensorMap<E> {
-    fn init_elem(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+impl<E: CubePrimitive> ExpandElementIntoMut for TensorMap<E> {
+    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }
@@ -232,17 +232,18 @@ macro_rules! tma_store {
                 #[allow(clippy::too_many_arguments)]
                 pub fn expand<E: CubePrimitive>(
                     scope: &mut Scope,
-                    src: ExpandElementTyped<Slice<Line<E>>>,
+                    src: SliceExpand<Line<E>, ReadOnly>,
                     dst: ExpandElementTyped<TensorMap<E>>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
-                    let source = *src.expand;
+                    let (source, source_offset) = src.__to_raw_parts();
                     let dst = *dst.expand;
                     let coordinates = vec![$(*$arg.expand),*];
                     scope.register(Instruction::new(
                         TmaOps::TmaStore {
                             source,
                             coordinates,
+                            offset_source: source_offset,
                         },
                         dst,
                     ))

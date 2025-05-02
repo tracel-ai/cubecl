@@ -4,9 +4,11 @@ use crate as cubecl;
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
+    frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut, indexation::Index},
     ir::{Item, Scope},
-    prelude::{Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::{
+        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -14,8 +16,8 @@ pub struct SharedMemory<T: CubeType> {
     _val: PhantomData<T>,
 }
 
-impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
-    fn init(self, _scope: &mut Scope) -> Self {
+impl<T: CubePrimitive> IntoMut for ExpandElementTyped<SharedMemory<T>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -105,9 +107,9 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::Operator;
+    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::ir::{BinaryOperator, Instruction};
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -125,9 +127,10 @@ mod indexation {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.item);
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndex(BinaryOperator {
-                        lhs: *self.expand,
-                        rhs: i.expand.consume(),
+                    Operator::UncheckedIndex(IndexOperator {
+                        list: *self.expand,
+                        index: i.expand.consume(),
+                        line_size: 0,
                     }),
                     *out,
                 ));
@@ -144,9 +147,10 @@ mod indexation {
         pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(BinaryOperator {
-                        lhs: i.expand.consume(),
-                        rhs: value.expand.consume(),
+                    Operator::UncheckedIndexAssign(IndexAssignOperator {
+                        index: i.expand.consume(),
+                        value: value.expand.consume(),
+                        line_size: 0,
                     }),
                     *self.expand,
                 ));
@@ -167,11 +171,18 @@ impl<T: CubePrimitive> List<T> for SharedMemory<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_read_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
-        index::expand(scope, self, idx)
+        index::expand(scope, self.clone(), idx)
+    }
+    fn __expand_read_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index_unchecked::expand(scope, self.clone(), idx)
     }
 }
 
@@ -188,11 +199,11 @@ impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
 
 impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_write_method(
-        self,
+        &self,
         scope: &mut Scope,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        index_assign::expand(scope, self, idx, value);
+        index_assign::expand(scope, self.clone(), idx, value);
     }
 }

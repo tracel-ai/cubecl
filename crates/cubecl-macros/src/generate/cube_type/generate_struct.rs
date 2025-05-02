@@ -317,7 +317,7 @@ impl CubeTypeStruct {
     }
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
-        let init = prelude_type("Init");
+        let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
         let scope = prelude_type("Scope");
         let name_expand = &self.name_expand;
@@ -330,13 +330,13 @@ impl CubeTypeStruct {
                 if is_comptime {
                     quote![#ident: self.#ident]
                 } else {
-                    quote![#ident: #init::init(self.#ident, scope)]
+                    quote![#ident: #into_mut::into_mut(self.#ident, scope)]
                 }
             });
 
         quote! {
-            impl #generics #init for #name_expand #generic_names #where_clause {
-                fn init(self, scope: &mut #scope) -> Self {
+            impl #generics #into_mut for #name_expand #generic_names #where_clause {
+                fn into_mut(self, scope: &mut #scope) -> Self {
                     Self {
                         #(#body),*
                     }

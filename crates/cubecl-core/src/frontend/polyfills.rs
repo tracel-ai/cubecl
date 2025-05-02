@@ -29,7 +29,7 @@ fn checked_index_assign<E: CubePrimitive>(
     out: &mut Array<Line<E>>,
     #[comptime] has_buffer_len: bool,
 ) {
-    let array_len = if has_buffer_len {
+    let array_len = if comptime![has_buffer_len] {
         out.buffer_len()
     } else {
         out.len()
@@ -82,7 +82,7 @@ fn erf_positive<F: Float>(x: Line<F>) -> Line<F> {
 pub fn expand_erf(scope: &mut Scope, input: Variable, out: Variable) {
     scope.register_elem::<FloatExpand<0>>(input.item.elem);
     let res = erf::expand::<FloatExpand<0>>(scope, ExpandElement::Plain(input).into());
-    assign::expand(scope, res, ExpandElement::Plain(out).into());
+    assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
 }
 
 #[cube]
@@ -108,7 +108,7 @@ pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Var
                 ExpandElement::Plain(lhs).into(),
                 ExpandElement::Plain(rhs).into(),
             );
-            assign::expand(scope, res, ExpandElement::Plain(out).into());
+            assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
         }
         Elem::UInt(_) => {
             let res = himul_u64::expand(
@@ -116,7 +116,7 @@ pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Var
                 ExpandElement::Plain(lhs).into(),
                 ExpandElement::Plain(rhs).into(),
             );
-            assign::expand(scope, res, ExpandElement::Plain(out).into());
+            assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
         }
         _ => unreachable!(),
     };
@@ -151,5 +151,5 @@ pub fn expand_himul_sim(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Va
         ExpandElement::Plain(lhs).into(),
         ExpandElement::Plain(rhs).into(),
     );
-    assign::expand(scope, res, ExpandElement::Plain(out).into());
+    assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
 }

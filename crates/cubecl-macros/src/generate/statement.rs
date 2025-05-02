@@ -43,8 +43,9 @@ impl Statement {
 
                 let init = match (is_mut, init) {
                     (true, Some(init)) => {
-                        let init_ty = frontend_type("Init");
-                        let init_ty = quote_spanned![init.span()=> #init_ty::init(_init, scope)];
+                        let into_mut = frontend_type("IntoMut");
+                        let init_ty =
+                            quote_spanned![init.span()=> #into_mut::into_mut(_init, scope)];
                         Some(quote! {
                             {
                                 let _init = #init;

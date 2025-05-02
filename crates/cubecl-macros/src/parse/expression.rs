@@ -1,8 +1,8 @@
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, RangeLimits, Type, UnOp, parse_quote,
-    spanned::Spanned,
+    Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, QSelf, RangeLimits, Type, UnOp,
+    parse_quote, spanned::Spanned,
 };
 
 use crate::{
@@ -75,7 +75,10 @@ impl Expression {
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
                     // external value like a Rust `const`.
-                    Expression::Path { path: path.path }
+                    Expression::Path {
+                        path: path.path,
+                        qself: path.qself,
+                    }
                 }
             }
             Expr::Unary(unary) => {
@@ -103,7 +106,7 @@ impl Expression {
                     .map(|arg| Expression::from_expr(arg, context))
                     .collect::<Result<Vec<_>, _>>()?;
                 match *func {
-                    Expression::Path { path } if is_intrinsic(&path) => {
+                    Expression::Path { path, .. } if is_intrinsic(&path) => {
                         Expression::CompilerIntrinsic { func: path, args }
                     }
                     func => {
@@ -475,7 +478,7 @@ fn is_slice(index: &Expression) -> bool {
     }
 }
 
-fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
+fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {
     // All supported primitives. Primitives don't start with an uppercase letter
     const PRIMITIVES: &[&str] = &[
         "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
@@ -483,8 +486,9 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }
+
     match path {
-        Expression::Path { path, .. } => {
+        Expression::Path { path, qself } => {
             let second_last = path.segments.iter().nth_back(1)?;
             let name = second_last.ident.to_string();
             let ch = name.chars().next();
@@ -494,7 +498,7 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
                 let mut path = path.clone();
                 let name = path.segments.pop().unwrap().into_value();
                 path.segments.pop_punct();
-                Some((path, name))
+                Some((path, qself.clone(), name))
             } else {
                 None
             }

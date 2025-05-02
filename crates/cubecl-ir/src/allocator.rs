@@ -81,13 +81,6 @@ impl Allocator {
         ExpandElement::Plain(local_array)
     }
 
-    /// Create a slice variable
-    pub fn create_slice(&self, item: Item) -> ExpandElement {
-        let id = self.new_local_index();
-        let variable = Variable::new(VariableKind::Slice { id }, item);
-        ExpandElement::Plain(variable)
-    }
-
     /// Create a matrix variable
     pub fn create_matrix(&self, matrix: Matrix) -> ExpandElement {
         let id = self.new_local_index();

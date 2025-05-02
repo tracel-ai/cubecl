@@ -8,9 +8,7 @@ use crate::{
 };
 use crate::{
     convolution::tests::convolution_test_launcher::test_convolution_algorithm,
-    matmul::components::{
-        MatmulSelection, MatmulSize, global::args::MatmulArgs, stage::STAGE_BUFFERING,
-    },
+    matmul::components::{MatmulSelection, MatmulSize, global::args::MatmulArgs},
 };
 use cubecl_core::Runtime;
 
@@ -95,7 +93,15 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     test_convolution_algorithm::<A, Args, P, R>(
         client,
         problem,
-        (config_input, STAGE_BUFFERING, vectorization), // TODO support double buffering
+        (
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
+        ),
         selection,
     );
 }
@@ -305,6 +311,7 @@ macro_rules! conv2d_standard_tests {
     };
 
     ($tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::convolution::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
         use $crate::convolution::algorithm::simple::SimpleConvAlgorithm;
         use $crate::convolution::algorithm::simple_tma::SimpleTmaConvAlgorithm;
         use $crate::matmul::components::global::args::{TensorArgs, TensorMapArgs};
@@ -323,6 +330,16 @@ macro_rules! conv2d_standard_tests {
         pub fn simple_tma_im2col() {
             cubecl_linalg::convolution::tests::test_algo::<
                 SimpleTmaConvAlgorithm<TMM>,
+                TensorMapArgs,
+                Precision,
+                TestRuntime,
+            >($tile, $stage, $problem);
+        }
+
+        #[test]
+        pub fn multi_stage_tma_im2col() {
+            cubecl_linalg::convolution::tests::test_algo::<
+                MultiStageTmaConvAlgorithm<TMM>,
                 TensorMapArgs,
                 Precision,
                 TestRuntime,

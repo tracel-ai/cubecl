@@ -26,6 +26,9 @@ pub trait StageMatmulFamily:
     /// Returns the number of tiles in each axis of the stage.
     fn tile_count(config: &Self::Config) -> MatmulSize;
 
+    /// Returns the number of tiles in each axis of the stage.
+    fn tile_shape(config: &Self::Config) -> MatmulSize;
+
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
             Config = Self::Config,
@@ -162,6 +165,8 @@ pub trait StageConfig: MatmulConfig {
     fn tile_count(&self) -> &MatmulSize;
 
     fn buffering(&self) -> StageBuffering;
+
+    fn num_stages(&self) -> u32;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -169,8 +174,3 @@ pub enum StageBuffering {
     Single,
     Double,
 }
-
-// TODO Support autotuning the best stage buffering
-//      However, from simple benchmarks on Maxime's computer (NVIDIA GeForce RTX 4060)
-//      Double seems to always be faster or comparable to single.
-pub const STAGE_BUFFERING: StageBuffering = StageBuffering::Double;

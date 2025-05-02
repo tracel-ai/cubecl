@@ -64,9 +64,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 // Exclude outputs
                 if !matches!(
                     var.kind,
-                    VariableKind::GlobalOutputArray { .. }
-                        | VariableKind::Slice { .. }
-                        | VariableKind::GlobalInputArray { .. }
+                    VariableKind::GlobalOutputArray { .. } | VariableKind::GlobalInputArray { .. }
                 ) {
                     out = Some(*var);
                 }

@@ -128,7 +128,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
     let offset_output = ABSOLUTE_POS * elems_per_thread;
     let line_size = input.line_size();
 
-    let mut registers = Array::vectorized(elems_per_thread, line_size);
+    let mut registers = Array::<Line<N>>::vectorized(elems_per_thread, line_size);
 
     #[unroll]
     for i in 0..elems_per_thread {

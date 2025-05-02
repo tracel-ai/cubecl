@@ -14,6 +14,7 @@ pub enum TmaOps {
     TmaStore {
         source: Variable,
         coordinates: Vec<Variable>,
+        offset_source: Variable,
     },
     CommitGroup,
     WaitGroup {
@@ -30,13 +31,14 @@ impl Display for TmaOps {
             TmaOps::TmaStore {
                 source,
                 coordinates,
+                offset_source,
             } => {
                 let rank = coordinates.len();
                 let coords = coordinates.iter().fold(String::new(), |mut s, coord| {
                     let _ = write!(s, ", {coord}");
                     s
                 });
-                write!(f, "tma_load::<{rank}>({source}{coords})")
+                write!(f, "tma_load::<{rank}>({source} + {offset_source} {coords})")
             }
             TmaOps::CommitGroup => write!(f, "memcpy_async_bulk_commit_group()"),
             TmaOps::WaitGroup { max_pending } => {

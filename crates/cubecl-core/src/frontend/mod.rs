@@ -1,7 +1,6 @@
 pub mod barrier;
 pub mod branch;
 pub mod cmma;
-pub mod pipeline;
 pub mod synchronization;
 
 mod base;

@@ -1,7 +1,7 @@
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, Quantization};
-use crate::matmul::components::stage::{Stage, TilingLayout};
+use crate::matmul::components::stage::{StageMemory, TilingLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
@@ -17,7 +17,7 @@ pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + C
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, TL>,
+        stage_memory: &mut StageMemory<MP::ES, TL>,
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     );
@@ -31,7 +31,7 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, TL>,
+        stage_memory: &mut StageMemory<MP::ES, TL>,
         mechanism: &CM,
         #[comptime] config: G,
     );

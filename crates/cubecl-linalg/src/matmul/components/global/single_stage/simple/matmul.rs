@@ -1,12 +1,15 @@
-use crate::matmul::components::{
-    InputIdent, MatmulPrecision,
-    global::{
-        GlobalMatmul, Quantization, ZeroAccumulatorLoader,
-        load::{SyncFullLoader, SyncFullLoadingStrategy},
-        output_loader::Unloader,
-        single_stage::Config,
+use crate::matmul::{
+    components::{
+        InputIdent, MatmulPrecision,
+        global::{
+            GlobalMatmul, Quantization, ZeroAccumulatorLoader,
+            load::{SyncFullLoader, SyncFullLoadingStrategy},
+            output_loader::Unloader,
+            single_stage::Config,
+        },
+        stage::{FullReader, StageMatmul},
     },
-    stage::{FullReader, StageMatmul},
+    kernels::matmul::LoadingPrecomputeStrategy,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -49,7 +52,7 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type Input = SMM::Input;
+    type Input = (SMM::Input, LoadingPrecomputeStrategy);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -72,7 +75,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -86,6 +89,7 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
+            input.1,
         )
     }
 }

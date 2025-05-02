@@ -1,13 +1,15 @@
-use crate::matmul::components::{
-    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
-    stage::{self},
+use crate::matmul::{
+    components::{
+        Ident, MatmulConfig, MatrixLayout, TilingDimensions,
+        global::GlobalConfig,
+        stage::{self},
+    },
+    kernels::matmul::LoadingPrecomputeStrategy,
 };
-
-pub const PRECOMPUTE_JOB: bool = false;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
-pub struct CommonGlobalConfig<S: stage::StageConfig> {
+pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub smm_config: S,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
@@ -18,9 +20,10 @@ pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub rhs_line_size: u32,
     pub out_line_size: u32,
     pub num_planes: u32,
+    precompute_job: LoadingPrecomputeStrategy,
 }
 
-impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -76,13 +79,17 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     }
 
     fn precompute_job(&self) -> bool {
-        PRECOMPUTE_JOB
+        self.precompute_job.into()
+    }
+
+    fn num_stages(&self) -> u32 {
+        2
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
 
-impl<S: stage::StageConfig> CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,
@@ -95,6 +102,7 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
+        precompute_job: LoadingPrecomputeStrategy,
     ) -> Self {
         Self {
             smm_config,
@@ -107,6 +115,7 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
+            precompute_job,
         }
     }
 }
