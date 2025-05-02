@@ -49,6 +49,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         handle: &TensorHandleRef<'_, R>,
         ident: crate::matmul::components::InputIdent,
     ) -> TensorHandle<R, E> {
+        let rank = handle.shape.len();
+        let dim_c = rank - 1;
         let mut handle = if has_valid_layout(handle, ident) {
             TensorHandle::from_ref(handle)
         } else {
@@ -59,7 +61,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
             InputIdent::Rhs => {
                 // Reshape to (K, N) so the loader knows how to handle it
                 handle.shape = vec![handle.shape[1..].iter().product(), handle.shape[0]];
-                handle.strides = vec![handle.strides[3], handle.strides[0]];
+                handle.strides = vec![handle.strides[dim_c], handle.strides[0]];
                 handle
             }
         }
@@ -72,14 +74,18 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
 }
 
 fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {
+    let rank = handle.shape.len();
+    let dim_c = rank - 1;
     match ident {
-        InputIdent::Lhs => handle.strides[3] == 1,
+        InputIdent::Lhs => handle.strides[dim_c] == 1,
         InputIdent::Rhs => {
             let mut strides = handle.strides.to_vec();
             strides.sort();
             let ordered = handle.strides == strides;
-            let contiguous_k = strides[3] * handle.shape[3] == strides[2]
-                && strides[2] * handle.shape[2] == handle.strides[1];
+            let mut contiguous_k = true;
+            for i in 1..dim_c {
+                contiguous_k &= strides[i] == strides[i + 1] * handle.shape[i + 1];
+            }
             ordered && contiguous_k
         }
     }

@@ -1,8 +1,11 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, intrinsic};
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
-use crate::{convolution::ConvGemmConfig, matmul::components::Ident};
+use crate::{
+    convolution::{ConvGemmConfig, loader::im2col_tma::div_mod_seq},
+    matmul::components::Ident,
+};
 
 #[derive(CubeType)]
 /// A view of a feature map tensor that starts reading data from a specified offset.
@@ -14,16 +17,13 @@ pub struct Im2colReader<E: Numeric> {
     pub k_offset: u32,
 
     pub stride_batch: u32,
-    pub stride_y: u32,
-    pub stride_x: u32,
+    pub strides_spatial: Sequence<u32>,
     pub stride_channel: u32,
 
-    pub shape_y: u32,
-    pub shape_x: u32,
+    pub shapes_spatial: Sequence<u32>,
     pub shape_channel: u32,
 
-    pub shape_out_y: FastDivmod,
-    pub shape_out_x: FastDivmod,
+    pub shape_out: Sequence<FastDivmod>,
 
     pub shape_m: u32,
     pub shape_k: u32,
@@ -34,34 +34,37 @@ impl<E: Numeric> Im2colReader<E> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tensor: VirtualTensor<E>,
-        shape_out_y: FastDivmod,
-        shape_out_x: FastDivmod,
+        shape_out: Sequence<FastDivmod>,
         x_offset: u32,
         y_offset: u32,
         shape_k: u32,
-        shape_channel: u32,
         shape_m: u32,
     ) -> Im2colReader<E> {
+        let spatial_dims = comptime![shape_out.len()];
+        let mut strides_spatial = Sequence::new();
+        let mut shapes_spatial = Sequence::new();
+
+        #[unroll]
+        for i in 0..spatial_dims {
+            strides_spatial.push(tensor.stride(i + 1));
+            shapes_spatial.push(tensor.shape(i + 1));
+        }
+
         let stride_batch = tensor.stride(0);
-        let stride_y = tensor.stride(1);
-        let stride_x = tensor.stride(2);
-        let stride_channel = tensor.stride(3);
-        let shape_y = tensor.shape(1);
-        let shape_x = tensor.shape(2);
+        let stride_channel = tensor.stride(spatial_dims + 1);
+
+        let shape_channel = tensor.shape(spatial_dims + 1);
 
         Im2colReader::<E> {
             tensor,
             m_offset: x_offset,
             k_offset: y_offset,
             stride_batch,
-            stride_y,
-            stride_x,
+            strides_spatial,
             stride_channel,
-            shape_y,
-            shape_x,
+            shapes_spatial,
             shape_channel,
-            shape_out_y,
-            shape_out_x,
+            shape_out,
             shape_m,
             shape_k,
         }
@@ -109,31 +112,63 @@ impl<E: Numeric> Im2colReader<E> {
         let view_m = view_tile_m + load_m;
         let view_k = view_tile_k + load_k;
 
-        let (out_nh, out_x) = self.shape_out_x.div_mod(view_m);
-        let (batch, out_y) = self.shape_out_y.div_mod(out_nh);
-
-        let kernel_w = config.kernel_size(1);
+        let (batch, out_offs) = div_mod_seq(view_m, &self.shape_out);
 
         let channel = view_k % self.shape_channel;
-        let rem = view_k / self.shape_channel;
-        let kernel_x = rem % kernel_w;
-        let kernel_y = rem / kernel_w;
+        let mut rem = view_k / self.shape_channel;
 
-        let y =
-            (out_y * config.stride(0) + kernel_y * config.dilation(0)) as i32 - config.padding(0);
-        let x =
-            (out_x * config.stride(1) + kernel_x * config.dilation(1)) as i32 - config.padding(1);
+        let spatial_dims = comptime![self.shapes_spatial.len()];
+        let mut in_pos = Sequence::<i32>::new();
+
+        #[unroll]
+        for i in 0..spatial_dims {
+            let i = unwrap(i);
+            let dim = comptime![spatial_dims - i - 1];
+            let ksize = comptime![config.kernel_size(dim)];
+            let k_pos = rem % ksize;
+            rem /= ksize;
+
+            let out_pos = *out_offs.index(dim);
+            let stride = comptime![config.stride(dim)];
+            let dilate = comptime![config.dilation(dim)];
+            let pad = comptime![config.padding(dim)];
+
+            let pos = (out_pos * stride + k_pos * dilate) as i32 - pad;
+            in_pos.push(pos);
+        }
+
+        let in_pos = in_pos.rev();
+
+        let has_padding = comptime! {
+            let mut has_padding = false;
+            for i in 0..spatial_dims {
+                has_padding |= config.padding(i) != 0;
+            }
+            has_padding
+        };
 
         let m_in_bounds = comptime!(!config.check_row_bounds(Ident::Lhs)) || view_m < self.shape_m;
         let k_in_bounds = comptime!(!config.check_col_bounds(Ident::Lhs)) || view_k < self.shape_k;
-        let no_padding = comptime!(config.padding(0) == 0 && config.padding(1) == 0);
-        let hw_in_bounds = no_padding
-            || (y >= 0 && (y as u32) < self.shape_y && x >= 0 && (x as u32) < self.shape_x);
-        let in_bounds = m_in_bounds && k_in_bounds && hw_in_bounds;
-        let read_pos = batch * self.stride_batch
-            + y as u32 * self.stride_y
-            + x as u32 * self.stride_x
-            + channel * self.stride_channel;
+        let mut spatial_in_bounds = true;
+
+        if has_padding {
+            #[unroll]
+            for i in 0..spatial_dims {
+                let i = unwrap(i);
+                let pos = *in_pos.index(i);
+                spatial_in_bounds &= pos >= 0 && (pos as u32) < *self.shapes_spatial.index(i);
+            }
+        }
+
+        let in_bounds = m_in_bounds && k_in_bounds && spatial_in_bounds;
+
+        let mut read_pos = batch * self.stride_batch + channel * self.stride_channel;
+
+        #[unroll]
+        for i in 0..spatial_dims {
+            let i = unwrap(i);
+            read_pos += *in_pos.index(i) as u32 * *self.strides_spatial.index(i);
+        }
 
         let read_pos = read_pos / line_size;
 
@@ -148,4 +183,10 @@ impl<E: Numeric> Im2colReader<E> {
     fn read(&self, position: u32) -> Line<E> {
         self.tensor.read(position)
     }
+}
+
+#[allow(unused_variables)]
+#[cube]
+fn unwrap(v: u32) -> comptime_type!(u32) {
+    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
 }

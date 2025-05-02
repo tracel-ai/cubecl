@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
-    CubeOption, CubeOptionExpand,
+    CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
@@ -78,11 +78,22 @@ pub(crate) fn implicit_conv<
     );
 }
 
+pub(crate) fn shape_divmod<'a, R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    shape: &[usize],
+) -> SequenceArg<'a, R, FastDivmod> {
+    let shape = shape
+        .iter()
+        .map(|s| FastDivmodArgs::new(client, *s as u32))
+        .collect();
+    SequenceArg { values: shape }
+}
+
 pub mod config {
     use std::ops::Deref;
 
     use crate::{
-        convolution::ConvGemmConfig,
+        convolution::{ConvGemmConfig, base::Dimensionality},
         matmul::components::{MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig},
     };
 
@@ -91,10 +102,11 @@ pub mod config {
     #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
     pub struct ConvolutionConfig<M: GlobalConfig> {
         matmul: M,
-        kernel_size: (u32, u32),
-        stride: (u32, u32),
-        dilation: (u32, u32),
-        padding: (i32, i32),
+        kernel_size: [u32; 3],
+        stride: [u32; 3],
+        dilation: [u32; 3],
+        padding: [i32; 3],
+        dimensionality: Dimensionality,
         num_stages: u32,
     }
 
@@ -156,35 +168,23 @@ pub mod config {
 
     impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
         fn kernel_size(&self, dim: u32) -> u32 {
-            match dim {
-                0 => self.kernel_size.0,
-                1 => self.kernel_size.1,
-                _ => unreachable!(),
-            }
+            self.kernel_size[dim as usize]
         }
 
         fn dilation(&self, dim: u32) -> u32 {
-            match dim {
-                0 => self.dilation.0,
-                1 => self.dilation.1,
-                _ => unreachable!(),
-            }
+            self.dilation[dim as usize]
         }
 
         fn stride(&self, dim: u32) -> u32 {
-            match dim {
-                0 => self.stride.0,
-                1 => self.stride.1,
-                _ => unreachable!(),
-            }
+            self.stride[dim as usize]
         }
 
         fn padding(&self, dim: u32) -> i32 {
-            match dim {
-                0 => self.padding.0,
-                1 => self.padding.1,
-                _ => unreachable!(),
-            }
+            self.padding[dim as usize]
+        }
+
+        fn dimensionality(&self) -> Dimensionality {
+            self.dimensionality
         }
     }
 
@@ -194,20 +194,28 @@ pub mod config {
         #[allow(clippy::too_many_arguments)]
         pub fn new(
             matmul: M,
-            kernel_size: (u32, u32),
-            stride: (u32, u32),
-            dilation: (u32, u32),
-            padding: (i32, i32),
+            kernel_size: &[u32],
+            stride: &[u32],
+            dilation: &[u32],
+            padding: &[i32],
+            dim: Dimensionality,
             num_stages: u32,
         ) -> Self {
-            Self {
+            let dims = kernel_size.len();
+            let mut this = Self {
                 matmul,
-                kernel_size,
-                stride,
-                dilation,
-                padding,
+                kernel_size: [0; 3],
+                stride: [0; 3],
+                dilation: [0; 3],
+                padding: [0; 3],
+                dimensionality: dim,
                 num_stages,
-            }
+            };
+            this.kernel_size[0..dims].copy_from_slice(kernel_size);
+            this.stride[0..dims].copy_from_slice(stride);
+            this.dilation[0..dims].copy_from_slice(dilation);
+            this.padding[0..dims].copy_from_slice(padding);
+            this
         }
 
         pub fn to_matmul_config(self) -> M {

@@ -17,10 +17,13 @@ use crate::{
         stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
-    tensor::{TensorHandle, into_contiguous_pitched},
+    tensor::TensorHandle,
 };
 
-use super::{Algorithm, simple_tma::check_problem_tma};
+use super::{
+    Algorithm,
+    simple_tma::{check_problem_tma, into_tensor_handle_tma},
+};
 
 pub const TMA_STRIDE_ALIGN: usize = 16;
 
@@ -89,23 +92,7 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
     ) -> TensorHandle<R, E> {
-        let mut handle = if super::simple_tma::has_valid_layout(handle, ident) {
-            TensorHandle::from_ref(handle)
-        } else {
-            into_contiguous_pitched(client, handle)
-        };
-        match ident {
-            InputIdent::Lhs => handle,
-            InputIdent::Rhs => {
-                handle.shape = vec![
-                    handle.shape[0],
-                    handle.shape[1] * handle.shape[2],
-                    handle.shape[3],
-                ];
-                handle.strides = vec![handle.strides[0], handle.strides[2], handle.strides[3]];
-                handle
-            }
-        }
+        into_tensor_handle_tma(client, handle, ident)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
