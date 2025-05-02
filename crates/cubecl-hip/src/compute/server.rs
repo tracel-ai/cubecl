@@ -3,11 +3,8 @@ use cubecl_cpp::shared::CompilationOptions;
 
 use crate::runtime::HipCompiler;
 
+use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
-use super::{
-    Binding,
-    fence::{Fence, SyncStream},
-};
 use super::{HipResource, uninit_vec};
 use cubecl_common::benchmark::ProfileDuration;
 use cubecl_core::compute::DebugInformation;
@@ -619,7 +616,7 @@ impl HipServer {
         (&mut self.ctx, &mut self.logger)
     }
 
-    fn copy_to_binding(&mut self, binding: cubecl_runtime::server::Binding, data: &[u8]) {
+    fn copy_to_binding(&mut self, binding: server::Binding, data: &[u8]) {
         let ctx = self.get_context();
         let resource = ctx
             .memory_management
