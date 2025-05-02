@@ -213,9 +213,6 @@ where
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
-        // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-        sync_units();
-
         SMM::execute(
             &lhs_reader,
             &rhs_reader_b,
@@ -225,6 +222,7 @@ where
             config.to_smm_config(),
         );
 
+        sync_units();
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
@@ -353,21 +351,6 @@ impl<Lhs: LhsLoaderEventListener, Rhs: RhsLoaderEventListener, G: GlobalConfig>
     }
 }
 
-#[derive(Clone)]
-/// Analysis of [StageEvent] that reports when lhs and rhs should execute a task.
-struct EventAnalysis {
-    /// The event count to execute the next lhs task.
-    lhs: u32,
-    /// If no more tasks need to be executed for lhs.
-    lhs_completed: bool,
-    /// The event count to execute the next rhs task.
-    rhs: u32,
-    /// If no more tasks need to be executed for rhs.
-    rhs_completed: bool,
-}
-
-impl CubeDebug for EventAnalysis {}
-
 #[cube]
 impl<
     MP: MatmulPrecision,
@@ -418,6 +401,21 @@ impl<
         }
     }
 }
+
+#[derive(Clone)]
+/// Analysis of [StageEvent] that reports when lhs and rhs should execute a task.
+struct EventAnalysis {
+    /// The event count to execute the next lhs task.
+    lhs: u32,
+    /// If no more tasks need to be executed for lhs.
+    lhs_completed: bool,
+    /// The event count to execute the next rhs task.
+    rhs: u32,
+    /// If no more tasks need to be executed for rhs.
+    rhs_completed: bool,
+}
+
+impl CubeDebug for EventAnalysis {}
 
 #[cube]
 impl<
