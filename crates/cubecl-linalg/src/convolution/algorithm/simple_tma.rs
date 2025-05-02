@@ -155,11 +155,12 @@ pub(crate) fn has_valid_layout<R: Runtime>(
 pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {
     fn check_range(
         value: isize,
-        name: &str,
+        name: impl FnOnce() -> String,
         min: isize,
         max: isize,
     ) -> Result<(), InvalidConfigError> {
         if value < min || value > max {
+            let name = name();
             Err(Box::new(format!(
                 "value {name} outside of valid range ({min}, {max})"
             )))
@@ -178,7 +179,7 @@ pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), Inva
     for (i, offs) in corner.iter().enumerate() {
         check_range(
             *offs as isize,
-            &format!("corner[{i}]"),
+            || format!("corner[{i}]"),
             corner_min,
             corner_max,
         )?;
@@ -192,8 +193,13 @@ pub(crate) fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), Inva
 
     for i in 0..problem.kernel_size.len() {
         let offset = (problem.kernel_size[i] - 1) * problem.dilation[i];
-        check_range(offset as isize, &format!("kernel size {i}"), 0, offset_max)?;
-        check_range(problem.stride[i] as isize, &format!("stride[{i}]"), 1, 8)?;
+        check_range(
+            offset as isize,
+            || format!("kernel size {i}"),
+            0,
+            offset_max,
+        )?;
+        check_range(problem.stride[i] as isize, || format!("stride[{i}]"), 1, 8)?;
     }
 
     Ok(())

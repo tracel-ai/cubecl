@@ -166,6 +166,8 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
     }
 }
 
+/// Decompose a linear index into local positions along each dimension in `shape`. Also returns the
+/// left over remainder.
 #[cube]
 pub(crate) fn div_mod_seq(pos: u32, shape: &Sequence<FastDivmod>) -> (u32, Sequence<u32>) {
     let rank = comptime![shape.len()];

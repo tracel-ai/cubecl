@@ -65,6 +65,30 @@ where
         other => unimplemented!("Unsupported dimensionality {other}"),
     };
 
+    launch::<R, MP, Alg>(
+        client,
+        input,
+        weight,
+        bias,
+        out,
+        (&stride, &padding, &dilation),
+        dimensionality,
+    )
+}
+
+fn launch<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: &TensorHandleRef<'_, R>,
+    weight: &TensorHandleRef<'_, R>,
+    bias: &Option<TensorHandleRef<'_, R>>,
+    out: &TensorHandleRef<'_, R>,
+    (stride, padding, dilation): (&[usize], &[usize], &[usize]),
+    dimensionality: Dimensionality,
+) -> Result<(), ConvLaunchError>
+where
+    Input<Alg, MP>: ConvInputsLaunch,
+    Output<Alg, MP>: ConcreteOutputFactory,
+{
     let rank = input.shape.len();
     let dim_c = rank - 1;
 
