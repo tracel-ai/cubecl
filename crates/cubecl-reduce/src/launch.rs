@@ -8,13 +8,14 @@ use crate::args::ReduceArgs;
 use crate::args::TensorArgs;
 use crate::args::init_tensors;
 use crate::instructions::*;
+use crate::precision::ReducePrecision;
 use crate::primitives::*;
 use crate::{LineMode, ReduceConfig, ReduceStrategy};
 
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
-pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceFamily>(
+pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: ReduceFamily>(
     client: &ComputeClient<Run::Server, Run::Channel>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
@@ -39,7 +40,7 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceF
         bound_checks_inner: config.bound_checks_inner,
     };
     unsafe {
-        reduce_kernel::launch_unchecked::<In, Out, Rd, TensorArgs, Run>(
+        reduce_kernel::launch_unchecked::<P::EI, Out, P::EA, Rd, TensorArgs, Run>(
             client,
             config.cube_count,
             config.cube_dim,
@@ -64,7 +65,7 @@ pub struct ReduceParams {
 }
 
 #[cube(launch_unchecked)]
-pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>(
+pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, RA: ReduceArgs>(
     input: &RA::Input<In>,
     output: &mut RA::Output<Out>,
     axis_reduce: u32,
@@ -80,13 +81,32 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
         terminate!();
     }
 
-    let range = ReduceRange::new::<In, Out>(reduce_index, &input, &mut output, axis_reduce, params);
+    reduce_kernel_inner::<(In, Acc), Out, R>(
+        &input,
+        &mut output,
+        axis_reduce,
+        reduce_index,
+        params,
+        config,
+    )
+}
 
-    let inst = &R::Instruction::<In>::from_config(config);
+#[cube]
+fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily>(
+    input: &VirtualTensor<P::EI>,
+    output: &mut VirtualTensor<Out, ReadWrite>,
+    axis_reduce: u32,
+    reduce_index: u32,
+    #[comptime] params: ReduceParams,
+    #[comptime] config: R::Config,
+) {
+    let range = ReduceRange::new::<P, Out>(reduce_index, input, output, axis_reduce, params);
+
+    let inst = &R::Instruction::<P>::from_config(config);
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
-            let mut accumulator = reduce_slice_shared::<In, VirtualTensor<In>, R::Instruction<In>>(
-                &input,
+            let mut accumulator = reduce_slice_shared::<P, VirtualTensor<P::EI>, R::Instruction<P>>(
+                input,
                 inst,
                 range,
                 accumulator_size,
@@ -96,18 +116,18 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
                 params.bound_checks_inner,
             );
             sync_units();
-            reduce_tree::<In, R::Instruction<In>>(inst, &mut accumulator, accumulator_size)
+            reduce_tree::<P, R::Instruction<P>>(inst, &mut accumulator, accumulator_size)
         }
-        (None, true) => reduce_slice_plane::<In, VirtualTensor<In>, R::Instruction<In>>(
-            &input,
+        (None, true) => reduce_slice_plane::<P, VirtualTensor<P::EI>, R::Instruction<P>>(
+            input,
             inst,
             range,
             params.line_size_input,
             params.line_mode,
             params.bound_checks_inner,
         ),
-        (None, false) => reduce_slice::<In, VirtualTensor<In>, R::Instruction<In>>(
-            &input,
+        (None, false) => reduce_slice::<P, VirtualTensor<P::EI>, R::Instruction<P>>(
+            input,
             range,
             inst,
             params.line_size_input,
@@ -116,8 +136,8 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
     };
 
     if elected_writer(params) {
-        write_to_output::<In, Out, R::Instruction<In>>(
-            &mut output,
+        write_to_output::<P, Out, R::Instruction<P>>(
+            output,
             accumulator,
             reduce_index,
             input.shape(axis_reduce),
@@ -158,7 +178,7 @@ fn elected_writer(#[comptime] settings: ReduceParams) -> bool {
 }
 
 #[cube]
-fn write_to_output<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
+fn write_to_output<P: ReducePrecision, Out: Numeric, R: ReduceInstruction<P>>(
     output: &mut VirtualTensor<Out, ReadWrite>,
     accumulator: R::AccumulatorItem,
     reduce_index: u32,

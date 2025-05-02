@@ -215,10 +215,17 @@ impl Expression {
             }
             Expression::FunctionCall {
                 args,
-                associated_type: Some((ty_path, func)),
+                associated_type: Some((ty_path, qself, func)),
                 span,
                 ..
             } => {
+                let ty_path = if let Some(qself) = qself {
+                    let ty = &qself.ty;
+                    quote![<#ty as #ty_path>]
+                } else {
+                    quote![#ty_path]
+                };
+
                 let (args, arg_names) = map_args(args, context);
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
@@ -397,7 +404,14 @@ impl Expression {
                     }
                 }
             }
-            Expression::Path { path, .. } => quote![#path],
+            Expression::Path { path, qself } => {
+                if let Some(qself) = qself {
+                    let ty = &qself.ty;
+                    quote![<#ty as #path>]
+                } else {
+                    quote![#path]
+                }
+            }
             Expression::Range {
                 start,
                 end,

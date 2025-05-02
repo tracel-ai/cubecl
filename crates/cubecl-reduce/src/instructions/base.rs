@@ -1,8 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::precision::ReducePrecision;
+
 pub trait ReduceFamily: Send + Sync + 'static + std::fmt::Debug {
-    type Instruction<In: Numeric>: ReduceInstruction<In, Config = Self::Config>;
+    type Instruction<P: ReducePrecision>: ReduceInstruction<P, Config = Self::Config>;
     type Config: CubeComptime + Send + Sync;
 }
 
@@ -21,7 +23,7 @@ pub struct ReduceRequirements {
 /// with their coordinate into an `AccumulatorItem`. Then, multiple `AccumulatorItem` are possibly fused
 /// together into a single accumulator that is converted to the expected output type.
 #[cube]
-pub trait ReduceInstruction<In: Numeric>:
+pub trait ReduceInstruction<P: ReducePrecision>:
     Send + Sync + 'static + std::fmt::Debug + CubeType
 {
     type Config: CubeComptime + Send + Sync;
@@ -36,12 +38,12 @@ pub trait ReduceInstruction<In: Numeric>:
     /// When multiple agents are collaborating to reduce a single slice,
     /// we need a share accumulator to store multiple `AccumulatorItem`.
     /// This is most likely a `SharedMemory<Line<T>>` or a struct or tuple of lined shared memories.
-    type SharedAccumulator: SharedAccumulator<In, Item = Self::AccumulatorItem>;
+    type SharedAccumulator: SharedAccumulator<Item = Self::AccumulatorItem>;
 
     fn from_config(#[comptime] config: Self::Config) -> Self;
     /// A input such that `Self::reduce(accumulator, Self::null_input(), coordinate, use_planes)`
     /// is guaranteed to return `accumulator` unchanged for any choice of `coordinate`.
-    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<In>;
+    fn null_input(this: &Self, #[comptime] line_size: u32) -> Line<P::EI>;
 
     /// A accumulator such that `Self::fuse_accumulators(accumulator, Self::null_accumulator()` always returns
     /// is guaranteed to return `accumulator` unchanged.
@@ -61,7 +63,7 @@ pub trait ReduceInstruction<In: Numeric>:
     fn reduce(
         this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
+        item: Line<P::EI>,
         coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem;
@@ -96,7 +98,7 @@ pub enum ReduceCoordinate {
 
 /// A simple trait that abstract over a single or multiple shared memory.
 #[cube]
-pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
+pub trait SharedAccumulator: CubeType + Send + Sync + 'static {
     type Item: CubeType;
 
     fn allocate(
@@ -111,7 +113,7 @@ pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
 }
 
 #[cube]
-impl<In: Numeric> SharedAccumulator<In> for SharedMemory<Line<In>> {
+impl<In: Numeric> SharedAccumulator for SharedMemory<Line<In>> {
     type Item = Line<In>;
 
     fn allocate(
@@ -139,7 +141,7 @@ pub struct ArgAccumulator<N: Numeric> {
 }
 
 #[cube]
-impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
+impl<In: Numeric> SharedAccumulator for ArgAccumulator<In> {
     type Item = (Line<In>, Line<u32>);
 
     fn allocate(
@@ -164,10 +166,10 @@ impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
 }
 
 #[cube]
-pub fn reduce_inplace<In: Numeric, R: ReduceInstruction<In>>(
+pub fn reduce_inplace<P: ReducePrecision, R: ReduceInstruction<P>>(
     inst: &R,
     accumulator: &mut R::AccumulatorItem,
-    item: Line<In>,
+    item: Line<P::EI>,
     coordinate: ReduceCoordinate,
     #[comptime] use_planes: bool,
 ) {
@@ -176,11 +178,11 @@ pub fn reduce_inplace<In: Numeric, R: ReduceInstruction<In>>(
 }
 
 #[cube]
-pub fn reduce_shared_inplace<In: Numeric, R: ReduceInstruction<In>>(
+pub fn reduce_shared_inplace<P: ReducePrecision, R: ReduceInstruction<P>>(
     inst: &R,
     accumulator: &mut R::SharedAccumulator,
     index: u32,
-    item: Line<In>,
+    item: Line<P::EI>,
     coordinate: ReduceCoordinate,
     #[comptime] use_planes: bool,
 ) {
@@ -190,7 +192,7 @@ pub fn reduce_shared_inplace<In: Numeric, R: ReduceInstruction<In>>(
 }
 
 #[cube]
-pub fn fuse_accumulator_inplace<In: Numeric, R: ReduceInstruction<In>>(
+pub fn fuse_accumulator_inplace<P: ReducePrecision, R: ReduceInstruction<P>>(
     inst: &R,
     accumulator: &mut R::SharedAccumulator,
     destination: u32,

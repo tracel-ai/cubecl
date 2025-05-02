@@ -18,6 +18,7 @@ pub mod tune_key;
 mod config;
 mod error;
 mod launch;
+mod precision;
 mod shared_sum;
 mod strategy;
 
@@ -25,6 +26,7 @@ pub use config::*;
 pub use error::*;
 pub use instructions::ReduceFamily;
 pub use instructions::ReduceInstruction;
+pub use precision::ReducePrecision;
 pub use shared_sum::*;
 pub use strategy::*;
 
@@ -90,7 +92,7 @@ use cubecl_core::prelude::*;
 ///        println!("Output = {:?}", output_values); // Should print [1, 5].
 /// }
 /// ```
-pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceFamily>(
+pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
@@ -103,7 +105,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceFamily>(
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
-    let config = ReduceConfig::generate::<R, In>(client, &input, &output, axis, &strategy);
+    let config = ReduceConfig::generate::<R, P::EI>(client, &input, &output, axis, &strategy);
 
     if let CubeCount::Static(x, y, z) = config.cube_count {
         let (max_x, max_y, max_z) = R::max_cube_count();
@@ -112,7 +114,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceFamily>(
         }
     }
 
-    launch_reduce::<R, In, Out, Inst>(
+    launch_reduce::<R, P, Out, Inst>(
         client,
         input,
         output,
