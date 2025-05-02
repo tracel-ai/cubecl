@@ -23,7 +23,7 @@ use cubecl_runtime::{
 
 use crate::{
     HipWmmaCompiler,
-    compute::{HipContext, HipServer, HipStorage, server::contiguous_strides},
+    compute::{HipContext, HipServer, HipStorage, contiguous_strides},
     device::HipDevice,
 };
 

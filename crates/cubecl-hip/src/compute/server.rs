@@ -3,18 +3,24 @@ use cubecl_cpp::shared::CompilationOptions;
 
 use crate::runtime::HipCompiler;
 
-use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
+use super::{
+    Binding,
+    fence::{Fence, SyncStream},
+};
 use super::{HipResource, uninit_vec};
 use cubecl_common::benchmark::ProfileDuration;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::{
+    debug::{DebugLogger, ProfileLevel},
+    storage::ComputeStorage,
+};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -164,35 +170,26 @@ impl ComputeServer for HipServer {
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let handle = self.empty(data.len());
-        let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
-                resource.ptr,
-                data as *const _ as *mut _,
-                data.len(),
-                ctx.stream,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-        }
+        self.copy_to_binding(binding, data);
         handle
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        _elem_size: usize,
-    ) -> (server::Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let handle = self.create(data);
-        (handle, strides)
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(server::Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+            let binding = handle.clone().binding();
+            self.copy_to_binding(binding, data);
+        }
+        handles_strides
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
@@ -201,11 +198,37 @@ impl ComputeServer for HipServer {
         server::Handle::new(handle, None, None, size as u64)
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (server::Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let size = shape.iter().product::<usize>() * elem_size;
-        let handle = self.empty(size);
-        (handle, strides)
+    fn empty_tensors(
+        &mut self,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(server::Handle, Vec<usize>)> {
+        let ctx = self.get_context();
+        let align = <Self::Storage as ComputeStorage>::ALIGNMENT as usize;
+
+        let mut total_size = 0;
+        let mut sizes_strides = Vec::new();
+
+        for (shape, elem_size) in shapes.into_iter().zip(elem_sizes) {
+            let size = (shape.iter().product::<usize>() * elem_size).next_multiple_of(align);
+            sizes_strides.push((size, contiguous_strides(shape)));
+            total_size += size;
+        }
+
+        let handle = self.empty(total_size);
+        let mut offset = 0;
+        let mut out = Vec::new();
+
+        for (size, strides) in sizes_strides {
+            let handle = handle
+                .clone()
+                .offset_start(offset as u64)
+                .offset_end((total_size - offset - size) as u64);
+            out.push((handle, strides));
+            offset += size;
+        }
+
+        out
     }
 
     unsafe fn execute(
@@ -594,6 +617,24 @@ impl HipServer {
 
     fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut DebugLogger) {
         (&mut self.ctx, &mut self.logger)
+    }
+
+    fn copy_to_binding(&mut self, binding: cubecl_runtime::server::Binding, data: &[u8]) {
+        let ctx = self.get_context();
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
+
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
+                resource.ptr,
+                data as *const _ as *mut _,
+                data.len(),
+                ctx.stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
     }
 }
 
