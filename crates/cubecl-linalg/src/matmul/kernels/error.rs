@@ -71,13 +71,15 @@ impl Debug for MatmulLaunchError {
             MatmulLaunchError::Unavailable(err) => {
                 writeln!(
                     f,
-                    "Unable to launch matmul because a required feature is unavailable: {err:?}"
+                    "Unable to launch matmul because a required feature is unavailable: {:?}",
+                    err
                 )
             }
             MatmulLaunchError::InvalidProblem(err) => {
                 writeln!(
                     f,
-                    "Unable to launch matmul because the problem isn't correctly defined: {err:?}"
+                    "Unable to launch matmul because the problem isn't correctly defined: {:?}",
+                    err
                 )
             }
             MatmulLaunchError::InvalidConfig(err) => {
@@ -90,7 +92,8 @@ impl Debug for MatmulLaunchError {
             MatmulLaunchError::Unimplemented(err) => {
                 writeln!(
                     f,
-                    "Unable to launch matmul because the feature is not ready: {err:?}"
+                    "Unable to launch matmul because the feature is not ready: {:?}",
+                    err
                 )
             }
         }
@@ -102,15 +105,18 @@ impl Debug for MatmulInvalidProblem {
         match self {
             MatmulInvalidProblem::ExceededMSize { m, max_m } => write!(
                 f,
-                "Problem has m={m} but these configs can only have m<={max_m}"
+                "Problem has m={} but these configs can only have m<={}",
+                m, max_m
             ),
             MatmulInvalidProblem::ExceededNSize { n, max_n } => write!(
                 f,
-                "Problem has n={n} but these configs can only have n<={max_n}",
+                "Problem has n={} but these configs can only have n<={}",
+                n, max_n,
             ),
             MatmulInvalidProblem::ExceededBatchSize { b, max_b } => write!(
                 f,
-                "Problem has {b} batches but these configs can only have batches<={max_b}",
+                "Problem has {} batches but these configs can only have batches<={}",
+                b, max_b,
             ),
             MatmulInvalidProblem::InvalidLineSizeLhs { size, line_size } => write!(
                 f,
@@ -149,7 +155,8 @@ impl Debug for MatmulAvailabilityError {
             MatmulAvailabilityError::TypesUnavailable { input, output } => {
                 writeln!(
                     f,
-                    "Types input={input:?} and/or output={output:?} not supported.",
+                    "Types input={:?} and/or output={:?} not supported.",
+                    input, output,
                 )
             }
             MatmulAvailabilityError::CmmaInstructionUnavailable {
@@ -165,7 +172,7 @@ impl Debug for MatmulAvailabilityError {
                 input,
                 output,
                 shape: None,
-            } => writeln!(f, "Cmma on inputs {input:?} and outputs {output:?}.",),
+            } => writeln!(f, "Cmma on inputs {:?} and outputs {:?}.", input, output,),
             MatmulAvailabilityError::PipelineUnavailable => {
                 writeln!(f, "Pipeline is not available.")
             }

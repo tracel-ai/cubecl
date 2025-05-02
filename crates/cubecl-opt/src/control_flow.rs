@@ -1,3 +1,5 @@
+use std::mem::transmute;
+
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Branch, Comparison, ConstantScalarValue, Elem, If, IfElse,
@@ -164,7 +166,9 @@ impl Optimizer {
                     !is_break
                 };
                 let val = match val.as_const().expect("Switch value must be constant") {
-                    ConstantScalarValue::Int(val, _) => unsafe { i32::cast_unsigned(val as i32) },
+                    ConstantScalarValue::Int(val, _) => unsafe {
+                        transmute::<i32, u32>(val as i32)
+                    },
                     ConstantScalarValue::UInt(val, _) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };

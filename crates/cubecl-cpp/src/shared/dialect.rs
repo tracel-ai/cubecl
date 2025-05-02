@@ -502,7 +502,7 @@ pub trait DialectInstructions<D: Dialect> {
         let elem = input.elem();
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{elem}(log1p(float({input})))")
+                write!(f, "{}(log1p(float({input})))", elem)
             }
             _ => write!(f, "log1p({input})"),
         }
@@ -520,7 +520,7 @@ pub trait DialectInstructions<D: Dialect> {
         let elem = input.elem();
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{elem}(tanh(float({input})))")
+                write!(f, "{}(tanh(float({input})))", elem)
             }
             _ => write!(f, "tanh({input})"),
         }

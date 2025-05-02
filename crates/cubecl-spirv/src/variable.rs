@@ -1,3 +1,5 @@
+use std::mem::transmute;
+
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
@@ -105,10 +107,10 @@ impl ConstVal {
     pub fn as_int(&self, width: u32) -> i64 {
         unsafe {
             match width {
-                64 => u64::cast_signed(self.as_u64()),
-                32 => u32::cast_signed(self.as_u32()) as i64,
-                16 => u16::cast_signed(self.as_u32() as u16) as i64,
-                8 => u8::cast_signed(self.as_u32() as u8) as i64,
+                64 => transmute::<u64, i64>(self.as_u64()),
+                32 => transmute::<u32, i32>(self.as_u32()) as i64,
+                16 => transmute::<u16, i16>(self.as_u32() as u16) as i64,
+                8 => transmute::<u8, i8>(self.as_u32() as u8) as i64,
                 _ => unreachable!(),
             }
         }
@@ -125,10 +127,10 @@ impl ConstVal {
 
     pub fn from_int(value: i64, width: u32) -> Self {
         match width {
-            64 => ConstVal::Bit64(unsafe { i64::cast_unsigned(value) }),
-            32 => ConstVal::Bit32(unsafe { i32::cast_unsigned(value as i32) }),
-            16 => ConstVal::Bit32(unsafe { i16::cast_unsigned(value as i16) } as u32),
-            8 => ConstVal::Bit32(unsafe { i8::cast_unsigned(value as i8) } as u32),
+            64 => ConstVal::Bit64(unsafe { transmute::<i64, u64>(value) }),
+            32 => ConstVal::Bit32(unsafe { transmute::<i32, u32>(value as i32) }),
+            16 => ConstVal::Bit32(unsafe { transmute::<i16, u16>(value as i16) } as u32),
+            8 => ConstVal::Bit32(unsafe { transmute::<i8, u8>(value as i8) } as u32),
             _ => unreachable!(),
         }
     }

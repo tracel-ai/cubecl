@@ -80,7 +80,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     let config = match A::make_config(input, &problem, &cube_dim, &cube_count, P::QUANTIZED) {
         Ok(config) => config,
         Err(err) => {
-            let msg = format!("Can't launch the test: {err:?}");
+            let msg = format!("Can't launch the test: {:?}", err);
             if panic_on_launch_err {
                 panic!("{msg}");
             } else {
@@ -91,7 +91,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     };
 
     if let Err(err) = A::check_availability::<R, P::MP>(&client, &config) {
-        let msg = format!("Skipped - not supported: {err:?}");
+        let msg = format!("Skipped - not supported: {:?}", err);
         if panic_on_launch_err {
             panic!("{msg}")
         } else {

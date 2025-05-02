@@ -198,9 +198,10 @@ pub fn type_info_definition<D: Dialect>(
             f,
             "
 struct metadata_st {{
-uint x[{static_len}];
+uint x[{}];
 }};
-"
+",
+            static_len
         )?;
     }
     Ok(())
@@ -249,7 +250,7 @@ pub fn compile_scalars_dynamic<D: Dialect>(
 ) -> core::fmt::Result {
     let scalar_inputs = scalars
         .iter()
-        .map(|(elem, _)| format!("const {elem}* __restrict__ scalars_{elem}"));
+        .map(|(elem, _)| format!("const {}* __restrict__ scalars_{}", elem, elem));
     let scalar_inputs = scalar_inputs.collect::<Vec<String>>();
 
     write!(f, "{}", scalar_inputs.join(","))
