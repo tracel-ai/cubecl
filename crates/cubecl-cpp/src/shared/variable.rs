@@ -237,7 +237,7 @@ impl<D: Dialect> Display for Variable<D> {
                     gpu::UIntKind::U32 => write!(f, "{elem}({})", *val as u32),
                     gpu::UIntKind::U64 => write!(f, "{elem}({})", *val),
                 },
-                ConstantScalarValue::Bool(val) => write!(f, "{}", val),
+                ConstantScalarValue::Bool(val) => write!(f, "{val}"),
             },
             Variable::SharedMemory(number, _, _) => {
                 write!(f, "shared_memory_{number}")
@@ -279,7 +279,7 @@ impl<D: Dialect> Display for Variable<D> {
 
             Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
             Variable::LocalArray(id, _, _) => {
-                write!(f, "l_arr_{}", id)
+                write!(f, "l_arr_{id}")
             }
             Variable::WmmaFragment { id: index, frag } => {
                 let name = match frag.ident {
