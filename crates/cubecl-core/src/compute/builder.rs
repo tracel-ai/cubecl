@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicI8, Ordering};
 use alloc::collections::BTreeMap;
 
 use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
-use cubecl_runtime::config::{CompilationLogLevel, GlobalConfig};
+use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
 use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;

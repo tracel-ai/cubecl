@@ -1,3 +1,7 @@
+use super::GlobalConfig;
+use crate::config::{
+    autotune::AutotuneLogLevel, compilation::CompilationLogLevel, profiling::ProfilingLogLevel,
+};
 use hashbrown::HashMap;
 use std::{
     fmt::Display,
@@ -7,37 +11,52 @@ use std::{
     sync::Arc,
 };
 
-use crate::config::{
-    autotune::AutotuneLogLevel, compilation::CompilationLogLevel, profiling::ProfilingLogLevel,
-};
-
-use super::GlobalConfig;
-
+/// Configuration for logging in CubeCL, parameterized by a log level type.
+///
+/// Note that you can use multiple loggers at the same time.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(bound = "")]
 pub struct LoggerConfig<L: LogLevel> {
+    /// Path to the log file, if file logging is enabled (requires `std` feature).
     #[serde(default)]
-    #[cfg(feature = "std")]
-    pub file: Option<std::path::PathBuf>,
+    pub file: Option<PathBuf>,
+
+    /// Whether to append to the log file (true) or overwrite it (false). Defaults to true.
     #[serde(default = "append_default")]
     pub append: bool,
+
+    /// Whether to log to standard output.
     #[serde(default)]
     pub stdout: bool,
+
+    /// Whether to log to standard error.
     #[serde(default)]
     pub stderr: bool,
+
+    /// Optional crate-level logging configuration (e.g., info, debug, trace).
     #[serde(default)]
     pub log: Option<LogCrateLevel>,
+
+    /// The log level for this logger, determining verbosity.
     #[serde(default)]
     pub level: L,
 }
 
+/// Log levels using the `log` crate.
+///
+/// This enum defines verbosity levels for crate-level logging.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum LogCrateLevel {
+    /// Logs informational messages.
     #[default]
     #[serde(rename = "info")]
     Info,
+
+    /// Logs debugging messages.
     #[serde(rename = "debug")]
     Debug,
+
+    /// Logs trace-level messages.
     #[serde(rename = "trace")]
     Trace,
 }
@@ -47,21 +66,39 @@ impl LogLevel for u32 {}
 fn append_default() -> bool {
     true
 }
+
+/// Trait for types that can be used as log levels in `LoggerConfig`.
 pub trait LogLevel:
     serde::de::DeserializeOwned + serde::Serialize + Clone + Copy + core::fmt::Debug + Default
 {
 }
 
+/// Central logging utility for CubeCL, managing multiple log outputs.
 #[derive(Debug)]
 pub struct Logger {
+    /// Collection of logger instances (file, stdout, stderr, or crate-level).
     loggers: Vec<LoggerKind>,
+
+    /// Indices of loggers used for compilation logging.
     compilation_index: Vec<usize>,
+
+    /// Indices of loggers used for profiling logging.
     profiling_index: Vec<usize>,
+
+    /// Indices of loggers used for autotuning logging.
     autotune_index: Vec<usize>,
+
+    /// Global configuration for logging settings.
     pub config: Arc<GlobalConfig>,
 }
 
 impl Logger {
+    /// Creates a new `Logger` instance based on the global configuration.
+    ///
+    /// Initializes loggers for compilation, profiling, and autotuning based on the settings in
+    /// `GlobalConfig`.
+    ///
+    /// Note that creating a logger is quite expensive.
     pub fn new() -> Self {
         let config = GlobalConfig::get();
         let mut loggers = Vec::new();
@@ -81,13 +118,12 @@ impl Logger {
             if let Some(index) = path2index.get(path_buf) {
                 setting_index.push(*index);
             } else {
-                let logger = LoggerKind::File(FileLogger::new(path_buf.to_str(), append));
+                let logger = LoggerKind::File(FileLogger::new(path_buf, append));
                 let index = loggers.len();
                 path2index.insert(path_buf.clone(), index);
                 loggers.push(logger);
                 setting_index.push(index);
             }
-            loggers.push(LoggerKind::Stdout);
         }
 
         fn new_stdout_logger(setting_index: &mut Vec<usize>, loggers: &mut Vec<LoggerKind>) {
@@ -134,7 +170,8 @@ impl Logger {
             }
         }
 
-        if let CompilationLogLevel::Full = config.compilation.logger.level {
+        if let CompilationLogLevel::Disabled = config.compilation.logger.level {
+        } else {
             register_logger(
                 &config.compilation.logger,
                 config.compilation.logger.append,
@@ -145,9 +182,8 @@ impl Logger {
             )
         }
 
-        if let ProfilingLogLevel::Basic | ProfilingLogLevel::Medium | ProfilingLogLevel::Full =
-            config.profiling.logger.level
-        {
+        if let ProfilingLogLevel::Disabled = config.profiling.logger.level {
+        } else {
             register_logger(
                 &config.profiling.logger,
                 config.profiling.logger.append,
@@ -158,7 +194,8 @@ impl Logger {
             )
         }
 
-        if let AutotuneLogLevel::Full | AutotuneLogLevel::Minmal = config.autotune.logger.level {
+        if let AutotuneLogLevel::Disabled = config.autotune.logger.level {
+        } else {
             register_logger(
                 &config.autotune.logger,
                 config.autotune.logger.append,
@@ -178,6 +215,7 @@ impl Logger {
         }
     }
 
+    /// Logs a message for compilation, directing it to all configured compilation loggers.
     pub fn log_compilation<S: Display>(&mut self, msg: &S) {
         let length = self.compilation_index.len();
         if length > 1 {
@@ -190,6 +228,8 @@ impl Logger {
             self.log(&msg, *index)
         }
     }
+
+    /// Logs a message for profiling, directing it to all configured profiling loggers.
     pub fn log_profiling<S: Display>(&mut self, msg: &S) {
         let length = self.profiling_index.len();
         if length > 1 {
@@ -202,6 +242,8 @@ impl Logger {
             self.log(&msg, *index)
         }
     }
+
+    /// Logs a message for autotuning, directing it to all configured autotuning loggers.
     pub fn log_autotune<S: Display>(&mut self, msg: &S) {
         let length = self.autotune_index.len();
         if length > 1 {
@@ -215,14 +257,17 @@ impl Logger {
         }
     }
 
+    /// Returns the current autotune log level from the global configuration.
     pub fn log_level_autotune(&self) -> AutotuneLogLevel {
         self.config.autotune.logger.level
     }
 
+    /// Returns the current compilation log level from the global configuration.
     pub fn log_level_compilation(&self) -> CompilationLogLevel {
         self.config.compilation.logger.level
     }
 
+    /// Returns the current profiling log level from the global configuration.
     pub fn log_level_profiling(&self) -> ProfilingLogLevel {
         self.config.profiling.logger.level
     }
@@ -233,25 +278,36 @@ impl Logger {
     }
 }
 
+/// Binary log level for enabling or disabling logging.
+///
+/// This enum provides a simple on/off toggle for logging.
 #[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BinaryLogLevel {
+    /// Logging is disabled.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,
+
+    /// Logging is fully enabled.
     #[serde(rename = "full")]
     Full,
 }
 
 impl LogLevel for BinaryLogLevel {}
 
+/// Represents different types of loggers.
 #[derive(Debug)]
 enum LoggerKind {
-    /// Log debugging information into a file.
+    /// Logs to a file.
     File(FileLogger),
-    /// Log debugging information into standard output.
+
+    /// Logs to standard output.
     Stdout,
-    /// Log debugging information into standard output.
+
+    /// Logs to standard error.
     Stderr,
+
+    /// Logs using the `log` crate with a specified level.
     Log(LogCrateLevel),
 }
 
@@ -270,19 +326,15 @@ impl LoggerKind {
     }
 }
 
-/// Log debugging information into a file.
+/// Logger that writes messages to a file.
 #[derive(Debug)]
 struct FileLogger {
     writer: BufWriter<File>,
 }
 
 impl FileLogger {
-    fn new(file_path: Option<&str>, append: bool) -> Self {
-        let path = match file_path {
-            Some(path) => PathBuf::from(path),
-            None => PathBuf::from("/tmp/cubecl.log"),
-        };
-
+    // Creates a new file logger.
+    fn new(path: &PathBuf, append: bool) -> Self {
         let file = OpenOptions::new()
             .append(append)
             .create(true)
@@ -293,6 +345,8 @@ impl FileLogger {
             writer: BufWriter::new(file),
         }
     }
+
+    // Logs a message to the file, flushing the buffer to ensure immediate write.
     fn log<S: Display>(&mut self, msg: &S) {
         writeln!(self.writer, "{msg}").expect("Should be able to log debug information.");
         self.writer.flush().expect("Can complete write operation.");

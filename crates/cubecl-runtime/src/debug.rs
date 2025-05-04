@@ -1,13 +1,6 @@
 use core::fmt::Display;
 
 #[cfg(feature = "std")]
-use std::{
-    fs::{File, OpenOptions},
-    io::{BufWriter, Write},
-    path::PathBuf,
-};
-
-#[cfg(feature = "std")]
 use profile::*;
 
 use crate::config::Logger;
@@ -196,6 +189,7 @@ pub struct DebugLogger {
 /// Debugging logger.
 #[derive(Debug)]
 pub enum DebugLoggerKind {
+    /// Activated logger.
     Activated(Logger, DebugOptions),
     /// Don't log debugging information.
     None,
@@ -352,36 +346,5 @@ impl DebugLoggerKind {
             }
             DebugLoggerKind::None => arg,
         }
-    }
-}
-
-/// Log debugging information into a file.
-#[cfg(feature = "std")]
-#[derive(Debug)]
-pub struct DebugFileLogger {
-    writer: BufWriter<File>,
-}
-
-#[cfg(feature = "std")]
-impl DebugFileLogger {
-    fn new(file_path: Option<&str>) -> Self {
-        let path = match file_path {
-            Some(path) => PathBuf::from(path),
-            None => PathBuf::from("/tmp/cubecl.log"),
-        };
-
-        let file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-
-        Self {
-            writer: BufWriter::new(file),
-        }
-    }
-    fn log<S: Display>(&mut self, msg: &S) {
-        writeln!(self.writer, "{msg}").expect("Should be able to log debug information.");
-        self.writer.flush().expect("Can complete write operation.");
     }
 }

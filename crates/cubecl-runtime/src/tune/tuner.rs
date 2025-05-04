@@ -122,7 +122,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     autotune_checks: check,
             } => {
                 match self.logger.log_level_autotune() {
-                    AutotuneLogLevel::Minmal => {
+                    AutotuneLogLevel::Minimal => {
                         let top_times = results
                             .iter()
                             .map(|r| {
