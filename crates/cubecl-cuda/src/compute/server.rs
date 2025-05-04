@@ -23,7 +23,7 @@ use cubecl_core::{
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
-    debug::{DebugLogger, ProfileLevel},
+    logging::{ProfileLevel, SeverLogger},
     storage::ComputeStorage,
 };
 use cubecl_runtime::{
@@ -47,7 +47,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    logger: DebugLogger,
+    logger: SeverLogger,
 }
 
 #[derive(Debug)]
@@ -589,7 +589,7 @@ impl CudaContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        logger: &mut DebugLogger,
+        logger: &mut SeverLogger,
         mode: ExecutionMode,
     ) {
         #[cfg(feature = "compilation-cache")]
@@ -616,7 +616,7 @@ impl CudaContext {
         let mut kernel_compiled =
             kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
-        if logger.is_activated() {
+        if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
             if let Ok(formatted) = format_cpp(&kernel_compiled.source) {
@@ -639,7 +639,7 @@ impl CudaContext {
         #[cfg(feature = "compilation-cache")]
         let cluster_dim = compute_kernel.cluster_dim;
 
-        let kernel_compiled = logger.debug(kernel_compiled);
+        let kernel_compiled = logger.log_compilation(kernel_compiled);
 
         let ptx = unsafe {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
@@ -757,7 +757,7 @@ impl CudaContext {
 impl CudaServer {
     /// Create a new cuda server.
     pub(crate) fn new(ctx: CudaContext) -> Self {
-        let logger = DebugLogger::default();
+        let logger = SeverLogger::default();
         Self { ctx, logger }
     }
 
@@ -765,7 +765,7 @@ impl CudaServer {
         self.get_context_with_logger().0
     }
 
-    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut DebugLogger) {
+    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut SeverLogger) {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };
