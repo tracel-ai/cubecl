@@ -30,6 +30,8 @@ impl GlobalConfig {
         if let None = state.as_ref() {
             #[cfg(feature = "std")]
             let config = Self::from_current_dir();
+            #[cfg(feature = "std")]
+            let config = config.override_from_env();
             #[cfg(not(feature = "std"))]
             let config = Self::default();
             *state = Some(Arc::new(config));
@@ -39,9 +41,97 @@ impl GlobalConfig {
     }
 
     /// Sets the global configuration to the provided value.
+    ///
+    /// # Panics
+    /// Panics if the configuration has already been set or read, as it cannot be overridden.
+    ///
+    /// # Warning
+    /// This method must be called at the start of the program, before any calls to `get`. Attempting
+    /// to set the configuration after it has been initialized will cause a panic.
     pub fn set(config: Self) {
         let mut state = CUBE_GLOBAL_CONFIG.lock();
+        if state.is_some() {
+            panic!("Cannot set the global configuration multiple times.");
+        }
         *state = Some(Arc::new(config));
+    }
+
+    #[cfg(feature = "std")]
+    /// Overrides configuration fields based on environment variables.
+    pub fn override_from_env(mut self) -> Self {
+        use super::compilation::CompilationLogLevel;
+        use crate::config::{
+            autotune::{AutotuneLevel, AutotuneLogLevel},
+            profiling::ProfilingLogLevel,
+        };
+
+        match std::env::var("CUBECL_DEBUG_LOG") {
+            Ok(val) => match val.as_str() {
+                "1" | "true" => {
+                    self.compilation.logger.level = CompilationLogLevel::Full;
+                }
+                "0" | "false" => {
+                    self.compilation.logger.level = CompilationLogLevel::Disabled;
+                }
+                file_path => {
+                    self.compilation.logger.level = CompilationLogLevel::Full;
+                    self.profiling.logger.level = ProfilingLogLevel::Basic;
+                    self.autotune.logger.level = AutotuneLogLevel::Full;
+
+                    self.compilation.logger.file = Some(file_path.into());
+                    self.profiling.logger.file = Some(file_path.into());
+                    self.autotune.logger.file = Some(file_path.into());
+                }
+            },
+            Err(_) => {}
+        };
+
+        match std::env::var("CUBECL_DEBUG_OPTION") {
+            Ok(val) => match val.as_str() {
+                "debug" => {
+                    self.compilation.logger.level = CompilationLogLevel::Full;
+                    self.profiling.logger.level = ProfilingLogLevel::Medium;
+                    self.autotune.logger.level = AutotuneLogLevel::Full;
+                }
+                "debug-full" => {
+                    self.compilation.logger.level = CompilationLogLevel::Full;
+                    self.profiling.logger.level = ProfilingLogLevel::Full;
+                    self.autotune.logger.level = AutotuneLogLevel::Full;
+                }
+                "profile" => {
+                    self.profiling.logger.level = ProfilingLogLevel::Basic;
+                }
+                "profile-medium" => {
+                    self.profiling.logger.level = ProfilingLogLevel::Medium;
+                }
+                "profile-full" => {
+                    self.profiling.logger.level = ProfilingLogLevel::Full;
+                }
+                _ => {}
+            },
+            Err(_) => {}
+        };
+
+        match std::env::var("CUBECL_AUTOTUNE_LEVEL") {
+            Ok(val) => match val.as_str() {
+                "minimal" | "0" => {
+                    self.autotune.level = AutotuneLevel::Minimal;
+                }
+                "balanced" | "1" => {
+                    self.autotune.level = AutotuneLevel::Balanced;
+                }
+                "extensive" | "2" => {
+                    self.autotune.level = AutotuneLevel::Extensive;
+                }
+                "exhaustive" | "3" => {
+                    self.autotune.level = AutotuneLevel::Exhaustive;
+                }
+                _ => {}
+            },
+            Err(_) => {}
+        }
+
+        self
     }
 
     // Loads configuration from `cubecl.toml` or `CubeCL.toml` in the current directory or its parents.

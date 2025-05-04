@@ -47,9 +47,9 @@ fn load_autotune_level() -> u32 {
         let config = GlobalConfig::get();
         let level = match config.autotune.level {
             crate::config::autotune::AutotuneLevel::Minimal => 0,
-            crate::config::autotune::AutotuneLevel::Medium => 1,
-            crate::config::autotune::AutotuneLevel::More => 2,
-            crate::config::autotune::AutotuneLevel::Full => 3,
+            crate::config::autotune::AutotuneLevel::Balanced => 1,
+            crate::config::autotune::AutotuneLevel::Extensive => 2,
+            crate::config::autotune::AutotuneLevel::Exhaustive => 3,
         };
         AUTOTUNE_LEVEL.store(level, Ordering::Relaxed);
         level as u32

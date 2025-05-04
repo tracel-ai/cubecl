@@ -64,15 +64,15 @@ pub enum AutotuneLevel {
     /// Balanced autotuning effort (default).
     #[default]
     #[serde(rename = "balanced")]
-    Medium,
+    Balanced,
 
     /// Increased autotuning effort.
-    #[serde(rename = "more")]
-    More,
+    #[serde(rename = "extensive")]
+    Extensive,
 
     /// Maximum autotuning effort.
     #[serde(rename = "full")]
-    Full,
+    Exhaustive,
 }
 
 #[cfg(feature = "std")]
