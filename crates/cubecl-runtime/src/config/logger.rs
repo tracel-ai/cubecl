@@ -126,81 +126,24 @@ impl Logger {
             LogCrate(LogCrateLevel),
         }
 
-        let mut path2index = HashMap::<LoggerId, usize>::new();
+        let mut logger2index = HashMap::<LoggerId, usize>::new();
 
-        #[cfg(feature = "std")]
-        fn new_file_logger<L: LogLevel>(
-            setting_index: &mut Vec<usize>,
-            path_buf: &PathBuf,
-            append: bool,
-            loggers: &mut Vec<LoggerKind>,
-            path2index: &mut HashMap<LoggerId, usize>,
-        ) {
-            let id = LoggerId::File(path_buf.clone());
-
-            if let Some(index) = path2index.get(&id) {
-                setting_index.push(*index);
-            } else {
-                let logger = LoggerKind::File(FileLogger::new(path_buf, append));
-                let index = loggers.len();
-                path2index.insert(id, index);
-                loggers.push(logger);
-                setting_index.push(index);
-            }
-        }
-
-        #[cfg(feature = "std")]
-        fn new_stdout_logger(
+        fn new_logger<S: Clone, ID: Fn(S) -> LoggerId, LG: Fn(S) -> LoggerKind>(
             setting_index: &mut Vec<usize>,
             loggers: &mut Vec<LoggerKind>,
-            path2index: &mut HashMap<LoggerId, usize>,
+            logger2index: &mut HashMap<LoggerId, usize>,
+            state: S,
+            func_id: ID,
+            func_logger: LG,
         ) {
-            let id = LoggerId::Stdout;
+            let id = func_id(state.clone());
 
-            if let Some(index) = path2index.get(&id) {
+            if let Some(index) = logger2index.get(&id) {
                 setting_index.push(*index);
             } else {
-                let logger = LoggerKind::Stdout;
+                let logger = func_logger(state);
                 let index = loggers.len();
-                path2index.insert(id, index);
-                loggers.push(logger);
-                setting_index.push(index);
-            }
-        }
-
-        fn new_log_logger(
-            setting_index: &mut Vec<usize>,
-            loggers: &mut Vec<LoggerKind>,
-            level: LogCrateLevel,
-            path2index: &mut HashMap<LoggerId, usize>,
-        ) {
-            let id = LoggerId::LogCrate(level);
-
-            if let Some(index) = path2index.get(&id) {
-                setting_index.push(*index);
-            } else {
-                let logger = LoggerKind::Log(level);
-                let index = loggers.len();
-                path2index.insert(id, index);
-                loggers.push(logger);
-                setting_index.push(index);
-            }
-        }
-
-        #[cfg(feature = "std")]
-        fn new_stderr_logger(
-            setting_index: &mut Vec<usize>,
-            loggers: &mut Vec<LoggerKind>,
-            path2index: &mut HashMap<LoggerId, usize>,
-        ) {
-            let id = LoggerId::Stderr;
-
-            if let Some(index) = path2index.get(&id) {
-                setting_index.push(*index);
-            } else {
-                let logger = LoggerKind::Stderr;
-                let index = loggers.len();
-                path2index.insert(id, index);
+                logger2index.insert(id, index);
                 loggers.push(logger);
                 setting_index.push(index);
             }
@@ -212,25 +155,53 @@ impl Logger {
             level: Option<LogCrateLevel>,
             setting_index: &mut Vec<usize>,
             loggers: &mut Vec<LoggerKind>,
-            path2index: &mut HashMap<LoggerId, usize>,
+            logger2index: &mut HashMap<LoggerId, usize>,
         ) {
             #[cfg(feature = "std")]
             if let Some(file) = &kind.file {
-                new_file_logger::<L>(setting_index, file, append, loggers, path2index)
+                new_logger(
+                    setting_index,
+                    loggers,
+                    logger2index,
+                    (file, append),
+                    |(file, _append)| LoggerId::File(file.clone()),
+                    |(file, append)| LoggerKind::File(FileLogger::new(file, append)),
+                );
             }
 
             #[cfg(feature = "std")]
             if kind.stdout {
-                new_stdout_logger(setting_index, loggers, path2index)
+                new_logger(
+                    setting_index,
+                    loggers,
+                    logger2index,
+                    (),
+                    |_| LoggerId::Stdout,
+                    |_| LoggerKind::Stdout,
+                );
             }
 
             #[cfg(feature = "std")]
             if kind.stderr {
-                new_stderr_logger(setting_index, loggers, path2index)
+                new_logger(
+                    setting_index,
+                    loggers,
+                    logger2index,
+                    (),
+                    |_| LoggerId::Stderr,
+                    |_| LoggerKind::Stderr,
+                );
             }
 
             if let Some(level) = level {
-                new_log_logger(setting_index, loggers, level, path2index)
+                new_logger(
+                    setting_index,
+                    loggers,
+                    logger2index,
+                    level,
+                    |level| LoggerId::LogCrate(level),
+                    |level| LoggerKind::Log(level),
+                );
             }
         }
 
@@ -242,7 +213,7 @@ impl Logger {
                 config.compilation.logger.log,
                 &mut compilation_index,
                 &mut loggers,
-                &mut path2index,
+                &mut logger2index,
             )
         }
 
@@ -254,7 +225,7 @@ impl Logger {
                 config.profiling.logger.log,
                 &mut profiling_index,
                 &mut loggers,
-                &mut path2index,
+                &mut logger2index,
             )
         }
 
@@ -266,7 +237,7 @@ impl Logger {
                 config.autotune.logger.log,
                 &mut autotune_index,
                 &mut loggers,
-                &mut path2index,
+                &mut logger2index,
             )
         }
 
