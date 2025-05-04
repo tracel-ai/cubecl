@@ -25,6 +25,18 @@ impl GlobalConfig {
     ///
     /// If no configuration is set, it attempts to load one from `cubecl.toml` or `CubeCL.toml` in the
     /// current directory or its parents. If no file is found, a default configuration is used.
+    ///
+    /// # Notes
+    ///
+    /// Calling this function is somewhat expensive, because of a global static lock. The config format
+    /// is optimized for parsing, not for consumption. A good practice is to use a local static atomic
+    /// value that you can populate with the appropriate value from the global config during
+    /// initialization of the atomic value.
+    ///
+    /// For example, the autotune level uses a [core::sync::atomic::AtomicI32] with an initial
+    /// value of `-1` to indicate an uninitialized state. It is then set to the proper value based on
+    /// the [super::autotune::AutotuneLevel] config. All subsequent fetches of the value are
+    /// lock-free.
     pub fn get() -> Arc<Self> {
         let mut state = CUBE_GLOBAL_CONFIG.lock();
         if let None = state.as_ref() {
@@ -38,6 +50,20 @@ impl GlobalConfig {
         }
 
         state.as_ref().cloned().unwrap()
+    }
+
+    #[cfg(feature = "std")]
+    /// Save the default configuration to the provided file path.
+    pub fn save_default<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<()> {
+        use std::io::Write;
+
+        let config = Self::get();
+        let content =
+            toml::to_string_pretty(config.as_ref()).expect("Default config should be serializable");
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(content.as_bytes())?;
+
+        Ok(())
     }
 
     /// Sets the global configuration to the provided value.

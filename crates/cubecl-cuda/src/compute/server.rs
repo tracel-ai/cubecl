@@ -57,7 +57,7 @@ pub(crate) struct CudaContext {
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
-    ptx_cache: Cache<String, PtxCacheEntry>,
+    ptx_cache: Option<Cache<String, PtxCacheEntry>>,
     timestamps: KernelTimestamps,
     pub(crate) arch: CudaArchitecture,
     compilation_options: CompilationOptions,
@@ -563,7 +563,18 @@ impl CudaContext {
             memory_management,
             module_names: HashMap::new(),
             #[cfg(feature = "compilation-cache")]
-            ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
+            ptx_cache: {
+                let config = cubecl_runtime::config::GlobalConfig::get();
+                if let Some(cache) = &config.compilation.cache {
+                    let root = cache.root();
+                    Some(Cache::new(
+                        "ptx",
+                        CacheOption::default().name("cuda").root(root),
+                    ))
+                } else {
+                    None
+                }
+            },
             stream,
             arch,
             timestamps: KernelTimestamps::default(),
@@ -593,24 +604,29 @@ impl CudaContext {
         mode: ExecutionMode,
     ) {
         #[cfg(feature = "compilation-cache")]
-        let name = kernel_id.stable_format();
+        let name = if let Some(cache) = &self.ptx_cache {
+            let name = kernel_id.stable_format();
 
-        #[cfg(feature = "compilation-cache")]
-        if let Some(entry) = self.ptx_cache.get(&name) {
-            log::trace!("Using PTX cache");
-            self.load_ptx(
-                entry.ptx.clone(),
-                kernel_id.clone(),
-                entry.entrypoint_name.clone(),
-                CubeDim {
-                    x: entry.cube_dim.0,
-                    y: entry.cube_dim.1,
-                    z: entry.cube_dim.2,
-                },
-                entry.shared_mem_bytes,
-            );
-            return;
-        }
+            if let Some(entry) = cache.get(&name) {
+                log::trace!("Using PTX cache");
+                self.load_ptx(
+                    entry.ptx.clone(),
+                    kernel_id.clone(),
+                    entry.entrypoint_name.clone(),
+                    CubeDim {
+                        x: entry.cube_dim.0,
+                        y: entry.cube_dim.1,
+                        z: entry.cube_dim.2,
+                    },
+                    entry.shared_mem_bytes,
+                );
+                return;
+            }
+            Some(name)
+        } else {
+            None
+        };
+
         log::trace!("Compiling kernel");
 
         let mut kernel_compiled =
@@ -668,18 +684,20 @@ impl CudaContext {
             kernel_compiled.repr.unwrap();
 
         #[cfg(feature = "compilation-cache")]
-        self.ptx_cache
-            .insert(
-                name,
-                PtxCacheEntry {
-                    entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                    shared_mem_bytes: repr.shared_memory_size(),
-                    cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
-                    ptx: ptx.clone(),
-                },
-            )
-            .unwrap();
+        if let Some(cache) = &mut self.ptx_cache {
+            cache
+                .insert(
+                    name.unwrap(),
+                    PtxCacheEntry {
+                        entrypoint_name: kernel_compiled.entrypoint_name.clone(),
+                        cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                        shared_mem_bytes: repr.shared_memory_size(),
+                        cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
+                        ptx: ptx.clone(),
+                    },
+                )
+                .unwrap();
+        }
 
         self.load_ptx(
             ptx,

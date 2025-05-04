@@ -1,4 +1,7 @@
-use super::logger::{LogLevel, LoggerConfig};
+use super::{
+    cache::CacheConfig,
+    logger::{LogLevel, LoggerConfig},
+};
 
 /// Configuration for autotuning in CubeCL.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -14,25 +17,7 @@ pub struct AutotuneConfig {
     /// Cache location for storing autotune results.
     #[serde(default)]
     #[cfg(feature = "std")]
-    pub cache: AutotuneCache,
-}
-
-/// Cache location options for autotune results.
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[cfg(feature = "std")]
-pub enum AutotuneCache {
-    /// Stores cache in the current working directory.
-    Local,
-
-    /// Stores cache in the project's `target` directory (default).
-    #[default]
-    Target,
-
-    /// Stores cache in the system's local configuration directory.
-    Global,
-
-    /// Stores cache in a user-specified file path.
-    File(std::path::PathBuf),
+    pub cache: CacheConfig,
 }
 
 /// Log levels for autotune logging in CubeCL.
@@ -73,35 +58,4 @@ pub enum AutotuneLevel {
     /// Maximum autotuning effort.
     #[serde(rename = "full")]
     Exhaustive,
-}
-
-#[cfg(feature = "std")]
-impl AutotuneCache {
-    /// Returns the root directory for the autotune cache.
-    ///
-    /// Determines the cache location based on the [AutotuneCache] variant:
-    pub fn root(&self) -> std::path::PathBuf {
-        match self {
-            AutotuneCache::Local => std::env::current_dir().unwrap(),
-            AutotuneCache::Target => {
-                let dir_original = std::env::current_dir().unwrap();
-                let mut dir = dir_original.clone();
-
-                // Search for Cargo.toml in parent directories to locate project root.
-                loop {
-                    if let Ok(true) = std::fs::exists(dir.join("Cargo.toml")) {
-                        return dir.join("target");
-                    }
-
-                    if !dir.pop() {
-                        break;
-                    }
-                }
-
-                dir_original.join("target")
-            }
-            AutotuneCache::Global => dirs::config_local_dir().unwrap(),
-            AutotuneCache::File(path_buf) => path_buf.clone(),
-        }
-    }
 }
