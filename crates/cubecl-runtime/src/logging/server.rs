@@ -1,6 +1,8 @@
 use core::fmt::Display;
 
 use crate::config::Logger;
+use alloc::format;
+use alloc::string::{String, ToString};
 
 use super::{ProfileLevel, Profiled};
 
@@ -8,7 +10,6 @@ use super::{ProfileLevel, Profiled};
 #[derive(Debug, Default)]
 pub struct SeverLogger {
     kind: DebugLoggerKind,
-    #[cfg(feature = "std")]
     profiled: Profiled,
 }
 
@@ -18,10 +19,8 @@ enum ServerLoggerOptions {
     /// Debug only the compilation.
     CompilationOnly,
     /// Profile each kernel executed.
-    #[cfg(feature = "std")]
     ProfileOnly(ProfileLevel),
     /// Enable all options.
-    #[cfg(feature = "std")]
     All(ProfileLevel),
 }
 
@@ -59,22 +58,19 @@ impl SeverLogger {
     }
 
     /// Register a profiled task.
-    #[cfg_attr(not(feature = "std"), expect(unused))]
     pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
     where
         Name: Display,
     {
-        #[cfg(feature = "std")]
-        {
-            let name = name.to_string();
-            self.profiled.update(&name, duration);
+        let name = name.to_string();
+        self.profiled.update(&name, duration);
 
-            match self.kind.profile_level().unwrap_or(ProfileLevel::Basic) {
-                ProfileLevel::Basic => {}
-                _ => self.kind.register_profiled(name, duration),
-            }
+        match self.kind.profile_level().unwrap_or(ProfileLevel::Basic) {
+            ProfileLevel::Basic => {}
+            _ => self.kind.register_profiled(name, duration),
         }
     }
+
     /// Log the argument to a file when the compilation logger is activated.
     pub fn log_compilation<I>(&mut self, arg: I) -> I
     where
@@ -85,7 +81,6 @@ impl SeverLogger {
 
     /// Show the profiling summary if activated and reset its state.
     pub fn profile_summary(&mut self) {
-        #[cfg(feature = "std")]
         if self.profile_level().is_some() {
             let mut profiled = Default::default();
             core::mem::swap(&mut self.profiled, &mut profiled);
@@ -101,14 +96,7 @@ impl SeverLogger {
 }
 
 impl DebugLoggerKind {
-    #[cfg(not(feature = "std"))]
     /// Create a new server logger.
-    pub fn new() -> Self {
-        Self::None
-    }
-
-    /// Create a new server logger.
-    #[cfg(feature = "std")]
     pub fn new() -> Self {
         use crate::config::{compilation::CompilationLogLevel, profiling::ProfilingLogLevel};
 
@@ -161,13 +149,6 @@ impl DebugLoggerKind {
         }
     }
 
-    /// Returns the profile level, none if profiling is deactivated.
-    #[cfg(not(feature = "std"))]
-    fn profile_level(&self) -> Option<ProfileLevel> {
-        None
-    }
-
-    #[cfg(feature = "std")]
     fn register_profiled(&mut self, name: String, duration: core::time::Duration) {
         match self {
             DebugLoggerKind::Activated(logger, _) => {

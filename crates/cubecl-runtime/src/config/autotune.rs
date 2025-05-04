@@ -13,11 +13,13 @@ pub struct AutotuneConfig {
 
     /// Cache location for storing autotune results.
     #[serde(default)]
+    #[cfg(feature = "std")]
     pub cache: AutotuneCache,
 }
 
 /// Cache location options for autotune results.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg(feature = "std")]
 pub enum AutotuneCache {
     /// Stores cache in the current working directory.
     Local,
@@ -73,6 +75,7 @@ pub enum AutotuneLevel {
     Full,
 }
 
+#[cfg(feature = "std")]
 impl AutotuneCache {
     /// Returns the root directory for the autotune cache.
     ///

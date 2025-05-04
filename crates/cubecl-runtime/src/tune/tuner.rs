@@ -52,10 +52,9 @@ enum AutotuneMessage<K> {
     Done {
         key: K,
         fastest_index: usize,
+        results: Vec<Result<AutotuneOutcome, String>>,
         #[cfg(autotune_persistent_cache)]
         checksum: String,
-        #[cfg(autotune_persistent_cache)]
-        results: Vec<Result<AutotuneOutcome, String>>,
         #[cfg(feature = "autotune-checks")]
         autotune_checks: alloc::boxed::Box<dyn FnOnce() + Send>,
     },
@@ -114,10 +113,10 @@ impl<K: AutotuneKey> Tuner<K> {
             AutotuneMessage::Done {
                 key,
                 fastest_index,
+                results,
                 #[cfg(autotune_persistent_cache)]
                 checksum,
                 #[cfg(autotune_persistent_cache)]
-                results,
                 #[cfg(feature = "autotune-checks")]
                     autotune_checks: check,
             } => {
@@ -157,6 +156,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
                         self.logger
                             .log_autotune(&format!("Fastest result {}-{key}.", result.name,));
+
                         for result in results.iter() {
                             match result {
                                 Ok(val) => {
@@ -221,10 +221,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 break 'message AutotuneMessage::Done {
                     key,
                     fastest_index: autotunables[0].0,
+                    results: Vec::new(),
                     #[cfg(autotune_persistent_cache)]
                     checksum: tunables.compute_checksum(),
-                    #[cfg(autotune_persistent_cache)]
-                    results: Vec::new(),
                     #[cfg(feature = "autotune-checks")]
                     autotune_checks: Box::new(|| {}),
                 };
@@ -303,10 +302,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 AutotuneMessage::Done {
                     key: key_clone,
                     fastest_index: result.index,
+                    results: bench_results,
                     #[cfg(autotune_persistent_cache)]
                     checksum,
-                    #[cfg(autotune_persistent_cache)]
-                    results: bench_results,
                     #[cfg(feature = "autotune-checks")]
                     autotune_checks: Box::new(|| {
                         check_autotune_outputs(checks_outputs);

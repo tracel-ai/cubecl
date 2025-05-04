@@ -2,13 +2,15 @@ use super::GlobalConfig;
 use crate::config::{
     autotune::AutotuneLogLevel, compilation::CompilationLogLevel, profiling::ProfilingLogLevel,
 };
+use alloc::{string::ToString, sync::Arc, vec::Vec};
+use core::fmt::Display;
 use hashbrown::HashMap;
+
+#[cfg(feature = "std")]
 use std::{
-    fmt::Display,
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::PathBuf,
-    sync::Arc,
 };
 
 /// Configuration for logging in CubeCL, parameterized by a log level type.
@@ -19,9 +21,14 @@ use std::{
 pub struct LoggerConfig<L: LogLevel> {
     /// Path to the log file, if file logging is enabled (requires `std` feature).
     #[serde(default)]
+    #[cfg(feature = "std")]
     pub file: Option<PathBuf>,
 
     /// Whether to append to the log file (true) or overwrite it (false). Defaults to true.
+    ///
+    /// ## Notes
+    ///
+    /// This parameter might get ignored based on other loggers config.
     #[serde(default = "append_default")]
     pub append: bool,
 
@@ -45,7 +52,9 @@ pub struct LoggerConfig<L: LogLevel> {
 /// Log levels using the `log` crate.
 ///
 /// This enum defines verbosity levels for crate-level logging.
-#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq,
+)]
 pub enum LogCrateLevel {
     /// Logs informational messages.
     #[default]
@@ -106,67 +115,122 @@ impl Logger {
         let mut profiling_index = Vec::new();
         let mut autotune_index = Vec::new();
 
-        let mut path2index = HashMap::<PathBuf, usize>::new();
+        #[derive(Hash, PartialEq, Eq)]
+        enum LoggerId {
+            #[cfg(feature = "std")]
+            File(PathBuf),
+            #[cfg(feature = "std")]
+            Stdout,
+            #[cfg(feature = "std")]
+            Stderr,
+            LogCrate(LogCrateLevel),
+        }
 
+        let mut path2index = HashMap::<LoggerId, usize>::new();
+
+        #[cfg(feature = "std")]
         fn new_file_logger<L: LogLevel>(
             setting_index: &mut Vec<usize>,
             path_buf: &PathBuf,
             append: bool,
             loggers: &mut Vec<LoggerKind>,
-            path2index: &mut HashMap<PathBuf, usize>,
+            path2index: &mut HashMap<LoggerId, usize>,
         ) {
-            if let Some(index) = path2index.get(path_buf) {
+            let id = LoggerId::File(path_buf.clone());
+
+            if let Some(index) = path2index.get(&id) {
                 setting_index.push(*index);
             } else {
                 let logger = LoggerKind::File(FileLogger::new(path_buf, append));
                 let index = loggers.len();
-                path2index.insert(path_buf.clone(), index);
+                path2index.insert(id, index);
                 loggers.push(logger);
                 setting_index.push(index);
             }
         }
 
-        fn new_stdout_logger(setting_index: &mut Vec<usize>, loggers: &mut Vec<LoggerKind>) {
-            setting_index.push(loggers.len());
-            loggers.push(LoggerKind::Stdout);
+        #[cfg(feature = "std")]
+        fn new_stdout_logger(
+            setting_index: &mut Vec<usize>,
+            loggers: &mut Vec<LoggerKind>,
+            path2index: &mut HashMap<LoggerId, usize>,
+        ) {
+            let id = LoggerId::Stdout;
+
+            if let Some(index) = path2index.get(&id) {
+                setting_index.push(*index);
+            } else {
+                let logger = LoggerKind::Stdout;
+                let index = loggers.len();
+                path2index.insert(id, index);
+                loggers.push(logger);
+                setting_index.push(index);
+            }
         }
 
         fn new_log_logger(
             setting_index: &mut Vec<usize>,
             loggers: &mut Vec<LoggerKind>,
             level: LogCrateLevel,
+            path2index: &mut HashMap<LoggerId, usize>,
         ) {
-            setting_index.push(loggers.len());
-            loggers.push(LoggerKind::Log(level));
+            let id = LoggerId::LogCrate(level);
+
+            if let Some(index) = path2index.get(&id) {
+                setting_index.push(*index);
+            } else {
+                let logger = LoggerKind::Log(level);
+                let index = loggers.len();
+                path2index.insert(id, index);
+                loggers.push(logger);
+                setting_index.push(index);
+            }
         }
 
-        fn new_stderr_logger(setting_index: &mut Vec<usize>, loggers: &mut Vec<LoggerKind>) {
-            setting_index.push(loggers.len());
-            loggers.push(LoggerKind::Stderr);
+        #[cfg(feature = "std")]
+        fn new_stderr_logger(
+            setting_index: &mut Vec<usize>,
+            loggers: &mut Vec<LoggerKind>,
+            path2index: &mut HashMap<LoggerId, usize>,
+        ) {
+            let id = LoggerId::Stderr;
+
+            if let Some(index) = path2index.get(&id) {
+                setting_index.push(*index);
+            } else {
+                let logger = LoggerKind::Stderr;
+                let index = loggers.len();
+                path2index.insert(id, index);
+                loggers.push(logger);
+                setting_index.push(index);
+            }
         }
 
         fn register_logger<L: LogLevel>(
-            kind: &LoggerConfig<L>,
-            append: bool,
+            #[allow(unused_variables)] kind: &LoggerConfig<L>, // not used in no-std
+            #[allow(unused_variables)] append: bool,           // not used in no-std
             level: Option<LogCrateLevel>,
             setting_index: &mut Vec<usize>,
             loggers: &mut Vec<LoggerKind>,
-            path2index: &mut HashMap<PathBuf, usize>,
+            path2index: &mut HashMap<LoggerId, usize>,
         ) {
+            #[cfg(feature = "std")]
             if let Some(file) = &kind.file {
                 new_file_logger::<L>(setting_index, file, append, loggers, path2index)
             }
 
+            #[cfg(feature = "std")]
             if kind.stdout {
-                new_stdout_logger(setting_index, loggers)
+                new_stdout_logger(setting_index, loggers, path2index)
             }
 
+            #[cfg(feature = "std")]
             if kind.stderr {
-                new_stderr_logger(setting_index, loggers)
+                new_stderr_logger(setting_index, loggers, path2index)
             }
 
             if let Some(level) = level {
-                new_log_logger(setting_index, loggers, level)
+                new_log_logger(setting_index, loggers, level, path2index)
             }
         }
 
@@ -299,12 +363,15 @@ impl LogLevel for BinaryLogLevel {}
 #[derive(Debug)]
 enum LoggerKind {
     /// Logs to a file.
+    #[cfg(feature = "std")]
     File(FileLogger),
 
     /// Logs to standard output.
+    #[cfg(feature = "std")]
     Stdout,
 
     /// Logs to standard error.
+    #[cfg(feature = "std")]
     Stderr,
 
     /// Logs using the `log` crate with a specified level.
@@ -314,8 +381,11 @@ enum LoggerKind {
 impl LoggerKind {
     fn log<S: Display>(&mut self, msg: &S) {
         match self {
+            #[cfg(feature = "std")]
             LoggerKind::File(file_logger) => file_logger.log(msg),
+            #[cfg(feature = "std")]
             LoggerKind::Stdout => println!("{msg}"),
+            #[cfg(feature = "std")]
             LoggerKind::Stderr => eprintln!("{msg}"),
             LoggerKind::Log(level) => match level {
                 LogCrateLevel::Info => log::info!("{msg}"),
@@ -328,10 +398,12 @@ impl LoggerKind {
 
 /// Logger that writes messages to a file.
 #[derive(Debug)]
+#[cfg(feature = "std")]
 struct FileLogger {
     writer: BufWriter<File>,
 }
 
+#[cfg(feature = "std")]
 impl FileLogger {
     // Creates a new file logger.
     fn new(path: &PathBuf, append: bool) -> Self {

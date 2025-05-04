@@ -28,7 +28,10 @@ impl GlobalConfig {
     pub fn get() -> Arc<Self> {
         let mut state = CUBE_GLOBAL_CONFIG.lock();
         if let None = state.as_ref() {
+            #[cfg(feature = "std")]
             let config = Self::from_current_dir();
+            #[cfg(not(feature = "std"))]
+            let config = Self::default();
             *state = Some(Arc::new(config));
         }
 
@@ -45,6 +48,7 @@ impl GlobalConfig {
     //
     // Traverses up the directory tree until a valid configuration file is found or the root is reached.
     // Returns a default configuration if no file is found.
+    #[cfg(feature = "std")]
     fn from_current_dir() -> Self {
         let mut dir = std::env::current_dir().unwrap();
 
@@ -66,6 +70,7 @@ impl GlobalConfig {
     }
 
     // Loads configuration from a specified file path.
+    #[cfg(feature = "std")]
     fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: Self = match toml::from_str(&content) {

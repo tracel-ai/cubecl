@@ -1,5 +1,10 @@
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::fmt::Display;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 #[derive(Debug, Default)]
 pub(crate) struct Profiled {
