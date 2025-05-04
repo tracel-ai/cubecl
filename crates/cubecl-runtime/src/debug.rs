@@ -269,21 +269,21 @@ impl DebugLoggerKind {
     /// Create a new debug logger.
     #[cfg(feature = "std")]
     pub fn new() -> Self {
-        use crate::config::CompilationLogLevel;
+        use crate::config::{compilation::CompilationLogLevel, profiling::ProfilingLogLevel};
 
         let logger = Logger::new();
 
         let mut profile = None;
 
         match logger.config.profiling.logger.level {
-            crate::config::ProfilingLogLevel::Disabled => {}
-            crate::config::ProfilingLogLevel::Basic => {
+            ProfilingLogLevel::Disabled => {}
+            ProfilingLogLevel::Basic => {
                 profile = Some(ProfileLevel::Basic);
             }
-            crate::config::ProfilingLogLevel::Medium => {
+            ProfilingLogLevel::Medium => {
                 profile = Some(ProfileLevel::Medium);
             }
-            crate::config::ProfilingLogLevel::Full => {
+            ProfilingLogLevel::Full => {
                 profile = Some(ProfileLevel::Full);
             }
         };

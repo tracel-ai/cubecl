@@ -6,7 +6,7 @@ use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecis
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
-use cubecl_runtime::config::CubeGlobalConfig;
+use cubecl_runtime::config::GlobalConfig;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
@@ -44,7 +44,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     }
 
     fn sync(&self) {
-        CubeGlobalConfig::get();
+        GlobalConfig::get();
         future::block_on(self.client.sync())
     }
 

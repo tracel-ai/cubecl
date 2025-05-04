@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicI8, Ordering};
 use alloc::collections::BTreeMap;
 
 use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
-use cubecl_runtime::config::CubeGlobalConfig;
+use cubecl_runtime::config::{CompilationLogLevel, GlobalConfig};
 
 use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
@@ -124,9 +124,9 @@ impl KernelBuilder {
     pub fn new() -> Self {
         let debug = DEBUG.load(Ordering::Relaxed);
         let debug = if debug == -1 {
-            let val = match CubeGlobalConfig::get().compilation.logger.level {
-                cubecl_runtime::config::BinaryLogLevel::Disabled => 0,
-                cubecl_runtime::config::BinaryLogLevel::Full => 1,
+            let val = match GlobalConfig::get().compilation.logger.level {
+                CompilationLogLevel::Disabled => 0,
+                CompilationLogLevel::Full => 1,
             };
 
             DEBUG.store(val, Ordering::Relaxed);

@@ -11,7 +11,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
-use crate::config::{AutotuneLogLevel, Logger};
+use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::ComputeServer;
 use crate::tune::{TuneBenchmark, TuneCache};
 
@@ -98,7 +98,7 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
     #[cfg(autotune_persistent_cache)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
-        if let AutotuneLogLevel::Full = self.logger.autotune_log_level() {
+        if let AutotuneLogLevel::Full = self.logger.log_level_autotune() {
             self.logger
                 .log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
         }
@@ -121,7 +121,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 #[cfg(feature = "autotune-checks")]
                     autotune_checks: check,
             } => {
-                match self.logger.autotune_log_level() {
+                match self.logger.log_level_autotune() {
                     AutotuneLogLevel::Minmal => {
                         let top_times = results
                             .iter()

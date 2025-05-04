@@ -76,7 +76,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     ) -> Self {
         #[cfg(autotune_persistent_cache)]
         {
-            let root = crate::config::CubeGlobalConfig::get().autotune.cache.root();
+            let root = crate::config::GlobalConfig::get().autotune.cache.root();
             let options = cubecl_common::cache::CacheOption::default();
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
