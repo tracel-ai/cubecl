@@ -101,6 +101,12 @@ pub struct Logger {
     pub config: Arc<GlobalConfig>,
 }
 
+impl Default for Logger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Logger {
     /// Creates a new `Logger` instance based on the global configuration.
     ///
@@ -199,8 +205,8 @@ impl Logger {
                     loggers,
                     logger2index,
                     level,
-                    |level| LoggerId::LogCrate(level),
-                    |level| LoggerKind::Log(level),
+                    LoggerId::LogCrate,
+                    LoggerKind::Log,
                 );
             }
         }
@@ -259,7 +265,7 @@ impl Logger {
                 let index = self.compilation_index[i];
                 self.log(&msg, index)
             }
-        } else if let Some(index) = self.compilation_index.get(0) {
+        } else if let Some(index) = self.compilation_index.first() {
             self.log(&msg, *index)
         }
     }
@@ -273,7 +279,7 @@ impl Logger {
                 let index = self.profiling_index[i];
                 self.log(&msg, index)
             }
-        } else if let Some(index) = self.profiling_index.get(0) {
+        } else if let Some(index) = self.profiling_index.first() {
             self.log(&msg, *index)
         }
     }
@@ -287,7 +293,7 @@ impl Logger {
                 let index = self.autotune_index[i];
                 self.log(&msg, index)
             }
-        } else if let Some(index) = self.autotune_index.get(0) {
+        } else if let Some(index) = self.autotune_index.first() {
             self.log(&msg, *index)
         }
     }

@@ -39,7 +39,7 @@ impl GlobalConfig {
     /// lock-free.
     pub fn get() -> Arc<Self> {
         let mut state = CUBE_GLOBAL_CONFIG.lock();
-        if let None = state.as_ref() {
+        if state.as_ref().is_none() {
             #[cfg(feature = "std")]
             let config = Self::from_current_dir();
             #[cfg(feature = "std")]
@@ -91,8 +91,8 @@ impl GlobalConfig {
             profiling::ProfilingLogLevel,
         };
 
-        match std::env::var("CUBECL_DEBUG_LOG") {
-            Ok(val) => match val.as_str() {
+        if let Ok(val) = std::env::var("CUBECL_DEBUG_LOG") {
+            match val.as_str() {
                 "1" | "true" => {
                     self.compilation.logger.level = CompilationLogLevel::Full;
                 }
@@ -108,12 +108,11 @@ impl GlobalConfig {
                     self.profiling.logger.file = Some(file_path.into());
                     self.autotune.logger.file = Some(file_path.into());
                 }
-            },
-            Err(_) => {}
+            }
         };
 
-        match std::env::var("CUBECL_DEBUG_OPTION") {
-            Ok(val) => match val.as_str() {
+        if let Ok(val) = std::env::var("CUBECL_DEBUG_OPTION") {
+            match val.as_str() {
                 "debug" => {
                     self.compilation.logger.level = CompilationLogLevel::Full;
                     self.profiling.logger.level = ProfilingLogLevel::Medium;
@@ -134,12 +133,11 @@ impl GlobalConfig {
                     self.profiling.logger.level = ProfilingLogLevel::Full;
                 }
                 _ => {}
-            },
-            Err(_) => {}
+            }
         };
 
-        match std::env::var("CUBECL_AUTOTUNE_LEVEL") {
-            Ok(val) => match val.as_str() {
+        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_LEVEL") {
+            match val.as_str() {
                 "minimal" | "0" => {
                     self.autotune.level = AutotuneLevel::Minimal;
                 }
@@ -153,8 +151,7 @@ impl GlobalConfig {
                     self.autotune.level = AutotuneLevel::Exhaustive;
                 }
                 _ => {}
-            },
-            Err(_) => {}
+            }
         }
 
         self

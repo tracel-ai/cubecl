@@ -85,11 +85,8 @@ impl SeverLogger {
             let mut profiled = Default::default();
             core::mem::swap(&mut self.profiled, &mut profiled);
 
-            match &mut self.kind {
-                DebugLoggerKind::Activated(logger, _) => {
-                    logger.log_profiling(&profiled);
-                }
-                _ => (),
+            if let DebugLoggerKind::Activated(logger, _) = &mut self.kind {
+                logger.log_profiling(&profiled);
             }
         }
     }
@@ -150,11 +147,8 @@ impl DebugLoggerKind {
     }
 
     fn register_profiled(&mut self, name: String, duration: core::time::Duration) {
-        match self {
-            DebugLoggerKind::Activated(logger, _) => {
-                logger.log_profiling(&format!("| {duration:<10?} | {name}"));
-            }
-            _ => (),
+        if let DebugLoggerKind::Activated(logger, _) = self {
+            logger.log_profiling(&format!("| {duration:<10?} | {name}"));
         }
     }
 
