@@ -92,18 +92,29 @@ impl GlobalConfig {
         };
 
         if let Ok(val) = std::env::var("CUBECL_DEBUG_LOG") {
+            self.compilation.logger.level = CompilationLogLevel::Full;
+            self.profiling.logger.level = ProfilingLogLevel::Medium;
+            self.autotune.logger.level = AutotuneLogLevel::Full;
+
             match val.as_str() {
+                "stdout" => {
+                    self.compilation.logger.stdout = true;
+                }
+                "stderr" => {
+                    self.compilation.logger.stderr = true;
+                }
                 "1" | "true" => {
-                    self.compilation.logger.level = CompilationLogLevel::Full;
+                    let file_path = "/tmp/cubecl.log";
+                    self.compilation.logger.file = Some(file_path.into());
+                    self.profiling.logger.file = Some(file_path.into());
+                    self.autotune.logger.file = Some(file_path.into());
                 }
                 "0" | "false" => {
                     self.compilation.logger.level = CompilationLogLevel::Disabled;
+                    self.profiling.logger.level = ProfilingLogLevel::Disabled;
+                    self.autotune.logger.level = AutotuneLogLevel::Disabled;
                 }
                 file_path => {
-                    self.compilation.logger.level = CompilationLogLevel::Full;
-                    self.profiling.logger.level = ProfilingLogLevel::Basic;
-                    self.autotune.logger.level = AutotuneLogLevel::Full;
-
                     self.compilation.logger.file = Some(file_path.into());
                     self.profiling.logger.file = Some(file_path.into());
                     self.autotune.logger.file = Some(file_path.into());
