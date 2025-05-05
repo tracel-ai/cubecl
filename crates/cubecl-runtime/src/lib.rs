@@ -25,6 +25,9 @@ pub mod server;
 /// Compute Storage module.
 pub mod storage;
 
+/// CubeCL config module.
+pub mod config;
+
 mod feature_set;
 
 mod base;
@@ -32,8 +35,8 @@ pub use base::*;
 pub use cubecl_common::benchmark;
 
 pub use feature_set::*;
-/// Debugging utilities.
-pub mod debug;
+/// Logging utilities to be used by a compute server.
+pub mod logging;
 
 /// TMA-related runtime types
 pub mod tma;
