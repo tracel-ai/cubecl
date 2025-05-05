@@ -7,7 +7,9 @@ use crate::matmul::components::global::multi_stage::double_buffering::DoubleBuff
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, LoadingValidation};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::{BufferReader, ColMajorTilingOrder, NoEvent, StageConfig};
+use crate::matmul::components::stage::{
+    BufferReader, ColMajorTilingOrder, NoEvent, RowMajorTilingOrder, StageConfig,
+};
 use crate::matmul::components::stage::{FullReader, StageEvent};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
 use crate::matmul::components::{
@@ -194,19 +196,21 @@ where
                 NoEvent {}, // DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
+            // Rhs fill B
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+
             sync_units();
+
+            // Lhs fill B
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
 
             // Rhs is advanced by 2 * k because Buffer B shares the same global memory state as Buffer A,
             // but it is implicitly offset by one buffer's worth (k elements) when reading.
             // Lhs, on the other hand, is advanced by k twice — once per load/execute cycle —
             // because it does not use a second, offset buffer; it simply progresses linearly through global memory.
 
-            // Lhs fill B
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             // Lhs go to A NEXT
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            // Rhs fill B
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
             // Rhs go to NEXT
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
@@ -225,14 +229,19 @@ where
                 NoEvent {}, // DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
+            // Rhs fill A
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+
+            // Some rare test fails without this sync
+            // Very weird that we don't have problem for ComputeA-LoadB
+            // Edit: if missing for ComputeA-LoadB the can fail on larger workload
             sync_units();
 
             // Lhs fill A
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+
             // Lhs go to B
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            // Rhs fill A
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
             sync_units();
 
@@ -252,10 +261,13 @@ where
             NoEvent {}, // DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
-        // Lhs fill B
-        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
         // Rhs fill B
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+
+        sync_units();
+
+        // Lhs fill B
+        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
 
         sync_units();
 
@@ -269,7 +281,6 @@ where
             config.to_smm_config(),
         );
 
-        sync_units();
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,

@@ -720,5 +720,21 @@ macro_rules! matmul_standard_tests {
                 }
             );
         }
+
+        mod p256x256x1024{
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 256,
+                    n: 256,
+                    k: 1024
+                }
+            );
+        }
     };
 }
