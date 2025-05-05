@@ -8,7 +8,7 @@ use super::{ProfileLevel, Profiled};
 
 /// Server logger.
 #[derive(Debug, Default)]
-pub struct SeverLogger {
+pub struct ServerLogger {
     kind: DebugLoggerKind,
     profiled: Profiled,
 }
@@ -39,7 +39,7 @@ impl Default for DebugLoggerKind {
     }
 }
 
-impl SeverLogger {
+impl ServerLogger {
     /// Returns the profile level, none if profiling is deactivated.
     pub fn profile_level(&self) -> Option<ProfileLevel> {
         self.kind.profile_level()

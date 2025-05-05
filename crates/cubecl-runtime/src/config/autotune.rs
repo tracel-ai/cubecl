@@ -26,7 +26,8 @@ pub enum AutotuneLogLevel {
     #[serde(rename = "disabled")]
     Disabled,
 
-    /// Minimal autotune information is logged (default).
+    /// Minimal autotune information is logged such as the fastest kernel selected and a few
+    /// statistics (default).
     #[default]
     #[serde(rename = "minimal")]
     Minimal,
@@ -56,5 +57,5 @@ pub enum AutotuneLevel {
 
     /// Maximum autotuning effort.
     #[serde(rename = "full")]
-    Exhaustive,
+    Full,
 }

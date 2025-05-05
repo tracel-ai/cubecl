@@ -15,7 +15,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::TimeMeasurement;
 use cubecl_runtime::{
-    logging::{ProfileLevel, SeverLogger},
+    logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
@@ -28,7 +28,7 @@ use wgpu::ComputePipeline;
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
-    logger: SeverLogger,
+    logger: ServerLogger,
     duration_profiled: Option<Duration>,
     stream: WgpuStream,
     pub compilation_options: WgpuCompilationOptions,
@@ -48,7 +48,7 @@ impl WgpuServer {
         backend: wgpu::Backend,
         time_measurement: TimeMeasurement,
     ) -> Self {
-        let logger = SeverLogger::default();
+        let logger = ServerLogger::default();
 
         let stream = WgpuStream::new(
             device.clone(),

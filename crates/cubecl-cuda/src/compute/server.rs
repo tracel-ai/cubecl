@@ -23,7 +23,7 @@ use cubecl_core::{
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
-    logging::{ProfileLevel, SeverLogger},
+    logging::{ProfileLevel, ServerLogger},
     storage::ComputeStorage,
 };
 use cubecl_runtime::{
@@ -48,7 +48,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    logger: SeverLogger,
+    logger: ServerLogger,
 }
 
 #[derive(Debug)]
@@ -601,7 +601,7 @@ impl CudaContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        logger: &mut SeverLogger,
+        logger: &mut ServerLogger,
         mode: ExecutionMode,
     ) {
         #[cfg(feature = "compilation-cache")]
@@ -776,7 +776,7 @@ impl CudaContext {
 impl CudaServer {
     /// Create a new cuda server.
     pub(crate) fn new(ctx: CudaContext) -> Self {
-        let logger = SeverLogger::default();
+        let logger = ServerLogger::default();
         Self { ctx, logger }
     }
 
@@ -784,7 +784,7 @@ impl CudaServer {
         self.get_context_with_logger().0
     }
 
-    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut SeverLogger) {
+    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut ServerLogger) {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };

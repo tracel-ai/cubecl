@@ -13,7 +13,7 @@ use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
-use cubecl_runtime::logging::{ProfileLevel, SeverLogger};
+use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
@@ -32,7 +32,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
-    logger: SeverLogger,
+    logger: ServerLogger,
 }
 
 #[derive(Debug)]
@@ -363,7 +363,7 @@ impl HipContext {
         &mut self,
         kernel_id: &KernelId,
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
-        logger: &mut SeverLogger,
+        logger: &mut ServerLogger,
         mode: ExecutionMode,
     ) {
         #[cfg(feature = "compilation-cache")]
@@ -579,7 +579,7 @@ impl HipContext {
 impl HipServer {
     /// Create a new hip server.
     pub(crate) fn new(ctx: HipContext) -> Self {
-        let logger = SeverLogger::default();
+        let logger = ServerLogger::default();
         Self { ctx, logger }
     }
 
@@ -587,7 +587,7 @@ impl HipServer {
         self.get_context_with_logger().0
     }
 
-    fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut SeverLogger) {
+    fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut ServerLogger) {
         (&mut self.ctx, &mut self.logger)
     }
 }

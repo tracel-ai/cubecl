@@ -12,7 +12,7 @@ use cubecl_runtime::{
     ComputeRuntime, TimeMeasurement,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    logging::{ProfileLevel, SeverLogger},
+    logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
@@ -302,7 +302,7 @@ async fn request_adapter(
     device: &WgpuDevice,
     backend: wgpu::Backend,
 ) -> (wgpu::Instance, wgpu::Adapter) {
-    let debug = SeverLogger::default();
+    let debug = ServerLogger::default();
     let instance_flags = match (debug.profile_level(), debug.compilation_activated()) {
         (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
         (_, true) => InstanceFlags::debugging(),

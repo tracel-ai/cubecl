@@ -158,8 +158,8 @@ impl GlobalConfig {
                 "extensive" | "2" => {
                     self.autotune.level = AutotuneLevel::Extensive;
                 }
-                "exhaustive" | "3" => {
-                    self.autotune.level = AutotuneLevel::Exhaustive;
+                "full" | "3" => {
+                    self.autotune.level = AutotuneLevel::Full;
                 }
                 _ => {}
             }
