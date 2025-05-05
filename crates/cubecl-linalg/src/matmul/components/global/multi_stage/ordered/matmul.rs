@@ -36,11 +36,16 @@ pub struct OrderedDoubleBufferingMatmulFamily<
 }
 
 /// The ordered double buffering global matmul
-/// needs tilewise loading on Lhs to guarantee that planes
-/// only use data that they have loaded themselves.
-/// Also, it must be with col major tiling order so that
-/// the first loading tasks that are executed are for the first k iteration and so on
-pub type LL = sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>;
+/// requires tilewise loading on `Lhs` to guarantee that planes
+/// only use data they have loaded themselves.
+///
+/// Tiling order:
+/// - Row-major for now, since column-major would cause planes
+///   to interact with each other.
+/// - TODO: Ideally, column-major locally within each multi-row plane:
+///   each plane loads its own tiles in column-major order,
+///   aligning better with the `k` iterations.
+pub type LL = sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>;
 
 impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
 where
@@ -113,9 +118,11 @@ where
     }
 }
 
-/// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
-/// While they trigger a load event from global memory to shared memory on buffer A,
-/// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
+/// Performs matrix multiplication at the global level.
+/// Uses double buffering with two shared memory buffers for `Rhs`,
+/// but only one for `Lhs`—the second "buffer" for `Lhs` is the fragments themselves.
+/// For this to work, the `Lhs` loader planes must compute using
+/// only the data they have loaded themselves.
 pub struct OrderedDoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
@@ -170,22 +177,17 @@ where
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
         let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
-        // Lhs load A
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        // Rhs load A
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        // Lhs go to B
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
         sync_units();
 
-        // STATE: Lhs and Rhs have A filled, Lhs moved to B
-
         for _ in 0..num_loops {
             // Execute A
             SMM::execute_with_listener::<
-                NoEvent, // DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_reader,
                 &rhs_reader_a,
@@ -193,32 +195,16 @@ where
                 &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
-                NoEvent {}, // DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
-            // Rhs fill B
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
-
-            sync_units();
-
-            // Lhs fill B
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-
-            // Rhs is advanced by 2 * k because Buffer B shares the same global memory state as Buffer A,
-            // but it is implicitly offset by one buffer's worth (k elements) when reading.
-            // Lhs, on the other hand, is advanced by k twice — once per load/execute cycle —
-            // because it does not use a second, offset buffer; it simply progresses linearly through global memory.
-
-            // Lhs go to A NEXT
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            // Rhs go to NEXT
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_units();
 
-            // Execute B
             SMM::execute_with_listener::<
-                NoEvent, // DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_reader,
                 &rhs_reader_b,
@@ -226,31 +212,16 @@ where
                 &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
-                NoEvent {}, // DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
-            // Rhs fill A
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
-
-            // Some rare test fails without this sync
-            // Very weird that we don't have problem for ComputeA-LoadB
-            // Edit: if missing for ComputeA-LoadB the can fail on larger workload
-            sync_units();
-
-            // Lhs fill A
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-
-            // Lhs go to B
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
             sync_units();
-
-            // STATE: Lhs and Rhs have A filled, Lhs moved to B
         }
 
-        // Execute A
         SMM::execute_with_listener::<
-            NoEvent, // DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
         >(
             &lhs_reader,
             &rhs_reader_a,
@@ -258,16 +229,8 @@ where
             &mut rhs_tile,
             acc,
             config.to_smm_config(),
-            NoEvent {}, // DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
-
-        // Rhs fill B
-        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
-
-        sync_units();
-
-        // Lhs fill B
-        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
 
         sync_units();
 
