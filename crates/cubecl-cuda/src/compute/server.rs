@@ -38,6 +38,7 @@ use cudarc::driver::sys::{
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
@@ -660,8 +661,8 @@ impl CudaContext {
         let ptx = unsafe {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
             // leave it `None` for now
-            let program =
-                cudarc::nvrtc::result::create_program(kernel_compiled.source, None).unwrap();
+            let source = CString::from_str(&kernel_compiled.source).unwrap();
+            let program = cudarc::nvrtc::result::create_program(source.as_c_str(), None).unwrap();
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
                 let log_ptr = log_raw.as_ptr();
