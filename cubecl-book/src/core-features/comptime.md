@@ -34,7 +34,7 @@ arise when trying to execute that kernel.
 
 You could also achieve the sum using plane operations. We will write a kernel that uses that
 instruction when available based on a comptime feature flag. When it isn't available, it will fall
-back on the previous implementation essentially making it portable.
+back on the previous implementation, essentially making it portable.
 
 ```rust
 #[cube(launch)]
