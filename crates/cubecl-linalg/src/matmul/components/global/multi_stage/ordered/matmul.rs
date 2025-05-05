@@ -7,7 +7,7 @@ use crate::matmul::components::global::multi_stage::double_buffering::DoubleBuff
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, LoadingValidation};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::{BufferReader, ColMajorTilingOrder, StageConfig};
+use crate::matmul::components::stage::{BufferReader, ColMajorTilingOrder, NoEvent, StageConfig};
 use crate::matmul::components::stage::{FullReader, StageEvent};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
 use crate::matmul::components::{
@@ -168,16 +168,22 @@ where
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
         let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
+        // Lhs load A
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        // Rhs load A
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
+        // Lhs go to B
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
         sync_units();
 
+        // STATE: Lhs and Rhs have A filled, Lhs moved to B
+
         for _ in 0..num_loops {
+            // Execute A
             SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+                NoEvent, // DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_reader,
                 &rhs_reader_a,
@@ -185,20 +191,30 @@ where
                 &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+                NoEvent {}, // DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
+
+            sync_units();
 
             // Rhs is advanced by 2 * k because Buffer B shares the same global memory state as Buffer A,
             // but it is implicitly offset by one buffer's worth (k elements) when reading.
             // Lhs, on the other hand, is advanced by k twice — once per load/execute cycle —
             // because it does not use a second, offset buffer; it simply progresses linearly through global memory.
+
+            // Lhs fill B
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            // Lhs go to A NEXT
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            // Rhs fill B
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+            // Rhs go to NEXT
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_units();
 
+            // Execute B
             SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+                NoEvent, // DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_reader,
                 &rhs_reader_b,
@@ -206,16 +222,26 @@ where
                 &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
+                NoEvent {}, // DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
             sync_units();
 
+            // Lhs fill A
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            // Lhs go to B
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            // Rhs fill A
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+
+            sync_units();
+
+            // STATE: Lhs and Rhs have A filled, Lhs moved to B
         }
 
+        // Execute A
         SMM::execute_with_listener::<
-            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+            NoEvent, // DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
         >(
             &lhs_reader,
             &rhs_reader_a,
@@ -223,9 +249,17 @@ where
             &mut rhs_tile,
             acc,
             config.to_smm_config(),
-            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+            NoEvent {}, // DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
+        // Lhs fill B
+        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        // Rhs fill B
+        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+
+        sync_units();
+
+        // Execute B
         SMM::execute(
             &lhs_reader,
             &rhs_reader_b,
@@ -378,21 +412,21 @@ impl<
             this.init();
         }
 
-        if let StageEvent::TmmCompleted { current, total } = event {
-            let analysis = this.analyse(total);
+        // if let StageEvent::TmmCompleted { current, total } = event {
+        //     let analysis = this.analyse(total);
 
-            if comptime![!analysis.lhs_completed && analysis.lhs == current] {
-                let lhs_job = this.state_lhs.index_mut(0);
+        //     if comptime![!analysis.lhs_completed && analysis.lhs == current] {
+        //         let lhs_job = this.state_lhs.index_mut(0);
 
-                SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
-            }
+        //         SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+        //     }
 
-            if comptime![!analysis.rhs_completed && analysis.rhs == current] {
-                let rhs_job = this.state_rhs.index_mut(0);
+        //     if comptime![!analysis.rhs_completed && analysis.rhs == current] {
+        //         let rhs_job = this.state_rhs.index_mut(0);
 
-                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
-            }
-        }
+        //         SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+        //     }
+        // }
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
@@ -411,8 +445,6 @@ impl<
             for _ in rhs_num_task_executed..rhs_job.num_tasks {
                 SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
             }
-
-            sync_units();
         }
     }
 }
