@@ -126,6 +126,29 @@ impl MatmulConfigFactory for Accelerated {
                 "Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly.",
             ));
         }
+
+        // Validate stage sizes for 2D inputs
+        let size = config.size;
+        if size.m == 1 || size.n == 1 {
+            // For 2D inputs, ensure stage sizes are valid
+            if size.m == 1 {
+                if size.n % size.m != 0 {
+                    return Err(Box::new(format!(
+                        "Error: For 2D input, stage size n ({}) must divide input dimension evenly",
+                        size.n
+                    )));
+                }
+            }
+            if size.n == 1 {
+                if size.m % size.n != 0 {
+                    return Err(Box::new(format!(
+                        "Error: For 2D input, stage size m ({}) must divide input dimension evenly",
+                        size.m
+                    )));
+                }
+            }
+        }
+
         Ok(())
     }
 
