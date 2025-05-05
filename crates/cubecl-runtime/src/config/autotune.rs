@@ -1,7 +1,6 @@
-use super::{
-    cache::CacheConfig,
-    logger::{LogLevel, LoggerConfig},
-};
+#[cfg(feature = "std")]
+use super::cache::CacheConfig;
+use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for autotuning in CubeCL.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]

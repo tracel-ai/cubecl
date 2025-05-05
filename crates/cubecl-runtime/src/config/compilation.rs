@@ -1,7 +1,6 @@
-use super::{
-    cache::CacheConfig,
-    logger::{BinaryLogLevel, LoggerConfig},
-};
+#[cfg(feature = "std")]
+use super::cache::CacheConfig;
+use super::logger::{BinaryLogLevel, LoggerConfig};
 
 /// Configuration for compilation settings in CubeCL.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
