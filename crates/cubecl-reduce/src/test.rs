@@ -340,7 +340,12 @@ impl TestCase {
             Some(axis) if self.stride[axis] == 0 => vec![0; input_values.len()],
             _ => self.cpu_argmax(&input_values),
         };
-        self.run_reduce_test::<F, u32, R, ArgMax>(device, input_values, expected_values)
+        self.run_reduce_test::<F, u32, R>(
+            device,
+            input_values,
+            expected_values,
+            ReduceFnConfig::ArgMax,
+        )
     }
 
     fn cpu_argmax<F: Float>(&self, values: &[F]) -> Vec<u32> {
@@ -368,7 +373,12 @@ impl TestCase {
             Some(axis) if self.stride[axis] == 0 => vec![0; input_values.len()],
             _ => self.cpu_argmin(&input_values),
         };
-        self.run_reduce_test::<F, u32, R, ArgMin>(device, input_values, expected_values)
+        self.run_reduce_test::<F, u32, R>(
+            device,
+            input_values,
+            expected_values,
+            ReduceFnConfig::ArgMin,
+        )
     }
 
     fn cpu_argmin<F: Float>(&self, values: &[F]) -> Vec<u32> {
@@ -396,7 +406,12 @@ impl TestCase {
             Some(axis) if self.stride[axis] == 0 => input_values.clone(),
             _ => self.cpu_mean(&input_values),
         };
-        self.run_reduce_test::<F, F::EI, R, Mean>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F::EI, R>(
+            device,
+            input_values,
+            expected_values,
+            ReduceFnConfig::Mean,
+        )
     }
 
     fn cpu_mean<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -420,7 +435,12 @@ impl TestCase {
                 .collect(),
             _ => self.cpu_prod(&input_values),
         };
-        self.run_reduce_test::<F, F::EI, R, Prod>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F::EI, R>(
+            device,
+            input_values,
+            expected_values,
+            ReduceFnConfig::Prod,
+        )
     }
 
     fn powf<F: Float>(base: F, power: usize) -> F {
@@ -456,7 +476,12 @@ impl TestCase {
                 .collect(),
             _ => self.cpu_sum(&input_values),
         };
-        self.run_reduce_test::<F, F::EI, R, Sum>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F::EI, R>(
+            device,
+            input_values,
+            expected_values,
+            ReduceFnConfig::Sum,
+        )
     }
 
     fn cpu_sum<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -483,17 +508,17 @@ impl TestCase {
         self.run_shared_sum_test::<F, R>(device, input_values, expected);
     }
 
-    pub fn run_reduce_test<P, O, R, K>(
+    pub fn run_reduce_test<P, O, R>(
         &self,
         device: &R::Device,
         input_values: Vec<P::EI>,
         expected_values: Vec<O>,
+        fn_config: ReduceFnConfig,
     ) where
         P: ReducePrecision,
         P::EI: CubeElement,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
-        K: ReduceFamily<Config = ()>,
     {
         let client = R::client(device);
 
@@ -524,13 +549,13 @@ impl TestCase {
             )
         };
 
-        let result = reduce::<R, P, O, K>(
+        let result = reduce::<R, P, O>(
             &client,
             input,
             output,
             self.axis.unwrap(),
             self.strategy,
-            (),
+            fn_config,
         );
         if result.is_err_and(|e| {
             e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim

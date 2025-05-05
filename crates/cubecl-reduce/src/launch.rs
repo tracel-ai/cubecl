@@ -7,6 +7,7 @@ use crate::BoundChecksInner;
 use crate::args::ReduceArgs;
 use crate::args::TensorArgs;
 use crate::args::init_tensors;
+use crate::instructions::ReduceFn;
 use crate::instructions::*;
 use crate::precision::ReducePrecision;
 use crate::primitives::*;
@@ -15,14 +16,14 @@ use crate::{LineMode, ReduceConfig, ReduceStrategy};
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
-pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: ReduceFamily>(
+pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric>(
     client: &ComputeClient<Run::Server, Run::Channel>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
     axis: u32,
     config: ReduceConfig,
     strategy: ReduceStrategy,
-    inst: Rd::Config,
+    fn_config: ReduceFnConfig,
 ) {
     let settings = ReduceParams {
         shared: strategy.shared.then(|| {
@@ -40,7 +41,7 @@ pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: 
         bound_checks_inner: config.bound_checks_inner,
     };
     unsafe {
-        reduce_kernel::launch_unchecked::<P::EI, Out, P::EA, Rd, TensorArgs, Run>(
+        reduce_kernel::launch_unchecked::<P::EI, Out, P::EA, TensorArgs, Run>(
             client,
             config.cube_count,
             config.cube_dim,
@@ -48,7 +49,7 @@ pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: 
             output.as_tensor_arg(config.line_size_output as u8),
             ScalarArg::new(axis),
             settings,
-            inst,
+            fn_config,
         );
     }
 }
@@ -65,12 +66,12 @@ pub struct ReduceParams {
 }
 
 #[cube(launch_unchecked)]
-pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, RA: ReduceArgs>(
+pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, RA: ReduceArgs>(
     input: &RA::Input<In>,
     output: &mut RA::Output<Out>,
     axis_reduce: u32,
     #[comptime] params: ReduceParams,
-    #[comptime] config: R::Config,
+    #[comptime] config: ReduceFnConfig,
 ) {
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
     let reduce_index = get_reduce_index(params);
@@ -81,7 +82,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
         terminate!();
     }
 
-    reduce_kernel_inner::<(In, Acc), Out, R>(
+    reduce_kernel_inner::<(In, Acc), Out, ReduceFn>(
         &input,
         &mut output,
         axis_reduce,

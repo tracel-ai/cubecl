@@ -25,6 +25,7 @@ mod strategy;
 pub use config::*;
 pub use error::*;
 pub use instructions::ReduceFamily;
+use instructions::ReduceFnConfig;
 pub use instructions::ReduceInstruction;
 pub use precision::ReducePrecision;
 pub use shared_sum::*;
@@ -92,16 +93,17 @@ use cubecl_core::prelude::*;
 ///        println!("Output = {:?}", output_values); // Should print [1, 5].
 /// }
 /// ```
-pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
+pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: usize,
     strategy: Option<ReduceStrategy>,
-    inst_config: Inst::Config,
+    inst_config: ReduceFnConfig,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valid_output_shape(input.shape, output.shape, axis)?;
+
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
@@ -114,7 +116,7 @@ pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
         }
     }
 
-    launch_reduce::<R, P, Out, Inst>(
+    launch_reduce::<R, P, Out>(
         client,
         input,
         output,
@@ -125,6 +127,7 @@ pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
     );
     Ok(())
 }
+
 
 // Check that the given axis is less than the rank of the input.
 fn validate_axis(rank: usize, axis: usize) -> Result<(), ReduceError> {
