@@ -1,7 +1,9 @@
+use std::sync::atomic::{AtomicI8, Ordering};
+
 use alloc::collections::BTreeMap;
 
 use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
-use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
 use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
@@ -18,6 +20,8 @@ pub struct KernelBuilder {
     scalars: BTreeMap<Elem, usize>,
     tensor_maps: Vec<Id>,
 }
+
+static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
     /// Register a scalar and return the [element](ExpandElement) to be used for kernel expansion.
@@ -118,8 +122,20 @@ impl KernelBuilder {
     }
 
     pub fn new() -> Self {
+        let debug = DEBUG.load(Ordering::Relaxed);
+        let debug = if debug == -1 {
+            let val = match GlobalConfig::get().compilation.logger.level {
+                CompilationLogLevel::Disabled => 0,
+                CompilationLogLevel::Full => 1,
+            };
+
+            DEBUG.store(val, Ordering::Relaxed);
+            val == 1
+        } else {
+            debug == 1
+        };
         Self {
-            scope: Scope::root(DebugLogger::default().is_activated()),
+            scope: Scope::root(debug),
             buffers: Default::default(),
             scalars: Default::default(),
             tensor_maps: Default::default(),

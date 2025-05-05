@@ -1,7 +1,7 @@
 use cubecl_common::ExecutionMode;
 use cubecl_core::{Metadata, WgpuCompilationOptions, ir as core, prelude::FastMath};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
-use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 use std::{
     collections::HashSet,
     fmt::Debug,
@@ -79,6 +79,13 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
     }
 }
 
+fn debug_symbols_activated() -> bool {
+    match GlobalConfig::get().compilation.logger.level {
+        CompilationLogLevel::Full => true,
+        CompilationLogLevel::Disabled => false,
+    }
+}
+
 impl<T: SpirvTarget> Default for SpirvCompiler<T> {
     fn default() -> Self {
         Self {
@@ -94,7 +101,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             opt: Default::default(),
             uniformity: Default::default(),
             current_block: Default::default(),
-            debug_symbols: DebugLogger::default().is_activated(),
+            debug_symbols: debug_symbols_activated(),
             fp_math_mode: FPFastMathMode::NONE,
             visited: Default::default(),
             metadata: Default::default(),
@@ -189,7 +196,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
         let options = kernel.options.clone();
 
-        self.debug_symbols = DebugLogger::default().is_activated() || options.debug_symbols;
+        self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
         self.fp_math_mode = match self.compilation_options.supports_fp_fast_math {
             true => convert_math_mode(options.fp_math_mode),
             false => FPFastMathMode::NONE,

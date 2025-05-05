@@ -1,5 +1,7 @@
 use core::sync::atomic::{AtomicI32, Ordering};
 
+use crate::config::GlobalConfig;
+
 /// Autotune levels:
 ///
 /// '0' => Minimal autotune: scaled anchor of '1.25'.
@@ -7,7 +9,6 @@ use core::sync::atomic::{AtomicI32, Ordering};
 /// '2' => More autotune: scaled anchor of '0.75'.
 /// '3' => Autotune everything without anchor.
 static AUTOTUNE_LEVEL: AtomicI32 = AtomicI32::new(-1);
-static DEFAULT_LEVEL: u32 = 1;
 
 /// Anchor a number to a power of the provided base.
 ///
@@ -43,20 +44,15 @@ pub fn anchor(x: usize, max: Option<usize>, min: Option<usize>, base: Option<usi
 fn load_autotune_level() -> u32 {
     let autotune_level = AUTOTUNE_LEVEL.load(Ordering::Relaxed);
     if autotune_level == -1 {
-        #[cfg(feature = "std")]
-        {
-            let level: u32 = std::env::var("CUBECL_AUTOTUNE_LEVEL")
-                .map(|value| {
-                    value
-                        .parse()
-                        .expect("'CUBECL_AUTOTUNE_LEVEL' should be an integer.")
-                })
-                .unwrap_or(DEFAULT_LEVEL);
-            AUTOTUNE_LEVEL.store(level as i32, Ordering::Relaxed);
-            level
-        }
-        #[cfg(not(feature = "std"))]
-        DEFAULT_LEVEL
+        let config = GlobalConfig::get();
+        let level = match config.autotune.level {
+            crate::config::autotune::AutotuneLevel::Minimal => 0,
+            crate::config::autotune::AutotuneLevel::Balanced => 1,
+            crate::config::autotune::AutotuneLevel::Extensive => 2,
+            crate::config::autotune::AutotuneLevel::Full => 3,
+        };
+        AUTOTUNE_LEVEL.store(level, Ordering::Relaxed);
+        level as u32
     } else {
         autotune_level as u32
     }
