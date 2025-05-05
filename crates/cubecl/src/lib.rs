@@ -1,5 +1,7 @@
 pub use cubecl_core::*;
 
+pub use cubecl_runtime::config;
+
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
 
