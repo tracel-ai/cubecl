@@ -112,7 +112,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
     // to be the rough cutoff for the k=4 size.
     let stage_size_k = if problem.k >= 4096 { 4 } else { 2 };
 
-    let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
+    let (instruction_m, instruction_n, _instruction_k) = find_instruction_shape(
         if TMM::requires_tensor_cores() {
             Some((
                 client.properties(),
