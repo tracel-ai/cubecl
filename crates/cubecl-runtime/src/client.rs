@@ -8,7 +8,6 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
-use spin::Mutex;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -21,8 +20,6 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 #[derive(new, Debug)]
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
-    profile_lock: Mutex<()>,
-
     info: Server::Info,
 }
 
@@ -55,7 +52,7 @@ where
         properties: DeviceProperties<Server::Feature>,
         info: Server::Info,
     ) -> Self {
-        let state = ComputeClientState::new(properties, Mutex::new(()), info);
+        let state = ComputeClientState::new(properties, info);
         Self {
             channel,
             state: Arc::new(state),
@@ -227,10 +224,9 @@ where
     /// Nb: this function will only allow one function at a time to be submitted when multithrading.
     /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
-        let guard = self.state.profile_lock.lock();
-        self.channel.start_profile();
+        let token = self.channel.start_profile();
         func();
-        let result = self.channel.end_profile();
+        let result = self.channel.end_profile(token);
         let result = match self.properties().time_measurement() {
             TimeMeasurement::Device => result,
             TimeMeasurement::System => {
@@ -246,7 +242,6 @@ where
                 }
             }
         };
-        core::mem::drop(guard);
         result
     }
 }

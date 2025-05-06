@@ -5,7 +5,9 @@ use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 
@@ -49,8 +51,8 @@ where
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
-    StartProfile,
-    StopMeasure(Callback<ProfileDuration>),
+    StartProfile(Callback<ProfilingToken>),
+    StopMeasure(Callback<ProfileDuration>, ProfilingToken),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -111,11 +113,12 @@ where
                         Message::MemoryCleanup => {
                             server.memory_cleanup();
                         }
-                        Message::StartProfile => {
-                            server.start_profile();
+                        Message::StartProfile(callback) => {
+                            let token = server.start_profile();
+                            callback.send(token).await.unwrap();
                         }
-                        Message::StopMeasure(callback) => {
-                            callback.send(server.end_profile()).await.unwrap();
+                        Message::StopMeasure(callback, token) => {
+                            callback.send(server.end_profile(token)).await.unwrap();
                         }
                     };
                 }
@@ -274,18 +277,22 @@ where
             .unwrap()
     }
 
-    fn start_profile(&self) {
+    fn start_profile(&self) -> ProfilingToken {
+        let (callback, response) = async_channel::unbounded();
+
         self.state
             .sender
-            .send_blocking(Message::StartProfile)
+            .send_blocking(Message::StartProfile(callback))
             .unwrap();
+
+        handle_response(response.recv_blocking())
     }
 
-    fn end_profile(&self) -> ProfileDuration {
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::StopMeasure(callback))
+            .send_blocking(Message::StopMeasure(callback, token))
             .unwrap();
         handle_response(response.recv_blocking())
     }

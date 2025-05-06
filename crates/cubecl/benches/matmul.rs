@@ -69,45 +69,53 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    for (b, m, n, k) in [
-        (1, 8192, 8192, 8192),
-        (1, 6144, 6144, 6144),
-        (1, 5000, 5000, 5000),
-        (2, 4096, 4096, 4096),
-        (32, 1024, 1024, 1024),
-    ] {
-        let bench = MatmulBench::<R, MP> {
-            b,
-            m,
-            k,
-            n,
-            client: client.clone(),
-            device: device.clone(),
-            strategy: strategy.clone(),
-            _mp: PhantomData,
-        };
-        println!("b: {b} m: {m} n: {n} k: {k}");
-        println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::Full));
-    }
+    let profiled = client.profile(|| {
+        for (b, m, n, k) in [
+            // (1, 8192, 8192, 8192),
+            // (1, 6144, 6144, 6144),
+            // (1, 5000, 5000, 5000),
+            (2, 4096, 4096, 4096),
+            (32, 1024, 1024, 1024),
+        ] {
+            let profiled = client.profile(|| {
+                let bench = MatmulBench::<R, MP> {
+                    b,
+                    m,
+                    k,
+                    n,
+                    client: client.clone(),
+                    device: device.clone(),
+                    strategy: strategy.clone(),
+                    _mp: PhantomData,
+                };
+                println!("b: {b} m: {m} n: {n} k: {k}");
+                println!("{}", bench.name());
+                println!("{}", bench.run(TimingMethod::Full));
+            });
+            let time = cubecl::future::block_on(profiled.resolve());
+            println!("Took  {time:?}");
+        }
+    });
+    let time = cubecl::future::block_on(profiled.resolve());
+    println!("Time {time:?}");
 }
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
-    );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
-    );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
+    // );
     // // run::<R, MP>(
     // //     Default::default(),
     // //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
@@ -116,10 +124,10 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // //     Default::default(),
     // //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
     // // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
@@ -139,7 +147,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 fn main() {
     #[cfg(feature = "wgpu")]
     {
-        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
 
     #[cfg(feature = "wgpu-spirv")]

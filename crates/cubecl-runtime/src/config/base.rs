@@ -46,6 +46,8 @@ impl GlobalConfig {
             let config = config.override_from_env();
             #[cfg(not(feature = "std"))]
             let config = Self::default();
+
+            println!("Config {config:?}");
             *state = Some(Arc::new(config));
         }
 
@@ -196,6 +198,7 @@ impl GlobalConfig {
     // Loads configuration from a specified file path.
     #[cfg(feature = "std")]
     fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
+        println!("path {:?}", path.as_ref().to_str());
         let content = std::fs::read_to_string(path)?;
         let config: Self = match toml::from_str(&content) {
             Ok(val) => val,

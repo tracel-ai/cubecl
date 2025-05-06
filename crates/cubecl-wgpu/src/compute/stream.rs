@@ -2,8 +2,9 @@ use cubecl_core::{
     CubeCount, MemoryConfiguration,
     benchmark::ProfileDuration,
     future::{self, DynFut},
-    server::{Binding, Bindings, Handle},
+    server::{Binding, Bindings, Handle, ProfilingToken},
 };
+use hashbrown::HashMap;
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 
 use web_time::{Duration, Instant};
@@ -15,16 +16,17 @@ use wgpu::{ComputePipeline, QuerySetDescriptor, QueryType};
 
 #[derive(Debug)]
 enum KernelTimestamps {
-    Device { query_set: QuerySet, init: bool },
+    Device { query_set: QuerySet },
     Full { start_time: Instant },
-    Disabled,
 }
 
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
-
-    timestamps: KernelTimestamps,
+    timestamps: HashMap<ProfilingToken, KernelTimestamps>,
+    timestamps_device_init: Vec<ProfilingToken>,
+    timestamp_counter: u64,
+    profiling_token: Option<ProfilingToken>,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     tasks_count: usize,
@@ -61,7 +63,10 @@ impl WgpuStream {
         Self {
             mem_manage,
             compute_pass: None,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: HashMap::new(),
+            timestamps_device_init: Vec::new(),
+            timestamp_counter: 0,
+            profiling_token: None,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -121,25 +126,23 @@ impl WgpuStream {
         let pass = self.compute_pass.get_or_insert_with(|| {
             // Write out timestamps. The first compute pass writes both a start and end timestamp.
             // the second timestamp writes out only an end stamp.
-            let timestamps =
-                if let KernelTimestamps::Device { query_set, init } = &mut self.timestamps {
-                    let result = Some(wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: if !*init { Some(0) } else { None },
-                        end_of_pass_write_index: Some(1),
-                    });
-                    *init = true;
-                    result
-                } else {
-                    None
-                };
-
-            self.encoder
+            let mut pass = self
+                .encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
-                    timestamp_writes: timestamps,
+                    timestamp_writes: None,
                 })
-                .forget_lifetime()
+                .forget_lifetime();
+
+            for token in self.timestamps_device_init.drain(..) {
+                if let KernelTimestamps::Device { query_set } =
+                    &mut self.timestamps.get_mut(&token).unwrap()
+                {
+                    pass.write_timestamp(&query_set, 0);
+                }
+            }
+
+            pass
         });
 
         self.tasks_count += 1;
@@ -249,16 +252,19 @@ impl WgpuStream {
         })
     }
 
-    pub fn is_profiling(&self) -> bool {
-        !matches!(self.timestamps, KernelTimestamps::Disabled)
+    pub fn get_profiling_token(&self) -> Option<ProfilingToken> {
+        self.profiling_token
     }
 
-    pub fn start_profile(&mut self) {
-        if self.is_profiling() {
-            panic!(
-                "Can't start a profile while one is running, recursive profiling is not supported."
-            );
-        }
+    pub fn set_profiling_token(&mut self, token: Option<ProfilingToken>) {
+        self.profiling_token = token;
+    }
+
+    pub fn start_profile(&mut self) -> ProfilingToken {
+        let token = ProfilingToken {
+            id: self.timestamp_counter,
+        };
+        self.timestamp_counter += 1;
 
         if matches!(self.time_measurement, TimeMeasurement::Device) {
             // Flush all commands to the queue. This isn't really needed, but this should mean
@@ -270,16 +276,18 @@ impl WgpuStream {
                 ty: QueryType::Timestamp,
                 count: 2,
             });
-            self.timestamps = KernelTimestamps::Device {
-                query_set,
-                init: false,
-            };
+            self.timestamps_device_init.push(token);
+            self.timestamps
+                .insert(token, KernelTimestamps::Device { query_set });
         } else if !cfg!(target_family = "wasm") {
             // On native platforms, fallback to measuring full time elapsed.
             future::block_on(self.sync());
-            self.timestamps = KernelTimestamps::Full {
-                start_time: Instant::now(),
-            };
+            self.timestamps.insert(
+                token,
+                KernelTimestamps::Full {
+                    start_time: Instant::now(),
+                },
+            );
         } else {
             // On WASM, there's not much we can do here anymore. This should be very rare however,
             // all modern GPU's support timestamp queries.
@@ -287,16 +295,21 @@ impl WgpuStream {
                 "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
             );
         }
+
+        token
     }
 
-    pub fn stop_profile(&mut self) -> ProfileDuration {
+    pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.compute_pass = None;
 
-        let timestamp = std::mem::replace(&mut self.timestamps, KernelTimestamps::Disabled);
+        let timestamp = self
+            .timestamps
+            .remove(&token)
+            .expect("profiling token should be registered and used only once.");
 
         match timestamp {
-            KernelTimestamps::Device { query_set, init } => {
-                if !init {
+            KernelTimestamps::Device { query_set } => {
+                if self.timestamps_device_init.contains(&token) {
                     // If there was no work done between the start and stop of the profile, logically the
                     // time should be 0. We could use a ProfileDuration::from_duration here,
                     // but it seems better to always return things as 'device' timing method.
@@ -331,9 +344,6 @@ impl WgpuStream {
                     start_time.elapsed()
                 };
                 ProfileDuration::from_future(duration_fut)
-            }
-            KernelTimestamps::Disabled => {
-                panic!("Must start a profile before stopping a profile.")
             }
         }
     }

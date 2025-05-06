@@ -7,6 +7,7 @@ use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::future::DynFut;
+use cubecl_core::server::ProfilingToken;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
@@ -164,18 +165,19 @@ impl ComputeServer for WgpuServer {
             None
         };
 
-        let currently_profiling = self.stream.is_profiling();
+        let profiling_token = self.stream.get_profiling_token();
 
         if profile_level.is_some() {
             // Add in current time if currently profiling.
-            if currently_profiling {
-                let profile = self.stream.stop_profile();
+            if let Some(token) = profiling_token {
+                let profile = self.stream.stop_profile(token);
                 let duration = future::block_on(profile.resolve());
                 self.duration_profiled =
                     Some(self.duration_profiled.unwrap_or_default() + duration);
             }
 
-            self.stream.start_profile();
+            let token = self.stream.start_profile();
+            self.stream.set_profiling_token(Some(token));
         }
 
         // Start execution.
@@ -184,31 +186,33 @@ impl ComputeServer for WgpuServer {
 
         // If profiling, write out results.
         if let Some(level) = profile_level {
-            let profile = self.stream.stop_profile();
-            // Execute the task.
-            let duration = future::block_on(profile.resolve());
+            if let Some(token) = self.stream.get_profiling_token() {
+                let profile = self.stream.stop_profile(token);
+                // Execute the task.
+                let duration = future::block_on(profile.resolve());
 
-            let (name, kernel_id) = profile_info.unwrap();
+                let (name, kernel_id) = profile_info.unwrap();
 
-            self.duration_profiled = Some(self.duration_profiled.unwrap_or_default() + duration);
+                self.duration_profiled =
+                    Some(self.duration_profiled.unwrap_or_default() + duration);
 
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
+                let info = match level {
+                    ProfileLevel::Basic | ProfileLevel::Medium => {
+                        if let Some(val) = name.split("<").next() {
+                            val.split("::").last().unwrap_or(name).to_string()
+                        } else {
+                            name.to_string()
+                        }
                     }
-                }
-                ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
-            };
-            self.logger.register_profiled(info, duration);
+                    ProfileLevel::Full => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                    }
+                };
+                self.logger.register_profiled(info, duration);
 
-            // Restart profile if currently profiling.
-            if currently_profiling {
-                self.stream.start_profile();
+                // Restart profile if currently profiling.
+                let token = self.stream.start_profile();
+                self.stream.set_profiling_token(Some(token));
             }
         }
     }
@@ -224,15 +228,18 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    fn start_profile(&mut self) {
-        self.stream.start_profile();
+    fn start_profile(&mut self) -> ProfilingToken {
+        let token = self.stream.start_profile();
+        println!("Start profiling {token:?}");
+        token
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+        println!("End profiling {token:?}");
         self.logger.profile_summary();
 
         // TODO: Deal with BS recursive profile thing...
-        let profile = self.stream.stop_profile();
+        let profile = self.stream.stop_profile(token);
         let duration_profiled = self.duration_profiled;
         self.duration_profiled = None;
 
