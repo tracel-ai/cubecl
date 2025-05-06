@@ -32,7 +32,8 @@ pub use strategy::*;
 
 use launch::*;
 
-pub use launch::{ReduceParams, reduce_kernel};
+pub use args::init_tensors;
+pub use launch::{ReduceParams, reduce_kernel, reduce_kernel_virtal};
 
 #[cfg(feature = "export_tests")]
 pub mod test;

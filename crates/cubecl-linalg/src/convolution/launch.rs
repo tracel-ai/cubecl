@@ -151,7 +151,13 @@ where
         dimensionality,
     };
 
-    let (selection, config_input) = select_matmul::<Alg, R, MP>(client, &problem, plane_dim);
+    let (selection, config_input) = select_matmul::<Alg, R>(
+        client,
+        &problem,
+        plane_dim,
+        MP::ES::as_elem_native_unchecked(),
+        MP::EA::as_elem_native_unchecked(),
+    );
 
     let launch = if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
         if tf32::is_supported(client) {

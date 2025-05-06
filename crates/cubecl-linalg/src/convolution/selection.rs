@@ -1,4 +1,4 @@
-use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
+use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use super::{
     algorithm::{Algorithm, StageInput},
@@ -6,19 +6,22 @@ use super::{
 };
 use crate::matmul::{
     components::{
-        CompleteStageTiling, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
-        stage::StageVectorization, tile::TileMatmulFamily,
+        CompleteStageTiling, MatmulProblem, MatmulSelection, MatmulSize, stage::StageVectorization,
+        tile::TileMatmulFamily,
     },
     kernels::matmul::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_shape},
 };
 
-pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
+pub fn select_matmul<A: Algorithm, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &ConvolutionProblem,
     plane_dim: u32,
+    elem_stage: Elem,
+    elem_acc: Elem,
 ) -> (MatmulSelection, StageInput) {
     let mm_problem = problem.as_matmul_problem();
-    let selection = matmul_selection::<A::TileMatmul, MP, R>(client, &mm_problem, plane_dim);
+    let selection =
+        matmul_selection::<A::TileMatmul, R>(client, &mm_problem, plane_dim, elem_stage, elem_acc);
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
@@ -103,10 +106,12 @@ pub(crate) fn find_stage_size_m_n(
     }
 }
 
-pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
+pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
+    elem_stage: Elem,
+    elem_acc: Elem,
 ) -> MatmulSelection {
     // rough heuristic based on previous bench results where 512 channels with a 3x3 kernel seemed
     // to be the rough cutoff for the k=4 size.
@@ -114,14 +119,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
 
     let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
         if TMM::requires_tensor_cores() {
-            Some((
-                client.properties(),
-                (
-                    MP::ES::as_elem_native_unchecked(),
-                    MP::ES::as_elem_native_unchecked(),
-                    MP::EA::as_elem_native_unchecked(),
-                ),
-            ))
+            Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
             None
         },
