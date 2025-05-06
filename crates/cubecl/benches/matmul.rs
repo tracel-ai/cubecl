@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
+use cubecl_linalg::matmul::SyncBufferLoadingStrategy;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
@@ -68,65 +69,57 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    let profiled = client.profile(|| {
-        for (b, m, n, k) in [
-            // (1, 8192, 8192, 8192),
-            // (1, 6144, 6144, 6144),
-            // (1, 5000, 5000, 5000),
-            (2, 4096, 4096, 4096),
-            (32, 1024, 1024, 1024),
-        ] {
-            let profiled = client.profile(|| {
-                let bench = MatmulBench::<R, MP> {
-                    b,
-                    m,
-                    k,
-                    n,
-                    client: client.clone(),
-                    device: device.clone(),
-                    strategy: strategy.clone(),
-                    _mp: PhantomData,
-                };
-                println!("b: {b} m: {m} n: {n} k: {k}");
-                println!("{}", bench.name());
-                println!("{}", bench.run(TimingMethod::Full));
-            });
-            let time = cubecl::future::block_on(profiled.resolve());
-            println!("Took  {time:?}");
-        }
-    });
-    let time = cubecl::future::block_on(profiled.resolve());
-    println!("Time {time:?}");
+    for (b, m, n, k) in [
+        // (1, 8192, 8192, 8192),
+        // (1, 6144, 6144, 6144),
+        // (1, 5000, 5000, 5000),
+        (2, 4096, 4096, 4096),
+        (32, 1024, 1024, 1024),
+    ] {
+        let bench = MatmulBench::<R, MP> {
+            b,
+            m,
+            k,
+            n,
+            client: client.clone(),
+            device: device.clone(),
+            strategy: strategy.clone(),
+            _mp: PhantomData,
+        };
+        println!("b: {b} m: {m} n: {n} k: {k}");
+        println!("{}", bench.name());
+        println!("{}", bench.run(TimingMethod::Full));
+    }
 }
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
-    // );
-    // // run::<R, MP>(
-    // //     Default::default(),
-    // //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // // );
-    // // run::<R, MP>(
-    // //     Default::default(),
-    // //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // // );
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
     );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
+    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Tiling2D(Default::default()),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
