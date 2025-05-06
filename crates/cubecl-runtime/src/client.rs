@@ -2,14 +2,15 @@ use crate::{
     DeviceProperties, TimeMeasurement,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
-    server::{
-        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
-    },
+    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+
+#[cfg(feature = "std")]
+use crate::profiling_queue::ProfilingPriotityQueue;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -23,21 +24,8 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
     info: Server::Info,
-    profile_lock: spin::Mutex<Vec<ProfileGuard>>,
-}
-
-#[derive(new, Debug)]
-struct ProfileGuard {
-    stream_id: StreamId,
-    num_allowed: u32,
-    init_token: InitToken,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum InitToken {
-    Uninitialized,
-    Finished,
-    Initialized(ProfilingToken),
+    #[cfg(feature = "std")]
+    queue: ProfilingPriotityQueue,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -69,7 +57,11 @@ where
         properties: DeviceProperties<Server::Feature>,
         info: Server::Info,
     ) -> Self {
-        let state = ComputeClientState::new(properties, info, spin::Mutex::new(Vec::new()));
+        #[cfg(feature = "std")]
+        let state = ComputeClientState::new(properties, info, ProfilingPriotityQueue::new());
+        #[cfg(not(feature = "std"))]
+        let state = ComputeClientState::new(properties, info);
+
         Self {
             channel,
             state: Arc::new(state),
@@ -242,7 +234,7 @@ where
     /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
         #[cfg(feature = "std")]
-        let (stream_id, should_init) = self.aquire_profile_priority();
+        let (stream_id, should_init) = self.state.queue.aquire_profile_priority();
 
         let token = self.channel.start_profile();
         // TODO: Panic unwind to catch errors on native. Mostly for testing and catch errors
@@ -251,8 +243,9 @@ where
 
         let result = self.channel.end_profile(token);
 
+        #[cfg(feature = "std")]
         if should_init {
-            self.set_profile_priotity_init_token(token);
+            self.state.queue.set_profile_priotity_init_token(token);
         }
 
         let result = match self.properties().time_measurement() {
@@ -272,90 +265,8 @@ where
         };
 
         #[cfg(feature = "std")]
-        self.release_profile_priotity(stream_id, token);
+        self.state.queue.release_profile_priotity(stream_id, token);
 
         result
-    }
-
-    #[cfg(feature = "std")]
-    /// In a multi-threaded environmement you don't want your profiling tasks to include other jobs than
-    /// the ones from the current thread. If the current thread uses recursive profiling, you want
-    /// all of those jobs to be done before the ones from another thread.
-    fn aquire_profile_priority(&self) -> (StreamId, bool) {
-        let stream_id = StreamId::current();
-        let mut state = self.state.profile_lock.lock();
-
-        // Current stream is allowed.
-        if let Some(current) = state.get_mut(0) {
-            if current.stream_id == stream_id {
-                if !matches!(current.init_token, InitToken::Finished) {
-                    current.num_allowed += 1;
-                    return (stream_id, false);
-                }
-            }
-        }
-
-        let mut registered = false;
-        for current in state.iter_mut() {
-            if current.stream_id == stream_id {
-                if !matches!(current.init_token, InitToken::Finished) {
-                    current.num_allowed += 1;
-                    registered = true;
-                }
-            }
-        }
-        if !registered {
-            state.push(ProfileGuard::new(stream_id, 1, InitToken::Uninitialized));
-        }
-
-        // Current stream.
-        if state.len() == 1 {
-            return (stream_id, true);
-        } else {
-            core::mem::drop(state);
-
-            loop {
-                std::thread::sleep(core::time::Duration::from_millis(10));
-
-                let mut state = self.state.profile_lock.lock();
-                if let Some(current) = state.get_mut(0) {
-                    if current.stream_id == stream_id {
-                        current.num_allowed += 1;
-                        let should_init = matches!(current.init_token, InitToken::Uninitialized);
-                        return (stream_id, should_init);
-                    }
-                }
-            }
-        }
-    }
-
-    #[cfg(feature = "std")]
-    fn set_profile_priotity_init_token(&self, init_token: ProfilingToken) {
-        let mut state = self.state.profile_lock.lock();
-        let current = state.get_mut(0).unwrap();
-
-        if matches!(current.init_token, InitToken::Uninitialized) {
-            current.init_token = InitToken::Initialized(init_token);
-        }
-    }
-
-    #[cfg(feature = "std")]
-    fn release_profile_priotity(&self, stream_id: StreamId, token: ProfilingToken) {
-        let mut state = self.state.profile_lock.lock();
-        let current = state.get_mut(0).unwrap();
-
-        if current.stream_id != stream_id {
-            panic!("Wrong releasing priority.");
-        }
-
-        current.num_allowed -= 1;
-
-        if current.init_token == InitToken::Initialized(token) {
-            current.init_token = InitToken::Finished;
-        }
-
-        if current.num_allowed == 0 {
-            state.remove(0);
-        }
     }
 }
