@@ -145,29 +145,6 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         stage_size_k,
     );
 
-    // Ensure stage sizes are valid for 2D inputs
-    let stage_size_m = if problem.m == 1 {
-        // For 2D input, ensure stage size divides evenly
-        let mut valid_size = stage_size_m;
-        while valid_size > 1 && (problem.n % valid_size != 0 || valid_size % instruction_m != 0) {
-            valid_size /= 2;
-        }
-        valid_size
-    } else {
-        stage_size_m
-    };
-
-    let stage_size_n = if problem.n == 1 {
-        // For 2D input, ensure stage size divides evenly
-        let mut valid_size = stage_size_n;
-        while valid_size > 1 && (problem.m % valid_size != 0 || valid_size % instruction_n != 0) {
-            valid_size /= 2;
-        }
-        valid_size
-    } else {
-        stage_size_n
-    };
-
     let tile_shape = MatmulSize {
         m: stage_size_m as u32,
         n: stage_size_n as u32,

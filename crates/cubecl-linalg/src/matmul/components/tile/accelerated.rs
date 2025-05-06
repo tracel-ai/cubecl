@@ -4,7 +4,7 @@ use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
     MatrixLayout, as_cmma_layout,
 };
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::matmul::kernels::{MatmulAvailabilityError, matmul::find_instruction_shape};
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
@@ -127,19 +127,22 @@ impl MatmulConfigFactory for Accelerated {
             ));
         }
 
+        // Get instruction shapes
+        let (instruction_m, instruction_n, _) = find_instruction_shape(None, config.size.m as usize, config.size.n as usize);
+
         // Validate stage sizes for 2D inputs
         let size = config.size;
         if size.m == 1 || size.n == 1 {
             // For 2D inputs, ensure stage sizes are valid
-            if size.m == 1 && size.n % size.m != 0 {
+            if size.m == 1 && size.n % instruction_m as u32 != 0 {
                 return Err(Box::new(format!(
-                    "Error: For 2D input, stage size n ({}) must divide input dimension evenly",
+                    "Error: For 1xN input, stage size n ({}) must divide input dimension evenly",
                     size.n
                 )));
             }
-            if size.n == 1 && size.m % size.n != 0 {
+            if size.n == 1 && size.m % instruction_n as u32 != 0 {
                 return Err(Box::new(format!(
-                    "Error: For 2D input, stage size m ({}) must divide input dimension evenly",
+                    "Error: For Mx1 input, stage size m ({}) must divide input dimension evenly",
                     size.m
                 )));
             }
