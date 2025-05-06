@@ -1,10 +1,10 @@
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 use super::AutotuneOutcome;
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 use cubecl_common::cache::Cache;
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 use cubecl_common::cache::CacheError;
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 use serde::{Deserialize, Serialize};
 
 use super::AutotuneKey;
@@ -30,7 +30,7 @@ pub(crate) enum ChecksumState {
 }
 
 /// Persistent cache key
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub(crate) struct PersistentCacheKey<K> {
     key: K,
@@ -38,7 +38,7 @@ pub(crate) struct PersistentCacheKey<K> {
 }
 
 /// Persistent cache entry
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
@@ -49,7 +49,7 @@ pub(crate) struct PersistentCacheValue {
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
-    #[cfg(std_desktop_platform)]
+    #[cfg(std_io)]
     persistent_cache: Cache<PersistentCacheKey<K>, PersistentCacheValue>,
 }
 
@@ -71,10 +71,10 @@ pub enum TuneCacheResult {
 
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
-        #[cfg_attr(not(std_desktop_platform), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(std_desktop_platform), allow(unused_variables))] device_id: &str,
+        #[cfg_attr(not(std_io), allow(unused_variables))] name: &str,
+        #[cfg_attr(not(std_io), allow(unused_variables))] device_id: &str,
     ) -> Self {
-        #[cfg(std_desktop_platform)]
+        #[cfg(std_io)]
         {
             let root = crate::config::GlobalConfig::get().autotune.cache.root();
             let options = cubecl_common::cache::CacheOption::default();
@@ -89,7 +89,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             cache
         }
 
-        #[cfg(not(std_desktop_platform))]
+        #[cfg(not(std_io))]
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
@@ -109,7 +109,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                 checksum,
                 fastest_index,
             } => {
-                if cfg!(std_desktop_platform) {
+                if cfg!(std_io) {
                     match checksum {
                         ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
                         ChecksumState::NoMatch => TuneCacheResult::Miss, // Can't use this.
@@ -129,7 +129,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    #[cfg(std_desktop_platform)]
+    #[cfg(std_io)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
         let result = self.in_memory_cache.get_mut(key);
         let Some(val) = result else {
@@ -167,7 +167,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 }
 
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn persistent_cache_insert(
         &mut self,

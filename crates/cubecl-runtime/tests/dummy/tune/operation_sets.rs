@@ -1,4 +1,4 @@
-#[cfg(std_desktop_platform)]
+#[cfg(std_io)]
 use rand::{Rng, distr::Alphanumeric};
 use std::sync::Arc;
 
