@@ -103,7 +103,7 @@ pub fn reduce_kernel_virtal<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFa
 }
 
 #[cube]
-pub fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily>(
+fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily>(
     input: &VirtualTensor<P::EI>,
     output: &mut VirtualTensor<Out, ReadWrite>,
     axis_reduce: u32,
@@ -170,7 +170,7 @@ fn get_reduce_index(#[comptime] params: ReduceParams) -> u32 {
 }
 
 #[cube]
-pub fn get_reduce_count(output_size: u32, #[comptime] params: ReduceParams) -> u32 {
+fn get_reduce_count(output_size: u32, #[comptime] params: ReduceParams) -> u32 {
     match comptime!(params.line_mode) {
         LineMode::Parallel => output_size,
         LineMode::Perpendicular => output_size / params.line_size_input,
