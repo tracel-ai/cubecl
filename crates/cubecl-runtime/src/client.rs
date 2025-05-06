@@ -245,7 +245,10 @@ where
         let (stream_id, should_init) = self.aquire_profile_priority();
 
         let token = self.channel.start_profile();
+        // TODO: Panic unwind to catch errors on native. Mostly for testing and catch errors
+        // without hang.
         func();
+
         let result = self.channel.end_profile(token);
 
         if should_init {
