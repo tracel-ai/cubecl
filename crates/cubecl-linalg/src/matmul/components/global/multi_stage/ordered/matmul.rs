@@ -1,7 +1,7 @@
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy, SyncFullLoader,
-    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_tilewise,
+    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered, sync_full_tilewise,
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
@@ -38,14 +38,7 @@ pub struct OrderedDoubleBufferingMatmulFamily<
 /// The ordered double buffering global matmul
 /// requires tilewise loading on `Lhs` to guarantee that planes
 /// only use data they have loaded themselves.
-///
-/// Tiling order:
-/// - Row-major for now, since column-major would cause planes
-///   to interact with each other.
-/// - TODO: Ideally, column-major locally within each multi-row plane:
-///   each plane loads its own tiles in column-major order,
-///   aligning better with the `k` iterations.
-pub type LL = sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>;
+pub type LL = sync_full_ordered::LoadingStrategy;
 
 impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
 where
@@ -185,7 +178,6 @@ where
         sync_units();
 
         for _ in 0..num_loops {
-            // Execute A
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
@@ -404,6 +396,8 @@ impl<
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
+            // sync_units();
+
             let lhs_job = this.state_lhs.index_mut(0);
             let lhs_num_task_executed = lhs_job.current.read().counter;
 
