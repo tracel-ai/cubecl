@@ -101,19 +101,19 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
-    num_tiles_to_skip: u32,
-    num_lines_to_skip: u32,
+    pub num_tiles_to_skip: u32,
+    pub num_lines_to_skip: u32,
 
     #[cube(comptime)]
-    num_lines_per_tile: u32,
+    pub num_lines_per_tile: u32,
     #[cube(comptime)]
-    num_lines_per_unit: u32,
+    pub num_lines_per_unit: u32,
     #[cube(comptime)]
-    plane_dim: u32,
+    pub plane_dim: u32,
     #[cube(comptime)]
-    line_size: u32,
+    pub line_size: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    pub input_ident: InputIdent,
 }
 
 #[cube]

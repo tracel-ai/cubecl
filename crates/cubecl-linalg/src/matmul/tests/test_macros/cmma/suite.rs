@@ -730,27 +730,10 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 MatmulSize {
-                    m: 104,
+                    m: 128,
                     n: 128,
-                    k: 104
+                    k: 128
                 }
-                // does not happen at 96,96,96
-                // does not happen at 96,96,100
-                // does not happen at 96,100,96
-                // does not happen at 100,96,96
-                // can happen at 96,100,100: rowrow (rare)
-                // can happen at 100,100,96: colrow
-                // can happen at 100,96,100: colcol, rowcol (always)
-                // can happen at 100,100,100: rowrow, colrow
-
-                // happens at 128,100,100: rowrow
-                // happens at 100,100,128: colrow
-                // happens at 100,128,100: colcol, rowcol
-                // happens at 100,100,100: rowrow, colrow
-                // does not happen at 128,128,128
-                // does not happen at 100,128,128
-                // does not happen at 128,100,128
-                // does not happen at 128,128,100
             );
         }
     };

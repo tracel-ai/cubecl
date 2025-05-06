@@ -12,7 +12,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::LoadingJob;
+use super::{LoadingJob, sync_full_tilewise};
 
 #[derive(CubeType, Clone, Copy)]
 /// Similar to `sync_full_tilewise`, but includes additional validation checks.
@@ -27,6 +27,12 @@ pub struct LoadingStrategy {}
 
 impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        if ident != Ident::Lhs {
+            return Err(FormattedConfigError::new(move || {
+                format!("Ordered loading only available on Lhs")
+            }));
+        }
+
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
@@ -69,12 +75,6 @@ impl LoadingValidation for LoadingStrategy {
             }));
         }
 
-        if ident != Ident::Lhs {
-            return Err(FormattedConfigError::new(move || {
-                format!("Ordered loading only available on Lhs")
-            }));
-        }
-
         Ok(())
     }
 }
@@ -82,7 +82,7 @@ impl LoadingValidation for LoadingStrategy {
 #[cube]
 impl SyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = ContiguousTilingLayout<OrderedTilingOrder>;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = sync_full_tilewise::Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
@@ -102,99 +102,29 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         let num_tiles_to_skip = UNIT_POS_Y * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
-        Job {
+        comptime! {
+            println!("--------");
+            println!("ident {:?}", input_ident);
+            println!("line_size {:?}", line_size);
+            println!("tiling tile size {:?}", tiling.tile_size());
+            println!("num_planes {:?}", num_planes);
+            println!("num_tiles {:?}", num_tiles);
+            println!("plane_dim {:?}", plane_dim);
+            println!("num_tiles_per_plane {:?}", num_tiles_per_plane);
+            println!("num_lines_per_tile {:?}", num_lines_per_tile);
+            println!("num_lines_per_plane {:?}", num_lines_per_plane);
+            println!("num_lines_per_unit {:?}", num_lines_per_unit);
+        }
+
+        // Ordered is just a tilewise loader using the ordered tiling order
+        sync_full_tilewise::Job {
             num_tiles_to_skip,
             num_lines_to_skip,
             num_lines_per_tile,
             num_lines_per_unit,
-            plane_dim: config.plane_dim(),
+            plane_dim,
             line_size,
             input_ident,
         }
-    }
-}
-
-#[derive(CubeType, Clone, Copy)]
-pub struct Job {
-    num_tiles_to_skip: u32,
-    num_lines_to_skip: u32,
-
-    #[cube(comptime)]
-    num_lines_per_tile: u32,
-    #[cube(comptime)]
-    num_lines_per_unit: u32,
-    #[cube(comptime)]
-    plane_dim: u32,
-    #[cube(comptime)]
-    line_size: u32,
-    #[cube(comptime)]
-    input_ident: InputIdent,
-}
-
-#[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
-    fn execute_task<G: GlobalConfig>(
-        this: &mut Self,
-        task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
-        #[comptime] config: G,
-    ) {
-        let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
-        let nth_tile_for_this_plane = pos_across_tiles / this.num_lines_per_tile;
-        let line_index_within_tile = pos_across_tiles % this.num_lines_per_tile;
-
-        let nth_tile_global = nth_tile_for_this_plane + this.num_tiles_to_skip;
-        let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
-            nth_tile_global,
-            comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
-        );
-
-        Job::load_and_store_line::<MP, TO, G>(
-            this,
-            tile,
-            line_index_within_tile,
-            nth_tile_for_this_plane * this.num_lines_per_tile,
-            tensor_reader,
-            stage,
-            quantization,
-            config,
-        );
-    }
-
-    fn task_count(this: &Self) -> comptime_type!(u32) {
-        comptime!(this.num_lines_per_unit)
-    }
-}
-
-#[cube]
-impl Job {
-    #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
-        this: &Self,
-        tile: (u32, u32),
-        line_index_within_tile: u32,
-        num_lines_to_skip_local: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
-        #[comptime] config: G,
-    ) {
-        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
-            tile.0,
-            tile.1,
-            line_index_within_tile * this.line_size,
-            this.input_ident,
-            config,
-        );
-
-        let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;
-
-        stage.as_slice_mut(this.line_size)[offset] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
-            CubeOption::None => Line::cast_from(line_read),
-        };
     }
 }
