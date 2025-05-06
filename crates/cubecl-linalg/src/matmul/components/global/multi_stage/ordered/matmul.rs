@@ -378,21 +378,25 @@ impl<
             this.init();
         }
 
-        // if let StageEvent::TmmCompleted { current, total } = event {
-        //     let analysis = this.analyse(total);
+        if let StageEvent::TmmCompleted { current, total } = event {
+            let analysis = this.analyse(current, total);
 
-        //     if comptime![!analysis.lhs_completed && analysis.lhs == current] {
-        //         let lhs_job = this.state_lhs.index_mut(0);
+            if comptime![
+                analysis.lhs_can_start
+                    && !analysis.lhs_completed
+                    && analysis.lhs_counter == current
+            ] {
+                let lhs_job = this.state_lhs.index_mut(0);
 
-        //         SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
-        //     }
+                SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            }
 
-        //     if comptime![!analysis.rhs_completed && analysis.rhs == current] {
-        //         let rhs_job = this.state_rhs.index_mut(0);
+            if comptime![!analysis.rhs_completed && analysis.rhs_counter == current] {
+                let rhs_job = this.state_rhs.index_mut(0);
 
-        //         SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
-        //     }
-        // }
+                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            }
+        }
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
@@ -421,11 +425,12 @@ impl<
 /// Analysis of [StageEvent] that reports when lhs and rhs should execute a task.
 struct EventAnalysis {
     /// The event count to execute the next lhs task.
-    lhs: u32,
+    lhs_counter: u32,
+    lhs_can_start: bool,
     /// If no more tasks need to be executed for lhs.
     lhs_completed: bool,
     /// The event count to execute the next rhs task.
-    rhs: u32,
+    rhs_counter: u32,
     /// If no more tasks need to be executed for rhs.
     rhs_completed: bool,
 }
@@ -448,7 +453,11 @@ impl<
         self.state_rhs.push(job_rhs);
     }
 
-    fn analyse(&self, #[comptime] event_count_total: u32) -> comptime_type!(EventAnalysis) {
+    fn analyse(
+        &self,
+        #[comptime] current_event: u32,
+        #[comptime] event_count_total: u32,
+    ) -> comptime_type!(EventAnalysis) {
         let lhs_job = self.state_lhs.index(0);
         let rhs_job = self.state_rhs.index(0);
         let num_tasks_total = comptime!(lhs_job.num_tasks + rhs_job.num_tasks);
@@ -456,14 +465,25 @@ impl<
         let lhs_num_task_executed = lhs_job.current.read().counter;
         let rhs_num_task_executed = rhs_job.current.read().counter;
 
+        // We cannot start loading Lhs before all were loaded in fragments
+        // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
+        let num_lhs_load_per_k = comptime!(
+            self.config.tiling_dimensions(Ident::Lhs).tile_count_row() / self.config.num_planes()
+        );
+        let num_tmm_per_k = comptime!(
+            num_lhs_load_per_k * self.config.tiling_dimensions(Ident::Rhs).tile_count_col()
+        );
+        let lhs_can_start = current_event >= event_count_total - num_tmm_per_k;
+
         comptime! {
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);
 
             EventAnalysis {
-                lhs: lhs_num_task_executed * step + start,
+                lhs_counter: lhs_num_task_executed * step + start,
+                lhs_can_start,
                 lhs_completed: lhs_num_task_executed >= lhs_job.num_tasks,
-                rhs: rhs_num_task_executed * step + (lhs_job.num_tasks * step) + start,
+                rhs_counter: rhs_num_task_executed * step + (lhs_job.num_tasks * step) + start,
                 rhs_completed: rhs_num_task_executed >= rhs_job.num_tasks,
             }
         }

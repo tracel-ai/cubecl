@@ -1,18 +1,16 @@
-use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::stage::OrderedTilingOrder;
 use crate::matmul::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
 use crate::matmul::components::{
-    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
-    stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
+    global::{GlobalConfig, LoadingValidation},
+    stage::ContiguousTilingLayout,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::{LoadingJob, sync_full_tilewise};
+use super::sync_full_tilewise;
 
 #[derive(CubeType, Clone, Copy)]
 /// Similar to `sync_full_tilewise`, but includes additional validation checks.
@@ -101,20 +99,6 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
 
         let num_tiles_to_skip = UNIT_POS_Y * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
-
-        comptime! {
-            println!("--------");
-            println!("ident {:?}", input_ident);
-            println!("line_size {:?}", line_size);
-            println!("tiling tile size {:?}", tiling.tile_size());
-            println!("num_planes {:?}", num_planes);
-            println!("num_tiles {:?}", num_tiles);
-            println!("plane_dim {:?}", plane_dim);
-            println!("num_tiles_per_plane {:?}", num_tiles_per_plane);
-            println!("num_lines_per_tile {:?}", num_lines_per_tile);
-            println!("num_lines_per_plane {:?}", num_lines_per_plane);
-            println!("num_lines_per_unit {:?}", num_lines_per_unit);
-        }
 
         // Ordered is just a tilewise loader using the ordered tiling order
         sync_full_tilewise::Job {
