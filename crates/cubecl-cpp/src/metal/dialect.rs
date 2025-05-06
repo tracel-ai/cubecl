@@ -932,7 +932,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                         f,
                         "simdgroup_load({frag}, {value} + {offset}, {stride}, 0, {transpose});"
                     )
-                }
+                }?;
+                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")
             }
             WmmaInstruction::Execute {
                 frag_a: a,
