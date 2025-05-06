@@ -1,4 +1,4 @@
-#[cfg(autotune_persistent_cache)]
+#[cfg(std_desktop_platform)]
 use rand::{Rng, distr::Alphanumeric};
 use std::sync::Arc;
 

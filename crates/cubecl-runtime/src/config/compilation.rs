@@ -1,4 +1,4 @@
-#[cfg(feature = "std")]
+#[cfg(std_desktop_platform)]
 use super::cache::CacheConfig;
 use super::logger::{BinaryLogLevel, LoggerConfig};
 
@@ -10,7 +10,7 @@ pub struct CompilationConfig {
     pub logger: LoggerConfig<CompilationLogLevel>,
     /// Cache location for storing compiled kernels.
     #[serde(default)]
-    #[cfg(feature = "std")]
+    #[cfg(std_desktop_platform)]
     pub cache: Option<CacheConfig>,
 }
 

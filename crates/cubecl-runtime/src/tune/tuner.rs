@@ -28,7 +28,7 @@ pub struct Tuner<K: AutotuneKey> {
 
 /// The measured outcome for a given autotune invocation.
 #[cfg_attr(
-    autotune_persistent_cache,
+    std_desktop_platform,
     derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)
 )]
 #[derive(new, Debug, Clone)]
@@ -53,7 +53,7 @@ enum AutotuneMessage<K> {
         key: K,
         fastest_index: usize,
         results: Vec<Result<AutotuneOutcome, String>>,
-        #[cfg(autotune_persistent_cache)]
+        #[cfg(std_desktop_platform)]
         checksum: String,
         #[cfg(feature = "autotune-checks")]
         autotune_checks: alloc::boxed::Box<dyn FnOnce() + Send>,
@@ -95,7 +95,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
-    #[cfg(autotune_persistent_cache)]
+    #[cfg(std_desktop_platform)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
         if let AutotuneLogLevel::Full = self.logger.log_level_autotune() {
             self.logger
@@ -114,9 +114,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 key,
                 fastest_index,
                 results,
-                #[cfg(autotune_persistent_cache)]
+                #[cfg(std_desktop_platform)]
                 checksum,
-                #[cfg(autotune_persistent_cache)]
+                #[cfg(std_desktop_platform)]
                 #[cfg(feature = "autotune-checks")]
                     autotune_checks: check,
             } => {
@@ -174,7 +174,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 #[cfg(feature = "autotune-checks")]
                 check();
 
-                #[cfg(autotune_persistent_cache)]
+                #[cfg(std_desktop_platform)]
                 {
                     self.tune_cache
                         .persistent_cache_insert(key, checksum, fastest_index, results);
@@ -222,14 +222,14 @@ impl<K: AutotuneKey> Tuner<K> {
                     key,
                     fastest_index: autotunables[0].0,
                     results: Vec::new(),
-                    #[cfg(autotune_persistent_cache)]
+                    #[cfg(std_desktop_platform)]
                     checksum: tunables.compute_checksum(),
                     #[cfg(feature = "autotune-checks")]
                     autotune_checks: Box::new(|| {}),
                 };
             }
 
-            #[cfg(autotune_persistent_cache)]
+            #[cfg(std_desktop_platform)]
             let checksum = tunables.compute_checksum();
             let test_inputs = tunables.generate_inputs(&key, inputs);
 
@@ -303,7 +303,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     key: key_clone,
                     fastest_index: result.index,
                     results: bench_results,
-                    #[cfg(autotune_persistent_cache)]
+                    #[cfg(std_desktop_platform)]
                     checksum,
                     #[cfg(feature = "autotune-checks")]
                     autotune_checks: Box::new(|| {

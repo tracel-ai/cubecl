@@ -6,7 +6,7 @@ use alloc::{string::ToString, sync::Arc, vec::Vec};
 use core::fmt::Display;
 use hashbrown::HashMap;
 
-#[cfg(feature = "std")]
+#[cfg(std_desktop_platform)]
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
@@ -21,7 +21,7 @@ use std::{
 pub struct LoggerConfig<L: LogLevel> {
     /// Path to the log file, if file logging is enabled (requires `std` feature).
     #[serde(default)]
-    #[cfg(feature = "std")]
+    #[cfg(std_desktop_platform)]
     pub file: Option<PathBuf>,
 
     /// Whether to append to the log file (true) or overwrite it (false). Defaults to true.
@@ -123,11 +123,11 @@ impl Logger {
 
         #[derive(Hash, PartialEq, Eq)]
         enum LoggerId {
-            #[cfg(feature = "std")]
+            #[cfg(std_desktop_platform)]
             File(PathBuf),
-            #[cfg(feature = "std")]
+            #[cfg(std_desktop_platform)]
             Stdout,
-            #[cfg(feature = "std")]
+            #[cfg(std_desktop_platform)]
             Stderr,
             LogCrate(LogCrateLevel),
         }
