@@ -125,9 +125,9 @@ impl Logger {
         enum LoggerId {
             #[cfg(std_desktop_platform)]
             File(PathBuf),
-            #[cfg(std_desktop_platform)]
+            #[cfg(feature = "std")]
             Stdout,
-            #[cfg(std_desktop_platform)]
+            #[cfg(feature = "std")]
             Stderr,
             LogCrate(LogCrateLevel),
         }
@@ -163,7 +163,7 @@ impl Logger {
             loggers: &mut Vec<LoggerKind>,
             logger2index: &mut HashMap<LoggerId, usize>,
         ) {
-            #[cfg(feature = "std")]
+            #[cfg(std_desktop_platform)]
             if let Some(file) = &kind.file {
                 new_logger(
                     setting_index,
@@ -340,7 +340,7 @@ impl LogLevel for BinaryLogLevel {}
 #[derive(Debug)]
 enum LoggerKind {
     /// Logs to a file.
-    #[cfg(feature = "std")]
+    #[cfg(std_desktop_platform)]
     File(FileLogger),
 
     /// Logs to standard output.
@@ -358,7 +358,7 @@ enum LoggerKind {
 impl LoggerKind {
     fn log<S: Display>(&mut self, msg: &S) {
         match self {
-            #[cfg(feature = "std")]
+            #[cfg(std_desktop_platform)]
             LoggerKind::File(file_logger) => file_logger.log(msg),
             #[cfg(feature = "std")]
             LoggerKind::Stdout => println!("{msg}"),
@@ -375,12 +375,12 @@ impl LoggerKind {
 
 /// Logger that writes messages to a file.
 #[derive(Debug)]
-#[cfg(feature = "std")]
+#[cfg(std_desktop_platform)]
 struct FileLogger {
     writer: BufWriter<File>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(std_desktop_platform)]
 impl FileLogger {
     // Creates a new file logger.
     fn new(path: &PathBuf, append: bool) -> Self {

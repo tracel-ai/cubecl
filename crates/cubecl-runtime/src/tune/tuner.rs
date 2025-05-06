@@ -1,7 +1,6 @@
 use alloc::format;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
-use cubecl_common::future;
 use hashbrown::HashSet;
 
 use core::time::Duration;
@@ -328,7 +327,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     // - Benchmarks would need a "warmup" time until a good kernel is selected.
                     // - Tuning could be less precise, as it's possible that other operations are
                     //   submitted while tuning, which might skew results.
-                    future::block_on(fut_result)
+                    cubecl_common::future::block_on(fut_result)
                 }
             }
         };
