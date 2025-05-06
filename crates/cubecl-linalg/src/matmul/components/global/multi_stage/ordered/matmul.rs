@@ -401,6 +401,7 @@ impl<
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
             // sync_units();
+            // comptime!(println!("finish"));
 
             let lhs_job = this.state_lhs.index_mut(0);
             let lhs_num_task_executed = lhs_job.current.read().counter;
