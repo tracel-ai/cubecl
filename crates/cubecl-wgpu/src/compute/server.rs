@@ -229,16 +229,12 @@ impl ComputeServer for WgpuServer {
     }
 
     fn start_profile(&mut self) -> ProfilingToken {
-        let token = self.stream.start_profile();
-        println!("Start profiling {token:?}");
-        token
+        self.stream.start_profile()
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        println!("End profiling {token:?}");
         self.logger.profile_summary();
 
-        // TODO: Deal with BS recursive profile thing...
         let profile = self.stream.stop_profile(token);
         let duration_profiled = self.duration_profiled;
         self.duration_profiled = None;
