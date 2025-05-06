@@ -138,7 +138,7 @@ impl WgpuStream {
                 if let KernelTimestamps::Device { query_set } =
                     &mut self.timestamps.get_mut(&token).unwrap()
                 {
-                    pass.write_timestamp(&query_set, 0);
+                    pass.write_timestamp(query_set, 0);
                 }
             }
 

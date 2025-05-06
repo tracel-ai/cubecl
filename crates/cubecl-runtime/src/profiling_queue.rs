@@ -40,12 +40,10 @@ impl ProfilingPriotityQueue {
 
         // Current stream is allowed.
         if let Some(current) = items.get_mut(0) {
-            if current.stream_id == stream_id {
-                if !matches!(current.init_token, InitToken::Finished) {
-                    current.num_allowed += 1;
-                    // Aquired profile for stream.
-                    return (stream_id, false);
-                }
+            if current.stream_id == stream_id && !matches!(current.init_token, InitToken::Finished) {
+                current.num_allowed += 1;
+                // Aquired profile for stream.
+                return (stream_id, false);
             }
         }
 
@@ -53,12 +51,10 @@ impl ProfilingPriotityQueue {
         let mut registered = false;
 
         for current in items.iter_mut() {
-            if current.stream_id == stream_id {
-                if !matches!(current.init_token, InitToken::Finished) {
-                    current.num_allowed += 1;
-                    registered = true;
-                    break;
-                }
+            if current.stream_id == stream_id && !matches!(current.init_token, InitToken::Finished) {
+                current.num_allowed += 1;
+                registered = true;
+                break;
             }
         }
         if !registered {
@@ -72,7 +68,7 @@ impl ProfilingPriotityQueue {
 
         if !registered && items.len() == 1 {
             // Current stream is new, should also init the token.
-            return (stream_id, should_init);
+            (stream_id, should_init)
         } else {
             core::mem::drop(items);
 
