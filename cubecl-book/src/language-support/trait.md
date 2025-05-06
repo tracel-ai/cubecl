@@ -57,7 +57,7 @@ impl SumKind for SumPlane {
 }
 ```
 
-Associated types are also supported. Let's say you want to create a series from a sum.
+[Associated types](https://doc.rust-lang.org/book/ch20-02-advanced-traits.html#specifying-placeholder-types-in-trait-definitions-with-associated-types) are also supported. Let's say you want to create a series from a sum.
 
 ```rust
 #[cube]
@@ -86,5 +86,5 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 }
 ```
 
-It's actually not the best example of using associated types, but it shows how they are totally
+It's actually not the best example of using [associated types](https://doc.rust-lang.org/book/ch20-02-advanced-traits.html#specifying-placeholder-types-in-trait-definitions-with-associated-types), but it shows how they are totally
 supported with CubeCL.
