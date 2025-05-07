@@ -1,5 +1,7 @@
 pub use cubecl_core::*;
 
+pub use cubecl_runtime::config;
+
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
 
@@ -14,3 +16,6 @@ pub use cubecl_linalg as linalg;
 
 #[cfg(feature = "reduce")]
 pub use cubecl_reduce as reduce;
+
+#[cfg(feature = "random")]
+pub use cubecl_random as random;

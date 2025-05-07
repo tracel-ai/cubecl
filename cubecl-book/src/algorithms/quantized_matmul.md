@@ -1,14 +1,14 @@
 # Quantized matrix multiplication
 
-To make matrix multipliation faster,
+To make matrix multiplication faster,
 we replace floating-point arithmetic using `f32`
 with integer arithmetic using a mix of `u8`, `u16` and `i32`.
 The benefits are twofold.
 First,
 we replace `Tensor<f32>` with `Tensor<u8>` to reduce memory cost by a factor of 4.
-This leads to faster read and write operations into the global memory.
+This leads to faster read and write operations into global memory.
 Second,
-integer operations are often faster than their floating-point counter-parts.
+integer operations are often faster than their floating-point counterparts.
 
 In this section,
 we start by presenting a more mathematical overview of the algorithm,
@@ -22,14 +22,14 @@ A real number \\(a\\) can be approximated by an integer \\(q\\) using the formul
 \\[
     a \approx s(q - z).
 \\]
-In this equation \\(s\\) is a scaling factor and is also a real number
+In this equation \\(s\\) is a scaling factor and is also a real number,
 while \\(z\\) is called the zero-offset and is an integer.
 In theory,
 with this approximation,
-we can represent exactly all real numbers that are integral multiple of \\(s\\).
-All other real numbers are rounded to the closest representable value.
+we can represent exactly all real numbers that are integral multiples of \\(s\\).
+All other real numbers are rounded up to the closest representable value.
 However, in practice, the range of \\(q\\) is limited by its representation (e.g. `u8`, `i32`).
-Hence, the zero-offset \\(z\\) allows to slide the interval of representable numbers toward
+Hence, the zero-offset \\(z\\) allows us to slide the interval of representable numbers toward
 an interval we are interested in a particular application.
 Also, by using the same type for \\(q\\) and \\(z\\),
 we assure that 0 is exactly representable.
@@ -167,7 +167,7 @@ impl Matrix {
               sum = approx_mul(sum, u, v_shift);
 
               output.update(row, col, clamp_to_u8(sum + output.zero_offset as i32))
-          }           
+          }
       }
   }
 
@@ -187,6 +187,3 @@ impl Matrix {
 Of course,
 in CubeCL, we stride to provide the fastest implementation for GPU devices.
 As such, the example emphasizes the correct type casting to demonstrate how this is achieved in CubeCL.
-
-
-
