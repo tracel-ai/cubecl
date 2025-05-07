@@ -170,7 +170,7 @@ impl<D: Dialect> CppCompiler<D> {
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
             use_grid_constants: self.compilation_options.grid_constants,
-            // TODO: At some point we should only pass dymamic meta if tensors are present,
+            // TODO: At some point we should only pass dynamic meta if tensors are present,
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
