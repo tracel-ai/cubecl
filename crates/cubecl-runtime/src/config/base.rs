@@ -99,9 +99,13 @@ impl GlobalConfig {
             match val.as_str() {
                 "stdout" => {
                     self.compilation.logger.stdout = true;
+                    self.profiling.logger.stdout = true;
+                    self.autotune.logger.stdout = true;
                 }
                 "stderr" => {
                     self.compilation.logger.stderr = true;
+                    self.profiling.logger.stderr = true;
+                    self.autotune.logger.stderr = true;
                 }
                 "1" | "true" => {
                     let file_path = "/tmp/cubecl.log";
