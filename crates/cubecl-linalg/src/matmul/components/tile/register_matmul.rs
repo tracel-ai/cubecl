@@ -2,12 +2,12 @@ use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
-    MatrixLayout, 
+    MatrixLayout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
-use cubecl_core::{cmma, prelude::*};
 
 use super::{Tile, TileMatmulConfigInput};
 
@@ -26,36 +26,98 @@ impl TileMatmulFamily for RegisterMatmul {
     }
 }
 
+/// Wrapper over an array to represent a tile
+#[derive(CubeType)]
+pub struct TileArray<E: Numeric> {
+    data: Array<Line<E>>,
+    #[cube(comptime)]
+    layout: MatrixLayout,
+    #[cube(comptime)]
+    row_count: u32,
+    #[cube(comptime)]
+    col_count: u32,
+}
+
 #[cube]
 impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     type Config = Config;
-    type Lhs = cmma::Matrix<MP::ES>;
-    type Rhs = cmma::Matrix<MP::ES>;
-    type Accumulator = cmma::Matrix<MP::EA>;
+    type Lhs = TileArray<MP::ES>;
+    type Rhs = TileArray<MP::ES>;
+    type Accumulator = TileArray<MP::EA>;
 
     fn execute(
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
         out: &mut Self::Accumulator,
-        #[comptime] _config: Config,
+        #[comptime] config: Config,
     ) {
-        todo!()
+        let m = config.size.m;
+        let n = config.size.n;
+        let k = config.size.k;
+
+        let lhs_data: Slice<MP::EA> = lhs.data.to_slice().try_cast_unchecked();
+        let rhs_data: Slice<MP::EA> = rhs.data.to_slice().try_cast_unchecked();
+        let mut out_data: SliceMut<MP::EA> = out.data.to_slice_mut().try_cast_unchecked();
+
+        #[unroll]
+        for k_iter in 0..k {
+            #[unroll]
+            for m_iter in 0..m {
+                let lhs_index = match comptime!(lhs.layout) {
+                    MatrixLayout::RowMajor => k_iter * m + m_iter,
+                    MatrixLayout::ColMajor => m_iter * k + k_iter,
+                };
+                let lhs_val = MP::EA::cast_from(lhs_data[lhs_index]);
+
+                #[unroll]
+                for n_iter in 0..n {
+                    let rhs_index = match comptime!(rhs.layout) {
+                        MatrixLayout::RowMajor => n_iter * k + k_iter,
+                        MatrixLayout::ColMajor => k_iter * n + n_iter,
+                    };
+                    let rhs_val = MP::EA::cast_from(rhs_data[rhs_index]);
+
+                    let out_index = m_iter * n + n_iter;
+
+                    // Add assign not supported on slices?
+                    let mut out_elem = out_data[out_index];
+                    out_elem += lhs_val * rhs_val;
+                    out_data[out_index] = out_elem;
+                }
+            }
+        }
     }
 
     fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
-        todo!()
+        let m = config.size.m;
+        let k = config.size.k;
+
+        TileArray::<MP::ES> {
+            data: Array::<Line<MP::ES>>::new(m * k),
+            layout: config.lhs_layout,
+            row_count: m,
+            col_count: k,
+        }
     }
 
     fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
-        todo!()
+        let k = config.size.k;
+        let n = config.size.n;
+
+        TileArray::<MP::ES> {
+            data: Array::<Line<MP::ES>>::new(k * n),
+            layout: config.rhs_layout,
+            row_count: k,
+            col_count: n,
+        }
     }
 
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        todo!()
+        fill_input(tile, lhs, Ident::Lhs, config);
     }
 
     fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-        todo!()
+        fill_input(tile, rhs, Ident::Rhs, config);
     }
 
     fn fill_accumulator(
@@ -63,23 +125,78 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] config: Config,
     ) {
-        todo!()
+        fill_input(tile, acc, Ident::Out, config);
     }
 
     fn read_accumulator<C: Numeric>(
-        out: &Self::Accumulator,
+        acc: &Self::Accumulator,
         slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Config,
     ) {
-        todo!()
+        let line_size = config.stage_line_size(Ident::Out);
+
+        #[unroll]
+        for i in 0..acc.row_count * acc.col_count / line_size {
+            slice[i] = Line::cast_from(acc.data[i]);
+        }
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        todo!()
+        let m = config.size.m;
+        let n = config.size.n;
+
+        TileArray::<MP::EA> {
+            data: Array::<Line<MP::EA>>::new(m * n),
+            layout: MatrixLayout::RowMajor,
+            row_count: m,
+            col_count: n,
+        }
     }
 
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        todo!()
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        let line_size = config.stage_line_size(Ident::Out);
+
+        #[unroll]
+        for i in 0..acc.row_count * acc.col_count / line_size {
+            acc.data[i] = Line::cast_from(0);
+        }
+    }
+}
+
+#[cube]
+fn fill_input<E: Numeric>(
+    tile: &Tile<E>,
+    tile_array: &mut TileArray<E>,
+    #[comptime] ident: Ident,
+    #[comptime] config: Config,
+) {
+    let line_size = config.stage_line_size(ident);
+
+    match comptime!(tile_array.layout) {
+        MatrixLayout::RowMajor => {
+            let row_count = tile_array.row_count;
+            let col_count = tile_array.col_count / line_size;
+
+            #[unroll]
+            for i in 0..row_count {
+                #[unroll]
+                for j in 0..col_count {
+                    tile_array.data[i * col_count + j] = tile.slice[i * tile.stride + j]
+                }
+            }
+        }
+        MatrixLayout::ColMajor => {
+            let row_count = tile_array.row_count / line_size;
+            let col_count = tile_array.col_count;
+
+            #[unroll]
+            for i in 0..col_count {
+                #[unroll]
+                for j in 0..row_count {
+                    tile_array.data[i * row_count + j] = tile.slice[i * tile.stride + j]
+                }
+            }
+        }
     }
 }
 
