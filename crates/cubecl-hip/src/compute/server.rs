@@ -16,10 +16,7 @@ use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{
-    logging::{DebugLogger, ProfileLevel},
-    storage::ComputeStorage,
-};
+use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
