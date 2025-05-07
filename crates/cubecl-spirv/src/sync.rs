@@ -6,7 +6,7 @@ use crate::{SpirvCompiler, SpirvTarget};
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_sync(&mut self, sync: Synchronization) {
         match sync {
-            Synchronization::SyncUnits => {
+            Synchronization::SyncCube => {
                 // Adopting wgpu semantics
                 let scope = self.const_u32(Scope::Workgroup as u32);
                 let semantics =

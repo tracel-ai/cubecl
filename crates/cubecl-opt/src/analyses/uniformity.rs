@@ -74,7 +74,7 @@ impl Uniformity {
                     }
                 },
                 Operation::Synchronization(sync) => match sync {
-                    Synchronization::SyncUnits | Synchronization::SyncStorage => {
+                    Synchronization::SyncCube | Synchronization::SyncStorage => {
                         block_uniform = true;
                     }
                     Synchronization::SyncProxyShared => {}
