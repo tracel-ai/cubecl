@@ -10,7 +10,7 @@ the intricacies of each platform’s architecture and API, leading to a steep le
 risk of suboptimal performance. The need for manual tuning and platform-specific adjustments often
 results in code that is difficult to maintain and extend.
 
-The simplest way to solve this problem is to provide high level abstractions that can be composed in
+The simplest way to solve this problem is to provide high-level abstractions that can be composed in
 a variety of ways. All of those variations can be autotuned to select the best settings for the
 current hardware and problem at hand.
 

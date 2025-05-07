@@ -35,3 +35,8 @@ rspirv-ext = { git = "https://github.com/wingertge/rspirv-ext.git", rev = "991bf
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "0.6.0" }
+
+[dev-dependencies]
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
+    "export_tests",
+] }

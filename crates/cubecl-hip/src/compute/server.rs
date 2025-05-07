@@ -12,8 +12,8 @@ use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
+use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
@@ -32,7 +32,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
-    logger: DebugLogger,
+    logger: ServerLogger,
 }
 
 #[derive(Debug)]
@@ -272,7 +272,7 @@ impl ComputeServer for HipServer {
                         name.to_string()
                     }
                 }
-                cubecl_runtime::debug::ProfileLevel::Full => {
+                cubecl_runtime::logging::ProfileLevel::Full => {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
@@ -363,7 +363,7 @@ impl HipContext {
         &mut self,
         kernel_id: &KernelId,
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
-        logger: &mut DebugLogger,
+        logger: &mut ServerLogger,
         mode: ExecutionMode,
     ) {
         #[cfg(feature = "compilation-cache")]
@@ -389,14 +389,14 @@ impl HipContext {
         let mut jitc_kernel =
             cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
-        if logger.is_activated() {
+        if logger.compilation_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
             if let Ok(formatted) = format_cpp(&jitc_kernel.source) {
                 jitc_kernel.source = formatted;
             }
         }
-        let jitc_kernel = logger.debug(jitc_kernel);
+        let jitc_kernel = logger.log_compilation(jitc_kernel);
 
         // Create HIP Program
         let program = unsafe {
@@ -579,7 +579,7 @@ impl HipContext {
 impl HipServer {
     /// Create a new hip server.
     pub(crate) fn new(ctx: HipContext) -> Self {
-        let logger = DebugLogger::default();
+        let logger = ServerLogger::default();
         Self { ctx, logger }
     }
 
@@ -587,7 +587,7 @@ impl HipServer {
         self.get_context_with_logger().0
     }
 
-    fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut DebugLogger) {
+    fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut ServerLogger) {
         (&mut self.ctx, &mut self.logger)
     }
 }

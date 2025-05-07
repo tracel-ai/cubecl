@@ -15,7 +15,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::TimeMeasurement;
 use cubecl_runtime::{
-    debug::{DebugLogger, ProfileLevel},
+    logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
@@ -28,7 +28,7 @@ use wgpu::ComputePipeline;
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
-    logger: DebugLogger,
+    logger: ServerLogger,
     duration_profiled: Option<Duration>,
     stream: WgpuStream,
     pub compilation_options: WgpuCompilationOptions,
@@ -48,7 +48,7 @@ impl WgpuServer {
         backend: wgpu::Backend,
         time_measurement: TimeMeasurement,
     ) -> Self {
-        let logger = DebugLogger::default();
+        let logger = ServerLogger::default();
 
         let stream = WgpuStream::new(
             device.clone(),
@@ -85,13 +85,13 @@ impl WgpuServer {
         let mut compiler = compiler(self.backend);
         let mut compile = compiler.compile(self, kernel, mode);
 
-        if self.logger.is_activated() {
+        if self.logger.compilation_activated() {
             compile.debug_info = Some(DebugInformation::new(
                 compiler.lang_tag(),
                 kernel_id.clone(),
             ));
         }
-        let compile = self.logger.debug(compile);
+        let compile = self.logger.log_compilation(compile);
         // /!\ Do not delete the following commented code.
         // This is usefull while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
