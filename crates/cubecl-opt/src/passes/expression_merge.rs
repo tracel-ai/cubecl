@@ -1,8 +1,6 @@
 use std::{cell::RefCell, mem::take};
 
-use cubecl_ir::{
-    CoopMma, Instruction, Item, Operation, Operator, UnaryOperator,
-};
+use cubecl_ir::{CoopMma, Instruction, Item, Operation, Operator, UnaryOperator};
 use stable_vec::StableVec;
 
 use crate::{AtomicCounter, Optimizer, visit_noop};
