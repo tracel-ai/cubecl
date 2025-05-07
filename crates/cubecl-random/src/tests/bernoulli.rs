@@ -4,10 +4,6 @@ macro_rules! testgen_random_bernoulli {
         mod test_random_bernoulli {
             use super::*;
 
-            // Use the reexported test dependency.
-            // use serial_test;
-            //use serial_test::serial;
-
             pub fn get_random_bernoulli_data<R: Runtime, E: CubeElement + Numeric>(
                 shape: &[usize],
                 prob: f32,
