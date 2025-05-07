@@ -1,7 +1,7 @@
+use cubecl_common::future::DynFut;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::server::{BindingWithMeta, Bindings};
-use std::future::Future;
 use std::sync::Arc;
 
 use super::DummyKernel;
@@ -28,7 +28,7 @@ impl ComputeServer for DummyServer {
     type Info = ();
     type Feature = ();
 
-    fn read(&mut self, bindings: Vec<Binding>) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         let bytes: Vec<_> = bindings
             .into_iter()
             .map(|b| {
@@ -37,15 +37,16 @@ impl ComputeServer for DummyServer {
             })
             .collect();
 
-        async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() }
+        Box::pin(async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() })
     }
 
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
         self.read(bindings)
+    }
+
+    fn sync(&mut self) -> DynFut<()> {
+        Box::pin(async move {})
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
@@ -129,11 +130,6 @@ impl ComputeServer for DummyServer {
 
     fn flush(&mut self) {
         // Nothing to do with dummy backend.
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        async move {}
     }
 
     fn memory_usage(&self) -> MemoryUsage {

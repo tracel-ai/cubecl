@@ -1,4 +1,5 @@
 use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::future::{self, DynFut};
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
@@ -22,7 +23,7 @@ use cubecl_core::{
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
-    debug::{DebugLogger, ProfileLevel},
+    logging::{ProfileLevel, ServerLogger},
     storage::ComputeStorage,
 };
 use cubecl_runtime::{
@@ -36,8 +37,8 @@ use cudarc::driver::sys::{
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
@@ -47,7 +48,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    logger: DebugLogger,
+    logger: ServerLogger,
 }
 
 #[derive(Debug)]
@@ -57,7 +58,7 @@ pub(crate) struct CudaContext {
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
-    ptx_cache: Cache<String, PtxCacheEntry>,
+    ptx_cache: Option<Cache<String, PtxCacheEntry>>,
     timestamps: KernelTimestamps,
     pub(crate) arch: CudaArchitecture,
     compilation_options: CompilationOptions,
@@ -82,28 +83,10 @@ struct CompiledKernel {
 unsafe impl Send for CudaServer {}
 
 impl CudaServer {
-    fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
-        let ctx = self.get_context();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .expect("Failed to find resource");
-
-        let mut data = uninit_vec(resource.size() as usize);
-
-        unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
-        };
-
-        ctx.sync();
-
-        data
-    }
-
     fn read_async(
         &mut self,
         bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
         let ctx = self.get_context();
         let mut result = Vec::with_capacity(bindings.len());
 
@@ -123,8 +106,9 @@ impl CudaServer {
         }
 
         let fence = ctx.fence();
-
         async move {
+            // Wait for the fence. This is still sync, so the future will still complete in a
+            // single poll.
             fence.wait();
             result
         }
@@ -133,7 +117,7 @@ impl CudaServer {
     fn read_tensor_async(
         &mut self,
         handles: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
         let ctx = self.get_context();
         let mut result = Vec::with_capacity(handles.len());
 
@@ -186,14 +170,13 @@ impl CudaServer {
         }
     }
 
-    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + 'static + Send {
+    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + Send + use<> {
         let ctx = self.get_context();
         // We can't use a fence here because no action has been recorded on the context.
         // We need at least one action to be recorded after the context is initialized
         // with `cudarc::driver::result::ctx::set_current(self.ctx.context)` for the fence
         // to have any effect. Otherwise, it seems to be ignored.
         let sync = ctx.lazy_sync_stream();
-
         async move {
             sync.wait();
         }
@@ -206,18 +189,12 @@ impl ComputeServer for CudaServer {
     type Feature = Feature;
     type Info = ();
 
-    fn read(
-        &mut self,
-        bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.read_async(bindings)
+    fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
+        Box::pin(self.read_async(bindings))
     }
 
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.read_tensor_async(bindings)
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        Box::pin(self.read_tensor_async(bindings))
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -335,8 +312,8 @@ impl ComputeServer for CudaServer {
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
-                let data = self.read_sync(binding);
-                let data = bytemuck::cast_slice(&data);
+                let data = future::block_on(self.read_async(vec![binding]));
+                let data = bytemuck::cast_slice(&data[0]);
                 assert!(
                     data.len() == 3,
                     "Dynamic cube count should contain 3 values"
@@ -532,9 +509,9 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self) {}
 
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> DynFut<()> {
         self.logger.profile_summary();
-        self.sync_stream_async()
+        Box::pin(self.sync_stream_async())
     }
 
     fn start_profile(&mut self) {
@@ -587,7 +564,18 @@ impl CudaContext {
             memory_management,
             module_names: HashMap::new(),
             #[cfg(feature = "compilation-cache")]
-            ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
+            ptx_cache: {
+                let config = cubecl_runtime::config::GlobalConfig::get();
+                if let Some(cache) = &config.compilation.cache {
+                    let root = cache.root();
+                    Some(Cache::new(
+                        "ptx",
+                        CacheOption::default().name("cuda").root(root),
+                    ))
+                } else {
+                    None
+                }
+            },
             stream,
             arch,
             timestamps: KernelTimestamps::default(),
@@ -613,34 +601,39 @@ impl CudaContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        logger: &mut DebugLogger,
+        logger: &mut ServerLogger,
         mode: ExecutionMode,
     ) {
         #[cfg(feature = "compilation-cache")]
-        let name = kernel_id.stable_format();
+        let name = if let Some(cache) = &self.ptx_cache {
+            let name = kernel_id.stable_format();
 
-        #[cfg(feature = "compilation-cache")]
-        if let Some(entry) = self.ptx_cache.get(&name) {
-            log::trace!("Using PTX cache");
-            self.load_ptx(
-                entry.ptx.clone(),
-                kernel_id.clone(),
-                entry.entrypoint_name.clone(),
-                CubeDim {
-                    x: entry.cube_dim.0,
-                    y: entry.cube_dim.1,
-                    z: entry.cube_dim.2,
-                },
-                entry.shared_mem_bytes,
-            );
-            return;
-        }
+            if let Some(entry) = cache.get(&name) {
+                log::trace!("Using PTX cache");
+                self.load_ptx(
+                    entry.ptx.clone(),
+                    kernel_id.clone(),
+                    entry.entrypoint_name.clone(),
+                    CubeDim {
+                        x: entry.cube_dim.0,
+                        y: entry.cube_dim.1,
+                        z: entry.cube_dim.2,
+                    },
+                    entry.shared_mem_bytes,
+                );
+                return;
+            }
+            Some(name)
+        } else {
+            None
+        };
+
         log::trace!("Compiling kernel");
 
         let mut kernel_compiled =
             kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
-        if logger.is_activated() {
+        if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
             if let Ok(formatted) = format_cpp(&kernel_compiled.source) {
@@ -663,13 +656,13 @@ impl CudaContext {
         #[cfg(feature = "compilation-cache")]
         let cluster_dim = compute_kernel.cluster_dim;
 
-        let kernel_compiled = logger.debug(kernel_compiled);
+        let kernel_compiled = logger.log_compilation(kernel_compiled);
 
         let ptx = unsafe {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
             // leave it `None` for now
-            let program =
-                cudarc::nvrtc::result::create_program(kernel_compiled.source, None).unwrap();
+            let source = CString::from_str(&kernel_compiled.source).unwrap();
+            let program = cudarc::nvrtc::result::create_program(source.as_c_str(), None).unwrap();
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
                 let log_ptr = log_raw.as_ptr();
@@ -692,18 +685,20 @@ impl CudaContext {
             kernel_compiled.repr.unwrap();
 
         #[cfg(feature = "compilation-cache")]
-        self.ptx_cache
-            .insert(
-                name,
-                PtxCacheEntry {
-                    entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                    shared_mem_bytes: repr.shared_memory_size(),
-                    cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
-                    ptx: ptx.clone(),
-                },
-            )
-            .unwrap();
+        if let Some(cache) = &mut self.ptx_cache {
+            cache
+                .insert(
+                    name.unwrap(),
+                    PtxCacheEntry {
+                        entrypoint_name: kernel_compiled.entrypoint_name.clone(),
+                        cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                        shared_mem_bytes: repr.shared_memory_size(),
+                        cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
+                        ptx: ptx.clone(),
+                    },
+                )
+                .unwrap();
+        }
 
         self.load_ptx(
             ptx,
@@ -781,7 +776,7 @@ impl CudaContext {
 impl CudaServer {
     /// Create a new cuda server.
     pub(crate) fn new(ctx: CudaContext) -> Self {
-        let logger = DebugLogger::default();
+        let logger = ServerLogger::default();
         Self { ctx, logger }
     }
 
@@ -789,7 +784,7 @@ impl CudaServer {
         self.get_context_with_logger().0
     }
 
-    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut DebugLogger) {
+    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut ServerLogger) {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };

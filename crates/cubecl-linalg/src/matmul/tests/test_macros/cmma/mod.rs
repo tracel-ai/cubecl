@@ -14,7 +14,7 @@ macro_rules! testgen_matmul_accelerated {
         #[allow(non_snake_case)]
         mod matmul_accelerated {
             use super::*;
-            type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
+            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
             ::paste::paste! {
                 $(mod [<$float _ty>] {
@@ -32,7 +32,7 @@ macro_rules! testgen_matmul_tma {
         #[allow(non_snake_case)]
         mod matmul_tma {
             use super::*;
-            type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
+            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
             ::paste::paste! {
                 $(mod [<$float _ty>] {
@@ -57,7 +57,7 @@ macro_rules! testgen_matmul_quantized {
             use super::*;
 
             type Precision = $crate::matmul::tests::SymQ8;
-            type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
+            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
             $crate::matmul_standard_tests!(standard);
         }

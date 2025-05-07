@@ -8,7 +8,7 @@ use cubecl::{
 };
 use cubecl_linalg::{
     convolution::{self, ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm},
-    matmul::components::{MatmulPrecision, tile::accelerated::AcceleratedMatmul},
+    matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul},
     tensor::TensorHandle,
 };
 
@@ -35,9 +35,9 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let client = R::client(&self.device);
         let [n, _, h_in, w_in] = self.input_shape;
         let [c_out, _, k_h, k_w] = self.weight_shape;
-        let (s_h, s_w) = self.args.stride;
-        let (p_h, p_w) = self.args.padding;
-        let (d_h, d_w) = self.args.dilation;
+        let [s_h, s_w] = self.args.stride;
+        let [p_h, p_w] = self.args.padding;
+        let [d_h, d_w] = self.args.dilation;
 
         let h_out = (h_in + 2 * p_h - d_h * (k_h - 1) - 1) / s_h + 1;
         let w_out = (w_in + 2 * p_w - d_w * (k_w - 1) - 1) / s_w + 1;
@@ -45,7 +45,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let out: TensorHandle<R, MP::EO> =
             TensorHandle::empty(&client, vec![n, c_out, h_out, w_out]);
 
-        convolution::launch_conv2d_nhwc::<R, MP, SimpleConvAlgorithm<AcceleratedMatmul>>(
+        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<AcceleratedMatmul>, 2>(
             &self.client,
             &input.as_ref(),
             &weight.as_ref(),
@@ -83,7 +83,7 @@ pub struct Conv2dBench<R: Runtime, MP> {
     input_shape: [usize; 4],
     weight_shape: [usize; 4],
     bias_shape: usize,
-    args: ConvolutionArgs,
+    args: ConvolutionArgs<2>,
     device: R::Device,
     client: ComputeClient<R::Server, R::Channel>,
     _phantom: PhantomData<MP>,
@@ -99,9 +99,9 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
         weight_shape: [96, 3, 11, 11],
         bias_shape: 96,
         args: ConvolutionArgs {
-            stride: (4, 4),
-            padding: (0, 0),
-            dilation: (1, 1),
+            stride: [4, 4],
+            padding: [0, 0],
+            dilation: [1, 1],
         },
         client: client.clone(),
         device: device.clone(),
@@ -113,9 +113,9 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
         weight_shape: [64, 4, 8, 8],
         bias_shape: 64,
         args: ConvolutionArgs {
-            stride: (1, 1),
-            padding: (0, 0),
-            dilation: (1, 1),
+            stride: [1, 1],
+            padding: [0, 0],
+            dilation: [1, 1],
         },
         client: client.clone(),
         device: device.clone(),

@@ -53,4 +53,7 @@ cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
     "export_tests",
 ] }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
+    "export_tests",
+] }
 pretty_assertions = { workspace = true }

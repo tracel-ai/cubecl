@@ -39,11 +39,13 @@ where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let selection = matmul_selection::<A::TileMatmul, MS::Precision, R>(
+    let selection = matmul_selection::<A::TileMatmul, R>(
         client,
         &problem,
         plane_dim,
         A::multi_row_strategy(),
+        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
+        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
     );
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
@@ -80,11 +82,13 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    let selection = matmul_selection::<A::TileMatmul, MS::Precision, R>(
+    let selection = matmul_selection::<A::TileMatmul, R>(
         client,
         &problem,
         plane_dim,
         A::multi_row_strategy(),
+        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
+        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
     );
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
@@ -193,22 +197,17 @@ pub(crate) fn find_stage_size(
     }
 }
 
-pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
+pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
     multi_row_strategy: MultiRowStrategy,
+    elem_stage: Elem,
+    elem_acc: Elem,
 ) -> MatmulSelection {
     let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
         if TMM::requires_tensor_cores() {
-            Some((
-                client.properties(),
-                (
-                    MP::ES::as_elem_native_unchecked(),
-                    MP::ES::as_elem_native_unchecked(),
-                    MP::EA::as_elem_native_unchecked(),
-                ),
-            ))
+            Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
             None
         },

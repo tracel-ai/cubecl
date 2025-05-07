@@ -10,7 +10,7 @@ use super::{
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
-        tile::accelerated::AcceleratedMatmul,
+        tile::accelerated_matmul::AcceleratedMatmul,
     },
     kernels::{
         MatmulLaunchError,

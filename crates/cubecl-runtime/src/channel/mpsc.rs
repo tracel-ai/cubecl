@@ -1,6 +1,6 @@
 use std::{sync::Arc, thread};
 
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use super::ComputeChannel;
 use crate::{
@@ -140,24 +140,29 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         let sender = self.state.sender.clone();
-        let (callback, response) = async_channel::unbounded();
-        sender
-            .send(Message::Read(bindings, callback))
-            .await
-            .unwrap();
-        handle_response(response.recv().await)
+
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender
+                .send(Message::Read(bindings, callback))
+                .await
+                .unwrap();
+            handle_response(response.recv().await)
+        })
     }
 
-    async fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
+    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
         let sender = self.state.sender.clone();
-        let (callback, response) = async_channel::unbounded();
-        sender
-            .send(Message::ReadTensor(bindings, callback))
-            .await
-            .unwrap();
-        handle_response(response.recv().await)
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender
+                .send(Message::ReadTensor(bindings, callback))
+                .await
+                .unwrap();
+            handle_response(response.recv().await)
+        })
     }
 
     fn get_resource(
@@ -243,14 +248,14 @@ where
         self.state.sender.send_blocking(Message::Flush).unwrap()
     }
 
-    async fn sync(&self) {
-        let (callback, response) = async_channel::unbounded();
-        self.state
-            .sender
-            .send(Message::Sync(callback))
-            .await
-            .unwrap();
-        handle_response(response.recv().await)
+    fn sync(&self) -> DynFut<()> {
+        let sender = self.state.sender.clone();
+
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender.send(Message::Sync(callback)).await.unwrap();
+            handle_response(response.recv().await)
+        })
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {

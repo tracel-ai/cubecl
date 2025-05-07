@@ -21,8 +21,7 @@ pub struct RuntimeArgs {
     pub size_n: u32,
     pub size_k: u32,
     pub padded_channels: FastDivmod,
-    pub out_h: FastDivmod,
-    pub out_w: FastDivmod,
+    pub out_shape: Sequence<FastDivmod>,
 }
 
 pub trait ConvolutionFamily:
@@ -143,18 +142,17 @@ pub struct ConvolutionProblem {
     pub rhs_line_size: u8,
     pub out_line_size: u8,
 
-    pub kernel_size: (u32, u32),
-    pub stride: (u32, u32),
-    pub padding: (i32, i32),
-    pub dilation: (u32, u32),
+    pub kernel_size: Vec<u32>,
+    pub stride: Vec<u32>,
+    pub padding: Vec<i32>,
+    pub dilation: Vec<u32>,
 
     pub batches: usize,
-    pub height: usize,
-    pub width: usize,
     pub channels: usize,
+    pub shape: Vec<usize>,
+    pub out_shape: Vec<usize>,
 
-    pub out_h: usize,
-    pub out_w: usize,
+    pub dimensionality: Dimensionality,
 }
 
 impl ConvolutionProblem {
@@ -171,4 +169,12 @@ impl ConvolutionProblem {
             out_line_size: self.out_line_size,
         }
     }
+}
+
+/// Spatial dimensionality of an operation
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum Dimensionality {
+    Dim1,
+    Dim2,
+    Dim3,
 }

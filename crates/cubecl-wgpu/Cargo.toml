@@ -32,6 +32,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-featur
     "channel-mutex",
 ] }
 derive_more = { workspace = true }
+half = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
 
 # SPIR-V
@@ -76,13 +77,16 @@ wgpu = { version = "25.0.0", features = [
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "0.6.0", features = [
-    "export_tests",
-] }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
     "export_tests",
 ] }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-std = { path = "../cubecl-std", version = "0.6.0", features = [
     "export_tests",
 ] }
 half = { workspace = true }

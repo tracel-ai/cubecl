@@ -73,6 +73,17 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
     #[comptime] config: R::Config,
 ) {
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
+    reduce_kernel_virtal::<In, Out, Acc, R>(&input, &mut output, axis_reduce, params, config);
+}
+
+#[cube]
+pub fn reduce_kernel_virtal<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily>(
+    input: &VirtualTensor<In>,
+    output: &mut VirtualTensor<Out, ReadWrite>,
+    axis_reduce: u32,
+    #[comptime] params: ReduceParams,
+    #[comptime] config: R::Config,
+) {
     let reduce_index = get_reduce_index(params);
 
     if comptime![params.bound_checks]
@@ -82,8 +93,8 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
     }
 
     reduce_kernel_inner::<(In, Acc), Out, R>(
-        &input,
-        &mut output,
+        input,
+        output,
         axis_reduce,
         reduce_index,
         params,
