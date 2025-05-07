@@ -534,6 +534,12 @@ impl WgslCompiler {
             cube::Synchronization::SyncCube => {
                 instructions.push(wgsl::Instruction::WorkgroupBarrier)
             }
+            cube::Synchronization::SyncPlaneStrict => {
+                panic!("Synchronization within a plane is not supported in WGSL")
+            }
+            cube::Synchronization::SyncPlaneFallback => {
+                instructions.push(wgsl::Instruction::WorkgroupBarrier)
+            }
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }

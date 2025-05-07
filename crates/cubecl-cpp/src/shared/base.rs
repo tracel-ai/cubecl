@@ -286,6 +286,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
             gpu::Operation::Synchronization(val) => match val {
                 gpu::Synchronization::SyncCube => instructions.push(Instruction::SyncThreads),
+                gpu::Synchronization::SyncPlaneStrict => {
+                    instructions.push(Instruction::SyncWarpStrict)
+                }
+                gpu::Synchronization::SyncPlaneFallback => {
+                    instructions.push(Instruction::SyncWarpFallback)
+                }
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncProxyShared => {
                     self.flags.inst_tma = true;

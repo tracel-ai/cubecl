@@ -78,6 +78,9 @@ impl Uniformity {
                         block_uniform = true;
                     }
                     Synchronization::SyncProxyShared => {}
+                    Synchronization::SyncPlaneFallback | Synchronization::SyncPlaneStrict => {
+                        // TODO: not sure
+                    }
                 },
                 op => {
                     let is_uniform =

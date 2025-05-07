@@ -10,6 +10,10 @@ use crate::{OperationReflect, TypeHash};
 pub enum Synchronization {
     // Synchronizize units in a cube.
     SyncCube,
+    // Synchronize units within their plane, requiring native warp sync
+    SyncPlaneStrict,
+    // Synchronize units within their plane, allowing fallback to Cube-wide sync, may break correctness
+    SyncPlaneFallback,
     SyncStorage,
     /// Sync CTA proxy.
     /// Experimental, CUDA only, SM 9.0+ only
@@ -22,6 +26,8 @@ impl Display for Synchronization {
             Synchronization::SyncCube => write!(f, "sync_cube()"),
             Synchronization::SyncStorage => write!(f, "sync_storage()"),
             Synchronization::SyncProxyShared => write!(f, "sync_proxy_shared()"),
+            Synchronization::SyncPlaneStrict => write!(f, "sync_plane_strict()"),
+            Synchronization::SyncPlaneFallback => write!(f, "sync_plane_fallback()"),
         }
     }
 }

@@ -835,6 +835,17 @@ impl DialectInstructions<Self> for MslDialect {
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
     }
+
+    fn compile_instruction_sync_warp(
+        f: &mut std::fmt::Formatter<'_>,
+        fallback_allowed: bool,
+    ) -> std::fmt::Result {
+        if fallback_allowed {
+            Self::compile_instruction_sync_threads(f)
+        } else {
+            panic!("Synchronization within a plane is not supported on Metal")
+        }
+    }
 }
 
 // Coop Matrices dialect

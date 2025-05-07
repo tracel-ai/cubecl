@@ -259,9 +259,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {
 // Instructions
 
 impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
-    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_sync_threads(f)
+    }
+
+    fn compile_instruction_sync_warp(
+        f: &mut std::fmt::Formatter<'_>,
+        fallback_allowed: bool,
+    ) -> std::fmt::Result {
+        CudaDialect::compile_instruction_sync_warp(f, fallback_allowed)
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

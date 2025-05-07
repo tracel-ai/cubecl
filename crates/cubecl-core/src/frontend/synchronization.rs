@@ -2,6 +2,7 @@ use crate::{
     ir::{Scope, Synchronization},
     unexpanded,
 };
+
 // Among all backends, the memory order guarantee of WebGPU is the weakest
 // So Cubecl's memory order cannot be stronger than that of WebGPU
 
@@ -21,6 +22,37 @@ pub mod sync_cube {
     pub fn expand(scope: &mut Scope) {
         scope.register(Synchronization::SyncCube)
     }
+}
+
+/// Synchronizes threads within their plane (e.g., warp or SIMD group).
+///
+/// Not all targets support plane-level synchronization. Use [`SyncPlaneMode`]
+/// to control whether a fallback to cube-wide synchronization is allowed
+/// when plane sync is unavailable.
+pub fn sync_plane(_sync_plane_mode: SyncPlaneMode) {
+    unexpanded!()
+}
+
+pub mod sync_plane {
+    use super::*;
+
+    pub fn expand(scope: &mut Scope, sync_plane_mode: SyncPlaneMode) {
+        match sync_plane_mode {
+            SyncPlaneMode::Strict => scope.register(Synchronization::SyncPlaneStrict),
+            SyncPlaneMode::Fallback => scope.register(Synchronization::SyncPlaneFallback),
+        }
+    }
+}
+
+/// Determines whether a sync plane is allowed to fall back to a sync cube
+/// when native support is unavailable.
+///
+/// In some cases, falling back may only incur a minor performance cost.
+/// In others, it can break correctness or even cause deadlocks —
+/// especially when warp specialization is involved.
+pub enum SyncPlaneMode {
+    Strict,   // Requires native warp sync, or fails at kernel compilation
+    Fallback, // Allows fallback to Cube-wide sync, may break correctness
 }
 
 /// * Sync_storage is the same but change "cube address space(shared memory)" to "storage address space(input args)". But the set of invocations that are collaborating is still only the invocations in the same cube.
