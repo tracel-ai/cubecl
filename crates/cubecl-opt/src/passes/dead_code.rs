@@ -1,4 +1,4 @@
-#![allow(unnecessary_transmutes, unknown_lints)]
+#![allow(unknown_lints, unnecessary_transmutes)]
 
 use std::{
     mem::{replace, transmute},
