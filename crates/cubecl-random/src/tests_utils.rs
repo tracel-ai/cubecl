@@ -71,7 +71,7 @@ pub fn assert_mean_approx_equal<E: Numeric>(data: &[E], expected_mean: f32) {
 /// following the given mean and standard deviation.
 pub fn assert_normal_respects_68_95_99_rule<E: Numeric>(data: &[E], mu: f32, s: f32) {
     // https://en.wikipedia.org/wiki/68%E2%80%9395%E2%80%9399.7_rule
-    let stats = calculate_bin_stats(data, 6, (mu - 3. * s) as f32, (mu + 3. * s) as f32);
+    let stats = calculate_bin_stats(data, 6, mu - 3. * s, mu + 3. * s);
     let assert_approx_eq = |count, percent| {
         let expected = percent * data.len() as f32 / 100.;
         assert!(f32::abs(count as f32 - expected) < 2000.);
@@ -88,8 +88,8 @@ pub fn assert_normal_respects_68_95_99_rule<E: Numeric>(data: &[E], mu: f32, s: 
 /// to the expected probability.
 pub fn assert_number_of_1_proportional_to_prob<E: Numeric>(data: &[E], prob: f32) {
     // High bound slightly over 1 so 1.0 is included in second bin
-    let bin_stats = calculate_bin_stats(&data, 2, 0., 1.1);
-    assert!(f32::abs((bin_stats[1].count as f32 / data.len() as f32) - prob as f32) < 0.05);
+    let bin_stats = calculate_bin_stats(data, 2, 0., 1.1);
+    assert!(f32::abs((bin_stats[1].count as f32 / data.len() as f32) - prob) < 0.05);
 }
 
 /// Asserts that the elements of the data, sorted into two bins, are elements of the sequence
