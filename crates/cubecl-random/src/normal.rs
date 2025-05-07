@@ -78,10 +78,10 @@ impl<E: CubeElement + Numeric> PrngArgs<E> for Normal<E> {
 
 /// Pseudo-random generator with uniform distribution
 pub fn random_normal<R: Runtime, E: CubeElement + Numeric>(
-    device: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server, R::Channel>,
     mean: E,
     std: E,
     out: &mut TensorHandleRef<R>,
 ) {
-    random(device, Normal { mean, std }, out)
+    random(client, Normal { mean, std }, out)
 }
