@@ -17,7 +17,7 @@ use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
-    debug::{DebugLogger, ProfileLevel},
+    logging::{DebugLogger, ProfileLevel},
     storage::ComputeStorage,
 };
 use cubecl_runtime::{
