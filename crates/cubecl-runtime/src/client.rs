@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 
-#[cfg(feature = "std")]
+#[cfg(multi_threading)]
 use crate::profiling_queue::ProfilingPriotityQueue;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
@@ -24,7 +24,7 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
     info: Server::Info,
-    #[cfg(feature = "std")]
+    #[cfg(multi_threading)]
     queue: ProfilingPriotityQueue,
 }
 
@@ -57,9 +57,9 @@ where
         properties: DeviceProperties<Server::Feature>,
         info: Server::Info,
     ) -> Self {
-        #[cfg(feature = "std")]
+        #[cfg(multi_threading)]
         let state = ComputeClientState::new(properties, info, ProfilingPriotityQueue::new());
-        #[cfg(not(feature = "std"))]
+        #[cfg(not(multi_threading))]
         let state = ComputeClientState::new(properties, info);
 
         Self {
@@ -233,17 +233,16 @@ where
     /// Nb: this function will only allow one function at a time to be submitted when multithrading.
     /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
-        #[cfg(feature = "std")]
+        #[cfg(multi_threading)]
         let (stream_id, should_init) = self.state.queue.aquire_profile_priority();
 
         let token = self.channel.start_profile();
-        // TODO: Panic unwind to catch errors on native. Mostly for testing and catch errors
-        // without hang.
+
         func();
 
         let result = self.channel.end_profile(token);
 
-        #[cfg(feature = "std")]
+        #[cfg(multi_threading)]
         if should_init {
             self.state.queue.set_profile_priotity_init_token(token);
         }
@@ -264,7 +263,7 @@ where
             }
         };
 
-        #[cfg(feature = "std")]
+        #[cfg(multi_threading)]
         self.state.queue.release_profile_priotity(stream_id, token);
 
         result

@@ -26,7 +26,6 @@ pub struct WgpuStream {
     timestamps: HashMap<ProfilingToken, KernelTimestamps>,
     timestamps_device_init: Vec<ProfilingToken>,
     timestamp_counter: u64,
-    profiling_token: Option<ProfilingToken>,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     tasks_count: usize,
@@ -66,7 +65,6 @@ impl WgpuStream {
             timestamps: HashMap::new(),
             timestamps_device_init: Vec::new(),
             timestamp_counter: 0,
-            profiling_token: None,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -126,23 +124,43 @@ impl WgpuStream {
         let pass = self.compute_pass.get_or_insert_with(|| {
             // Write out timestamps. The first compute pass writes both a start and end timestamp.
             // the second timestamp writes out only an end stamp.
-            let mut pass = self
-                .encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: None,
-                })
-                .forget_lifetime();
+            let mut pass = None;
 
             for token in self.timestamps_device_init.drain(..) {
-                if let KernelTimestamps::Device { query_set } =
-                    &mut self.timestamps.get_mut(&token).unwrap()
+                if let Some(KernelTimestamps::Device { query_set }) =
+                    &mut self.timestamps.get_mut(&token)
                 {
-                    pass.write_timestamp(query_set, 0);
+                    match &mut pass {
+                        None => {
+                            let writes = wgpu::ComputePassTimestampWrites {
+                                query_set,
+                                beginning_of_pass_write_index: Some(0),
+                                end_of_pass_write_index: Some(1),
+                            };
+                            pass = Some(
+                                self.encoder
+                                    .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                                        label: None,
+                                        timestamp_writes: Some(writes),
+                                    })
+                                    .forget_lifetime(),
+                            );
+                        }
+                        Some(pass) => pass.write_timestamp(query_set, 0),
+                    }
                 }
             }
 
-            pass
+            match pass {
+                Some(val) => val,
+                None => self
+                    .encoder
+                    .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: None,
+                        timestamp_writes: None,
+                    })
+                    .forget_lifetime(),
+            }
         });
 
         self.tasks_count += 1;
@@ -252,14 +270,6 @@ impl WgpuStream {
         })
     }
 
-    pub fn get_profiling_token(&self) -> Option<ProfilingToken> {
-        self.profiling_token
-    }
-
-    pub fn set_profiling_token(&mut self, token: Option<ProfilingToken>) {
-        self.profiling_token = token;
-    }
-
     pub fn start_profile(&mut self) -> ProfilingToken {
         let token = ProfilingToken {
             id: self.timestamp_counter,
@@ -300,8 +310,6 @@ impl WgpuStream {
     }
 
     pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        self.compute_pass = None;
-
         let timestamp = self
             .timestamps
             .remove(&token)
@@ -315,6 +323,13 @@ impl WgpuStream {
                     // but it seems better to always return things as 'device' timing method.
                     ProfileDuration::from_future(async move { Duration::from_secs(0) })
                 } else {
+                    // If in the middle of a pass we write the end, otherwise it's already written
+                    // to with flush.
+                    if let Some(pass) = &mut self.compute_pass {
+                        pass.write_timestamp(&query_set, 1);
+                    }
+                    self.compute_pass = None;
+
                     let (handle, resource) = self.mem_manage.query();
                     self.encoder.resolve_query_set(
                         &query_set,
@@ -440,6 +455,13 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
+        if let Some(pass) = &mut self.compute_pass {
+            for timestamp in self.timestamps.values_mut() {
+                if let KernelTimestamps::Device { query_set } = timestamp {
+                    pass.write_timestamp(query_set, 1);
+                }
+            }
+        }
         // End the current compute pass.
         self.compute_pass = None;
 
