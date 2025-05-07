@@ -78,8 +78,6 @@ impl Timings {
     fn stop(&mut self, token: ProfilingToken) {
         if let KernelTimestamps::Device { end, .. } = self.timestamps.get_mut(&token).unwrap() {
             *end = self.current;
-            // let query_set = self.query_sets.get_mut(&self.current.unwrap()).unwrap();
-            // query_set.num_ref += 1;
         }
     }
 
@@ -374,6 +372,7 @@ impl WgpuStream {
 
     pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.timings.stop(token);
+        self.compute_pass = None;
 
         let timestamp = self
             .timings
@@ -391,7 +390,6 @@ impl WgpuStream {
                     // but it seems better to always return things as 'device' timing method.
                     return ProfileDuration::from_future(async move { Duration::from_secs(0) });
                 };
-                self.compute_pass = None;
 
                 let (handle, resource) = self.mem_manage.query();
 
