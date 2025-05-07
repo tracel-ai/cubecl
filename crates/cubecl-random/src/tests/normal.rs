@@ -37,6 +37,14 @@ macro_rules! testgen_random_normal {
                 let output_data = get_random_normal_data::<TestRuntime, f32>(shape, mean, std);
 
                 assert_mean_approx_equal(&output_data, mean);
+
+                let shape = &[1000, 1000];
+                let mean = 0.;
+                let std = 1.;
+
+                let output_data = get_random_normal_data::<TestRuntime, f32>(shape, mean, std);
+
+                assert_mean_approx_equal(&output_data, mean);
             }
 
             #[test]

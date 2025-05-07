@@ -18,11 +18,12 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Uniform<E> {
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
+        #[comptime] line_size: u32,
         state_0: &mut u32,
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut Tensor<E>,
+        output: &mut Tensor<Line<E>>,
     ) {
         let lower_bound = args.lower_bound;
         let upper_bound = args.upper_bound;
@@ -30,23 +31,31 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Uniform<E> {
         let should_unroll = n_values_per_thread <= 8;
         let scale = upper_bound - lower_bound;
 
+        let mut output_line = Line::empty(line_size);
+
         #[unroll(should_unroll)]
-        for i in 0..n_values_per_thread {
-            *state_0 = taus_step_0(*state_0);
-            *state_1 = taus_step_1(*state_1);
-            *state_2 = taus_step_2(*state_2);
-            *state_3 = lcg_step(*state_3);
+        for line_index in 0..n_values_per_thread / line_size {
+            // vectorization
+            #[unroll]
+            for i in 0..line_size {
+                *state_0 = taus_step_0(*state_0);
+                *state_1 = taus_step_1(*state_1);
+                *state_2 = taus_step_2(*state_2);
+                *state_3 = lcg_step(*state_3);
 
-            let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-            let f32_random = to_probability(int_random);
+                let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
+                let f32_random = to_probability(int_random);
 
-            let f32_uniform = f32_random * f32::cast_from(scale) + f32::cast_from(lower_bound);
+                let f32_uniform = f32_random * f32::cast_from(scale) + f32::cast_from(lower_bound);
 
-            let uniform = E::cast_from(f32_uniform);
+                let uniform = E::cast_from(f32_uniform);
 
-            let write_index = i * n_invocations + write_index_base;
+                output_line[i] = uniform;
+            }
 
-            output[write_index] = uniform;
+            let write_index = line_index * n_invocations + write_index_base;
+
+            output[write_index] = output_line;
         }
     }
 }

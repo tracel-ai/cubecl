@@ -23,26 +23,34 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Bernoulli<E> {
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
+        #[comptime] line_size: u32,
         state_0: &mut u32,
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut Tensor<E>,
+        output: &mut Tensor<Line<E>>,
     ) {
         let prob = args.probability;
 
+        let mut output_line = Line::empty(line_size);
+
         #[unroll(n_values_per_thread <=8)]
-        for i in 0..n_values_per_thread {
-            *state_0 = taus_step_0(*state_0);
-            *state_1 = taus_step_1(*state_1);
-            *state_2 = taus_step_2(*state_2);
-            *state_3 = lcg_step(*state_3);
+        for line_index in 0..n_values_per_thread / line_size {
+            // vectorization
+            #[unroll]
+            for i in 0..line_size {
+                *state_0 = taus_step_0(*state_0);
+                *state_1 = taus_step_1(*state_1);
+                *state_2 = taus_step_2(*state_2);
+                *state_3 = lcg_step(*state_3);
 
-            let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-            let float_random = to_probability(int_random);
-            let write_index = i * n_invocations + write_index_base;
+                let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
+                let float_random = to_probability(int_random);
+                output_line[i] = E::cast_from(float_random < prob);
+            }
+            let write_index = line_index * n_invocations + write_index_base;
 
-            output[write_index] = E::cast_from(float_random < prob);
+            output[write_index] = output_line;
         }
     }
 }
