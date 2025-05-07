@@ -1,18 +1,13 @@
 use std::marker::PhantomData;
 
-use cubecl_core as cubecl;
 use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
-use cubecl::{
-    CubeElement, Runtime, CubeLaunch, CubeType,
-};
+use cubecl::{CubeElement, CubeLaunch, CubeType, Runtime};
 
 use super::{
-    PrngArgs, PrngRuntime, random, 
-    cast_uint_to_float, lcg_step, taus_step_0, taus_step_1, taus_step_2
+    PrngArgs, PrngRuntime, lcg_step, random, taus_step_0, taus_step_1, taus_step_2, to_probability,
 };
-
-
 
 #[derive(CubeLaunch, CubeType)]
 pub(crate) struct Bernoulli<E: Numeric> {
@@ -34,10 +29,9 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Bernoulli<E> {
         state_3: &mut u32,
         output: &mut Tensor<E>,
     ) {
-        let prob = f32::cast_from(args.probability);
-        let should_unroll = n_values_per_thread <= 8;
+        let prob = args.probability;
 
-        #[unroll(should_unroll)]
+        #[unroll(n_values_per_thread <=8)]
         for i in 0..n_values_per_thread {
             *state_0 = taus_step_0(*state_0);
             *state_1 = taus_step_1(*state_1);
@@ -45,7 +39,7 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Bernoulli<E> {
             *state_3 = lcg_step(*state_3);
 
             let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-            let float_random = cast_uint_to_float(int_random);
+            let float_random = to_probability(int_random);
             let write_index = i * n_invocations + write_index_base;
 
             output[write_index] = E::cast_from(float_random < prob);
@@ -67,5 +61,12 @@ pub fn random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
     probability: f32,
     out: &mut TensorHandleRef<R>,
 ) {
-    random(device, Bernoulli::<E> { probability, _phantom: PhantomData}, out)
+    random(
+        device,
+        Bernoulli::<E> {
+            probability,
+            _phantom: PhantomData,
+        },
+        out,
+    )
 }

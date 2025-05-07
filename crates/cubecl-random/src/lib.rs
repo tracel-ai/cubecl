@@ -8,6 +8,5 @@ pub use bernoulli::*;
 pub use normal::*;
 pub use uniform::*;
 
-
 #[cfg(feature = "export_tests")]
 pub mod test;

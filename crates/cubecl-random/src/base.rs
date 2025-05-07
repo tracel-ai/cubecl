@@ -1,8 +1,8 @@
-use cubecl_core as cubecl;
 use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
 use cubecl_common::{rand::get_seeded_rng, stub::Mutex};
-use rand::{rngs::StdRng, Rng};
+use rand::{Rng, rngs::StdRng};
 
 pub(crate) const N_VALUES_PER_THREAD: usize = 128;
 
@@ -10,7 +10,6 @@ static SEED: Mutex<Option<StdRng>> = Mutex::new(None);
 
 /// Pseudo-random generator
 pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
-    //shape: &[usize],
     client: &ComputeClient<R::Server, R::Channel>,
     prng: P,
     output: &mut TensorHandleRef<'_, R>,
@@ -68,7 +67,9 @@ pub(crate) trait PrngArgs<E: CubeElement>: Send + Sync + 'static {
 }
 
 #[cube]
-pub(crate) trait PrngRuntime<E: CubeElement + CubeType>: Send + Sync + 'static + PrngArgs<E> {
+pub(crate) trait PrngRuntime<E: CubeElement + CubeType>:
+    Send + Sync + 'static + PrngArgs<E>
+{
     #[allow(clippy::too_many_arguments)]
     fn inner_loop(
         args: Self::Args,
@@ -152,7 +153,7 @@ pub(crate) fn lcg_step(z: u32) -> u32 {
 }
 
 #[cube]
-pub(crate) fn cast_uint_to_float(int_random: u32) -> f32 {
+pub(crate) fn to_probability(int_random: u32) -> f32 {
     let tmp = 2.328_306_4e-10f32;
     f32::cast_from(int_random) * tmp
 }
