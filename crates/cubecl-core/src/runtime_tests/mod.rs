@@ -14,6 +14,7 @@ pub mod index;
 pub mod launch;
 pub mod line;
 pub mod metadata;
+pub mod minifloat;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
@@ -119,6 +120,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();
+        cubecl_core::testgen_minifloat!();
 
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_tensor_indexing!();

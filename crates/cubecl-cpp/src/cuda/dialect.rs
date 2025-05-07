@@ -7,8 +7,8 @@ use crate::{
     cuda::ptx::TMA_LOAD_IM2COL,
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item,
-        SharedMemory, Variable, WarpInstruction, unary,
+        DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind,
+        Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
@@ -28,6 +28,15 @@ impl DialectIncludes<Self> for CudaDialect {
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <cuda_runtime.h>\n")?;
+        if flags.elem_fp4 {
+            f.write_str("#include <cuda_fp4.h>\n")?;
+        }
+        if flags.elem_fp6 {
+            f.write_str("#include <cuda_fp6.h>\n")?;
+        }
+        if flags.elem_fp8 {
+            f.write_str("#include <cuda_fp8.h>\n")?;
+        }
         if flags.elem_bf16 {
             f.write_str("#include <cuda_bf16.h>\n")?;
         }
@@ -89,8 +98,37 @@ impl DialectTypes<Self> for CudaDialect {
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
     ) -> std::fmt::Result {
+        // All FP4/FP6/FP8 elems map to the same type, so we need to deduplicate them
+        let mut items_deduplicated = HashSet::new();
+
+        for item in items {
+            let mut item = *item;
+            match item.elem() {
+                Elem::FP4(_) => {
+                    item.elem = Elem::FP4(FP4Kind::E2M1);
+                }
+                Elem::FP4x2(_) => {
+                    item.elem = Elem::FP4x2(FP4Kind::E2M1);
+                }
+                Elem::FP6(_) => {
+                    item.elem = Elem::FP6(FP6Kind::E2M3);
+                }
+                Elem::FP6x2(_) => {
+                    item.elem = Elem::FP6x2(FP6Kind::E2M3);
+                }
+                Elem::FP8(_) => {
+                    item.elem = Elem::FP8(FP8Kind::E4M3);
+                }
+                Elem::FP8x2(_) => {
+                    item.elem = Elem::FP8x2(FP8Kind::E4M3);
+                }
+                _ => {}
+            }
+            items_deduplicated.insert(item);
+        }
+
         shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, items)?;
+        shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
         if flags.use_grid_constants {
             shared::type_scalar_definitions::<Self>(f, scalars)?;
             shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
@@ -128,12 +166,18 @@ impl DialectTypes<Self> for CudaDialect {
             }
         } else {
             match elem {
+                shared::Elem::FP4(_) => write!(f, "__nv_fp4_storage_t"),
+                shared::Elem::FP4x2(_) => write!(f, "__nv_fp4x2_storage_t"),
+                shared::Elem::FP6(_) => write!(f, "__nv_fp6_storage_t"),
+                shared::Elem::FP6x2(_) => write!(f, "__nv_fp6x2_storage_t"),
+                shared::Elem::FP8(_) => write!(f, "__nv_fp8_storage_t"),
+                shared::Elem::FP8x2(_) => write!(f, "__nv_fp8x2_storage_t"),
                 shared::Elem::F16 => f.write_str("__half"),
-                shared::Elem::F162 => f.write_str("__half2"),
+                shared::Elem::F16x2 => f.write_str("__half2"),
                 shared::Elem::F32 => f.write_str("float"),
                 shared::Elem::F64 => f.write_str("double"),
                 shared::Elem::BF16 => f.write_str("__nv_bfloat16"),
-                shared::Elem::BF162 => f.write_str("__nv_bfloat162"),
+                shared::Elem::BF16x2 => f.write_str("__nv_bfloat162"),
                 shared::Elem::TF32 => f.write_str("float"),
                 shared::Elem::I8 => f.write_str("int8"),
                 shared::Elem::I16 => f.write_str("int16"),
@@ -321,7 +365,7 @@ impl DialectInstructions<Self> for CudaDialect {
     ) -> std::fmt::Result {
         let max = match item.elem() {
             Elem::F16 | Elem::BF16 => "__hmax",
-            Elem::F162 | Elem::BF162 => "__hmax2",
+            Elem::F16x2 | Elem::BF16x2 => "__hmax2",
             _ => "max",
         };
         write!(f, "{max}")
@@ -333,7 +377,7 @@ impl DialectInstructions<Self> for CudaDialect {
     ) -> std::fmt::Result {
         let min = match item.elem() {
             Elem::F16 | Elem::BF16 => "__hmin",
-            Elem::F162 | Elem::BF162 => "__hmin2",
+            Elem::F16x2 | Elem::BF16x2 => "__hmin2",
             _ => "min",
         };
         write!(f, "{min}")

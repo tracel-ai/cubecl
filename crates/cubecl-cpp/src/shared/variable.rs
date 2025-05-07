@@ -220,6 +220,12 @@ impl<D: Dialect> Display for Variable<D> {
                     gpu::IntKind::I64 => write!(f, "{elem}({})", *val),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
+                    gpu::FloatKind::E2M1
+                    | gpu::FloatKind::E2M3
+                    | gpu::FloatKind::E3M2
+                    | gpu::FloatKind::E4M3
+                    | gpu::FloatKind::E5M2
+                    | gpu::FloatKind::UE8M0 => todo!("Minifloat constants not supported yet"),
                     gpu::FloatKind::F16 => {
                         write!(f, "{elem}({:?})", half::f16::from_f64(*val))
                     }
@@ -376,6 +382,15 @@ impl<D: Dialect> Variable<D> {
             Variable::Slice { id, item } => Variable::Slice {
                 id: *id,
                 item: item.optimized(),
+            },
+            Variable::Tmp {
+                id,
+                item,
+                is_declared,
+            } => Variable::Tmp {
+                id: *id,
+                item: item.optimized(),
+                is_declared: *is_declared,
             },
             Variable::SharedMemory(id, item, size) => {
                 let before = item.vectorization;

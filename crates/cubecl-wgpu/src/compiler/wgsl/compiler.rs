@@ -149,6 +149,12 @@ impl WgslCompiler {
     fn compile_elem(&mut self, value: cube::Elem) -> wgsl::Elem {
         match value {
             cube::Elem::Float(f) => match f {
+                cube::FloatKind::E2M1
+                | cube::FloatKind::E2M3
+                | cube::FloatKind::E3M2
+                | cube::FloatKind::E4M3
+                | cube::FloatKind::E5M2
+                | cube::FloatKind::UE8M0 => panic!("Minifloat is not a valid WgpuElement"),
                 cube::FloatKind::F16 => {
                     self.f16_used = true;
                     wgsl::Elem::F16
