@@ -2,11 +2,17 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use cubecl_common::{rand::get_seeded_rng, stub::Mutex};
-use rand::{Rng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 pub(crate) const N_VALUES_PER_THREAD: usize = 128;
 
 static SEED: Mutex<Option<StdRng>> = Mutex::new(None);
+
+pub fn seed(seed: u64) {
+    let rng = StdRng::seed_from_u64(seed);
+    let mut seed = SEED.lock().unwrap();
+    *seed = Some(rng);
+}
 
 /// Pseudo-random generator
 pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
