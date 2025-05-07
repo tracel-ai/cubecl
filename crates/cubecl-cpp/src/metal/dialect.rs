@@ -249,8 +249,7 @@ impl DialectBindings<Self> for MslDialect {
             (f),
             "
 [[kernel]]
-void {}(",
-            kernel_name
+void {kernel_name}("
         )?;
         // Global bindings args
         let mut buffer_idx = 0;

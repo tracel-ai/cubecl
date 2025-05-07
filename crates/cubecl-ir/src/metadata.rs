@@ -25,11 +25,11 @@ pub enum Metadata {
 impl Display for Metadata {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Metadata::Rank { var } => write!(f, "rank({})", var),
-            Metadata::Stride { dim, var } => write!(f, "{}.strides[{}]", var, dim),
-            Metadata::Shape { dim, var } => write!(f, "{}.shape[{}]", var, dim),
-            Metadata::Length { var } => write!(f, "{}.len()", var),
-            Metadata::BufferLength { var } => write!(f, "buffer_len({})", var),
+            Metadata::Rank { var } => write!(f, "rank({var})"),
+            Metadata::Stride { dim, var } => write!(f, "{var}.strides[{dim}]"),
+            Metadata::Shape { dim, var } => write!(f, "{var}.shape[{dim}]"),
+            Metadata::Length { var } => write!(f, "{var}.len()"),
+            Metadata::BufferLength { var } => write!(f, "buffer_len({var})"),
         }
     }
 }

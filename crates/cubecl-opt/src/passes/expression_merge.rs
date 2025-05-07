@@ -1,7 +1,7 @@
 use std::{cell::RefCell, mem::take};
 
 use cubecl_ir::{
-    CoopMma, Instruction, Item, Operation, Operator, ReinterpretSliceOperator, UnaryOperator,
+    CoopMma, Instruction, Item, Operation, Operator, UnaryOperator,
 };
 use stable_vec::StableVec;
 

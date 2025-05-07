@@ -1,3 +1,5 @@
+#![allow(unnecessary_transmutes, unknown_lints)]
+
 use std::{
     mem::{replace, transmute},
     rc::Rc,
