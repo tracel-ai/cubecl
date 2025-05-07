@@ -16,18 +16,21 @@ use wgpu::{ComputePipeline, QuerySetDescriptor, QueryType};
 
 #[derive(Debug)]
 enum KernelTimestamps {
-    Device { query_set: QuerySet },
-    Full { start_time: Instant },
+    Device {
+        start: Option<u64>,
+        end: Option<u64>,
+    },
+    Full {
+        start_time: Instant,
+    },
 }
 
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
-    timestamps: HashMap<ProfilingToken, KernelTimestamps>,
-    timestamps_device_init: Vec<ProfilingToken>,
-    timestamp_counter: u64,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
+    timings: Timings,
     tasks_count: usize,
     tasks_max: usize,
     device: wgpu::Device,
@@ -37,6 +40,90 @@ pub struct WgpuStream {
     submission_load: SubmissionLoad,
     time_measurement: TimeMeasurement,
 }
+
+#[derive(Debug, Default)]
+struct Timings {
+    timestamps: HashMap<ProfilingToken, KernelTimestamps>,
+    init_tokens: Vec<ProfilingToken>,
+    query_sets: HashMap<u64, QuerySetSlot>,
+    current: Option<u64>,
+    counter_token: u64,
+    counter_query_set: u64,
+}
+
+#[derive(Debug)]
+struct QuerySetSlot {
+    query_set: QuerySet,
+    num_ref: u32,
+}
+
+impl Timings {
+    fn new_query_set(
+        &mut self,
+        query_set_info: (u64, u32),
+        device: &wgpu::Device,
+    ) -> &mut QuerySetSlot {
+        let (query_set_id, num_ref) = query_set_info;
+        let query_set = device.create_query_set(&QuerySetDescriptor {
+            label: Some("CubeCL profile queries"),
+            ty: QueryType::Timestamp,
+            count: 2,
+        });
+
+        let slot = QuerySetSlot { query_set, num_ref };
+        self.query_sets.insert(query_set_id, slot);
+        self.query_sets.get_mut(&query_set_id).unwrap()
+    }
+
+    fn stop(&mut self, token: ProfilingToken) {
+        if let KernelTimestamps::Device { end, .. } = self.timestamps.get_mut(&token).unwrap() {
+            *end = self.current;
+            // let query_set = self.query_sets.get_mut(&self.current.unwrap()).unwrap();
+            // query_set.num_ref += 1;
+        }
+    }
+
+    fn init(&mut self) -> Option<(QuerySetId, u32)> {
+        let mut query_set_id = None;
+        let mut count = 0;
+        for token in self.init_tokens.drain(..) {
+            if let Some(KernelTimestamps::Device { start, .. }) =
+                &mut self.timestamps.get_mut(&token)
+            {
+                count += 1;
+                let id = match query_set_id {
+                    Some(id) => id,
+                    None => {
+                        let id = self.counter_query_set;
+                        self.counter_query_set += 1;
+                        self.current = Some(id);
+                        query_set_id = Some(id);
+                        id
+                    }
+                };
+
+                *start = Some(id);
+            }
+        }
+
+        // Cleanup old query sets.
+        let mut cleanup = Vec::new();
+
+        for (key, item) in self.query_sets.iter() {
+            if item.num_ref == 0 {
+                cleanup.push(*key);
+            }
+        }
+
+        for key in cleanup {
+            self.query_sets.remove(&key);
+        }
+
+        query_set_id.map(|v| (v, count))
+    }
+}
+
+type QuerySetId = u64;
 
 impl WgpuStream {
     pub fn new(
@@ -62,9 +149,7 @@ impl WgpuStream {
         Self {
             mem_manage,
             compute_pass: None,
-            timestamps: HashMap::new(),
-            timestamps_device_init: Vec::new(),
-            timestamp_counter: 0,
+            timings: Timings::default(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -122,45 +207,23 @@ impl WgpuStream {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.compute_pass.get_or_insert_with(|| {
-            // Write out timestamps. The first compute pass writes both a start and end timestamp.
-            // the second timestamp writes out only an end stamp.
-            let mut pass = None;
+            let writes = if let Some(id) = self.timings.init() {
+                let query_set = self.timings.new_query_set(id, &self.device);
+                Some(wgpu::ComputePassTimestampWrites {
+                    query_set: &query_set.query_set,
+                    beginning_of_pass_write_index: Some(0),
+                    end_of_pass_write_index: Some(1),
+                })
+            } else {
+                None
+            };
 
-            for token in self.timestamps_device_init.drain(..) {
-                if let Some(KernelTimestamps::Device { query_set }) =
-                    &mut self.timestamps.get_mut(&token)
-                {
-                    match &mut pass {
-                        None => {
-                            let writes = wgpu::ComputePassTimestampWrites {
-                                query_set,
-                                beginning_of_pass_write_index: Some(0),
-                                end_of_pass_write_index: Some(1),
-                            };
-                            pass = Some(
-                                self.encoder
-                                    .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                                        label: None,
-                                        timestamp_writes: Some(writes),
-                                    })
-                                    .forget_lifetime(),
-                            );
-                        }
-                        Some(pass) => pass.write_timestamp(query_set, 0),
-                    }
-                }
-            }
-
-            match pass {
-                Some(val) => val,
-                None => self
-                    .encoder
-                    .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                        label: None,
-                        timestamp_writes: None,
-                    })
-                    .forget_lifetime(),
-            }
+            self.encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: writes,
+                })
+                .forget_lifetime()
         });
 
         self.tasks_count += 1;
@@ -272,27 +335,27 @@ impl WgpuStream {
 
     pub fn start_profile(&mut self) -> ProfilingToken {
         let token = ProfilingToken {
-            id: self.timestamp_counter,
+            id: self.timings.counter_token,
         };
-        self.timestamp_counter += 1;
+        self.timings.counter_token += 1;
 
         if matches!(self.time_measurement, TimeMeasurement::Device) {
             // Flush all commands to the queue. This isn't really needed, but this should mean
             // new work after this will be run with less overlap.
             self.flush();
 
-            let query_set = self.device.create_query_set(&QuerySetDescriptor {
-                label: Some("CubeCL profile queries"),
-                ty: QueryType::Timestamp,
-                count: 2,
-            });
-            self.timestamps_device_init.push(token);
-            self.timestamps
-                .insert(token, KernelTimestamps::Device { query_set });
+            self.timings.init_tokens.push(token);
+            self.timings.timestamps.insert(
+                token,
+                KernelTimestamps::Device {
+                    start: None,
+                    end: None,
+                },
+            );
         } else if !cfg!(target_family = "wasm") {
             // On native platforms, fallback to measuring full time elapsed.
             future::block_on(self.sync());
-            self.timestamps.insert(
+            self.timings.timestamps.insert(
                 token,
                 KernelTimestamps::Full {
                     start_time: Instant::now(),
@@ -310,47 +373,71 @@ impl WgpuStream {
     }
 
     pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+        self.timings.stop(token);
+
         let timestamp = self
+            .timings
             .timestamps
             .remove(&token)
             .expect("profiling token should be registered and used only once.");
 
         match timestamp {
-            KernelTimestamps::Device { query_set } => {
-                if self.timestamps_device_init.contains(&token) {
+            KernelTimestamps::Device { start, end } => {
+                let (start, end) = if let (Some(start), Some(end)) = (start, end) {
+                    (start, end)
+                } else {
                     // If there was no work done between the start and stop of the profile, logically the
                     // time should be 0. We could use a ProfileDuration::from_duration here,
                     // but it seems better to always return things as 'device' timing method.
-                    ProfileDuration::from_future(async move { Duration::from_secs(0) })
-                } else {
-                    // If in the middle of a pass we write the end, otherwise it's already written
-                    // to with flush.
-                    if let Some(pass) = &mut self.compute_pass {
-                        pass.write_timestamp(&query_set, 1);
-                    }
-                    self.compute_pass = None;
+                    return ProfileDuration::from_future(async move { Duration::from_secs(0) });
+                };
+                self.compute_pass = None;
 
-                    let (handle, resource) = self.mem_manage.query();
+                let (handle, resource) = self.mem_manage.query();
+
+                if start == end {
+                    let query_set = self.timings.query_sets.get_mut(&start).unwrap();
+                    query_set.num_ref -= 1;
                     self.encoder.resolve_query_set(
-                        &query_set,
+                        &query_set.query_set,
                         0..2,
                         resource.buffer(),
                         resource.offset(),
                     );
-                    let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                    let fut = self.read_buffers(vec![handle.binding()]);
-                    let resolve_fut = async move {
-                        let data = fut
-                            .await
-                            .remove(0)
-                            .chunks_exact(8)
-                            .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                            .collect::<Vec<_>>();
-                        let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
-                        Duration::from_secs_f64(delta as f64 * period)
-                    };
-                    ProfileDuration::from_future(resolve_fut)
-                }
+                } else {
+                    let query_set_start = self.timings.query_sets.get_mut(&start).unwrap();
+                    query_set_start.num_ref -= 1;
+
+                    self.encoder.resolve_query_set(
+                        &query_set_start.query_set,
+                        0..1,
+                        resource.buffer(),
+                        resource.offset(),
+                    );
+
+                    let query_set_end = self.timings.query_sets.get_mut(&start).unwrap();
+
+                    self.encoder.resolve_query_set(
+                        &query_set_end.query_set,
+                        1..2,
+                        resource.buffer(),
+                        resource.offset(),
+                    );
+                };
+
+                let period = self.queue.get_timestamp_period() as f64 * 1e-9;
+                let fut = self.read_buffers(vec![handle.binding()]);
+                let resolve_fut = async move {
+                    let data = fut
+                        .await
+                        .remove(0)
+                        .chunks_exact(8)
+                        .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                        .collect::<Vec<_>>();
+                    let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
+                    Duration::from_secs_f64(delta as f64 * period)
+                };
+                ProfileDuration::from_future(resolve_fut)
             }
             KernelTimestamps::Full { start_time } => {
                 let fut = self.sync();
@@ -455,13 +542,6 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
-        if let Some(pass) = &mut self.compute_pass {
-            for timestamp in self.timestamps.values_mut() {
-                if let KernelTimestamps::Device { query_set } = timestamp {
-                    pass.write_timestamp(query_set, 1);
-                }
-            }
-        }
         // End the current compute pass.
         self.compute_pass = None;
 
