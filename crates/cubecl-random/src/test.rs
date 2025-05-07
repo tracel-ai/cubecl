@@ -17,17 +17,13 @@ fn test_results<E: Numeric>(
         if let Some(lower_bound) = lower_bound {
             assert!(
                 elem >= lower_bound,
-                "element is below lower bound: {} < {}",
-                elem,
-                lower_bound
+                "element is below lower bound: {elem} < {lower_bound}"
             );
         }
         if let Some(upper_bound) = upper_bound {
             assert!(
                 elem <= upper_bound,
-                "element is above upper bound: {} > {}",
-                elem,
-                upper_bound
+                "element is above upper bound: {elem} > {upper_bound}"
             );
         }
         sum += elem;
@@ -45,11 +41,7 @@ fn test_results<E: Numeric>(
 
     assert!(
         ((mean - expected_mean).abs() / var) < 3.0,
-        "Uniform RNG validation failed: mean={}, expected mean={}, std={}, expected std={}",
-        mean,
-        expected_mean,
-        std,
-        expected_std,
+        "Uniform RNG validation failed: mean={mean}, expected mean={expected_mean}, std={std}, expected std={expected_std}",
     );
 }
 
@@ -71,7 +63,7 @@ pub fn test_random_uniform<R: Runtime, E: CubeElement + Numeric>(
 
     let random_data = client.read_one(handle.binding());
     let random_data = E::from_bytes(&random_data);
-    println!("{:?}", random_data);
+    println!("{random_data:?}");
 
     let range = (upper_bound + lower_bound).to_f32().unwrap();
     let expected_mean = range / 2.;
@@ -105,7 +97,7 @@ pub fn test_random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
 
     let random_data = client.read_one(handle.binding());
     let random_data = E::from_bytes(&random_data);
-    println!("{:?}", random_data);
+    println!("{random_data:?}");
 
     let expected_mean = probability;
     let expected_std = (expected_mean * (1. - expected_mean)).sqrt();
@@ -139,7 +131,7 @@ pub fn test_random_normal<R: Runtime, E: CubeElement + Numeric>(
 
     let random_data = client.read_one(handle.binding());
     let random_data = E::from_bytes(&random_data);
-    println!("{:?}", random_data);
+    println!("{random_data:?}");
 
     let expected_mean = mean.to_f32().unwrap();
     let expected_std = std.to_f32().unwrap();
