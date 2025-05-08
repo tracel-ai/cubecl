@@ -16,3 +16,6 @@ pub use cubecl_linalg as linalg;
 
 #[cfg(feature = "reduce")]
 pub use cubecl_reduce as reduce;
+
+#[cfg(feature = "random")]
+pub use cubecl_random as random;
