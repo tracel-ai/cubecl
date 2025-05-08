@@ -138,7 +138,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
+            let mut shape = shape(problem, ident);
+
+            let mut original_data = P::EG::sample::<R>(client, &shape, 1234);
 
             if let Some(params) = P::quantization_params(Ident::Lhs) {
                 original_data.extend_from_slice(&params.scaling);
@@ -146,7 +148,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
             }
 
-            let mut shape = shape(problem, ident);
             let rank = shape.len();
 
             let data = match problem.lhs_layout {
@@ -173,7 +174,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
+            let mut shape = shape(problem, ident);
+
+            let mut original_data = P::EG::sample::<R>(client, &shape, 5678);
 
             if let Some(params) = P::quantization_params(Ident::Rhs) {
                 original_data.extend_from_slice(&params.scaling);
@@ -181,7 +184,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
             }
 
-            let mut shape = shape(problem, ident);
             let rank = shape.len();
 
             let data = match problem.rhs_layout {

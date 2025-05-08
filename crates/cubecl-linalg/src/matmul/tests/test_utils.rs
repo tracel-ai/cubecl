@@ -358,7 +358,11 @@ impl CastInto<u8> for i32 {
 }
 
 pub trait Sample: Sized {
-    fn sample(num_elements: usize, seed: u64) -> Vec<Self>;
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> Vec<Self>;
 }
 
 macro_rules! sample_float {
@@ -366,17 +370,16 @@ macro_rules! sample_float {
         $(
             impl Sample for $t
             {
-                fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
-                    fn lcg(seed: &mut u64) -> f32 {
-                        const A: u64 = 1664525;
-                        const C: u64 = 1013904223;
-                        const M: f64 = 2u64.pow(32) as f64;
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> Vec<Self> {
+                    cubecl_random::seed(seed);
+                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                        *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
-                        (*seed as f64 / M * 2.0 - 1.0) as f32
-                    }
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
 
-                    (0..num_elements).map(|_| <$t as Float>::new(lcg(&mut seed))).collect()
+                    let data = client.read_one(output.handle.binding());
+                    let data = Self::from_bytes(&data);
+
+                    data.to_owned()
                 }
             }
         )*
@@ -385,23 +388,35 @@ macro_rules! sample_float {
 
 sample_float!(half::f16);
 sample_float!(half::bf16);
-sample_float!(flex32);
 sample_float!(f32);
-sample_float!(tf32);
 sample_float!(f64);
+sample_float!(u8);
+//sample_float!(flex32);
+//sample_float!(tf32);
 
-impl Sample for u8 {
-    fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
-        fn lcg(seed: &mut u64) -> u8 {
-            const A: u64 = 1664525;
-            const C: u64 = 1013904223;
-            const M: u64 = 2u64.pow(32);
+impl Sample for flex32 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> Vec<Self> {
+        f32::sample::<R>(client, shape, seed)
+            .iter()
+            .map(|&e| <Self as Float>::new(e))
+            .collect()
+    }
+}
 
-            *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % M;
-            (*seed % 4) as u8
-        }
-
-        (0..num_elements).map(|_| lcg(&mut seed)).collect()
+impl Sample for tf32 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> Vec<Self> {
+        f32::sample::<R>(client, shape, seed)
+            .iter()
+            .map(|&e| <Self as Float>::new(e))
+            .collect()
     }
 }
 
@@ -614,7 +629,7 @@ impl MatmulTestCase {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = F::sample(shape.iter().product(), 999);
+        let data = F::sample::<R>(client, &shape, 999);
         let (handle, strides) =
             client.create_tensor(bytemuck::cast_slice(&data), &shape, size_of::<F>());
         TensorHandle::new(handle, shape, strides)
