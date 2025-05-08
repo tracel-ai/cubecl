@@ -27,7 +27,7 @@ impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if ident != Ident::Lhs {
             return Err(FormattedConfigError::new(move || {
-                format!("Ordered loading only available on Lhs").to_string()
+                "Ordered loading only available on Lhs".to_string()
             }));
         }
 

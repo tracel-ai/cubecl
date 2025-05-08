@@ -67,9 +67,9 @@ where
             .tiling_dimensions(Ident::Rhs)
             .tile_count_col();
         if stage_n != config.num_planes() {
-            return Err(Box::new(format!(
-                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row."
-            ).to_string()));
+            return Err(Box::new(
+                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row.",
+            ));
         }
 
         SMM::check_config(&config.to_smm_config())
