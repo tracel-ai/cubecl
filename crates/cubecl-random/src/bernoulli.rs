@@ -57,12 +57,12 @@ impl<E: CubeElement + Numeric> PrngArgs<E> for Bernoulli<E> {
 
 /// Pseudo-random generator with bernoulli distribution
 pub fn random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
-    device: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server, R::Channel>,
     probability: f32,
     out: &mut TensorHandleRef<R>,
 ) {
     random(
-        device,
+        client,
         Bernoulli::<E> {
             probability,
             _phantom: PhantomData,
