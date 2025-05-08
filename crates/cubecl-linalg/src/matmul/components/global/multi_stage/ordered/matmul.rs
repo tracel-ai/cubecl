@@ -1,15 +1,12 @@
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy, SyncFullLoader,
-    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered, sync_full_tilewise,
+    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, LoadingValidation};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::{
-    BufferReader, ColMajorTilingOrder, NoEvent, RowMajorTilingOrder, StageConfig,
-};
+use crate::matmul::components::stage::{BufferReader, StageConfig};
 use crate::matmul::components::stage::{FullReader, StageEvent};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
 use crate::matmul::components::{
@@ -175,7 +172,7 @@ where
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
-        sync_units();
+        sync_cube();
 
         for _ in 0..num_loops {
             SMM::execute_with_listener::<
@@ -193,7 +190,7 @@ where
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
-            sync_units();
+            sync_cube();
 
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
@@ -209,7 +206,7 @@ where
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
-            sync_units();
+            sync_cube();
         }
 
         SMM::execute_with_listener::<
@@ -224,7 +221,7 @@ where
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
-        sync_units();
+        sync_cube();
 
         // Execute B
         SMM::execute(

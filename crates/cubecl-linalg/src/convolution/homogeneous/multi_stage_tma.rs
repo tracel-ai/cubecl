@@ -104,7 +104,7 @@ where
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
 
-        sync_units();
+        sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, smm_config);
 
@@ -182,7 +182,7 @@ where
             }
         }
 
-        sync_units();
+        sync_cube();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,

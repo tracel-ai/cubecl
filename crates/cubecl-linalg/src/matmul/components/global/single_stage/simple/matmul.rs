@@ -146,12 +146,12 @@ where
         let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
         for _ in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
-            sync_units();
+            sync_cube();
 
             SMM::execute(
                 lhs_stage_reader,

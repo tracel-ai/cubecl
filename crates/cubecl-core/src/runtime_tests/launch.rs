@@ -45,7 +45,7 @@ pub fn kernel_with_max_shared(
         shared_1[shared_size_1 - UNIT_POS - 1] = output[UNIT_POS];
         shared_2[shared_size_2 - UNIT_POS - 1] = output[8 - UNIT_POS];
     }
-    sync_units();
+    sync_cube();
     if UNIT_POS < 8 {
         let a = shared_1[shared_size_1 - UNIT_POS - 2];
         let b = shared_2[shared_size_2 - UNIT_POS - 1];

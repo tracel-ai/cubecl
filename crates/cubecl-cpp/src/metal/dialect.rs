@@ -687,6 +687,10 @@ impl DialectInstructions<Self> for MslDialect {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
     }
 
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")
+    }
+
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
     }
