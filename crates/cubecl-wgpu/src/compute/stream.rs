@@ -114,7 +114,7 @@ impl WgpuStream {
         let pass = self.compute_pass.get_or_insert_with(|| {
             let writes = self
                 .timings
-                .register_profile_device(&mut self.device)
+                .register_profile_device(&self.device)
                 .map(|query_set| wgpu::ComputePassTimestampWrites {
                     query_set,
                     beginning_of_pass_write_index: Some(0),

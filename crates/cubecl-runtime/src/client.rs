@@ -322,34 +322,29 @@ where
     fn profile_guard(&self) {
         let current = self.state.current_profiling.read();
 
-        match current.as_ref() {
-            Some(current_stream_id) => {
-                let stream_id = StreamId::current();
+        if let Some(current_stream_id) = current.as_ref() {
+            let stream_id = StreamId::current();
 
-                if current_stream_id == &stream_id {
-                    return;
-                }
+            if current_stream_id == &stream_id {
+                return;
+            }
 
-                core::mem::drop(current);
+            core::mem::drop(current);
 
-                loop {
-                    std::thread::sleep(core::time::Duration::from_millis(10));
+            loop {
+                std::thread::sleep(core::time::Duration::from_millis(10));
 
-                    let current = self.state.current_profiling.read();
-                    match current.as_ref() {
-                        Some(current_stream_id) => {
-                            if current_stream_id == &stream_id {
-                                return;
-                            }
-                        }
-                        None => {
+                let current = self.state.current_profiling.read();
+                match current.as_ref() {
+                    Some(current_stream_id) => {
+                        if current_stream_id == &stream_id {
                             return;
                         }
                     }
+                    None => {
+                        return;
+                    }
                 }
-            }
-            None => {
-                return;
             }
         }
     }
@@ -387,7 +382,7 @@ where
             }
             None => {
                 *current = Some(stream_id);
-                return Some(stream_id);
+                Some(stream_id)
             }
         }
     }
