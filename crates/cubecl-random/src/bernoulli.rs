@@ -34,8 +34,9 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Bernoulli<E> {
 
         let mut output_line = Line::empty(line_size);
 
-        #[unroll(n_values_per_thread <=8)]
-        for line_index in 0..n_values_per_thread / line_size {
+        let num_iterations = n_values_per_thread / line_size;
+        #[unroll(num_iterations <=8)]
+        for line_index in 0..num_iterations {
             // vectorization
             #[unroll]
             for i in 0..line_size {
@@ -67,7 +68,7 @@ impl<E: CubeElement + Numeric> PrngArgs<E> for Bernoulli<E> {
 pub fn random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     probability: f32,
-    out: &mut TensorHandleRef<R>,
+    out: TensorHandleRef<R>,
 ) {
     random(
         client,

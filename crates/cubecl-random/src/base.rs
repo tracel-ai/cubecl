@@ -19,7 +19,7 @@ pub fn seed(seed: u64) {
 pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     prng: P,
-    output: &mut TensorHandleRef<'_, R>,
+    output: TensorHandleRef<'_, R>,
 ) {
     let seeds = get_seeds();
     let args = prng.args();

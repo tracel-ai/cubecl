@@ -29,13 +29,12 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Normal<E> {
         let mean = f32::cast_from(args.mean);
         let std = f32::cast_from(args.std);
 
-        let should_unroll = n_values_per_thread <= 16;
-
         let mut output_line_0 = Line::empty(line_size);
         let mut output_line_1 = Line::empty(line_size);
 
-        #[unroll(should_unroll)]
-        for line_index in 0..(n_values_per_thread / line_size) / 2 {
+        let num_iterations = n_values_per_thread / line_size / 2;
+        #[unroll(num_iterations <= 16)]
+        for line_index in 0..num_iterations {
             // vectorization
             #[unroll]
             for i in 0..line_size {
@@ -92,7 +91,7 @@ pub fn random_normal<R: Runtime, E: CubeElement + Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     mean: E,
     std: E,
-    out: &mut TensorHandleRef<R>,
+    out: TensorHandleRef<R>,
 ) {
     random(client, Normal { mean, std }, out)
 }

@@ -28,13 +28,13 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Uniform<E> {
         let lower_bound = args.lower_bound;
         let upper_bound = args.upper_bound;
 
-        let should_unroll = n_values_per_thread <= 8;
         let scale = upper_bound - lower_bound;
 
         let mut output_line = Line::empty(line_size);
 
-        #[unroll(should_unroll)]
-        for line_index in 0..n_values_per_thread / line_size {
+        let num_iterations = n_values_per_thread / line_size;
+        #[unroll(num_iterations <= 8)]
+        for line_index in 0..num_iterations {
             // vectorization
             #[unroll]
             for i in 0..line_size {
@@ -76,7 +76,7 @@ pub fn random_uniform<R: Runtime, E: CubeElement + Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lower_bound: E,
     upper_bound: E,
-    out: &mut TensorHandleRef<R>,
+    out: TensorHandleRef<R>,
 ) {
     random(
         client,

@@ -76,9 +76,6 @@ pub fn assert_normal_respects_68_95_99_rule<E: Numeric>(data: &[E], mu: f32, s: 
         let expected = percent * data.len() as f32 / 100.;
         assert!(f32::abs(count as f32 - expected) < 2000.);
     };
-    for s in &stats {
-        println!("percent: {:?}", s.count as f32 / data.len() as f32 * 100.);
-    }
     assert_approx_eq(stats[0].count, 2.1);
     assert_approx_eq(stats[1].count, 13.6);
     assert_approx_eq(stats[2].count, 34.1);
