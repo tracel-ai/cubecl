@@ -7,7 +7,10 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+
+#[cfg(multi_threading)]
+use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -21,6 +24,7 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
     info: Server::Info,
+    #[cfg(multi_threading)]
     current_profiling: spin::RwLock<Option<StreamId>>,
 }
 
@@ -53,7 +57,10 @@ where
         properties: DeviceProperties<Server::Feature>,
         info: Server::Info,
     ) -> Self {
+        #[cfg(multi_threading)]
         let state = ComputeClientState::new(properties, info, spin::RwLock::new(None));
+        #[cfg(not(multi_threading))]
+        let state = ComputeClientState::new(properties, info);
 
         Self {
             channel,
@@ -66,6 +73,7 @@ where
         &self,
         bindings: Vec<Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<Server, Channel> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.read(bindings)
@@ -77,6 +85,7 @@ where
     ///
     /// Panics if the read operation fails.
     pub fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read(bindings))
@@ -87,6 +96,7 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     pub fn read_one(&self, binding: Binding) -> Vec<u8> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read([binding].into())).remove(0)
@@ -94,6 +104,7 @@ where
 
     /// Given bindings, returns owned resources as bytes.
     pub async fn read_tensor_async(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.read_tensor(bindings).await
@@ -112,6 +123,7 @@ where
     ///
     /// Also see [ComputeClient::create_tensor].
     pub fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read_tensor(bindings))
@@ -120,6 +132,7 @@ where
     /// Given a binding, returns owned resource as bytes.
     /// See [ComputeClient::read_tensor]
     pub async fn read_one_tensor_async(&self, binding: BindingWithMeta) -> Vec<u8> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.read_tensor([binding].into()).await.remove(0)
@@ -131,6 +144,7 @@ where
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
     pub fn read_one_tensor(&self, binding: BindingWithMeta) -> Vec<u8> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read_tensor([binding].into())).remove(0)
@@ -141,6 +155,7 @@ where
         &self,
         binding: Binding,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.get_resource(binding)
@@ -148,6 +163,7 @@ where
 
     /// Given a resource, stores it and returns the resource handle.
     pub fn create(&self, data: &[u8]) -> Handle {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.create(data)
@@ -172,6 +188,7 @@ where
         shape: &[usize],
         elem_size: usize,
     ) -> (Handle, Vec<usize>) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.create_tensor(data, shape, elem_size)
@@ -179,6 +196,7 @@ where
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.empty(size)
@@ -187,6 +205,7 @@ where
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.empty_tensor(shape, elem_size)
@@ -194,6 +213,7 @@ where
 
     /// Executes the `kernel` over the given `bindings`.
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         unsafe {
@@ -213,6 +233,7 @@ where
         count: CubeCount,
         bindings: Bindings,
     ) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         unsafe {
@@ -223,6 +244,7 @@ where
 
     /// Flush all outstanding commands.
     pub fn flush(&self) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.flush();
@@ -230,6 +252,7 @@ where
 
     /// Wait for the completion of every task in the server.
     pub async fn sync(&self) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.sync().await
@@ -242,6 +265,7 @@ where
 
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.memory_usage()
@@ -252,6 +276,7 @@ where
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
+        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.memory_cleanup()
@@ -259,10 +284,12 @@ where
 
     /// Measure the execution time of some inner operations.
     ///
-    /// Nb: this function will only allow one function at a time to be submitted when multithrading.
+    /// Nb: this function will only allow one function at a time to be submitted when multi threading.
     /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
+        #[cfg(multi_threading)]
         let stream_id = self.profile_aquire();
+
         let token = self.channel.start_profile();
 
         func();
@@ -285,11 +312,13 @@ where
             }
         };
 
+        #[cfg(multi_threading)]
         self.profile_release(stream_id);
 
         result
     }
 
+    #[cfg(multi_threading)]
     fn profile_guard(&self) {
         let current = self.state.current_profiling.read();
 
@@ -325,6 +354,7 @@ where
         }
     }
 
+    #[cfg(multi_threading)]
     fn profile_aquire(&self) -> Option<StreamId> {
         let stream_id = StreamId::current();
         let mut current = self.state.current_profiling.write();
@@ -362,6 +392,7 @@ where
         }
     }
 
+    #[cfg(multi_threading)]
     fn profile_release(&self, stream_id: Option<StreamId>) {
         let stream_id = match stream_id {
             Some(val) => val,
