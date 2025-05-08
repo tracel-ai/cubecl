@@ -8,14 +8,18 @@ use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 use cubecl_runtime::config::GlobalConfig;
 
+use cubecl_random::random_uniform;
+
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
 
-        let lhs = TensorHandle::zeros(&client, vec![self.b, self.m, self.k]);
-        let rhs = TensorHandle::zeros(&client, vec![self.b, self.k, self.n]);
+        let lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
+        random_uniform(&client, 0., 1., lhs.as_ref());
+        let rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+        random_uniform(&client, 0., 1., rhs.as_ref());
 
         (lhs, rhs)
     }
