@@ -1,5 +1,5 @@
-use crate as cubecl;
 use crate::prelude::*;
+use crate::{self as cubecl, Feature};
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
@@ -16,6 +16,11 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    if !client.properties().feature_enabled(Feature::SyncPlane) {
+        // We can't execute the test, skip.
+        return;
+    }
+
     let handle = client.empty(64 * core::mem::size_of::<f32>());
 
     let vectorization = 1;
