@@ -33,7 +33,7 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Normal<E> {
         let mut output_line_1 = Line::empty(line_size);
 
         let num_iterations = n_values_per_thread / line_size / 2;
-        #[unroll(num_iterations <= 16)]
+        #[unroll(num_iterations <= 8)]
         for line_index in 0..num_iterations {
             // vectorization
             #[unroll]
