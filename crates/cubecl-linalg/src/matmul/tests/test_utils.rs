@@ -4,7 +4,7 @@ use cubecl_core::{
     CubeElement, Feature, Runtime,
     client::ComputeClient,
     flex32,
-    prelude::{Float, Numeric},
+    prelude::{CubePrimitive, Float, Numeric},
     server::{self},
     tf32,
 };
@@ -357,12 +357,12 @@ impl CastInto<u8> for i32 {
     }
 }
 
-pub trait Sample: Sized {
+pub trait Sample: Sized + CubePrimitive {
     fn sample<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
         seed: u64,
-    ) -> Vec<Self>;
+    ) -> TensorHandle<R, Self>;
 }
 
 macro_rules! sample_float {
@@ -370,16 +370,13 @@ macro_rules! sample_float {
         $(
             impl Sample for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> Vec<Self> {
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
                     cubecl_random::seed(seed);
                     let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
                     cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
 
-                    let data = client.read_one(output.handle.binding());
-                    let data = Self::from_bytes(&data);
-
-                    data.to_owned()
+                    output
                 }
             }
         )*
@@ -397,11 +394,18 @@ impl Sample for flex32 {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
         seed: u64,
-    ) -> Vec<Self> {
-        f32::sample::<R>(client, shape, seed)
-            .iter()
-            .map(|&e| <Self as Float>::new(e))
-            .collect()
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
+
+        cubecl_random::random_uniform::<R, f32>(
+            &client,
+            f32::from_int(-1),
+            f32::from_int(1),
+            output.as_ref(),
+        );
+
+        output
     }
 }
 
@@ -410,11 +414,18 @@ impl Sample for tf32 {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
         seed: u64,
-    ) -> Vec<Self> {
-        f32::sample::<R>(client, shape, seed)
-            .iter()
-            .map(|&e| <Self as Float>::new(e))
-            .collect()
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+
+        cubecl_random::random_uniform::<R, f32>(
+            &client,
+            f32::from_int(-1),
+            f32::from_int(1),
+            output.as_ref(),
+        );
+
+        output
     }
 }
 
@@ -627,9 +638,6 @@ impl MatmulTestCase {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = F::sample::<R>(client, &shape, 999);
-        let (handle, strides) =
-            client.create_tensor(bytemuck::cast_slice(&data), &shape, size_of::<F>());
-        TensorHandle::new(handle, shape, strides)
+        F::sample::<R>(client, &shape, 999)
     }
 }

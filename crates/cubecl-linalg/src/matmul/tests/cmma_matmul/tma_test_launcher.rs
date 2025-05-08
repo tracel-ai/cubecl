@@ -140,7 +140,11 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         Ident::Lhs => {
             let mut shape = shape(problem, ident);
 
-            let mut original_data = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample::<R>(client, &shape, 1234);
+
+            let data = client.read_one(handle.handle.binding());
+            let data = P::EG::from_bytes(&data);
+            let mut original_data = data.to_owned();
 
             if let Some(params) = P::quantization_params(Ident::Lhs) {
                 original_data.extend_from_slice(&params.scaling);
@@ -176,7 +180,11 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         Ident::Rhs => {
             let mut shape = shape(problem, ident);
 
-            let mut original_data = P::EG::sample::<R>(client, &shape, 5678);
+            let handle = P::EG::sample::<R>(client, &shape, 5678);
+
+            let data = client.read_one(handle.handle.binding());
+            let data = P::EG::from_bytes(&data);
+            let mut original_data = data.to_owned();
 
             if let Some(params) = P::quantization_params(Ident::Rhs) {
                 original_data.extend_from_slice(&params.scaling);
