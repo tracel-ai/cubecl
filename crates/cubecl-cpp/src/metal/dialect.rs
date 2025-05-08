@@ -687,6 +687,10 @@ impl DialectInstructions<Self> for MslDialect {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
     }
 
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")
+    }
+
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
     }
@@ -834,17 +838,6 @@ impl DialectInstructions<Self> for MslDialect {
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
-    }
-
-    fn compile_instruction_sync_warp(
-        f: &mut std::fmt::Formatter<'_>,
-        fallback_allowed: bool,
-    ) -> std::fmt::Result {
-        if fallback_allowed {
-            Self::compile_instruction_sync_threads(f)
-        } else {
-            panic!("Synchronization within a plane is not supported on Metal")
-        }
     }
 }
 

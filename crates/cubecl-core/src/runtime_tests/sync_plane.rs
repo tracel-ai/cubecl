@@ -10,7 +10,7 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
         shared_memory[0] = F::from_int(1);
     }
 
-    sync_plane(SyncPlaneMode::Fallback);
+    sync_plane();
 
     out[UNIT_POS] = shared_memory[0];
 }

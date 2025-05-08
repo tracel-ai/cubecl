@@ -14,11 +14,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let semantics = self.const_u32(semantics.bits());
                 self.control_barrier(scope, scope, semantics).unwrap();
             }
-            Synchronization::SyncPlaneFallback | Synchronization::SyncPlaneStrict => {
+            Synchronization::SyncPlane => {
                 // Adopting wgpu semantics
                 let scope = self.const_u32(Scope::Subgroup as u32);
-                let semantics =
-                    MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY;
+                let semantics = MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::SUBGROUP_MEMORY;
                 let semantics = self.const_u32(semantics.bits());
                 self.control_barrier(scope, scope, semantics).unwrap();
             }

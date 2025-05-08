@@ -271,10 +271,7 @@ impl DialectInstructions<Self> for CudaDialect {
         writeln!(f, "__syncthreads();\n")
     }
 
-    fn compile_instruction_sync_warp(
-        f: &mut std::fmt::Formatter<'_>,
-        _fallback_allowed: bool,
-    ) -> std::fmt::Result {
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__syncwarp();\n")
     }
 

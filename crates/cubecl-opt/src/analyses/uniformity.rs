@@ -78,7 +78,7 @@ impl Uniformity {
                         block_uniform = true;
                     }
                     Synchronization::SyncProxyShared => {}
-                    Synchronization::SyncPlaneFallback | Synchronization::SyncPlaneStrict => {
+                    Synchronization::SyncPlane => {
                         // TODO: not sure
                     }
                 },
