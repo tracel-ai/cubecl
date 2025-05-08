@@ -86,7 +86,8 @@ impl Timings {
         start: QuerySetId,
         end: QuerySetId,
         encoder: &mut CommandEncoder,
-        resource: WgpuResource,
+        resource_start: WgpuResource,
+        resource_end: WgpuResource,
     ) {
         if start == end {
             let query_set = self.query_sets.get_mut(&start).unwrap();
@@ -98,9 +99,15 @@ impl Timings {
 
             encoder.resolve_query_set(
                 &query_set.query_set,
-                0..2,
-                resource.buffer(),
-                resource.offset(),
+                0..1,
+                resource_start.buffer(),
+                resource_start.offset(),
+            );
+            encoder.resolve_query_set(
+                &query_set.query_set,
+                1..2,
+                resource_end.buffer(),
+                resource_end.offset(),
             );
         } else {
             let query_set_start = self.query_sets.get_mut(&start).unwrap();
@@ -113,8 +120,8 @@ impl Timings {
             encoder.resolve_query_set(
                 &query_set_start.query_set,
                 0..1,
-                resource.buffer(),
-                resource.offset(),
+                resource_start.buffer(),
+                resource_start.offset(),
             );
 
             let query_set_end = self.query_sets.get_mut(&end).unwrap();
@@ -122,8 +129,8 @@ impl Timings {
             encoder.resolve_query_set(
                 &query_set_end.query_set,
                 1..2,
-                resource.buffer(),
-                resource.offset(),
+                resource_end.buffer(),
+                resource_end.offset(),
             );
         };
     }

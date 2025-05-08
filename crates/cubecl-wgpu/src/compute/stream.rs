@@ -276,21 +276,44 @@ impl WgpuStream {
                     return ProfileDuration::from_future(async move { Duration::from_secs(0) });
                 };
 
-                let (handle, resource) = self.mem_manage.query();
+                // TODO: We could optimize this by having a single handle for both `start` and `end`
+                // when a single query_set is used, but it probably doesn't impact much the real
+                // performance.
+                let (handle_start, resource_start) = self.mem_manage.query(1);
+                let (handle_end, resource_end) = self.mem_manage.query(1);
 
-                self.timings
-                    .stop_profile_device(start, end, &mut self.encoder, resource);
+                self.timings.stop_profile_device(
+                    start,
+                    end,
+                    &mut self.encoder,
+                    resource_start,
+                    resource_end,
+                );
 
                 let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffers(vec![handle.binding()]);
+                let fut = self.read_buffers(vec![handle_start.binding(), handle_end.binding()]);
                 let resolve_fut = async move {
-                    let data = fut
-                        .await
-                        .remove(0)
-                        .chunks_exact(8)
-                        .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                        .collect::<Vec<_>>();
-                    let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
+                    let mut result = fut.await;
+                    let data_end = u64::from_le_bytes(
+                        result
+                            .remove(1)
+                            .chunks_exact(8)
+                            .next()
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                    );
+                    let data_start = u64::from_le_bytes(
+                        result
+                            .remove(0)
+                            .chunks_exact(8)
+                            .next()
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                    );
+
+                    let delta = u64::checked_sub(data_end, data_start).unwrap_or(1);
                     Duration::from_secs_f64(delta as f64 * period)
                 };
                 ProfileDuration::from_future(resolve_fut)

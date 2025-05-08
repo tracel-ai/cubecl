@@ -44,6 +44,3 @@ pub mod tma;
 /// Simple measuring for timestamps.
 #[cfg(feature = "std")]
 pub mod kernel_timestamps;
-
-#[cfg(feature = "std")]
-pub(crate) mod profiling_queue;
