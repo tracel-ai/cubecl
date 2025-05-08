@@ -294,8 +294,7 @@ where
 
         let mut k_iter = comptime![0u32];
 
-        // TODO it's per unit, so UNIT_POS
-        let m_offset = UNIT_POS_Y * m_iterations;
+        let m_offset = UNIT_POS * m_iterations;
 
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
@@ -400,8 +399,7 @@ where
         let k_iterations = config.tiling.tile_count.k;
 
         let mut k_iter = comptime![0u32];
-        // TODO it's per unit, so UNIT_POS
-        let m_offset = UNIT_POS_Y * m_iterations;
+        let m_offset = UNIT_POS * m_iterations;
 
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
