@@ -155,14 +155,14 @@ where
         let barrier = Barrier::<MP::ES>::new(barrier_level);
 
         for loop_iter in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             #[allow(clippy::collapsible_if)]
             if comptime!(config.check_k_bounds()) {
                 if loop_iter == num_loops - 1 {
                     Self::LhsLoader::clear_stage(&mut lhs_loader, config);
                     Self::RhsLoader::clear_stage(&mut rhs_loader, config);
-                    sync_units();
+                    sync_cube();
                 }
             }
 

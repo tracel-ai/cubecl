@@ -17,6 +17,7 @@ pub mod metadata;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
+pub mod sync_plane;
 pub mod tensor;
 pub mod tensormap;
 pub mod topology;
@@ -121,6 +122,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_topology!();
 
         cubecl_core::testgen_constants!();
+        cubecl_core::testgen_sync_plane!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
         cubecl_core::testgen_binary_untyped!();
