@@ -1,10 +1,10 @@
-use crate as cubecl;
+use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 use cubecl_common::{e2m3, e3m2, e4m3, e5m2, ue8m0};
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp8(input: &mut Array<Line<f32>>, out: &mut Array<Line<u8>>) {
+pub fn kernel_fp8<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
@@ -15,7 +15,7 @@ pub fn kernel_fp8(input: &mut Array<Line<f32>>, out: &mut Array<Line<u8>>) {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp6(input: &mut Array<Line<f32>>, out: &mut Array<Line<u8>>) {
+pub fn kernel_fp6<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
@@ -36,23 +36,26 @@ pub fn kernel_scale(input: &mut Array<Line<f32>>, out: &mut Array<Line<ue8m0>>) 
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vectorization: u8) {
+pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+    vectorization: u8,
+) {
     if !e4m3::is_supported(&client) {
         println!("Unsupported, skipping");
         return;
     }
 
-    let data = [-2.1, 1.8, 0.4, 1.2];
+    let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(f32::as_bytes(&data[..num_out]));
+    let handle1 = client.create(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
     unsafe {
-        kernel_fp8::launch_unchecked::<R>(
+        kernel_fp8::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts::<f32>(&handle1, num_out, vectorization),
+            ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
     };
@@ -67,7 +70,7 @@ pub fn test_fp8<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vector
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
     let actual_2 = client.read_one(handle1.binding());
-    let actual_2 = f32::from_bytes(&actual_2);
+    let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
     assert_eq!(actual, &expected);
@@ -75,23 +78,26 @@ pub fn test_fp8<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vector
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp6<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vectorization: u8) {
+pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+    vectorization: u8,
+) {
     if !e2m3::is_supported(&client) {
         println!("Unsupported, skipping");
         return;
     }
 
-    let data = [-2.1, 1.8, 0.4, 1.2];
+    let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(f32::as_bytes(&data[..num_out]));
+    let handle1 = client.create(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
     unsafe {
-        kernel_fp6::launch_unchecked::<R>(
+        kernel_fp6::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts::<f32>(&handle1, num_out, vectorization),
+            ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
     };
@@ -106,7 +112,7 @@ pub fn test_fp6<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vector
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
     let actual_2 = client.read_one(handle1.binding());
-    let actual_2 = f32::from_bytes(&actual_2);
+    let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
     assert_eq!(actual, &expected);
@@ -157,17 +163,35 @@ macro_rules! testgen_minifloat {
         #[test]
         fn test_fp8() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime>(client.clone(), 1);
-            cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime>(client.clone(), 2);
-            cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime>(client.clone(), 4);
+            cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime, FloatType>(
+                client.clone(),
+                1,
+            );
+            cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime, FloatType>(
+                client.clone(),
+                2,
+            );
+            cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime, FloatType>(
+                client.clone(),
+                4,
+            );
         }
 
         #[test]
         fn test_fp6() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime>(client.clone(), 1);
-            cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime>(client.clone(), 2);
-            cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime>(client.clone(), 4);
+            cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime, FloatType>(
+                client.clone(),
+                1,
+            );
+            cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime, FloatType>(
+                client.clone(),
+                2,
+            );
+            cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime, FloatType>(
+                client.clone(),
+                4,
+            );
         }
 
         // #[test]

@@ -876,8 +876,7 @@ fn float_to_packed<D: Dialect>(input: Variable<D>, i: usize, packing: usize) -> 
                 format!("{}", input.index(i))
             }
         }
-        Elem::F16 => format!("{}", input.index(i)),
-        Elem::BF16 => format!("{}", input.index(i)),
+        Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => format!("{}", input.index(i)),
         _ => unreachable!(),
     }
 }

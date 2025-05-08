@@ -93,6 +93,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_atomic_float!();
         cubecl_core::testgen_tensormap!();
+        cubecl_core::testgen_minifloat!();
     };
 }
 
@@ -120,7 +121,6 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();
-        cubecl_core::testgen_minifloat!();
 
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_tensor_indexing!();
