@@ -121,7 +121,6 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         #[comptime] config: G,
     ) {
         let task_id = job.current.read().counter;
-        // comptime!(println!("{:?}", task_id));
 
         L::Job::<MP>::execute_task::<G>(
             &mut job.loading,

@@ -385,11 +385,17 @@ impl<
             ] {
                 let lhs_job = this.state_lhs.index_mut(0);
 
+                #[cfg(target_os = "macos")]
+                sync_plane();
+
                 SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
             }
 
             if comptime![!analysis.rhs_completed && analysis.rhs_counter == current] {
                 let rhs_job = this.state_rhs.index_mut(0);
+
+                #[cfg(target_os = "macos")]
+                sync_plane();
 
                 SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
             }
@@ -397,19 +403,22 @@ impl<
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
-            // sync_units();
-            // comptime!(println!("finish"));
-
             let lhs_job = this.state_lhs.index_mut(0);
             let lhs_num_task_executed = lhs_job.current.read().counter;
+            let rhs_job = this.state_rhs.index_mut(0);
+            let rhs_num_task_executed = rhs_job.current.read().counter;
+
+            #[cfg(target_os = "macos")]
+            if lhs_job.num_tasks - lhs_num_task_executed + rhs_job.num_tasks - rhs_num_task_executed
+                > 0
+            {
+                sync_plane();
+            }
 
             #[unroll]
             for _ in lhs_num_task_executed..lhs_job.num_tasks {
                 SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
             }
-
-            let rhs_job = this.state_rhs.index_mut(0);
-            let rhs_num_task_executed = rhs_job.current.read().counter;
 
             #[unroll]
             for _ in rhs_num_task_executed..rhs_job.num_tasks {
