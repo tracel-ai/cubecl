@@ -11,16 +11,11 @@ macro_rules! testgen_random_bernoulli {
                 seed(0);
 
                 let client = R::client(&Default::default());
+                let output = TensorHandle::<R, E>::empty(&client, shape.to_vec());
 
-                let elem_size = size_of::<E>();
-                let (handle, strides) = client.empty_tensor(shape, elem_size);
-                let mut output: TensorHandleRef<'_, R> = unsafe {
-                    TensorHandleRef::from_raw_parts(&handle, strides.as_slice(), shape, elem_size)
-                };
+                random_bernoulli::<R, E>(&client, prob, output.as_ref());
 
-                random_bernoulli::<R, E>(&client, prob, &mut output);
-
-                let output_data = client.read_one(handle.binding());
+                let output_data = client.read_one(output.handle.binding());
                 let output_data = E::from_bytes(&output_data);
 
                 output_data.to_owned()
