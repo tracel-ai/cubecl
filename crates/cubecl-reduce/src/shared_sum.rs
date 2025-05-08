@@ -131,7 +131,7 @@ fn shared_sum_kernel<N: Numeric>(
     let line = sum_shared_memory(&mut shared_memory);
 
     // Sum all the elements within the line.
-    let mut sum = RuntimeCell::<N>::new(N::from_int(0));
+    let sum = RuntimeCell::<N>::new(N::from_int(0));
     #[unroll]
     for k in 0..line_size {
         let update = line[k] + sum.read();
