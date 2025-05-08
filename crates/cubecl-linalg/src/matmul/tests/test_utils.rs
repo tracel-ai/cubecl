@@ -391,8 +391,6 @@ sample_float!(half::bf16);
 sample_float!(f32);
 sample_float!(f64);
 sample_float!(u8);
-//sample_float!(flex32);
-//sample_float!(tf32);
 
 impl Sample for flex32 {
     fn sample<R: Runtime>(
