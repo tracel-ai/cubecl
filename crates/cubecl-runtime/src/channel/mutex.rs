@@ -66,21 +66,25 @@ where
         self.server.lock().create(data)
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        self.server.lock().create_tensor(data, shape, elem_size)
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        self.server.lock().create_tensors(data, shape, elem_size)
     }
 
     fn empty(&self, size: usize) -> Handle {
         self.server.lock().empty(size)
     }
 
-    fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        self.server.lock().empty_tensor(shape, elem_size)
+    fn empty_tensors(
+        &self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        self.server.lock().empty_tensors(shape, elem_size)
     }
 
     unsafe fn execute(

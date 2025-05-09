@@ -1,3 +1,5 @@
+#![allow(unknown_lints, unnecessary_transmutes)]
+
 use std::fmt::{Debug, Display};
 
 use cubecl_core::compute::Binding;

@@ -8,7 +8,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashSet;
 
-pub use super::memory_pool::{SliceBinding, SliceHandle};
+pub use super::memory_pool::{SliceBinding, handle::*};
 
 enum DynamicPool {
     Sliced(SlicedPool),

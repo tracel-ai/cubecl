@@ -52,18 +52,22 @@ where
     /// strides to index.
     /// For example, in CUDA, this will allocate a padded tensor where the last dimension is padded
     /// to the cache lines, so row access is faster.
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>);
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn empty(&mut self, size: usize) -> Handle;
 
     /// Reserves `shape` bytes in the storage, and returns a handle to it.
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>);
+    fn empty_tensors(
+        &mut self,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

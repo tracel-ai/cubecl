@@ -9,7 +9,12 @@ use cubecl_linalg::tensor::TensorHandle;
 use cubecl_runtime::config::GlobalConfig;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
+    type Args = (
+        TensorHandle<R, MP::EI>,
+        Option<TensorHandle<R, f32>>,
+        TensorHandle<R, MP::EI>,
+        Option<TensorHandle<R, f32>>,
+    );
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
@@ -17,14 +22,23 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let lhs = TensorHandle::zeros(&client, vec![self.b, self.m, self.k]);
         let rhs = TensorHandle::zeros(&client, vec![self.b, self.k, self.n]);
 
-        (lhs, rhs)
+        (lhs, None, rhs, None)
     }
 
-    fn execute(&self, (lhs, rhs): Self::Args) {
+    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Args) {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, MP>(&self.strategy, &self.client, lhs, rhs, out).unwrap();
+        matmul::launch::<R, MP>(
+            &self.strategy,
+            &self.client,
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            out,
+        )
+        .unwrap();
     }
 
     fn name(&self) -> String {
