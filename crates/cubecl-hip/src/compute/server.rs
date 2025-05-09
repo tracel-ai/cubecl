@@ -208,7 +208,6 @@ impl ComputeServer for HipServer {
             total_size += size;
         }
 
-        let handle = self.empty(total_size);
         let mem_handle = self.empty(total_size);
         let handles = offset_handles(mem_handle, &sizes);
 
