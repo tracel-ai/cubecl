@@ -267,9 +267,12 @@ impl DialectCubeBuiltins<Self> for CudaDialect {
 // Instructions
 
 impl DialectInstructions<Self> for CudaDialect {
-    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__syncthreads();\n")
+    }
+
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "__syncwarp();\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

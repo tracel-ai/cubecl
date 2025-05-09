@@ -103,7 +103,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             let mut fastest = tuner.fastest(&key);
 
             // If the cache checksum hasn't been checked, do so now, and retry.
-            #[cfg(autotune_persistent_cache)]
+            #[cfg(std_io)]
             if matches!(fastest, TuneCacheResult::Unchecked) {
                 let checksum = operations.compute_checksum();
                 tuner.validate_checksum(&key, &checksum);

@@ -161,6 +161,7 @@ fn register_features(
 
     register_types(props, &extended_feat);
     comp_options.supports_u64 = true;
+    props.register_feature(Feature::SyncPlane);
 
     if let Some(atomic_float) = &extended_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {

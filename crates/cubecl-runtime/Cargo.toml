@@ -41,7 +41,7 @@ serde = { workspace = true }
 toml = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 
-# Persistent cache deps - has to match the autotune_persistent_cache cfg.
+# Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false, features = [
     "cache",

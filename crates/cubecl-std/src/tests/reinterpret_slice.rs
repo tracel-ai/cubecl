@@ -93,7 +93,7 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
         line[3] = -56_i8;
         mem[0] = line;
     }
-    sync_units();
+    sync_cube();
     let list = ReinterpretSlice::<i8, f16>::new(mem.to_slice(), 4_u32);
     output[UNIT_POS] = list.read(UNIT_POS);
 }

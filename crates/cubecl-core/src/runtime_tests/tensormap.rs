@@ -33,7 +33,7 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
     shared[in_pos] = input[in_pos];
 
     sync_proxy_shared();
-    sync_units();
+    sync_cube();
 
     if UNIT_POS == 0 {
         tma_store_2d(&shared.to_slice(), output, 16, 8);

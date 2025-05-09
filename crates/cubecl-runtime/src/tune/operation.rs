@@ -11,7 +11,7 @@ use super::{
 };
 
 /// Default checksum for an operation set
-#[cfg(autotune_persistent_cache)]
+#[cfg(std_io)]
 pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
     autotunables: &[Arc<dyn Tunable<Inputs = In, Output = Out>>],
 ) -> String {
@@ -91,7 +91,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     }
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
-    #[cfg(autotune_persistent_cache)]
+    #[cfg(std_io)]
     pub fn compute_checksum(&self) -> String {
         if let Some(checksum_override) = &self.checksum_override {
             checksum_override(self)
@@ -152,7 +152,7 @@ impl<T: Tunable> IntoTunable<T::Inputs, T::Output, IsIdentity> for T {
     }
 }
 
-#[cfg(autotune_persistent_cache)]
+#[cfg(std_io)]
 /// Trait alias with support for persistent caching
 pub trait AutotuneKey:
     Clone
@@ -168,7 +168,7 @@ pub trait AutotuneKey:
     + 'static
 {
 }
-#[cfg(not(autotune_persistent_cache))]
+#[cfg(not(std_io))]
 /// Trait alias
 pub trait AutotuneKey:
     Clone + Debug + PartialEq + Eq + Hash + Display + Send + Sync + 'static

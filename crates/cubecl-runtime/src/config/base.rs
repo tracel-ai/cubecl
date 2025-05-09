@@ -40,19 +40,22 @@ impl GlobalConfig {
     pub fn get() -> Arc<Self> {
         let mut state = CUBE_GLOBAL_CONFIG.lock();
         if state.as_ref().is_none() {
-            #[cfg(feature = "std")]
-            let config = Self::from_current_dir();
-            #[cfg(feature = "std")]
-            let config = config.override_from_env();
-            #[cfg(not(feature = "std"))]
-            let config = Self::default();
+            cfg_if::cfg_if! {
+                if #[cfg(std_io)]  {
+                    let config = Self::from_current_dir();
+                    let config = config.override_from_env();
+                } else {
+                    let config = Self::default();
+                }
+            }
+
             *state = Some(Arc::new(config));
         }
 
         state.as_ref().cloned().unwrap()
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     /// Save the default configuration to the provided file path.
     pub fn save_default<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<()> {
         use std::io::Write;
@@ -82,7 +85,7 @@ impl GlobalConfig {
         *state = Some(Arc::new(config));
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     /// Overrides configuration fields based on environment variables.
     pub fn override_from_env(mut self) -> Self {
         use super::compilation::CompilationLogLevel;
@@ -176,7 +179,7 @@ impl GlobalConfig {
     //
     // Traverses up the directory tree until a valid configuration file is found or the root is reached.
     // Returns a default configuration if no file is found.
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     fn from_current_dir() -> Self {
         let mut dir = std::env::current_dir().unwrap();
 
@@ -198,7 +201,7 @@ impl GlobalConfig {
     }
 
     // Loads configuration from a specified file path.
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: Self = match toml::from_str(&content) {
