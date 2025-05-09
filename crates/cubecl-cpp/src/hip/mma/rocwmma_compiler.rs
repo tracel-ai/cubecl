@@ -68,9 +68,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                 let tdims = vec![(16, 16, 16), (16, 16, 32)];
                 let types = vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16), // i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // c
+                        gpu::Elem::Float(gpu::FloatKind::F16), // m / i
+                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
+                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
                     ),
                     (
                         gpu::Elem::Float(gpu::FloatKind::F16),
@@ -109,9 +109,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
             AMDArchitecture::GFX908 => {
                 vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F32), // i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // c
+                        gpu::Elem::Float(gpu::FloatKind::F32), // m / i
+                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
+                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
                         vec![
                             //m  n   k
                             (16, 16, 4),
@@ -208,9 +208,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
             AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => {
                 vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F32), // i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // c
+                        gpu::Elem::Float(gpu::FloatKind::F32), // m / i
+                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
+                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
                         vec![
                             //m  n   k
                             (16, 16, 4),

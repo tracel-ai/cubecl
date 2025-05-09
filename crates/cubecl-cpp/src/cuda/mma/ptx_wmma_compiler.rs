@@ -302,9 +302,9 @@ for (int i = 0; i < {reg_count}; ++i) {{
             // Types fully supported.
             let types = vec![
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16), // i
-                    gpu::Elem::Float(gpu::FloatKind::F16), // o
-                    gpu::Elem::Float(gpu::FloatKind::F16), // c
+                    gpu::Elem::Float(gpu::FloatKind::F16), // m
+                    gpu::Elem::Float(gpu::FloatKind::F16), // n
+                    gpu::Elem::Float(gpu::FloatKind::F16), // k
                 ),
                 (
                     gpu::Elem::Float(gpu::FloatKind::F16),
@@ -319,8 +319,7 @@ for (int i = 0; i < {reg_count}; ++i) {{
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                //                     m   n   k
-                .map(|(i, o, c)| (i, o, c, vec![(16, 16, 16)]))
+                .map(|(m, n, k)| (m, n, k, vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
             if arch.get_version() >= 80 {

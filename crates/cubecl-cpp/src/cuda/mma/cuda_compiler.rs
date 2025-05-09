@@ -67,9 +67,9 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
             // Types fully supported.
             let types = vec![
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16), // a
-                    gpu::Elem::Float(gpu::FloatKind::F16), // b
-                    gpu::Elem::Float(gpu::FloatKind::F16), // c
+                    gpu::Elem::Float(gpu::FloatKind::F16), // m
+                    gpu::Elem::Float(gpu::FloatKind::F16), // n
+                    gpu::Elem::Float(gpu::FloatKind::F16), // k
                 ),
                 (
                     gpu::Elem::Float(gpu::FloatKind::F16),
@@ -89,9 +89,9 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                .map(|(a, b, c)| {
+                .map(|(m, n, k)| {
                     let dimensions = tdims.clone();
-                    (a, b, c, dimensions)
+                    (m, n, k, dimensions)
                 })
                 .collect();
             result.extend(combinations);
