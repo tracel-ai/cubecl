@@ -732,9 +732,9 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         let client = R::client(&self.device);
 
         let a = TensorHandle::<R, E>::empty(&client, vec![self.data_count]);
-        random_uniform(&client, 0., 1., a.as_ref());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), a.as_ref());
         let b = TensorHandle::<R, E>::empty(&client, vec![self.window_size]);
-        random_uniform(&client, 0., 1., b.as_ref());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), b.as_ref());
 
         (a, b)
     }

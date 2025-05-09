@@ -17,9 +17,19 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let client = R::client(&self.device);
 
         let lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
-        random_uniform(&client, 0., 1., lhs.as_ref());
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            lhs.as_ref(),
+        );
         let rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
-        random_uniform(&client, 0., 1., rhs.as_ref());
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            rhs.as_ref(),
+        );
 
         (lhs, rhs)
     }

@@ -27,11 +27,26 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let client = R::client(&self.device);
 
         let input = TensorHandle::<R, MP::EI>::empty(&client, self.input_shape.to_vec());
-        random_uniform(&client, 0., 1., input.as_ref());
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            input.as_ref(),
+        );
         let weight = TensorHandle::<R, MP::EI>::empty(&client, self.weight_shape.to_vec());
-        random_uniform(&client, 0., 1., weight.as_ref());
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            weight.as_ref(),
+        );
         let bias = TensorHandle::<R, MP::EI>::empty(&client, vec![self.bias_shape]);
-        random_uniform(&client, 0., 1., bias.as_ref());
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            bias.as_ref(),
+        );
 
         (input, weight, bias)
     }
