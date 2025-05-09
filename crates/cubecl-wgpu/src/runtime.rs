@@ -228,10 +228,7 @@ pub(crate) fn create_client_on_setup(
         .features()
         .contains(wgpu::Features::TIMESTAMP_QUERY)
     {
-        #[cfg(target_family = "wasm")]
-        true => TimeMeasurement::Device, // Still unstable, but the only one that works on wasm.
-        #[cfg(not(target_family = "wasm"))]
-        true => TimeMeasurement::System,
+        true => TimeMeasurement::Device,
         false => TimeMeasurement::System,
     };
 

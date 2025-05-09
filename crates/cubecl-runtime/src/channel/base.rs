@@ -1,7 +1,9 @@
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use crate::{
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::vec::Vec;
@@ -66,10 +68,10 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// This function will handle any required synchronization.
     ///
     /// Recursive profiling is not allowed and will panic.
-    fn start_profile(&self);
+    fn start_profile(&self) -> ProfilingToken;
 
     /// End the profile and return a [`ProfileDuration`].
     ///
     /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
-    fn end_profile(&self) -> ProfileDuration;
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration;
 }

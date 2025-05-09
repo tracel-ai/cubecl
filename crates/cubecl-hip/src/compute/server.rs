@@ -1,3 +1,4 @@
+use cubecl_core::server::ProfilingToken;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 
@@ -291,15 +292,15 @@ impl ComputeServer for HipServer {
         Box::pin(self.sync_stream_async())
     }
 
-    fn start_profile(&mut self) {
+    fn start_profile(&mut self) -> ProfilingToken {
         cubecl_common::future::block_on(self.sync());
-        self.ctx.timestamps.start();
+        self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.logger.profile_summary();
         cubecl_common::future::block_on(self.sync());
-        self.ctx.timestamps.stop()
+        self.ctx.timestamps.stop(token)
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
