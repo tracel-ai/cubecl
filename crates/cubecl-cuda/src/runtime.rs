@@ -13,7 +13,7 @@ use cudarc::driver::sys::cuDeviceTotalMem_v2;
 use std::mem::MaybeUninit;
 
 use crate::{
-    CudaWmmaCompiler,
+    WmmaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
@@ -39,7 +39,7 @@ type Channel = MutexComputeChannel<Server>;
 
 static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
 
-pub type CudaCompiler = CppCompiler<CudaDialect<CudaWmmaCompiler>>;
+pub type CudaCompiler = CppCompiler<CudaDialect<WmmaCompiler>>;
 
 fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     device: &CudaDevice,
@@ -195,7 +195,7 @@ impl Runtime for CudaRuntime {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            create_client::<CudaWmmaCompiler>(device, RuntimeOptions::default())
+            create_client::<WmmaCompiler>(device, RuntimeOptions::default())
         })
     }
 

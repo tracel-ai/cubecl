@@ -10,9 +10,9 @@ pub use device::*;
 pub use runtime::*;
 
 #[cfg(feature = "ptx-wmma")]
-pub(crate) type CudaWmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
+pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
 #[cfg(not(feature = "ptx-wmma"))]
-pub(crate) type CudaWmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
+pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
 
 #[cfg(test)]
 #[allow(unexpected_cfgs)]

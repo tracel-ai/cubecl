@@ -6,7 +6,7 @@ use cubecl_cpp::{cuda::arch::CudaArchitecture, formatter::format_cpp, shared::Co
 use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
 use serde::{Deserialize, Serialize};
 
-use crate::{CudaCompiler, CudaWmmaCompiler};
+use crate::{CudaCompiler, WmmaCompiler};
 
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
@@ -706,7 +706,7 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect<CudaWmmaCompiler>> =
+        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect<WmmaCompiler>> =
             kernel_compiled.repr.unwrap();
 
         #[cfg(feature = "compilation-cache")]
