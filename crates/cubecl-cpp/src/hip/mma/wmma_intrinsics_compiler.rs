@@ -11,8 +11,6 @@ use cubecl_core::ir::{self as gpu};
 pub struct WmmaIntrinsicCompiler {}
 
 impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
-    type Architecture = AMDArchitecture;
-
     fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // nothing to do
         Ok(())
@@ -321,7 +319,7 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
         }
     }
 
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
         // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
         let mut result: SupportedWmmaCombinations = vec![];
         if arch.is_wmma_capable() {

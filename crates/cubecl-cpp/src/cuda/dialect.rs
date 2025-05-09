@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::Extension;
+use super::{Extension, arch::CudaArchitecture};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect<M> {
@@ -21,7 +21,9 @@ pub struct CudaDialect<M> {
 
 // Base dialect
 
-impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {}
+impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
+    type Architecture = CudaArchitecture;
+}
 
 // Includes
 
@@ -400,8 +402,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> {
-    type Architecture = M::Architecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         M::compile_wmma_includes(f)
     }
@@ -450,7 +450,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
     }
 
     fn supported_wmma_combinations(
-        arch: &Self::Architecture,
+        arch: &CudaArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
     }

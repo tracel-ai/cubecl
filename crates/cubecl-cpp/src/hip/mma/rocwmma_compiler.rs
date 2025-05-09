@@ -13,8 +13,6 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 pub struct RocWmmaCompiler {}
 
 impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
-    type Architecture = AMDArchitecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
@@ -62,9 +60,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         wmma_api_base::compile_instruction(f, ROCWMMA_NAMESPACE, instruction)
     }
 
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
         match arch {
-            Self::Architecture::GFX10 | Self::Architecture::GFX11 => {
+            AMDArchitecture::GFX10 | AMDArchitecture::GFX11 => {
                 // For gfx11 the supported tile dimensions are always the same
                 //                                   m   n   k
                 let tdims = vec![(16, 16, 16), (16, 16, 32)];
@@ -108,7 +106,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                     })
                     .collect()
             }
-            Self::Architecture::GFX908 => {
+            AMDArchitecture::GFX908 => {
                 vec![
                     (
                         gpu::Elem::Float(gpu::FloatKind::F32), // i
@@ -207,7 +205,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                     ),
                 ]
             }
-            Self::Architecture::GFX90A | Self::Architecture::GFX94 => {
+            AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => {
                 vec![
                     (
                         gpu::Elem::Float(gpu::FloatKind::F32), // i
@@ -300,7 +298,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                     ),
                 ]
             }
-            Self::Architecture::Other => vec![],
+            AMDArchitecture::Other => vec![],
         }
     }
 }

@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::Extension;
+use super::arch::AMDArchitecture;
 use super::extension::{format_f162bf16, format_max, format_min};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -24,7 +25,9 @@ pub struct HipDialect<M> {
 
 // Base dialect
 
-impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {}
+impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {
+    type Architecture = AMDArchitecture;
+}
 
 // Includes
 
@@ -392,8 +395,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
-    type Architecture = M::Architecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         M::compile_wmma_includes(f)
     }
@@ -442,7 +443,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
     }
 
     fn supported_wmma_combinations(
-        arch: &Self::Architecture,
+        arch: &AMDArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
     }

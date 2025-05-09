@@ -11,8 +11,6 @@ use cubecl_core::ir::{self as gpu, ConstantScalarValue};
 pub struct PtxWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
-    type Architecture = CudaArchitecture;
-
     fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
@@ -296,7 +294,7 @@ for (int i = 0; i < {reg_count}; ++i) {{
         }
     }
 
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
         // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
         let mut result: SupportedWmmaCombinations = vec![];
         if arch.is_wmma_capable() {

@@ -13,8 +13,6 @@ use super::{WMMA_MINIMUM_VERSION, WMMA_NAMESPACE};
 pub struct CudaWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
-    type Architecture = CudaArchitecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <mma.h>\n")
     }
@@ -62,7 +60,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         wmma_api_base::compile_instruction(f, WMMA_NAMESPACE, instruction)
     }
 
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
         let mut result: SupportedWmmaCombinations = vec![];
         if arch.version >= WMMA_MINIMUM_VERSION {
             let tdims = vec![(16, 16, 16), (32, 8, 16), (8, 32, 16)];

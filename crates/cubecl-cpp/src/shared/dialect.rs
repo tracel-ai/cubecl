@@ -30,6 +30,7 @@ pub trait Dialect:
     + Hash
     + 'static
 {
+    type Architecture: Architecture;
 }
 
 // Includes
@@ -641,8 +642,6 @@ pub trait DialectInstructions<D: Dialect> {
 pub trait DialectWmmaCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
-    type Architecture: Architecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
@@ -666,5 +665,5 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<D>,
     ) -> std::fmt::Result;
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations;
+    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
 }

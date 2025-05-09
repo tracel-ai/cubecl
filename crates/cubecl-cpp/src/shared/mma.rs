@@ -2,14 +2,13 @@ use cubecl_core::Feature;
 use cubecl_core::ir::{self as gpu};
 use cubecl_runtime::DeviceProperties;
 use std::fmt::Display;
-use std::str::FromStr;
 use std::{fmt::Debug, marker::PhantomData};
 
 use super::{Component, Dialect, Elem, Variable};
 
 pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
 
-pub trait Architecture: FromStr<Err = String> {
+pub trait Architecture {
     fn warp_size(&self) -> u32;
     fn is_wmma_capable(&self) -> bool;
     fn is_mfma_capable(&self) -> bool;

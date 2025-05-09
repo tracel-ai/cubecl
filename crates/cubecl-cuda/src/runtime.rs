@@ -1,6 +1,3 @@
-use std::mem::MaybeUninit;
-use std::str::FromStr;
-
 use cubecl_core::{
     AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime, TmaFeature,
     ir::{Elem, FloatKind},
@@ -13,6 +10,7 @@ use cubecl_runtime::{
     storage::ComputeStorage,
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use std::mem::MaybeUninit;
 
 use crate::{
     CudaWmmaCompiler,
@@ -23,7 +21,7 @@ use cubecl_cpp::{
     DialectWmmaCompiler,
     cuda::{CudaDialect, arch::CudaArchitecture},
     register_supported_types,
-    shared::{Architecture, CompilationOptions, CppCompiler, register_wmma_features},
+    shared::{CompilationOptions, CppCompiler, register_wmma_features},
 };
 
 /// Options configuring the CUDA runtime.
@@ -50,7 +48,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
-    let arch = unsafe {
+    let arch_version = unsafe {
         let major = cudarc::driver::result::device::get_attribute(
             device_ptr,
             cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
@@ -63,7 +61,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         .unwrap();
         major * 10 + minor
     } as u32;
-    let arch = M::Architecture::from_str(&format!("{arch}")).unwrap();
 
     let ctx = unsafe {
         let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
@@ -113,7 +110,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         let num_streaming_multiprocessors = Some(
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
         );
-        let num_tensor_cores = tensor_cores_per_sm(arch.get_version());
+        let num_tensor_cores = tensor_cores_per_sm(arch_version);
 
         comp_opts.warp_size = warp_size;
 
@@ -141,10 +138,10 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
-    if arch.get_version() >= 60 {
+    if arch_version >= 60 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
     }
-    if arch.get_version() >= 70 {
+    if arch_version >= 70 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
@@ -152,12 +149,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
         comp_opts.grid_constants = true;
     }
-    if arch.get_version() >= 90 {
+    if arch_version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
         device_props.register_feature(Feature::CubeCluster);
         comp_opts.supports_clusters = true;
     }
-    if arch.get_version() >= 100 {
+    if arch_version >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
     }
     // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
@@ -165,7 +162,9 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
     // }
     // Ask the wmma compiler for its supported combinations
-    let arch = M::Architecture::from_str(&format!("{}", arch.get_version())).unwrap();
+    let arch = CudaArchitecture {
+        version: arch_version,
+    };
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
@@ -174,7 +173,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
     device_props.register_feature(Feature::DynamicLineSize);
 
-    let arch = CudaArchitecture::from_str(&format!("{}", arch.get_version())).unwrap();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())

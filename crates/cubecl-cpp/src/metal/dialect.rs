@@ -27,7 +27,9 @@ pub struct MslDialect {}
 
 // Base dialect
 
-impl Dialect for MslDialect {}
+impl Dialect for MslDialect {
+    type Architecture = MetalArchitecture;
+}
 
 // Includes
 
@@ -843,8 +845,6 @@ impl DialectInstructions<Self> for MslDialect {
 // Coop Matrices dialect
 
 impl DialectWmmaCompiler<Self> for MslDialect {
-    type Architecture = MetalArchitecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "#include <metal_simdgroup_matrix>")
     }
@@ -1012,7 +1012,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         }
     }
 
-    fn supported_wmma_combinations(_arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
         vec![
             (
                 gpu::Elem::Float(gpu::FloatKind::F16),
