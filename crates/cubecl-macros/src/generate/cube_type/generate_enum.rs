@@ -690,8 +690,8 @@ impl CubeTypeVariant {
         let cube_type = prelude_type("CubeType");
         let scope = prelude_type("Scope");
         let ident = &self.ident;
-        let base_function = Ident::new(&format!("new_{}", ident), ident.span());
-        let expand_function = Ident::new(&format!("__expand_new_{}", ident), ident.span());
+        let base_function = Ident::new(&format!("new_{ident}"), ident.span());
+        let expand_function = Ident::new(&format!("__expand_new_{ident}"), ident.span());
 
         let turbofish = generics.as_turbofish();
 

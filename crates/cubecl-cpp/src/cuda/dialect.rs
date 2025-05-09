@@ -176,7 +176,7 @@ impl DialectTypes<Self> for CudaDialect {
         let offset = shared.offset;
         let size = shared.size;
         let size_bytes = size * shared.item.size() as u32;
-        writeln!(f, "// Shared memory size: {}, {} bytes", size, size_bytes)?;
+        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
         writeln!(
             f,
             "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
@@ -208,7 +208,7 @@ extern \"C\" __global__ void "
                 cluster_dim.x, cluster_dim.y, cluster_dim.z
             )?;
         }
-        writeln!(f, "{} (", kernel_name)?;
+        writeln!(f, "{kernel_name} (")?;
         let has_scalars =
             !scalars.is_empty() || (flags.use_grid_constants && flags.static_meta_length > 0);
         shared::compile_bindings(f, tensor_maps, buffers, has_scalars, flags)?;

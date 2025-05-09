@@ -2,6 +2,8 @@
 macro_rules! testgen_random_uniform {
     () => {
         mod test_random_uniform {
+            #![allow(clippy::manual_range_contains)]
+
             use super::*;
 
             pub fn get_random_uniform_data<R: Runtime, E: CubeElement + Numeric>(

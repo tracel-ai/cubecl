@@ -20,41 +20,30 @@ use std::borrow::Cow;
 
 use cubecl_core::ir::{self as core, CubeFnSource, SourceLoc, Variable};
 use hashbrown::HashMap;
-use rspirv::{
-    dr::{Instruction, Operand},
-    spirv::{FunctionControl, Op, Word},
+use rspirv::spirv::{FunctionControl, Word};
+use rspirv_ext::{
+    spirv::DebugInfoFlags,
+    sr::{
+        nonsemantic_debugprintf::DebugPrintfBuilder,
+        nonsemantic_shader_debuginfo_100::DebugInfoBuilder,
+    },
 };
 
-use crate::{
-    SpirvCompiler, SpirvTarget,
-    extensions::NonSemanticShaderDebugInfo100::{DebugInfoFlags, Instructions},
-};
+use crate::{SpirvCompiler, SpirvTarget};
 
-pub const DEBUG_EXT_NAME: &str = "NonSemantic.Shader.DebugInfo.100";
-pub const PRINT_EXT_NAME: &str = "NonSemantic.DebugPrintf";
 pub const SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FunctionDefinition {
     id: Word,
-    name: Word,
     source: SourceFile,
     line: u32,
     col: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct InlinedAt {
-    id: Word,
-    func: Word,
-    line: u32,
-    parent: Option<Word>,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct FunctionCall {
     definition: FunctionDefinition,
-    scope: Word,
     inlined_at: Option<Word>,
 }
 
@@ -81,19 +70,13 @@ struct Definitions {
     source_files: HashMap<String, SourceFile>,
     /// map of call names to definitions
     functions: HashMap<CubeFnSource, FunctionDefinition>,
-    /// InlinedAt definitions
-    inlined_at: HashMap<(Word, u32, Option<Word>), Word>,
-    /// Debug strings
-    strings: HashMap<String, Word>,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_debug(&mut self) {
         if self.debug_enabled() {
-            let flags = self.const_u32(DebugInfoFlags::None.0);
             let return_ty = self.type_void();
-            let function_ty =
-                self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
+            let function_ty = self.debug_type_function(DebugInfoFlags::NONE, return_ty, []);
             let entry_loc = self.opt.root_scope.debug.entry_loc.clone().unwrap();
 
             self.debug_info = Some(DebugInfo {
@@ -106,23 +89,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.collect_sources();
 
             let entry_def = self.definitions().functions[&entry_loc.source];
-            let args = self.debug_string("");
-            let signature = self.debug_string(SIGNATURE);
-            self.void_debug(
-                None,
-                Instructions::DebugEntryPoint,
-                [
-                    entry_def.id,
-                    entry_def.source.compilation_unit,
-                    signature,
-                    args,
-                ],
+            self.debug_entry_point(
+                entry_def.id,
+                entry_def.source.compilation_unit,
+                SIGNATURE,
+                "",
             );
         } else if self.debug_symbols {
-            let flags = self.const_u32(DebugInfoFlags::None.0);
             let return_ty = self.type_void();
-            let function_ty =
-                self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
+            let function_ty = self.debug_type_function(DebugInfoFlags::NONE, return_ty, []);
             self.debug_info = Some(DebugInfo {
                 function_ty,
                 stack: Default::default(),
@@ -149,31 +124,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
 
         for (file, source_text) in sources {
-            self.debug_source(file, source_text);
+            self.debug_source_dedup(file, source_text);
         }
 
         for cube_fn in cube_fns.into_iter() {
             let source = self.definitions().source_files[cube_fn.file.as_ref()];
-            let function = FunctionDefinition {
-                id: self.id(),
-                name: self.debug_string(cube_fn.function_name.as_ref()),
+            let name = cube_fn.function_name.as_ref();
+            let mut function = FunctionDefinition {
+                id: 0,
                 source,
                 line: cube_fn.line,
                 col: cube_fn.column,
             };
-            self.declare_debug_function(&function);
+            self.declare_debug_function(name, &mut function);
             self.definitions().functions.insert(cube_fn, function);
-        }
-    }
-
-    fn debug_string(&mut self, value: impl Into<String>) -> Word {
-        let value: String = value.into();
-        if let Some(id) = self.debug_info().definitions.strings.get(&value).copied() {
-            id
-        } else {
-            let id = self.string(value.clone());
-            self.debug_info().definitions.strings.insert(value, id);
-            id
         }
     }
 
@@ -190,7 +154,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if let Some(definition) = definition {
             let main_call = FunctionCall {
                 definition,
-                scope: 0,
                 inlined_at: None,
             };
 
@@ -207,7 +170,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let setup = move |b: &mut Self| {
             if let Some(func_id) = func_id {
                 b.debug_start_block();
-                b.void_op(Instructions::DebugFunctionDefinition, [func_id, main]);
+                b.debug_function_definition(func_id, main).unwrap();
             }
         };
 
@@ -224,7 +187,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         self.debug_start_block();
                     } else {
                         let source = self.stack_top().definition.source.id;
-                        self.debug_line(source, loc.line, loc.column);
+                        self.debug_line(source, loc.line, loc.line, loc.column, loc.column)
+                            .unwrap();
                     }
                 }
                 _ => {}
@@ -237,31 +201,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let call_fn = self.definitions().functions[&loc.source];
         let inlined_at = is_inlined.then(|| {
             let parent = self.stack_prev().clone();
-            self.inlined_at(parent.definition.id, prev.line, parent.inlined_at)
+            self.debug_inlined_at(parent.definition.id, prev.line, parent.inlined_at)
         });
         self.stack_top().definition = call_fn;
         self.stack_top().inlined_at = inlined_at;
     }
 
     pub fn compile_debug(&mut self, debug: core::NonSemantic) {
-        if self.debug_symbols {
+        if self.debug_enabled() {
             match debug {
                 core::NonSemantic::Print {
                     format_string,
                     args,
                 } => {
-                    let ext = self.state.extensions[PRINT_EXT_NAME];
-                    let void = self.type_void();
                     let args = args
                         .into_iter()
                         .map(|arg| {
                             let var = self.compile_variable(arg);
-                            Operand::IdRef(self.read(&var))
+                            self.read(&var)
                         })
                         .collect::<Vec<_>>();
-                    let mut operands = vec![Operand::IdRef(self.debug_string(format_string))];
-                    operands.extend(args);
-                    self.ext_inst(void, None, ext, 1, operands).unwrap();
+                    self.debug_printf(format_string, args).unwrap();
                 }
                 core::NonSemantic::Comment { .. } => {
                     // Comments not supported for SPIR-V
@@ -293,38 +253,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.debug_info().stack.iter_mut().nth_back(1).unwrap()
     }
 
-    // Deduplicated inlined_at
-    fn inlined_at(&mut self, func: Word, line: u32, parent: Option<Word>) -> Word {
-        let existing = self.definitions().inlined_at.get(&(func, line, parent));
-        if let Some(existing) = existing {
-            *existing
-        } else {
-            let id = self.id();
-            let inlined_at = InlinedAt {
-                id,
-                func,
-                line,
-                parent,
-            };
-            self.declare_inlined_at(&inlined_at);
-            self.definitions()
-                .inlined_at
-                .insert((func, line, parent), id);
-            id
-        }
-    }
-
     // Deduplicated debug_source
-    fn debug_source(&mut self, file: impl AsRef<str>, source_text: impl AsRef<str>) -> SourceFile {
+    fn debug_source_dedup(
+        &mut self,
+        file: impl AsRef<str>,
+        source_text: impl AsRef<str>,
+    ) -> SourceFile {
         let existing = self.definitions().source_files.get(file.as_ref());
         if let Some(existing) = existing {
             *existing
         } else {
-            let file_id = self.debug_string(file.as_ref());
-            let source_id = self.debug_string(source_text.as_ref());
+            let source = self.debug_source(file.as_ref(), Some(source_text.as_ref()));
 
-            let source = self.void_debug(None, Instructions::DebugSource, [file_id, source_id]);
-            let comp_unit = self.debug_compilation_unit(source);
+            let comp_unit = {
+                use rspirv_ext::dr::autogen_nonsemantic_shader_debuginfo_100::DebugInfoOpBuilder;
+
+                let version = self.const_u32(1);
+                let dwarf_version = self.const_u32(5);
+                let language = self.const_u32(13);
+                self.debug_compilation_unit_id(None, version, dwarf_version, source, language)
+            };
+
             let source_file = SourceFile {
                 id: source,
                 compilation_unit: comp_unit,
@@ -336,60 +285,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn debug_compilation_unit(&mut self, source: Word) -> Word {
-        let version = self.const_u32(1);
-        let dwarf = self.const_u32(4);
-        // Rust, not yet supported in tooling but doesn't break things either so we can replace
-        // this with the enum once it's added in rspirv.
-        let language = self.const_u32(13);
-        self.void_debug(
-            None,
-            Instructions::DebugCompilationUnit,
-            [version, dwarf, source, language],
-        )
-    }
-
-    fn declare_debug_function(&mut self, function: &FunctionDefinition) {
-        let name_id = function.name;
-        let flags = self.const_u32(DebugInfoFlags::None.0);
+    fn declare_debug_function(&mut self, name: &str, function: &mut FunctionDefinition) {
         let debug_type = self.debug_info().function_ty;
-        let source = function.source.id;
-        let compilation_unit = function.source.compilation_unit;
-        let line = self.const_u32(function.line);
-        let col = self.const_u32(function.col);
-        self.void_debug(
-            Some(function.id),
-            Instructions::DebugFunction,
-            [
-                name_id,
-                debug_type,
-                source,
-                line,
-                col,
-                compilation_unit,
-                name_id,
-                flags,
-                line,
-            ],
-        );
-    }
 
-    // Deduplicated inlined_at
-    fn declare_inlined_at(&mut self, inlined_at: &InlinedAt) {
-        let line = self.const_u32(inlined_at.line);
-        if let Some(inline_parent) = inlined_at.parent {
-            self.void_debug(
-                Some(inlined_at.id),
-                Instructions::DebugInlinedAt,
-                [line, inlined_at.func, inline_parent],
-            )
-        } else {
-            self.void_debug(
-                Some(inlined_at.id),
-                Instructions::DebugInlinedAt,
-                [line, inlined_at.func],
-            )
-        };
+        function.id = self.debug_function(
+            name,
+            debug_type,
+            function.source.id,
+            function.line,
+            function.col,
+            function.source.compilation_unit,
+            name,
+            DebugInfoFlags::NONE,
+            function.line,
+            None,
+        );
     }
 
     pub fn debug_start_block(&mut self) {
@@ -398,57 +308,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let func = self.stack_top().definition;
             let inlined = self.stack_top().inlined_at;
 
-            let scope = if let Some(inlined) = inlined {
-                self.void_op(Instructions::DebugScope, [func.id, inlined])
+            if let Some(inlined) = inlined {
+                self.debug_scope(func.id, Some(inlined)).unwrap()
             } else {
-                self.void_op(Instructions::DebugScope, [func.id])
+                self.debug_scope(func.id, None).unwrap()
             };
-            self.stack_top().scope = scope;
-            self.debug_line(func.source.id, loc.line, loc.column);
+            self.debug_line(func.source.id, loc.line, loc.line, loc.column, loc.column)
+                .unwrap();
         }
     }
 
-    fn debug_line(&mut self, source: Word, line: u32, column: u32) {
-        let line = self.const_u32(line);
-        let col = self.const_u32(column);
-        self.void_op(Instructions::DebugLine, [source, line, line, col, col]);
-    }
-
-    fn void_debug<const N: usize>(
-        &mut self,
-        out_id: Option<Word>,
-        instruction: Instructions,
-        operands: [Word; N],
-    ) -> Word {
-        let ext = self.state.extensions[DEBUG_EXT_NAME];
-        let void = self.type_void();
-        let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
-        let out = out_id.unwrap_or_else(|| self.id());
-        let mut ops = vec![
-            Operand::IdRef(ext),
-            Operand::LiteralExtInstInteger(instruction as u32),
-        ];
-        ops.extend(operands);
-        let inst = Instruction::new(Op::ExtInst, Some(void), Some(out), ops);
-        self.module_mut().types_global_values.push(inst);
-        out
-    }
-
-    fn void_op<const N: usize>(&mut self, instruction: Instructions, operands: [Word; N]) -> Word {
-        let ext = self.state.extensions[DEBUG_EXT_NAME];
-        let void = self.type_void();
-        let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
-        self.ext_inst(void, None, ext, instruction as u32, operands)
-            .unwrap()
+    fn debug_enabled(&self) -> bool {
+        self.debug_symbols && self.opt.root_scope.debug.entry_loc.is_some()
     }
 
     #[track_caller]
     pub fn debug_info(&mut self) -> &mut DebugInfo {
         self.debug_info.as_mut().unwrap()
-    }
-
-    pub fn debug_enabled(&mut self) -> bool {
-        self.debug_symbols && self.opt.root_scope.debug.entry_loc.is_some()
     }
 
     pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
