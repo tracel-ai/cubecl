@@ -200,7 +200,7 @@ pub fn type_info_definition<D: Dialect>(
 struct metadata_st {{
 uint x[{static_len}];
 }};
-",
+"
         )?;
     }
     Ok(())

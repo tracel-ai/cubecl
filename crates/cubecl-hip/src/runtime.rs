@@ -147,6 +147,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+    device_props.register_feature(Feature::SyncPlane);
 
     device_props.register_feature(Feature::DynamicLineSize);
 

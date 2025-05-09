@@ -27,7 +27,7 @@ use crate::{
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
-    builder: Builder,
+    pub(crate) builder: Builder,
 
     pub mode: ExecutionMode,
     pub debug_symbols: bool,
@@ -215,8 +215,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.set_version(1, 6);
 
         let mut target = self.target.clone();
-        let extensions = target.extensions(self);
-        self.state.extensions = extensions;
 
         self.init_state(kernel.clone());
 

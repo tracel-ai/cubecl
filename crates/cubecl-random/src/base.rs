@@ -1,6 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+use cubecl::tensor_line_size_parallel;
 use cubecl_common::{rand::get_seeded_rng, stub::Mutex};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -18,7 +19,7 @@ pub fn seed(seed: u64) {
 pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     prng: P,
-    output: &mut TensorHandleRef<'_, R>,
+    output: TensorHandleRef<'_, R>,
 ) {
     let seeds = get_seeds();
     let args = prng.args();
@@ -26,7 +27,14 @@ pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
     let cube_dim = CubeDim::default();
     let cube_count = prng_cube_count(output.size(), cube_dim, N_VALUES_PER_THREAD);
 
-    let output = output.as_tensor_arg(1);
+    let output_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&E::as_elem_native_unchecked()),
+        output.shape,
+        output.strides,
+        output.strides.len() - 1,
+    );
+
+    let output = output.as_tensor_arg(output_line_size);
 
     prng_kernel::launch::<P, E, R>(
         client,
@@ -39,6 +47,7 @@ pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
         ScalarArg::new(seeds[3]),
         args,
         N_VALUES_PER_THREAD as u32,
+        output_line_size as u32,
     );
 }
 
@@ -73,7 +82,7 @@ pub(crate) trait PrngArgs<E: CubeElement>: Send + Sync + 'static {
 }
 
 #[cube]
-pub(crate) trait PrngRuntime<E: CubeElement + CubeType>:
+pub(crate) trait PrngRuntime<E: CubeElement + CubePrimitive>:
     Send + Sync + 'static + PrngArgs<E>
 {
     #[allow(clippy::too_many_arguments)]
@@ -82,27 +91,29 @@ pub(crate) trait PrngRuntime<E: CubeElement + CubeType>:
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
+        #[comptime] line_size: u32,
         state_0: &mut u32,
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut Tensor<E>,
+        output: &mut Tensor<Line<E>>,
     );
 }
 
 #[cube(launch)]
 fn prng_kernel<P: PrngRuntime<E>, E: CubeElement + Numeric>(
-    output: &mut Tensor<E>,
+    output: &mut Tensor<Line<E>>,
     seed_0: u32,
     seed_1: u32,
     seed_2: u32,
     seed_3: u32,
     args: P::Args,
     #[comptime] n_values_per_thread: u32,
+    #[comptime] line_size: u32,
 ) {
     let cube_offset = CUBE_POS * CUBE_DIM;
 
-    let write_index_base = cube_offset * n_values_per_thread + UNIT_POS;
+    let write_index_base = cube_offset * n_values_per_thread / line_size + UNIT_POS;
 
     #[allow(arithmetic_overflow)]
     let thread_seed = 1000000007u32 * ABSOLUTE_POS;
@@ -118,6 +129,7 @@ fn prng_kernel<P: PrngRuntime<E>, E: CubeElement + Numeric>(
         write_index_base,
         CUBE_DIM,
         n_values_per_thread,
+        line_size,
         &mut state_0,
         &mut state_1,
         &mut state_2,

@@ -156,7 +156,7 @@ where
         let barrier = Barrier::<MP::ES>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             // Start loading
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
