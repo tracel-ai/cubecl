@@ -249,8 +249,7 @@ impl DialectBindings<Self> for MslDialect {
             (f),
             "
 [[kernel]]
-void {}(",
-            kernel_name
+void {kernel_name}("
         )?;
         // Global bindings args
         let mut buffer_idx = 0;
@@ -685,6 +684,10 @@ impl DialectInstructions<Self> for MslDialect {
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
+    }
+
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

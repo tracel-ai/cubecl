@@ -134,6 +134,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
+
     if arch.version >= 60 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
     }
@@ -141,6 +142,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
+        device_props.register_feature(Feature::SyncPlane);
 
         comp_opts.grid_constants = true;
     }

@@ -1,11 +1,13 @@
 use std::{sync::Arc, thread};
 
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 
@@ -49,8 +51,8 @@ where
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
-    StartProfile,
-    StopMeasure(Callback<ProfileDuration>),
+    StartProfile(Callback<ProfilingToken>),
+    StopMeasure(Callback<ProfileDuration>, ProfilingToken),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -111,11 +113,12 @@ where
                         Message::MemoryCleanup => {
                             server.memory_cleanup();
                         }
-                        Message::StartProfile => {
-                            server.start_profile();
+                        Message::StartProfile(callback) => {
+                            let token = server.start_profile();
+                            callback.send(token).await.unwrap();
                         }
-                        Message::StopMeasure(callback) => {
-                            callback.send(server.end_profile()).await.unwrap();
+                        Message::StopMeasure(callback, token) => {
+                            callback.send(server.end_profile(token)).await.unwrap();
                         }
                     };
                 }
@@ -140,24 +143,29 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         let sender = self.state.sender.clone();
-        let (callback, response) = async_channel::unbounded();
-        sender
-            .send(Message::Read(bindings, callback))
-            .await
-            .unwrap();
-        handle_response(response.recv().await)
+
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender
+                .send(Message::Read(bindings, callback))
+                .await
+                .unwrap();
+            handle_response(response.recv().await)
+        })
     }
 
-    async fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
+    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
         let sender = self.state.sender.clone();
-        let (callback, response) = async_channel::unbounded();
-        sender
-            .send(Message::ReadTensor(bindings, callback))
-            .await
-            .unwrap();
-        handle_response(response.recv().await)
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender
+                .send(Message::ReadTensor(bindings, callback))
+                .await
+                .unwrap();
+            handle_response(response.recv().await)
+        })
     }
 
     fn get_resource(
@@ -243,14 +251,14 @@ where
         self.state.sender.send_blocking(Message::Flush).unwrap()
     }
 
-    async fn sync(&self) {
-        let (callback, response) = async_channel::unbounded();
-        self.state
-            .sender
-            .send(Message::Sync(callback))
-            .await
-            .unwrap();
-        handle_response(response.recv().await)
+    fn sync(&self) -> DynFut<()> {
+        let sender = self.state.sender.clone();
+
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender.send(Message::Sync(callback)).await.unwrap();
+            handle_response(response.recv().await)
+        })
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
@@ -269,18 +277,22 @@ where
             .unwrap()
     }
 
-    fn start_profile(&self) {
+    fn start_profile(&self) -> ProfilingToken {
+        let (callback, response) = async_channel::unbounded();
+
         self.state
             .sender
-            .send_blocking(Message::StartProfile)
+            .send_blocking(Message::StartProfile(callback))
             .unwrap();
+
+        handle_response(response.recv_blocking())
     }
 
-    fn end_profile(&self) -> ProfileDuration {
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::StopMeasure(callback))
+            .send_blocking(Message::StopMeasure(callback, token))
             .unwrap();
         handle_response(response.recv_blocking())
     }

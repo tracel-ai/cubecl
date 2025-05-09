@@ -16,7 +16,7 @@ use super::{
     ConvLaunchError,
     algorithm::{Algorithm, StageInput},
     args::ConvInputsLaunch,
-    base::ConvolutionProblem,
+    base::{ConvolutionProblem, Dimensionality},
     selection::select_matmul,
 };
 
@@ -25,28 +25,28 @@ type Output<Alg, MP> =
     <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;
 
 #[derive(Clone)]
-pub struct ConvolutionArgs {
-    pub stride: (usize, usize),
-    pub padding: (usize, usize),
-    pub dilation: (usize, usize),
+pub struct ConvolutionArgs<const N_SPATIAL: usize> {
+    pub stride: [usize; N_SPATIAL],
+    pub padding: [usize; N_SPATIAL],
+    pub dilation: [usize; N_SPATIAL],
 }
 
-/// Perform a 2D convolution using the implicit GEMM (im2col) algorithm, using cubecl tiling matmul
-/// components, using the specified algorithm.
+/// Perform an n-dimensional convolution using the implicit GEMM (im2col) algorithm, using cubecl
+/// tiling matmul components, using the specified algorithm.
 ///
-/// * `input` - The input feature map, layout should be [batches, height, width, in_channels]
-/// * `weight` - The weights (filter) applied to each kernel, layout should be [out_channels, kernel_h, kernel_w, in_channels]
-/// * `out` - The output feature map, layout should be [batches, out_height, out_width, out_channels]
+/// * `input` - The input feature map, layout should be [batches, depth, height, width, in_channels]
+/// * `weight` - The weights (filter) applied to each kernel, layout should be [out_channels, kernel_d, kernel_h, kernel_w, in_channels]
+/// * `out` - The output feature map, layout should be [batches, out_depth, out_height, out_width, out_channels]
 /// * `bias` - The bias added to each out channel
 /// * `options` - The options to use for the convolution
 #[allow(clippy::result_large_err)]
-pub fn launch_conv2d_nhwc<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
+pub fn launch_conv<R: Runtime, MP: MatmulPrecision, Alg: Algorithm, const N_SPATIAL: usize>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<'_, R>,
     weight: &TensorHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
-    args: ConvolutionArgs,
+    args: ConvolutionArgs<N_SPATIAL>,
 ) -> Result<(), ConvLaunchError>
 where
     Input<Alg, MP>: ConvInputsLaunch,
@@ -58,10 +58,48 @@ where
         dilation,
     } = args;
 
-    let [n, h, w, c] = input.shape.try_into().unwrap();
-    let [out_c, kh, kw, _] = weight.shape.try_into().unwrap();
-    let out_h = out.shape[1];
-    let out_w = out.shape[2];
+    let dimensionality = match N_SPATIAL {
+        1 => Dimensionality::Dim1,
+        2 => Dimensionality::Dim2,
+        3 => Dimensionality::Dim3,
+        other => unimplemented!("Unsupported dimensionality {other}"),
+    };
+
+    launch::<R, MP, Alg>(
+        client,
+        input,
+        weight,
+        bias,
+        out,
+        (&stride, &padding, &dilation),
+        dimensionality,
+    )
+}
+
+fn launch<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: &TensorHandleRef<'_, R>,
+    weight: &TensorHandleRef<'_, R>,
+    bias: &Option<TensorHandleRef<'_, R>>,
+    out: &TensorHandleRef<'_, R>,
+    (stride, padding, dilation): (&[usize], &[usize], &[usize]),
+    dimensionality: Dimensionality,
+) -> Result<(), ConvLaunchError>
+where
+    Input<Alg, MP>: ConvInputsLaunch,
+    Output<Alg, MP>: ConcreteOutputFactory,
+{
+    let rank = input.shape.len();
+    let dim_c = rank - 1;
+
+    let n = input.shape[0];
+    let c = input.shape[dim_c];
+
+    let out_c = weight.shape[0];
+
+    let in_shape = &input.shape[1..dim_c];
+    let kernel_shape = &weight.shape[1..dim_c];
+    let out_shape = &out.shape[1..dim_c];
 
     let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
     let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
@@ -69,17 +107,21 @@ where
     let ei_elem = MP::EI::as_elem_native_unchecked();
     let eo_elem = MP::EO::as_elem_native_unchecked();
 
-    let lhs_line_size =
-        tensor_line_size_parallel(R::line_size_elem(&ei_elem), &input.shape, &input.strides, 3);
+    let lhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&ei_elem),
+        &input.shape,
+        &input.strides,
+        dim_c,
+    );
     let rhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&ei_elem),
         &weight.shape,
         &weight.strides,
-        3,
+        dim_c,
     );
 
     let out_line_size =
-        tensor_line_size_parallel(R::line_size_elem(&eo_elem), out.shape, out.strides, 3);
+        tensor_line_size_parallel(R::line_size_elem(&eo_elem), out.shape, out.strides, dim_c);
 
     let plane_dim = client
         .properties()
@@ -88,29 +130,34 @@ where
         .unwrap_or(32);
 
     let problem = ConvolutionProblem {
-        m: n * out_h * out_w,
+        m: n * out_shape.iter().product::<usize>(),
         n: out_c,
-        k: c * kh * kw,
+        k: c * kernel_shape.iter().product::<usize>(),
         lhs_layout: components::MatrixLayout::RowMajor,
         rhs_layout: components::MatrixLayout::ColMajor,
         lhs_line_size,
         rhs_line_size,
         out_line_size,
-        kernel_size: (kh as u32, kw as u32),
-        stride: (stride.0 as u32, stride.1 as u32),
-        padding: (padding.0 as i32, padding.1 as i32),
-        dilation: (dilation.0 as u32, dilation.1 as u32),
+        kernel_size: kernel_shape.iter().map(|it| *it as u32).collect(),
+        stride: stride.iter().map(|it| *it as u32).collect(),
+        padding: padding.iter().map(|it| *it as i32).collect(),
+        dilation: dilation.iter().map(|it| *it as u32).collect(),
 
         batches: n,
-        height: h,
-        width: w,
+        shape: in_shape.to_vec(),
+        out_shape: out_shape.to_vec(),
         channels: c,
 
-        out_h,
-        out_w,
+        dimensionality,
     };
 
-    let (selection, config_input) = select_matmul::<Alg, R, MP>(client, &problem, plane_dim);
+    let (selection, config_input) = select_matmul::<Alg, R>(
+        client,
+        &problem,
+        plane_dim,
+        MP::ES::as_elem_native_unchecked(),
+        MP::EA::as_elem_native_unchecked(),
+    );
 
     let launch = if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
         if tf32::is_supported(client) {
@@ -149,9 +196,12 @@ where
     Input<Alg, MP>: ConvInputsLaunch,
     Output<Alg, MP>: ConcreteOutputFactory,
 {
+    let rank = out.shape.len();
+    let dim_c = rank - 1;
+
     // Reshape out to (M, N)
-    let out_shape = [out.shape[0..3].iter().product(), out.shape[3]];
-    let out_strides = [out.strides[2], out.strides[3]];
+    let out_shape = [out.shape[0..dim_c].iter().product(), out.shape[dim_c]];
+    let out_strides = [out.strides[rank - 2], out.strides[dim_c]];
 
     let out = unsafe {
         TensorHandleRef::from_raw_parts(out.handle, &out_strides, &out_shape, out.elem_size)

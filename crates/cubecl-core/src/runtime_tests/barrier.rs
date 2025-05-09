@@ -48,7 +48,7 @@ fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
     let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
-    sync_units();
+    sync_cube();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
     barrier.memcpy_async(&lhs.slice(0u32, 4u32), &mut lhs_smem.to_slice_mut());
@@ -73,7 +73,7 @@ fn two_loads<F: Float>(
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
     let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
-    sync_units();
+    sync_cube();
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;
@@ -104,7 +104,7 @@ fn two_independent_loads<F: Float>(
     let barrier_1 = barrier::Barrier::new(BarrierLevel::cube_manual(0u32));
     // At the Cube level, we must sync after barrier creation to make sure they
     // exist for all units
-    sync_units();
+    sync_cube();
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;

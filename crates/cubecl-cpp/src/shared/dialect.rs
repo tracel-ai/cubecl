@@ -502,7 +502,7 @@ pub trait DialectInstructions<D: Dialect> {
         let elem = input.elem();
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}(log1p(float({input})))", elem)
+                write!(f, "{elem}(log1p(float({input})))")
             }
             _ => write!(f, "log1p({input})"),
         }
@@ -510,6 +510,7 @@ pub trait DialectInstructions<D: Dialect> {
 
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     // trigo
@@ -520,7 +521,7 @@ pub trait DialectInstructions<D: Dialect> {
         let elem = input.elem();
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}(tanh(float({input})))", elem)
+                write!(f, "{elem}(tanh(float({input})))")
             }
             _ => write!(f, "tanh({input})"),
         }

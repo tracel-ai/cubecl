@@ -23,6 +23,7 @@ default = [
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 linalg = ["dep:cubecl-linalg"]
 reduce = ["dep:cubecl-reduce"]
+random = ["dep:cubecl-random"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 
@@ -38,11 +39,13 @@ compilation-cache = [
     "cubecl-cuda?/compilation-cache",
     "cubecl-hip?/compilation-cache",
 ]
+
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.6.0", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "0.6.0", default-features = false, optional = true }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", default-features = false, optional = true }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", default-features = false, optional = true }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false }
 cubecl-std = { version = "0.6.0", path = "../cubecl-std" }

@@ -770,7 +770,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 match input.elem() == *out_item.elem() {
                     true => writeln!(f, "{out} = countOneBits({input});"),
-                    false => writeln!(f, "{out} = {}(countOneBits({input}));", out_item),
+                    false => writeln!(f, "{out} = {out_item}(countOneBits({input}));"),
                 }
             }
             Instruction::ReverseBits { input, out } => {

@@ -6,6 +6,7 @@ use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecis
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
+use cubecl_runtime::config::GlobalConfig;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
@@ -43,6 +44,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     }
 
     fn sync(&self) {
+        GlobalConfig::get();
         future::block_on(self.client.sync())
     }
 
@@ -106,14 +108,14 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         Default::default(),
         matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
     );
-    // // run::<R, MP>(
-    // //     Default::default(),
-    // //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // // );
-    // // run::<R, MP>(
-    // //     Default::default(),
-    // //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
@@ -137,7 +139,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 fn main() {
     #[cfg(feature = "wgpu")]
     {
-        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
 
     #[cfg(feature = "wgpu-spirv")]

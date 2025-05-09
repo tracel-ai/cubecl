@@ -68,7 +68,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     ) {
         Ok(config) => config,
         Err(err) => {
-            let msg = format!("Can't launch the test: {}", err);
+            let msg = format!("Can't launch the test: {err}");
             if panic_on_launch_err {
                 panic!("{msg}");
             } else {
@@ -79,7 +79,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     };
 
     if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
-        let msg = format!("Skipped - not supported: {:?}", err);
+        let msg = format!("Skipped - not supported: {err:?}");
         if panic_on_launch_err {
             panic!("{msg}")
         } else {
@@ -202,16 +202,19 @@ pub(crate) fn shape(problem: &ConvolutionProblem, ident: Ident) -> Vec<usize> {
     match ident {
         Ident::Lhs => vec![
             problem.batches,
-            problem.height,
-            problem.width,
+            problem.shape[0],
+            problem.shape[1],
             problem.channels,
         ],
         Ident::Rhs => vec![
             problem.n,
-            problem.kernel_size.0 as usize,
-            problem.kernel_size.1 as usize,
+            problem.kernel_size[0] as usize,
+            problem.kernel_size[1] as usize,
             problem.channels,
         ],
-        Ident::Out => vec![problem.batches * problem.out_h * problem.out_w, problem.n],
+        Ident::Out => vec![
+            problem.batches * problem.out_shape.iter().product::<usize>(),
+            problem.n,
+        ],
     }
 }

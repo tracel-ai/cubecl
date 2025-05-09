@@ -2,7 +2,6 @@ use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
     convolution::{
-        ConvGemmConfig,
         base::{
             Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
             ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -38,7 +37,7 @@ use cubecl_std::{
 
 use super::base::{
     config::{self, ConvolutionConfig},
-    implicit_conv,
+    implicit_conv, shape_divmod,
 };
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
@@ -87,7 +86,7 @@ where
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        sync_units();
+        sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(
             &mut acc_loader,
@@ -98,7 +97,7 @@ where
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.to_smm_config());
@@ -123,7 +122,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        sync_units();
+        sync_cube();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
@@ -243,10 +242,11 @@ where
                 size.k,
                 input.1,
             ),
-            problem.kernel_size,
-            problem.stride,
-            problem.dilation,
-            problem.padding,
+            &problem.kernel_size,
+            &problem.stride,
+            &problem.dilation,
+            &problem.padding,
+            problem.dimensionality,
             1,
         )
     }
@@ -284,17 +284,14 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         let padded_channels =
             (problem.channels as u32).next_multiple_of(tiling_dims.tile_shape_col());
 
-        let size_m = problem.batches * problem.out_h * problem.out_w;
-        let size_n = problem.n;
-        let size_k = config.kernel_size(0) * config.kernel_size(1) * padded_channels;
+        let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 
         let runtime_args = RuntimeArgsLaunch::new(
-            ScalarArg::new(size_m as u32),
-            ScalarArg::new(size_n as u32),
+            ScalarArg::new(problem.m as u32),
+            ScalarArg::new(problem.n as u32),
             ScalarArg::new(size_k),
             FastDivmodArgs::new(client, padded_channels),
-            FastDivmodArgs::new(client, problem.out_h as u32),
-            FastDivmodArgs::new(client, problem.out_w as u32),
+            shape_divmod(client, &problem.out_shape),
         );
 
         unsafe {

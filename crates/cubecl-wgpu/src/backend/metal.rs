@@ -74,6 +74,7 @@ fn register_features(
 ) {
     register_types(props);
     register_cmma(props);
+    props.register_feature(Feature::SyncPlane);
 }
 
 fn register_types(props: &mut DeviceProperties<Feature>) {

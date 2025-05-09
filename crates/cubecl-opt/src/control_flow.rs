@@ -1,3 +1,5 @@
+#![allow(unknown_lints, unnecessary_transmutes)]
+
 use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};

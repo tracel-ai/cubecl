@@ -1,11 +1,11 @@
-use std::{future::Future, time::Duration};
-
 use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::future::DynFut;
+use cubecl_core::server::ProfilingToken;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
@@ -14,7 +14,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::TimeMeasurement;
 use cubecl_runtime::{
-    debug::{DebugLogger, ProfileLevel},
+    logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
@@ -27,8 +27,7 @@ use wgpu::ComputePipeline;
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
-    logger: DebugLogger,
-    duration_profiled: Option<Duration>,
+    logger: ServerLogger,
     stream: WgpuStream,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
@@ -47,7 +46,7 @@ impl WgpuServer {
         backend: wgpu::Backend,
         time_measurement: TimeMeasurement,
     ) -> Self {
-        let logger = DebugLogger::default();
+        let logger = ServerLogger::default();
 
         let stream = WgpuStream::new(
             device.clone(),
@@ -63,7 +62,6 @@ impl WgpuServer {
             device,
             pipelines: HashMap::new(),
             logger,
-            duration_profiled: None,
             stream,
             backend,
         }
@@ -84,13 +82,13 @@ impl WgpuServer {
         let mut compiler = compiler(self.backend);
         let mut compile = compiler.compile(self, kernel, mode);
 
-        if self.logger.is_activated() {
+        if self.logger.compilation_activated() {
             compile.debug_info = Some(DebugInformation::new(
                 compiler.lang_tag(),
                 kernel_id.clone(),
             ));
         }
-        let compile = self.logger.debug(compile);
+        let compile = self.logger.log_compilation(compile);
         // /!\ Do not delete the following commented code.
         // This is usefull while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
@@ -126,10 +124,7 @@ impl ComputeServer for WgpuServer {
     type Feature = Feature;
     type Info = wgpu::Backend;
 
-    fn read(
-        &mut self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         self.stream.read_buffers(bindings)
     }
 
@@ -158,41 +153,25 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
     ) {
-        // Check for any profiling work to be done before execution.
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel.id()))
+        let profile_info = if let Some(level) = self.logger.profile_level() {
+            Some((
+                kernel.name(),
+                kernel.id(),
+                level,
+                self.stream.start_profile(),
+            ))
         } else {
             None
         };
-
-        let currently_profiling = self.stream.is_profiling();
-
-        if profile_level.is_some() {
-            // Add in current time if currently profiling.
-            if currently_profiling {
-                let profile = self.stream.stop_profile();
-                let duration = future::block_on(profile.resolve());
-                self.duration_profiled =
-                    Some(self.duration_profiled.unwrap_or_default() + duration);
-            }
-
-            self.stream.start_profile();
-        }
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
         self.stream.register(pipeline, bindings, &count);
 
-        // If profiling, write out results.
-        if let Some(level) = profile_level {
-            let profile = self.stream.stop_profile();
+        if let Some((name, kernel_id, level, token)) = profile_info {
+            let profile = self.stream.stop_profile(token);
             // Execute the task.
             let duration = future::block_on(profile.resolve());
-
-            let (name, kernel_id) = profile_info.unwrap();
-
-            self.duration_profiled = Some(self.duration_profiled.unwrap_or_default() + duration);
 
             let info = match level {
                 ProfileLevel::Basic | ProfileLevel::Medium => {
@@ -207,11 +186,6 @@ impl ComputeServer for WgpuServer {
                 }
             };
             self.logger.register_profiled(info, duration);
-
-            // Restart profile if currently profiling.
-            if currently_profiling {
-                self.stream.start_profile();
-            }
         }
     }
 
@@ -221,27 +195,21 @@ impl ComputeServer for WgpuServer {
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> DynFut<()> {
         self.logger.profile_summary();
         self.stream.sync()
     }
 
-    fn start_profile(&mut self) {
-        self.stream.start_profile();
+    fn start_profile(&mut self) -> ProfilingToken {
+        self.stream.start_profile()
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.logger.profile_summary();
 
-        // TODO: Deal with BS recursive profile thing...
-        let profile = self.stream.stop_profile();
-        let duration_profiled = self.duration_profiled;
-        self.duration_profiled = None;
+        let profile = self.stream.stop_profile(token);
 
-        // Add in profiled duration if needed.
-        ProfileDuration::from_future(async move {
-            profile.resolve().await + duration_profiled.unwrap_or(Duration::from_secs(0))
-        })
+        ProfileDuration::from_future(async move { profile.resolve().await })
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -252,10 +220,7 @@ impl ComputeServer for WgpuServer {
         self.stream.mem_manage.memory_cleanup(true);
     }
 
-    fn read_tensor(
-        &mut self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
         self.read(bindings)
     }

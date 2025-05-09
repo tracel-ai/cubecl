@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use crate::{
     convolution::{
-        ConvGemmConfig,
         base::{
             Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
             ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -36,7 +35,7 @@ use cubecl_std::{
 
 use super::base::{
     config::{self, ConvolutionConfig},
-    implicit_conv,
+    implicit_conv, shape_divmod,
 };
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
@@ -83,7 +82,7 @@ where
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        sync_units();
+        sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(
             &mut acc_loader,
@@ -92,7 +91,7 @@ where
         );
 
         for _ in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config.to_matmul_config());
@@ -100,7 +99,7 @@ where
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
-            sync_units();
+            sync_cube();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -115,7 +114,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        sync_units();
+        sync_cube();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
@@ -230,10 +229,11 @@ where
                 size.k,
                 input.1,
             ),
-            problem.kernel_size,
-            problem.stride,
-            problem.dilation,
-            problem.padding,
+            &problem.kernel_size,
+            &problem.stride,
+            &problem.dilation,
+            &problem.padding,
+            problem.dimensionality,
             1,
         )
     }
@@ -259,17 +259,12 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        let size_m = problem.batches * problem.out_h * problem.out_w;
-        let size_n = problem.n;
-        let size_k = config.kernel_size(0) * config.kernel_size(1) * problem.channels as u32;
-
         let runtime_args = RuntimeArgsLaunch::new(
-            ScalarArg::new(size_m as u32),
-            ScalarArg::new(size_n as u32),
-            ScalarArg::new(size_k),
+            ScalarArg::new(problem.m as u32),
+            ScalarArg::new(problem.n as u32),
+            ScalarArg::new(problem.k as u32),
             FastDivmodArgs::new(client, problem.channels as u32),
-            FastDivmodArgs::new(client, problem.out_h as u32),
-            FastDivmodArgs::new(client, problem.out_w as u32),
+            shape_divmod(client, &problem.out_shape),
         );
 
         unsafe {

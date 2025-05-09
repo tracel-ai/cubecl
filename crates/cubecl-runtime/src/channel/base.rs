@@ -1,8 +1,9 @@
-use core::future::Future;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use crate::{
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::vec::Vec;
@@ -11,13 +12,13 @@ use alloc::vec::Vec;
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
     /// Given bindings, returns owned resources as bytes
-    fn read(&self, bindings: Vec<Binding>) -> impl Future<Output = Vec<Vec<u8>>> + Send;
+    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>>;
 
     /// Given bindings, returns owned resources as bytes
-    fn read_tensor(
-        &self,
-        bindings: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send;
+    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>>;
+
+    /// Wait for the completion of every task in the server.
+    fn sync(&self) -> DynFut<()>;
 
     /// Given a resource handle, return the storage resource.
     fn get_resource(
@@ -54,9 +55,6 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Flush outstanding work of the server.
     fn flush(&self);
 
-    /// Wait for the completion of every task in the server.
-    fn sync(&self) -> impl Future<Output = ()> + Send;
-
     /// Get the current memory usage of the server.
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
 
@@ -70,10 +68,10 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// This function will handle any required synchronization.
     ///
     /// Recursive profiling is not allowed and will panic.
-    fn start_profile(&self);
+    fn start_profile(&self) -> ProfilingToken;
 
     /// End the profile and return a [`ProfileDuration`].
     ///
     /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
-    fn end_profile(&self) -> ProfileDuration;
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration;
 }

@@ -12,7 +12,7 @@ use cubecl_runtime::{
     ComputeRuntime, TimeMeasurement,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    debug::{DebugLogger, ProfileLevel},
+    logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
@@ -228,10 +228,7 @@ pub(crate) fn create_client_on_setup(
         .features()
         .contains(wgpu::Features::TIMESTAMP_QUERY)
     {
-        #[cfg(target_family = "wasm")]
-        true => TimeMeasurement::Device, // Still unstable, but the only one that works on wasm.
-        #[cfg(not(target_family = "wasm"))]
-        true => TimeMeasurement::System,
+        true => TimeMeasurement::Device,
         false => TimeMeasurement::System,
     };
 
@@ -302,8 +299,8 @@ async fn request_adapter(
     device: &WgpuDevice,
     backend: wgpu::Backend,
 ) -> (wgpu::Instance, wgpu::Adapter) {
-    let debug = DebugLogger::default();
-    let instance_flags = match (debug.profile_level(), debug.is_activated()) {
+    let debug = ServerLogger::default();
+    let instance_flags = match (debug.profile_level(), debug.compilation_activated()) {
         (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
         (_, true) => InstanceFlags::debugging(),
         (_, false) => InstanceFlags::default(),
