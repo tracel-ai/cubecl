@@ -89,50 +89,28 @@ impl Timings {
         resource_start: WgpuResource,
         resource_end: WgpuResource,
     ) {
-        if start == end {
-            let query_set = self.query_sets.get_mut(&start).unwrap();
-            query_set.num_ref -= 1;
+        let query_set_start = self.query_sets.get_mut(&start).unwrap();
+        query_set_start.num_ref -= 1;
 
-            if query_set.num_ref == 0 {
-                self.cleanups.push(start);
-            }
+        if query_set_start.num_ref == 0 {
+            self.cleanups.push(start);
+        }
 
-            encoder.resolve_query_set(
-                &query_set.query_set,
-                0..1,
-                resource_start.buffer(),
-                resource_start.offset(),
-            );
-            encoder.resolve_query_set(
-                &query_set.query_set,
-                1..2,
-                resource_end.buffer(),
-                resource_end.offset(),
-            );
-        } else {
-            let query_set_start = self.query_sets.get_mut(&start).unwrap();
-            query_set_start.num_ref -= 1;
+        encoder.resolve_query_set(
+            &query_set_start.query_set,
+            0..1,
+            resource_start.buffer(),
+            resource_start.offset(),
+        );
 
-            if query_set_start.num_ref == 0 {
-                self.cleanups.push(start);
-            }
+        let query_set_end = self.query_sets.get_mut(&end).unwrap();
 
-            encoder.resolve_query_set(
-                &query_set_start.query_set,
-                0..1,
-                resource_start.buffer(),
-                resource_start.offset(),
-            );
-
-            let query_set_end = self.query_sets.get_mut(&end).unwrap();
-
-            encoder.resolve_query_set(
-                &query_set_end.query_set,
-                1..2,
-                resource_end.buffer(),
-                resource_end.offset(),
-            );
-        };
+        encoder.resolve_query_set(
+            &query_set_end.query_set,
+            1..2,
+            resource_end.buffer(),
+            resource_end.offset(),
+        );
     }
 
     /// Returns the query set to be used by the [wgpu::ComputePass].

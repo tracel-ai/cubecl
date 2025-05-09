@@ -73,7 +73,6 @@ where
         &self,
         bindings: Vec<Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<Server, Channel> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.read(bindings)
@@ -85,7 +84,6 @@ where
     ///
     /// Panics if the read operation fails.
     pub fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read(bindings))
@@ -96,7 +94,6 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     pub fn read_one(&self, binding: Binding) -> Vec<u8> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read([binding].into())).remove(0)
@@ -104,7 +101,6 @@ where
 
     /// Given bindings, returns owned resources as bytes.
     pub async fn read_tensor_async(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.read_tensor(bindings).await
@@ -123,7 +119,6 @@ where
     ///
     /// Also see [ComputeClient::create_tensor].
     pub fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read_tensor(bindings))
@@ -132,7 +127,6 @@ where
     /// Given a binding, returns owned resource as bytes.
     /// See [ComputeClient::read_tensor]
     pub async fn read_one_tensor_async(&self, binding: BindingWithMeta) -> Vec<u8> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.read_tensor([binding].into()).await.remove(0)
@@ -144,7 +138,6 @@ where
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
     pub fn read_one_tensor(&self, binding: BindingWithMeta) -> Vec<u8> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         cubecl_common::reader::read_sync(self.channel.read_tensor([binding].into())).remove(0)
@@ -155,7 +148,6 @@ where
         &self,
         binding: Binding,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.get_resource(binding)
@@ -163,7 +155,6 @@ where
 
     /// Given a resource, stores it and returns the resource handle.
     pub fn create(&self, data: &[u8]) -> Handle {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.create(data)
@@ -188,7 +179,6 @@ where
         shape: &[usize],
         elem_size: usize,
     ) -> (Handle, Vec<usize>) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.create_tensor(data, shape, elem_size)
@@ -196,7 +186,6 @@ where
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.empty(size)
@@ -205,7 +194,6 @@ where
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.empty_tensor(shape, elem_size)
@@ -213,7 +201,6 @@ where
 
     /// Executes the `kernel` over the given `bindings`.
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         unsafe {
@@ -233,7 +220,6 @@ where
         count: CubeCount,
         bindings: Bindings,
     ) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         unsafe {
@@ -244,7 +230,6 @@ where
 
     /// Flush all outstanding commands.
     pub fn flush(&self) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.flush();
@@ -252,7 +237,6 @@ where
 
     /// Wait for the completion of every task in the server.
     pub async fn sync(&self) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.sync().await
@@ -265,7 +249,6 @@ where
 
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.memory_usage()
@@ -276,7 +259,6 @@ where
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
-        #[cfg(multi_threading)]
         self.profile_guard();
 
         self.channel.memory_cleanup()
@@ -317,6 +299,9 @@ where
 
         result
     }
+
+    #[cfg(not(multi_threading))]
+    fn profile_guard(&self) {}
 
     #[cfg(multi_threading)]
     fn profile_guard(&self) {
