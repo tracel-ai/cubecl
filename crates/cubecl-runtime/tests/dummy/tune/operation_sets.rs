@@ -1,4 +1,4 @@
-#[cfg(autotune_persistent_cache)]
+#[cfg(std_io)]
 use rand::{Rng, distr::Alphanumeric};
 use std::sync::Arc;
 

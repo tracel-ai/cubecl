@@ -2,6 +2,7 @@ use crate::{
     ir::{Scope, Synchronization},
     unexpanded,
 };
+
 // Among all backends, the memory order guarantee of WebGPU is the weakest
 // So Cubecl's memory order cannot be stronger than that of WebGPU
 
@@ -13,13 +14,28 @@ use crate::{
 /// * Then all the invocations in the cube wait for each other to arrive at the barrier, i.e. this step.
 ///
 /// * Then all the invocations int the cube begin executing after the barrier, and all writes to cube address space made before the barrier are now visible to any invocation in this cube.
-pub fn sync_units() {}
+pub fn sync_cube() {}
 
-pub mod sync_units {
+pub mod sync_cube {
     use super::*;
 
     pub fn expand(scope: &mut Scope) {
-        scope.register(Synchronization::SyncUnits)
+        scope.register(Synchronization::SyncCube)
+    }
+}
+
+/// Synchronizes units within their plane (e.g., warp or SIMD group).
+///
+/// Warning: not all targets support plane-level synchronization.
+pub fn sync_plane() {
+    unexpanded!()
+}
+
+pub mod sync_plane {
+    use super::*;
+
+    pub fn expand(scope: &mut Scope) {
+        scope.register(Synchronization::SyncPlane);
     }
 }
 
