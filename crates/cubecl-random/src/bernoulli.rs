@@ -70,6 +70,12 @@ pub fn random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
     probability: f32,
     out: TensorHandleRef<R>,
 ) {
+    assert_eq!(
+        out.elem_size as u32,
+        E::elem_size(),
+        "Tensor element type must be the same as type E"
+    );
+
     random(
         client,
         Bernoulli::<E> {
