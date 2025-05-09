@@ -126,7 +126,7 @@ fn reduce_kernel_inner<P: ReducePrecision, Out: Numeric, R: ReduceFamily>(
                 use_planes,
                 params.bound_checks_inner,
             );
-            sync_units();
+            sync_cube();
             reduce_tree::<P, R::Instruction<P>>(inst, &mut accumulator, accumulator_size)
         }
         (None, true) => reduce_slice_plane::<P, VirtualTensor<P::EI>, R::Instruction<P>>(

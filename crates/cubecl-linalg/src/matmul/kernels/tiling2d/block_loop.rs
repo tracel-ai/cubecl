@@ -39,11 +39,11 @@ pub(crate) fn block_loop<N: Numeric>(
             dims,
         );
 
-        sync_units();
+        sync_cube();
 
         compute_loop::<N>(coordinates, shared.lhs, shared.rhs, &mut results, config);
 
-        sync_units();
+        sync_cube();
     }
 
     write_to_output::<N, TileWriter<N>>(out, &results, coordinates, offsets.out, dims, config);

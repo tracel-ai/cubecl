@@ -154,7 +154,7 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        sync_units();
+        sync_cube();
 
         for _ in 0..num_loops {
             SMM::execute_with_listener::<
@@ -176,7 +176,7 @@ where
             SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader, loop_step);
             SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader, loop_step);
 
-            sync_units();
+            sync_cube();
 
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<
@@ -194,7 +194,7 @@ where
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
-            sync_units();
+            sync_cube();
         }
 
         SMM::execute_with_listener::<
@@ -213,7 +213,7 @@ where
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
-        sync_units();
+        sync_cube();
 
         SMM::execute(
             &lhs_reader_b,
