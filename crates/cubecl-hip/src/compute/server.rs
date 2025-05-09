@@ -196,28 +196,21 @@ impl ComputeServer for HipServer {
         let align = <Self::Storage as ComputeStorage>::ALIGNMENT as usize;
 
         let mut total_size = 0;
-        let mut sizes_strides = Vec::new();
+        let mut strides = Vec::new();
+        let mut sizes = Vec::new();
 
         for (shape, elem_size) in shapes.into_iter().zip(elem_sizes) {
             let size = (shape.iter().product::<usize>() * elem_size).next_multiple_of(align);
-            sizes_strides.push((size, contiguous_strides(shape)));
+            strides.push(contiguous_strides(shape));
+            sizes.push(size);
             total_size += size;
         }
 
         let handle = self.empty(total_size);
-        let mut offset = 0;
-        let mut out = Vec::new();
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
 
-        for (size, strides) in sizes_strides {
-            let handle = handle
-                .clone()
-                .offset_start(offset as u64)
-                .offset_end((total_size - offset - size) as u64);
-            out.push((handle, strides));
-            offset += size;
-        }
-
-        out
+        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(

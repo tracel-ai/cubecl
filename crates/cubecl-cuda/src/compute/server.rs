@@ -4,7 +4,7 @@ use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
 
-use cubecl_runtime::kernel_timestamps::KernelTimestamps;
+use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
 use serde::{Deserialize, Serialize};
 
 use super::fence::{Fence, SyncStream};
@@ -280,6 +280,7 @@ impl ComputeServer for CudaServer {
         elem_size: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
         let mut strides = Vec::new();
+        let mut sizes = Vec::new();
         let mut total_size = 0;
 
         for (shape, elem_size) in shape.into_iter().zip(elem_size) {
@@ -302,23 +303,14 @@ impl ComputeServer for CudaServer {
                     stride[i] = stride[i + 1] * shape[i + 1];
                 }
             }
-            strides.push((size, stride))
+            strides.push(stride);
+            sizes.push(size);
         }
 
         let mem_handle = self.empty(total_size);
-        let mut offset = 0;
-        let mut out = Vec::new();
+        let handles = offset_handles(mem_handle, &sizes);
 
-        for (size, strides) in strides {
-            let handle = mem_handle
-                .clone()
-                .offset_start(offset as u64)
-                .offset_end((total_size - offset - size) as u64);
-            out.push((handle, strides));
-            offset += size;
-        }
-
-        out
+        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(

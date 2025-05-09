@@ -13,7 +13,7 @@ use cubecl_core::{
     prelude::*,
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };
-use cubecl_runtime::TimeMeasurement;
+use cubecl_runtime::{TimeMeasurement, memory_management::offset_handles};
 use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryDeviceProperties,
@@ -279,30 +279,22 @@ impl ComputeServer for WgpuServer {
         elem_size: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
         let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
-        let mut strides = Vec::new();
-        let mut total_size = 0;
+        let strides = shape
+            .iter()
+            .map(|shape| contiguous_strides(shape))
+            .collect::<Vec<_>>();
+        let sizes = shape
+            .iter()
+            .map(|it| it.iter().product::<usize>())
+            .zip(elem_size)
+            .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
+            .collect::<Vec<_>>();
+        let total_size = sizes.iter().product::<usize>();
 
-        for (shape, elem_size) in shape.into_iter().zip(elem_size) {
-            let size = shape.iter().product::<usize>();
-            let size_bytes = (size * elem_size).next_multiple_of(align);
-            total_size += size_bytes;
-            strides.push((size_bytes, contiguous_strides(shape)));
-        }
-
-        let mut offset = 0;
-        let mut out = Vec::new();
         let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
 
-        for (size, strides) in strides {
-            let handle = mem_handle
-                .clone()
-                .offset_start(offset as u64)
-                .offset_end((total_size - offset - size) as u64);
-            out.push((handle, strides));
-            offset += size;
-        }
-
-        out
+        handles.into_iter().zip(strides).collect()
     }
 }
 
