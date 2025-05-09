@@ -6,6 +6,7 @@ use crate::{
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 
@@ -179,9 +180,24 @@ where
         shape: &[usize],
         elem_size: usize,
     ) -> (Handle, Vec<usize>) {
+        self.channel
+            .create_tensors(vec![data], vec![shape], vec![elem_size])
+            .pop()
+            .unwrap()
+    }
+
+    /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
+    /// handle, and returns the handles for them.
+    /// See [ComputeClient::create_tensor]
+    pub fn create_tensors(
+        &self,
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
         self.profile_guard();
 
-        self.channel.create_tensor(data, shape, elem_size)
+        self.channel.create_tensors(data, shapes, elem_size)
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -194,9 +210,22 @@ where
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
+        self.channel
+            .empty_tensors(vec![shape], vec![elem_size])
+            .pop()
+            .unwrap()
+    }
+
+    /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
+    /// See [ComputeClient::create_tensor]
+    pub fn empty_tensors(
+        &self,
+        shapes: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
         self.profile_guard();
 
-        self.channel.empty_tensor(shape, elem_size)
+        self.channel.empty_tensors(shapes, elem_size)
     }
 
     /// Executes the `kernel` over the given `bindings`.

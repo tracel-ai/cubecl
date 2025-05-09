@@ -26,11 +26,13 @@ const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 /// Select which kernel to launch for the given Algorithm.
 ///
 /// Only works for concrete tensor inputs and output.
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
+    lhs_scale: &Option<TensorHandleRef<'_, R>>,
     rhs: &TensorHandleRef<'_, R>,
+    rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     plane_dim: u32,
@@ -58,7 +60,9 @@ where
     };
     matmul_cube_preparation::<MS, R, A>(
         client,
-        <InputArg<MS> as ConcreteInputsFactory>::create(lhs, rhs, &selection, &problem),
+        <InputArg<MS> as ConcreteInputsFactory>::create(
+            lhs, lhs_scale, rhs, rhs_scale, &selection, &problem,
+        ),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
         problem,
         (

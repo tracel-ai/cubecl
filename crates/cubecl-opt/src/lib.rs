@@ -23,6 +23,8 @@
 //! `value` to it in each relevant `block`.
 //!
 
+#![allow(unknown_lints, unnecessary_transmutes)]
+
 use std::{
     collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},

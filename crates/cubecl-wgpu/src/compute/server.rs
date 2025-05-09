@@ -12,7 +12,7 @@ use cubecl_core::{
     prelude::*,
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };
-use cubecl_runtime::TimeMeasurement;
+use cubecl_runtime::{TimeMeasurement, memory_management::offset_handles};
 use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryDeviceProperties,
@@ -225,22 +225,46 @@ impl ComputeServer for WgpuServer {
         self.read(bindings)
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        _elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let handle = self.create(data);
-        (handle, strides)
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_size);
+
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+
+            self.stream.copy_to_handle(handle.clone(), data);
+        }
+
+        handles_strides
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let size = shape.iter().product::<usize>() * elem_size;
-        let handle = self.empty(size);
-        (handle, strides)
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let strides = shape
+            .iter()
+            .map(|shape| contiguous_strides(shape))
+            .collect::<Vec<_>>();
+        let sizes = shape
+            .iter()
+            .map(|it| it.iter().product::<usize>())
+            .zip(elem_size)
+            .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
+            .collect::<Vec<_>>();
+        let total_size = sizes.iter().product::<usize>();
+
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
+
+        handles.into_iter().zip(strides).collect()
     }
 }
 
@@ -254,7 +278,7 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     }
 }
 
-fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {

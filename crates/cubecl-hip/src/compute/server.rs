@@ -16,7 +16,9 @@ use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
+use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -160,35 +162,26 @@ impl ComputeServer for HipServer {
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let handle = self.empty(data.len());
-        let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
-                resource.ptr,
-                data as *const _ as *mut _,
-                data.len(),
-                ctx.stream,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-        }
+        self.copy_to_binding(binding, data);
         handle
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        _elem_size: usize,
-    ) -> (server::Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let handle = self.create(data);
-        (handle, strides)
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(server::Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+            let binding = handle.clone().binding();
+            self.copy_to_binding(binding, data);
+        }
+        handles_strides
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
@@ -197,11 +190,28 @@ impl ComputeServer for HipServer {
         server::Handle::new(handle, None, None, size as u64)
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (server::Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let size = shape.iter().product::<usize>() * elem_size;
-        let handle = self.empty(size);
-        (handle, strides)
+    fn empty_tensors(
+        &mut self,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(server::Handle, Vec<usize>)> {
+        let align = <Self::Storage as ComputeStorage>::ALIGNMENT as usize;
+
+        let mut total_size = 0;
+        let mut strides = Vec::new();
+        let mut sizes = Vec::new();
+
+        for (shape, elem_size) in shapes.into_iter().zip(elem_sizes) {
+            let size = (shape.iter().product::<usize>() * elem_size).next_multiple_of(align);
+            strides.push(contiguous_strides(shape));
+            sizes.push(size);
+            total_size += size;
+        }
+
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
+
+        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(
@@ -570,7 +580,7 @@ impl HipContext {
                 std::ptr::null_mut(),
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
-                panic!("Error: Cannot launch kernel (Out of memory)\n{}", kernel_id)
+                panic!("Error: Cannot launch kernel (Out of memory)\n{kernel_id}")
             }
             assert_eq!(status, HIP_SUCCESS, "Should launch the kernel");
         };
@@ -590,6 +600,24 @@ impl HipServer {
 
     fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut ServerLogger) {
         (&mut self.ctx, &mut self.logger)
+    }
+
+    fn copy_to_binding(&mut self, binding: server::Binding, data: &[u8]) {
+        let ctx = self.get_context();
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
+
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
+                resource.ptr,
+                data as *const _ as *mut _,
+                data.len(),
+                ctx.stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
     }
 }
 
@@ -622,7 +650,7 @@ fn hip_path() -> Option<PathBuf> {
     Some(PathBuf::from("/opt/rocm"))
 }
 
-fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {

@@ -23,7 +23,7 @@ use cubecl_runtime::{
 
 use crate::{
     HipWmmaCompiler,
-    compute::{HipContext, HipServer, HipStorage},
+    compute::{HipContext, HipServer, HipStorage, contiguous_strides},
     device::HipDevice,
 };
 
@@ -194,5 +194,19 @@ impl Runtime for HipRuntime {
 
     fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
         DeviceId::new(0, device.index as u32)
+    }
+
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+        if shape.is_empty() {
+            return true;
+        }
+
+        for (expected, &stride) in contiguous_strides(shape).into_iter().zip(strides) {
+            if expected != stride {
+                return false;
+            }
+        }
+
+        true
     }
 }

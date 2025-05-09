@@ -108,7 +108,7 @@ pub fn assert_wald_wolfowitz_runs_test<E: Numeric>(data: &[E], bins_low: f32, bi
     // we put 2.6 to make sure it passes even when very unlucky.
     // With higher vectorization, adjacent values are more
     // correlated, which makes this test is more flaky.
-    assert!(z.abs() < 2.6, "z: {}, var: {}", z, variance);
+    assert!(z.abs() < 2.6, "z: {z}, var: {variance}");
 }
 
 /// Asserts that there is at least one value per bin
