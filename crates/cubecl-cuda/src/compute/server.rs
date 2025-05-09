@@ -5,7 +5,7 @@ use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
 
-use cubecl_runtime::kernel_timestamps::KernelTimestamps;
+use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
 use serde::{Deserialize, Serialize};
 
 use super::fence::{Fence, SyncStream};
@@ -215,48 +215,58 @@ impl ComputeServer for CudaServer {
         handle
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        let rank = shape.len();
-        if rank <= 1 {
-            let handle = self.create(data);
-            return (handle, vec![1]);
-        }
-        let (handle, strides) = self.empty_tensor(shape, elem_size);
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes.clone());
         let ctx = self.get_context();
 
-        let binding = handle.clone().binding();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .expect("Failed to find resource");
+        for i in 0..data.len() {
+            let (handle, strides) = &handles_strides[i];
+            let data = data[i];
+            let shape = shapes[i];
+            let elem_size = elem_sizes[i];
+            let rank = shape.len();
 
-        let dim_x = shape[rank - 1];
-        let width_bytes = dim_x * elem_size;
-        let dim_y: usize = shape.iter().rev().skip(1).product();
-        let pitch = strides[rank - 2] * elem_size;
+            let binding = handle.clone().binding();
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
 
-        let cpy = CUDA_MEMCPY2D_st {
-            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-            srcHost: data.as_ptr() as *const c_void,
-            srcPitch: width_bytes,
-            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-            dstDevice: resource.ptr,
-            dstPitch: pitch,
-            WidthInBytes: width_bytes,
-            Height: dim_y,
-            ..Default::default()
-        };
+            if rank > 1 {
+                let dim_x = shape[rank - 1];
+                let width_bytes = dim_x * elem_size;
+                let dim_y: usize = shape.iter().rev().skip(1).product();
+                let pitch = strides[rank - 2] * elem_size;
 
-        unsafe {
-            cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                let cpy = CUDA_MEMCPY2D_st {
+                    srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+                    srcHost: data.as_ptr() as *const c_void,
+                    srcPitch: width_bytes,
+                    dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+                    dstDevice: resource.ptr,
+                    dstPitch: pitch,
+                    WidthInBytes: width_bytes,
+                    Height: dim_y,
+                    ..Default::default()
+                };
+
+                unsafe {
+                    cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                }
+            } else {
+                unsafe {
+                    cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream)
+                        .unwrap();
+                }
+            }
         }
 
-        (handle, strides)
+        handles_strides
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
@@ -265,29 +275,43 @@ impl ComputeServer for CudaServer {
         server::Handle::new(handle, None, None, size as u64)
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        let rank = shape.len();
-        let ctx = self.get_context();
-        let width = *shape.last().unwrap_or(&1);
-        let height: usize = shape.iter().rev().skip(1).product();
-        let height = height.max(1);
-        let width_bytes = width * elem_size;
-        // This should be done with cuMemAllocPitch, but that would propagate changes much deeper
-        // through memory management. So just manually pitch to alignment for now.
-        let pitch = width_bytes.next_multiple_of(Self::Storage::ALIGNMENT as usize);
-        let size = height * pitch;
-        let handle = ctx.memory_management.reserve(size as u64, None);
-        let mut strides = vec![1; rank];
-        if rank > 1 {
-            strides[rank - 2] = pitch / elem_size;
-        }
-        if rank > 2 {
-            for i in (0..rank - 2).rev() {
-                strides[i] = strides[i + 1] * shape[i + 1];
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let mut strides = Vec::new();
+        let mut sizes = Vec::new();
+        let mut total_size = 0;
+
+        for (shape, elem_size) in shape.into_iter().zip(elem_size) {
+            let rank = shape.len();
+            let width = *shape.last().unwrap_or(&1);
+            let height: usize = shape.iter().rev().skip(1).product();
+            let height = height.max(1);
+            let width_bytes = width * elem_size;
+            // This should be done with cuMemAllocPitch, but that would propagate changes much deeper
+            // through memory management. So just manually pitch to alignment for now.
+            let pitch = width_bytes.next_multiple_of(Self::Storage::ALIGNMENT as usize);
+            let size = height * pitch;
+            total_size += size;
+            let mut stride = vec![1; rank];
+            if rank > 1 {
+                stride[rank - 2] = pitch / elem_size;
             }
+            if rank > 2 {
+                for i in (0..rank - 2).rev() {
+                    stride[i] = stride[i + 1] * shape[i + 1];
+                }
+            }
+            strides.push(stride);
+            sizes.push(size);
         }
-        let mem_handle = server::Handle::new(handle, None, None, size as u64);
-        (mem_handle, strides)
+
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
+
+        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(

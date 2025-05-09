@@ -23,10 +23,19 @@ use super::{Algorithm, select_kernel_concrete};
 pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, MP::EI>,
+    lhs_scale: Option<TensorHandle<R, f32>>,
     rhs: TensorHandle<R, MP::EI>,
+    rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
 ) -> Result<TensorHandle<R, MP::EO>, MatmulLaunchError> {
-    let result = launch_ref::<R, MP, A>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
+    let result = launch_ref::<R, MP, A>(
+        client,
+        &lhs.as_ref(),
+        &lhs_scale.as_ref().map(|it| it.as_ref()),
+        &rhs.as_ref(),
+        &rhs_scale.as_ref().map(|it| it.as_ref()),
+        &out.as_ref(),
+    );
 
     match result {
         Ok(_) => Ok(out),
@@ -42,7 +51,9 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
+    lhs_scale: &Option<TensorHandleRef<'_, R>>,
     rhs: &TensorHandleRef<'_, R>,
+    rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
@@ -58,27 +69,39 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => {
-            matmul_cmma_ref::<R, MP, A>(client, lhs, rhs, out, (lhs_transposed, rhs_transposed))
-        }
+        (false, false) => matmul_cmma_ref::<R, MP, A>(
+            client,
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            out,
+            (lhs_transposed, rhs_transposed),
+        ),
         (false, true) => matmul_cmma_ref::<R, MP, A>(
             client,
             lhs,
+            lhs_scale,
             &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
+            rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, false) => matmul_cmma_ref::<R, MP, A>(
             client,
             &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
+            lhs_scale,
             rhs,
+            rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, true) => matmul_cmma_ref::<R, MP, A>(
             client,
             &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
+            lhs_scale,
             &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
+            rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
         ),
@@ -89,7 +112,9 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
+    lhs_scale: &Option<TensorHandleRef<'_, R>>,
     rhs: &TensorHandleRef<'_, R>,
+    rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
@@ -192,14 +217,18 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         }
     };
 
-    matmul_launch_kernel::<R, MP, A>(client, lhs, rhs, out, problem, plane_dim)
+    matmul_launch_kernel::<R, MP, A>(
+        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+    )
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
+    lhs_scale: &Option<TensorHandleRef<'_, R>>,
     rhs: &TensorHandleRef<'_, R>,
+    rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     plane_dim: u32,
@@ -209,10 +238,12 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, rhs, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     } else {
-        select_kernel_concrete::<MP, R, A>(client, lhs, rhs, out, problem, plane_dim)
+        select_kernel_concrete::<MP, R, A>(
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+        )
     }
 }
 
@@ -220,7 +251,9 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
+    lhs_scale: &Option<TensorHandleRef<'_, R>>,
     rhs: &TensorHandleRef<'_, R>,
+    rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
@@ -284,11 +317,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client, lhs, rhs, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     } else {
         select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client, lhs, rhs, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     }
 }

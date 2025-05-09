@@ -150,9 +150,11 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: Some(original_data),
+                quant_params: None,
             }
         }
         Ident::Rhs => {
@@ -164,9 +166,11 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: Some(original_data),
+                quant_params: None,
             }
         }
         Ident::Out => {
@@ -180,9 +184,11 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: None,
+                quant_params: None,
             }
         }
     }

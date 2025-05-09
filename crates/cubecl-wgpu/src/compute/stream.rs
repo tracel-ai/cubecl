@@ -383,7 +383,22 @@ impl WgpuStream {
         // Any handles with compute work are kept in pending operations,
         // and the allocation here won't try to use that buffer.
         let alloc = self.mem_manage.reserve(aligned_len, true);
-        let resource = self.mem_manage.get_resource(alloc.clone().binding());
+        self.copy_to_handle(alloc.clone(), data);
+
+        alloc
+    }
+
+    pub fn copy_to_handle(&mut self, handle: Handle, data: &[u8]) {
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let size = handle.size();
+
+        // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
+        // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
+        // a buffer we copy to MUST not have any outstanding compute work associated with it.
+        // Any handles with compute work are kept in pending operations,
+        // and the allocation here won't try to use that buffer.
+        let resource = self.mem_manage.get_resource(handle.binding());
 
         // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
         // its API as a slice to write into.
@@ -391,13 +406,13 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        if aligned_len > data.len() as u64 {
+        if size != data.len() as u64 {
             let mut buffer = self
                 .queue
                 .write_buffer_with(
                     resource.buffer(),
                     resource.offset(),
-                    NonZero::new(aligned_len).unwrap(),
+                    NonZero::new(size).unwrap(),
                 )
                 .unwrap();
             buffer[0..data.len()].copy_from_slice(data);
@@ -407,8 +422,6 @@ impl WgpuStream {
         }
 
         self.flush_if_needed();
-
-        alloc
     }
 
     fn flush_if_needed(&mut self) {

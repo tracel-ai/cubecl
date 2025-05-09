@@ -211,4 +211,28 @@ impl Runtime for CudaRuntime {
     fn max_cube_count() -> (u32, u32, u32) {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
+
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+        let rank = shape.len();
+        if strides[rank - 1] != 1 {
+            return false;
+        }
+        if rank <= 1 {
+            return true;
+        }
+
+        let mut sorted = strides.to_vec();
+        sorted.sort();
+
+        if sorted != strides {
+            return false;
+        }
+
+        for i in 0..rank - 2 {
+            if strides[i] != shape[i + 1] * strides[i + 1] {
+                return false;
+            }
+        }
+        true
+    }
 }

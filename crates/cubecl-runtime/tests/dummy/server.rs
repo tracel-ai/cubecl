@@ -65,20 +65,25 @@ impl ComputeServer for DummyServer {
         handle
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        _elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        let rank = shape.len();
-        let mut strides = vec![1; rank];
-        for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * shape[i + 1];
-        }
-        let handle = self.create(data);
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        _elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        data.into_iter()
+            .zip(shape)
+            .map(|(data, shape)| {
+                let rank = shape.len();
+                let mut strides = vec![1; rank];
+                for i in (0..rank - 1).rev() {
+                    strides[i] = strides[i + 1] * shape[i + 1];
+                }
+                let handle = self.create(data);
 
-        (handle, strides)
+                (handle, strides)
+            })
+            .collect()
     }
 
     fn empty(&mut self, size: usize) -> Handle {
@@ -90,15 +95,26 @@ impl ComputeServer for DummyServer {
         )
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        let rank = shape.len();
-        let mut strides = vec![1; rank];
-        for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * shape[i + 1];
-        }
-        let size = (shape.iter().product::<usize>() * elem_size) as u64;
-        let handle = Handle::new(self.memory_management.reserve(size, None), None, None, size);
-        (handle, strides)
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        shape
+            .into_iter()
+            .zip(elem_size)
+            .map(|(shape, elem_size)| {
+                let rank = shape.len();
+                let mut strides = vec![1; rank];
+                for i in (0..rank - 1).rev() {
+                    strides[i] = strides[i + 1] * shape[i + 1];
+                }
+                let size = (shape.iter().product::<usize>() * elem_size) as u64;
+                let handle =
+                    Handle::new(self.memory_management.reserve(size, None), None, None, size);
+                (handle, strides)
+            })
+            .collect()
     }
 
     unsafe fn execute(
