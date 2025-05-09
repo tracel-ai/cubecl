@@ -93,5 +93,11 @@ pub fn random_normal<R: Runtime, E: CubeElement + Numeric>(
     std: E,
     out: TensorHandleRef<R>,
 ) {
+    assert_eq!(
+        out.elem_size as u32,
+        E::elem_size(),
+        "Tensor element type must be the same as type E"
+    );
+
     random(client, Normal { mean, std }, out)
 }
