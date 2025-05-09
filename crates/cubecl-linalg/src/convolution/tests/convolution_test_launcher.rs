@@ -68,7 +68,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     ) {
         Ok(config) => config,
         Err(err) => {
-            let msg = format!("Can't launch the test: {}", err);
+            let msg = format!("Can't launch the test: {err}");
             if panic_on_launch_err {
                 panic!("{msg}");
             } else {
@@ -79,7 +79,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     };
 
     if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
-        let msg = format!("Skipped - not supported: {:?}", err);
+        let msg = format!("Skipped - not supported: {err:?}");
         if panic_on_launch_err {
             panic!("{msg}")
         } else {

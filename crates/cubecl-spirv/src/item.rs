@@ -316,6 +316,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_elem(&mut self, elem: core::Elem) -> Elem {
         match elem {
+            core::Elem::Float(
+                core::FloatKind::E2M1
+                | core::FloatKind::E2M3
+                | core::FloatKind::E3M2
+                | core::FloatKind::E4M3
+                | core::FloatKind::E5M2
+                | core::FloatKind::UE8M0,
+            ) => panic!("Minifloat not supported in SPIR-V"),
             core::Elem::Float(core::FloatKind::BF16) => panic!("BFloat16 not supported in SPIR-V"),
             core::Elem::Float(FloatKind::F16) => {
                 self.capabilities.insert(Capability::Float16);
@@ -338,6 +346,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.capabilities.insert(Capability::Float64);
                 Elem::Float(64)
             }
+            core::Elem::AtomicFloat(
+                core::FloatKind::E2M1
+                | core::FloatKind::E2M3
+                | core::FloatKind::E3M2
+                | core::FloatKind::E4M3
+                | core::FloatKind::E5M2
+                | core::FloatKind::UE8M0,
+            ) => panic!("Minifloat not supported in SPIR-V"),
             core::Elem::AtomicFloat(core::FloatKind::BF16) => {
                 panic!("BFloat16 not supported in SPIR-V")
             }

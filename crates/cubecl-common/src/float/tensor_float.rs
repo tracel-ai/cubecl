@@ -1,9 +1,6 @@
-#![allow(clippy::transmute_int_to_float)] // Not yet stable in previous version. To be removed when
-#![allow(clippy::transmute_float_to_int)] // prev=1.83.
-
 use bytemuck::{Pod, Zeroable};
+use core::fmt::Display;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use core::{fmt::Display, mem::transmute};
 use num_traits::{NumCast, ToPrimitive};
 
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
@@ -24,7 +21,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn from_bits(bits: u32) -> tf32 {
-        tf32(unsafe { transmute::<u32, f32>(bits) })
+        tf32(f32::from_bits(bits))
     }
 
     /// Constructs a [`tf32`] value from a 32-bit floating point value.
@@ -54,7 +51,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn to_bits(self) -> u32 {
-        unsafe { transmute(self.0) }
+        f32::to_bits(self.0)
     }
 
     /// Converts a [`tf32`] value into an [`f32`] value.

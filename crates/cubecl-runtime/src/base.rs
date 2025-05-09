@@ -85,7 +85,7 @@ where
 
         if let Some(clients) = clients {
             if clients.contains_key(device) {
-                panic!("Client already created for device {:?}", device);
+                panic!("Client already created for device {device:?}");
             }
 
             clients.insert(device.clone(), client);

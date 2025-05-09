@@ -62,7 +62,7 @@ impl Display for KernelId {
         match &self.info {
             Some(info) => f.write_str(
                 format_str(
-                    format!("{:?}", info).as_str(),
+                    format!("{info:?}").as_str(),
                     &[('(', ')'), ('[', ']'), ('{', '}')],
                     true,
                 )

@@ -60,10 +60,7 @@ pub fn assert_mean_approx_equal<E: Numeric>(data: &[E], expected_mean: f32) {
 
     assert!(
         z < 3.,
-        "Uniform RNG validation failed: mean={}, expected mean={}, std={}",
-        mean,
-        expected_mean,
-        std,
+        "Uniform RNG validation failed: mean={mean}, expected mean={expected_mean}, std={std}",
     );
 }
 

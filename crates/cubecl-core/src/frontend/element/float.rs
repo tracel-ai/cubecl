@@ -8,6 +8,9 @@ use crate::{
 
 use super::Numeric;
 
+mod fp4;
+mod fp6;
+mod fp8;
 mod relaxed;
 mod tensor_float;
 mod typemap;

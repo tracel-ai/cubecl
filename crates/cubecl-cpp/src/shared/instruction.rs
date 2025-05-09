@@ -83,6 +83,7 @@ pub enum Instruction<D: Dialect> {
     Index(IndexInstruction<D>),
     IndexAssign(IndexAssignInstruction<D>),
     Assign(UnaryInstruction<D>),
+    SpecialCast(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
         start: Variable<D>,
@@ -653,6 +654,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr} + {smem_offset});"
                 )
             }
+            Instruction::SpecialCast(UnaryInstruction { input, out }) => {
+                // Only supported in CUDA so I'm putting it here. Move to dialect if necessary.
+                #[cfg(not(feature = "cuda"))]
+                unimplemented!("FP8/FP6/FP4 casting isn't supported outside of CUDA");
+                #[cfg(feature = "cuda")]
+                crate::cuda::convert::special_cast::<D>(f, input, out)
+            }
         }
     }
 }
@@ -711,7 +719,7 @@ impl<D: Dialect> Clamp<D> {
 
         let (min, max) = match out.elem() {
             Elem::F16 | Elem::BF16 => ("__hmin", "__hmax"),
-            Elem::F162 | Elem::BF162 => ("__hmin2", "__hmax2"),
+            Elem::F16x2 | Elem::BF16x2 => ("__hmin2", "__hmax2"),
             _ => ("min", "max"),
         };
 
@@ -751,7 +759,7 @@ impl<D: Dialect> Remainder<D> {
         let floor = |elem| {
             let prefix = match elem {
                 Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
+                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
             format!("{prefix}floor")

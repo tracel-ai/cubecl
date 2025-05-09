@@ -275,8 +275,8 @@ var<{}, {}> {}: {};
         num_entry: usize,
     ) -> core::fmt::Result {
         let ty = match len {
-            Some(size) => format!("array<{}, {}>", elem, size),
-            None => format!("array<{}>", elem),
+            Some(size) => format!("array<{elem}, {size}>"),
+            None => format!("array<{elem}>"),
         };
         let location = Location::Storage;
         #[cfg(exclusive_memory_only)]

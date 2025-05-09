@@ -385,6 +385,7 @@ impl FileLogger {
     // Creates a new file logger.
     fn new(path: &PathBuf, append: bool) -> Self {
         let file = OpenOptions::new()
+            .write(true)
             .append(append)
             .create(true)
             .open(path)

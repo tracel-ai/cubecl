@@ -132,7 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let position = match var {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
-            _ => panic!("Only Input and Output have a buffer length, got: {:?}", var),
+            _ => panic!("Only Input and Output have a buffer length, got: {var:?}"),
         };
         let offset = self.metadata.buffer_len_index(position);
         let id = self.load_const_metadata(offset, out_id);

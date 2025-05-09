@@ -1,0 +1,6 @@
+[default]
+extend-ignore-identifiers-re = ["CU_DEVICE_ATTRIBUTE_*"]
+
+[default.extend-identifiers]
+UE8M0 = "UE8M0"
+ue8m0 = "ue8m0"

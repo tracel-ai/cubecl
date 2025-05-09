@@ -40,7 +40,7 @@ fn bytes_format(bytes: u64) -> String {
     let unit = 1000;
 
     if bytes < unit {
-        format!("{} B", bytes)
+        format!("{bytes} B")
     } else {
         let size = bytes as f64;
         let exp = match size.log(1000.0).floor() as usize {
@@ -75,8 +75,8 @@ impl core::fmt::Display for MemoryUsage {
             "  Total bytes reserved: {}",
             bytes_format(self.bytes_reserved)
         )?;
-        writeln!(f, "  Usage efficiency: {:.2}%", usage_percentage)?;
-        writeln!(f, "  Padding overhead: {:.2}%", padding_percentage)
+        writeln!(f, "  Usage efficiency: {usage_percentage:.2}%")?;
+        writeln!(f, "  Padding overhead: {padding_percentage:.2}%")
     }
 }
 

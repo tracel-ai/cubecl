@@ -675,20 +675,13 @@ pub fn assert_approx_equal<N: Numeric>(actual: &[N], expected: &[N]) {
         if e == 0.0 {
             assert!(
                 diff < 1e-10,
-                "Values are not approx equal: index={} actual={}, expected={}, difference={}",
-                i,
-                a,
-                e,
-                diff,
+                "Values are not approx equal: index={i} actual={a}, expected={e}, difference={diff}",
             );
         } else {
             let rel_diff = diff / e.abs();
             assert!(
                 rel_diff < 0.0625,
-                "Values are not approx equal: index={} actual={}, expected={}",
-                i,
-                a,
-                e
+                "Values are not approx equal: index={i} actual={a}, expected={e}"
             );
         }
     }

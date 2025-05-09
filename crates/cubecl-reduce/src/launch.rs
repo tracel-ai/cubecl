@@ -73,11 +73,11 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
     #[comptime] config: R::Config,
 ) {
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
-    reduce_kernel_virtal::<In, Out, Acc, R>(&input, &mut output, axis_reduce, params, config);
+    reduce_kernel_virtual::<In, Out, Acc, R>(&input, &mut output, axis_reduce, params, config);
 }
 
 #[cube]
-pub fn reduce_kernel_virtal<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily>(
+pub fn reduce_kernel_virtual<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily>(
     input: &VirtualTensor<In>,
     output: &mut VirtualTensor<Out, ReadWrite>,
     axis_reduce: u32,

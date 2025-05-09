@@ -47,7 +47,7 @@ impl Profile {
 
     fn bench(&self, options: &BenchOptionsArgs) -> anyhow::Result<()> {
         let get_benches = |bench: &str| {
-            let pattern = format!("./target/release/deps/{}-*", bench);
+            let pattern = format!("./target/release/deps/{bench}-*");
             let files: Vec<_> = glob(&pattern)
                 .into_iter()
                 .flat_map(|r| r.filter_map(|f| f.ok()))
@@ -104,7 +104,7 @@ impl Profile {
             format!("Should profile {}", options.bench).as_str(),
         )?;
 
-        let output = format!("{}.ncu-rep", file);
+        let output = format!("{file}.ncu-rep");
         run_process(
             &options.ncu_ui_path,
             &[&output],

@@ -34,7 +34,7 @@ pub fn format_global_binding_arg<D: Dialect>(
 ) -> core::fmt::Result {
     let suffix = suffix.map_or("".into(), |s| format!("_{s}"));
     let (pointer, size) = match binding.size {
-        Some(size) => ("".to_string(), format!("[{}]", size)),
+        Some(size) => ("".to_string(), format!("[{size}]")),
         None => (" *".to_string(), "".to_string()),
     };
 

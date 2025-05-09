@@ -44,7 +44,10 @@ impl<D: Dialect> Item<D> {
     }
 
     pub fn is_optimized(&self) -> bool {
-        matches!(self.elem, Elem::F162 | Elem::BF162)
+        matches!(
+            self.elem,
+            Elem::F16x2 | Elem::BF16x2 | Elem::FP4x2(_) | Elem::FP6x2(_) | Elem::FP8x2(_)
+        )
     }
 
     pub fn optimized(&self) -> Item<D> {
@@ -54,12 +57,27 @@ impl<D: Dialect> Item<D> {
 
         match self.elem {
             Elem::F16 => Item {
-                elem: Elem::F162,
+                elem: Elem::F16x2,
                 vectorization: self.vectorization / 2,
                 native: self.native,
             },
             Elem::BF16 => Item {
-                elem: Elem::BF162,
+                elem: Elem::BF16x2,
+                vectorization: self.vectorization / 2,
+                native: self.native,
+            },
+            Elem::FP4(kind) => Item {
+                elem: Elem::FP4x2(kind),
+                vectorization: self.vectorization / 2,
+                native: self.native,
+            },
+            Elem::FP6(kind) => Item {
+                elem: Elem::FP6x2(kind),
+                vectorization: self.vectorization / 2,
+                native: self.native,
+            },
+            Elem::FP8(kind) => Item {
+                elem: Elem::FP8x2(kind),
                 vectorization: self.vectorization / 2,
                 native: self.native,
             },
@@ -69,8 +87,11 @@ impl<D: Dialect> Item<D> {
 
     pub fn de_optimized(&self) -> Self {
         match self.elem {
-            Elem::F162 => Item::new(Elem::F16, self.vectorization * 2, self.native),
-            Elem::BF162 => Item::new(Elem::BF16, self.vectorization * 2, self.native),
+            Elem::FP4x2(kind) => Item::new(Elem::FP4(kind), self.vectorization * 2, self.native),
+            Elem::FP6x2(kind) => Item::new(Elem::FP6(kind), self.vectorization * 2, self.native),
+            Elem::FP8x2(kind) => Item::new(Elem::FP8(kind), self.vectorization * 2, self.native),
+            Elem::F16x2 => Item::new(Elem::F16, self.vectorization * 2, self.native),
+            Elem::BF16x2 => Item::new(Elem::BF16, self.vectorization * 2, self.native),
             _ => *self,
         }
     }

@@ -56,7 +56,7 @@ impl Display for Optimizer {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;
             }
             let live_vars = liveness.at_block(node).iter();
-            let live_vars = live_vars.map(|it| format!("local({})", it));
+            let live_vars = live_vars.map(|it| format!("local({it})"));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
 
@@ -260,6 +260,12 @@ impl Display for Constant {
             Constant::Int(val, IntKind::I16) => write!(f, "{val}i16"),
             Constant::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
+            Constant::Float(val, FloatKind::E2M1) => write!(f, "{}e2m1", val.0),
+            Constant::Float(val, FloatKind::E2M3) => write!(f, "{}e2m3", val.0),
+            Constant::Float(val, FloatKind::E3M2) => write!(f, "{}e3m2", val.0),
+            Constant::Float(val, FloatKind::E4M3) => write!(f, "{}e4m3", val.0),
+            Constant::Float(val, FloatKind::E5M2) => write!(f, "{}e5m2", val.0),
+            Constant::Float(val, FloatKind::UE8M0) => write!(f, "{}ue8m0", val.0),
             Constant::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),
             Constant::Float(val, FloatKind::F16) => write!(f, "{}f16", val.0),
             Constant::Float(val, FloatKind::Flex32) => write!(f, "{}minf16", val.0),

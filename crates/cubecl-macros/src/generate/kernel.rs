@@ -278,8 +278,8 @@ impl Launch {
 
         // Inspect all generics for the bounds of interest in order to
         // determine if a suffix should be added
-        for typ in generics.type_params() {
-            for bound in &typ.bounds {
+        for ty in generics.type_params() {
+            for bound in &ty.bounds {
                 let TypeParamBound::Trait(t) = bound else {
                     continue;
                 };
@@ -294,7 +294,7 @@ impl Launch {
                 // type name
                 if suffix_producing_bounds.contains(&generic_trailing.ident) {
                     // E.g. the `F` in `F: Float` or `N` in `N: Numeric`
-                    matching_generics.push(typ.ident.clone());
+                    matching_generics.push(ty.ident.clone());
                     continue;
                 }
             }

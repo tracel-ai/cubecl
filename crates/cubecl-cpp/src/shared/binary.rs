@@ -185,7 +185,7 @@ impl<D: Dialect> Binary<D> for Powf {
     ) -> std::fmt::Result {
         let elem = item.elem;
         match elem {
-            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                 write!(f, "{elem}(")?;
                 D::compile_instruction_powf(f)?;
                 write!(f, "(float({lhs}), float({rhs})))")
