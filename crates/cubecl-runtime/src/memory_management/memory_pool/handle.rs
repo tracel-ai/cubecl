@@ -1,6 +1,7 @@
 use crate::memory_id_type;
 use crate::memory_management::MemoryHandle;
 use crate::{id::HandleRef, server::Handle};
+use alloc::vec::Vec;
 
 // The SliceId allows to keep track of how many references there are to a specific slice.
 memory_id_type!(SliceId, SliceHandle, SliceBinding);
