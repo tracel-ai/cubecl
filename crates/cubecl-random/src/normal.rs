@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use super::{PrngArgs, PrngRuntime, random};
 
-use crate::{lcg_step, taus_step_0, taus_step_1, taus_step_2, to_probability};
+use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_probability};
 
 #[derive(CubeLaunch, CubeType)]
 pub(crate) struct Normal<E: Numeric> {
@@ -12,8 +12,15 @@ pub(crate) struct Normal<E: Numeric> {
     std: E,
 }
 
+#[derive(Debug)]
+struct NormalFamily;
+
+impl RandomFamily for NormalFamily {
+    type Runtime<E: Numeric> = Normal<E>;
+}
+
 #[cube]
-impl<E: CubeElement + Numeric> PrngRuntime<E> for Normal<E> {
+impl<E: Numeric> PrngRuntime<E> for Normal<E> {
     fn inner_loop(
         args: Normal<E>,
         write_index_base: u32,
@@ -78,7 +85,7 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Normal<E> {
     }
 }
 
-impl<E: CubeElement + Numeric> PrngArgs<E> for Normal<E> {
+impl<E: Numeric> PrngArgs<E> for Normal<E> {
     type Args = Self;
 
     fn args<'a, R: Runtime>(self) -> NormalLaunch<'a, E, R> {
@@ -87,7 +94,7 @@ impl<E: CubeElement + Numeric> PrngArgs<E> for Normal<E> {
 }
 
 /// Pseudo-random generator with uniform distribution
-pub fn random_normal<R: Runtime, E: CubeElement + Numeric>(
+pub fn random_normal<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     mean: E,
     std: E,
@@ -99,5 +106,5 @@ pub fn random_normal<R: Runtime, E: CubeElement + Numeric>(
         "Tensor element type must be the same as type E"
     );
 
-    random(client, Normal { mean, std }, out)
+    random::<NormalFamily, E, R>(client, Normal { mean, std }, out)
 }

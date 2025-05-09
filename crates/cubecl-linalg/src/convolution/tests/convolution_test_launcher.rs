@@ -142,33 +142,37 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
             let shape = shape(problem, ident);
 
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&original_data), &shape, size_of::<P::EG>());
+            let handle = P::EG::sample::<R>(client, &shape, 1234);
+
+            let data = client.read_one(handle.handle.clone().binding());
+            let data = P::EG::from_bytes(&data);
+            let original_data = data.to_owned();
 
             TensorRawParts {
-                handle,
+                handle: handle.handle,
                 scale: None,
                 shape,
-                strides,
+                strides: handle.strides,
                 original_data: Some(original_data),
                 quant_params: None,
             }
         }
         Ident::Rhs => {
-            let original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
             let shape = shape(problem, ident);
 
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&original_data), &shape, size_of::<P::EG>());
+            let handle = P::EG::sample::<R>(client, &shape, 1234);
+
+            let data = client.read_one(handle.handle.clone().binding());
+            let data = P::EG::from_bytes(&data);
+            let original_data = data.to_owned();
 
             TensorRawParts {
-                handle,
+                handle: handle.handle,
                 scale: None,
                 shape,
-                strides,
+                strides: handle.strides,
                 original_data: Some(original_data),
                 quant_params: None,
             }

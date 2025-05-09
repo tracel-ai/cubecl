@@ -3,7 +3,9 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use cubecl::{CubeElement, CubeLaunch, CubeType, Runtime};
+use cubecl::{CubeLaunch, CubeType, Runtime};
+
+use crate::RandomFamily;
 
 use super::{
     PrngArgs, PrngRuntime, lcg_step, random, taus_step_0, taus_step_1, taus_step_2, to_probability,
@@ -16,8 +18,15 @@ pub(crate) struct Bernoulli<E: Numeric> {
     _phantom: PhantomData<E>,
 }
 
+#[derive(Debug)]
+struct BernoulliFamily;
+
+impl RandomFamily for BernoulliFamily {
+    type Runtime<E: Numeric> = Bernoulli<E>;
+}
+
 #[cube]
-impl<E: CubeElement + Numeric> PrngRuntime<E> for Bernoulli<E> {
+impl<E: Numeric> PrngRuntime<E> for Bernoulli<E> {
     fn inner_loop(
         args: Bernoulli<E>,
         write_index_base: u32,
@@ -56,7 +65,7 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Bernoulli<E> {
     }
 }
 
-impl<E: CubeElement + Numeric> PrngArgs<E> for Bernoulli<E> {
+impl<E: Numeric> PrngArgs<E> for Bernoulli<E> {
     type Args = Self;
 
     fn args<'a, R: Runtime>(self) -> BernoulliLaunch<'a, E, R> {
@@ -65,7 +74,7 @@ impl<E: CubeElement + Numeric> PrngArgs<E> for Bernoulli<E> {
 }
 
 /// Pseudo-random generator with bernoulli distribution
-pub fn random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
+pub fn random_bernoulli<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     probability: f32,
     out: TensorHandleRef<R>,
@@ -76,7 +85,7 @@ pub fn random_bernoulli<R: Runtime, E: CubeElement + Numeric>(
         "Tensor element type must be the same as type E"
     );
 
-    random(
+    random::<BernoulliFamily, E, R>(
         client,
         Bernoulli::<E> {
             probability,

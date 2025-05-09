@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::{lcg_step, taus_step_0, taus_step_1, taus_step_2, to_probability};
+use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_probability};
 
 use super::{PrngArgs, PrngRuntime, random};
 
@@ -11,8 +11,15 @@ pub(crate) struct Uniform<E: Numeric> {
     upper_bound: E,
 }
 
+#[derive(Debug)]
+struct UniformFamily;
+
+impl RandomFamily for UniformFamily {
+    type Runtime<E: Numeric> = Uniform<E>;
+}
+
 #[cube]
-impl<E: CubeElement + Numeric> PrngRuntime<E> for Uniform<E> {
+impl<E: Numeric> PrngRuntime<E> for Uniform<E> {
     fn inner_loop(
         args: Uniform<E>,
         write_index_base: u32,
@@ -60,7 +67,7 @@ impl<E: CubeElement + Numeric> PrngRuntime<E> for Uniform<E> {
     }
 }
 
-impl<E: CubeElement + Numeric> PrngArgs<E> for Uniform<E> {
+impl<E: Numeric> PrngArgs<E> for Uniform<E> {
     type Args = Self;
 
     fn args<'a, R: Runtime>(self) -> UniformLaunch<'a, E, R> {
@@ -72,7 +79,7 @@ impl<E: CubeElement + Numeric> PrngArgs<E> for Uniform<E> {
 }
 
 /// Pseudo-random generator with uniform distribution
-pub fn random_uniform<R: Runtime, E: CubeElement + Numeric>(
+pub fn random_uniform<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lower_bound: E,
     upper_bound: E,
@@ -84,7 +91,7 @@ pub fn random_uniform<R: Runtime, E: CubeElement + Numeric>(
         "Tensor element type must be the same as type E"
     );
 
-    random(
+    random::<UniformFamily, E, R>(
         client,
         Uniform {
             lower_bound,
