@@ -249,6 +249,29 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // Makes all rows the length of plane_dim
     let k = plane_dim / instruction_k as u32;
 
+    // For 2D inputs, ensure stage sizes are valid
+    let stage_size_m = if problem.m == 1 {
+        // For 1xN input, ensure stage size divides n evenly
+        let mut valid_size = stage_size_m;
+        while valid_size > 1 && (problem.n % valid_size != 0 || valid_size % instruction_m != 0) {
+            valid_size /= 2;
+        }
+        valid_size
+    } else {
+        stage_size_m
+    };
+
+    let stage_size_n = if problem.n == 1 {
+        // For Mx1 input, ensure stage size divides m evenly
+        let mut valid_size = stage_size;
+        while valid_size > 1 && (problem.m % valid_size != 0 || valid_size % instruction_n != 0) {
+            valid_size /= 2;
+        }
+        valid_size
+    } else {
+        stage_size
+    };
+
     MatmulSelection {
         tile_shape: MatmulSize {
             m: instruction_m as u32,
@@ -257,7 +280,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         },
         tile_count: MatmulSize {
             m: stage_size_m as u32,
-            n: stage_size as u32,
+            n: stage_size_n as u32,
             k,
         },
         plane_dim,

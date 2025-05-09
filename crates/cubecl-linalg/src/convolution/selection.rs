@@ -117,7 +117,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // to be the rough cutoff for the k=4 size.
     let stage_size_k = if problem.k >= 4096 { 4 } else { 2 };
 
-    let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
+    let (instruction_m, instruction_n, _instruction_k) = find_instruction_shape(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
@@ -143,17 +143,21 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         stage_size_k,
     );
 
+    let tile_shape = MatmulSize {
+        m: stage_size_m as u32,
+        n: stage_size_n as u32,
+        k: stage_size_k as u32,
+    };
+
+    let tile_count = MatmulSize {
+        m: (problem.m as u32 + stage_size_m as u32 - 1) / stage_size_m as u32,
+        n: (problem.n as u32 + stage_size_n as u32 - 1) / stage_size_n as u32,
+        k: (problem.k as u32 + stage_size_k as u32 - 1) / stage_size_k as u32,
+    };
+
     MatmulSelection {
-        tile_shape: MatmulSize {
-            m: instruction_m as u32,
-            n: instruction_n as u32,
-            k: instruction_k as u32,
-        },
-        tile_count: MatmulSize {
-            m: stage_size_m as u32,
-            n: stage_size_n as u32,
-            k: stage_size_k as u32,
-        },
+        tile_shape,
+        tile_count,
         plane_dim,
         rows_per_plane: 1,
     }
