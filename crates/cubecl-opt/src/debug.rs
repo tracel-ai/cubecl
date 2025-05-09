@@ -4,7 +4,7 @@ use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
-    ControlFlow,
+    BasicBlock, ControlFlow,
     analyses::{liveness::Liveness, uniformity::Uniformity},
     gvn::{BlockSets, Constant, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
@@ -298,5 +298,94 @@ impl Display for Expression {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}: [{:?}]", self.op, self.args)
+    }
+}
+
+impl Display for BasicBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for phi in self.phi_nodes.borrow().iter() {
+            write!(f, "    {} = phi ", phi.out)?;
+            for entry in &phi.entries {
+                write!(f, "[bb{}: ", entry.block.index())?;
+                write!(f, "{}]", entry.value)?;
+            }
+            writeln!(f, ";\n")?;
+        }
+        if !self.phi_nodes.borrow().is_empty() {
+            writeln!(f)?;
+        }
+
+        for op in self.ops.borrow_mut().values_mut() {
+            let op_fmt = op.to_string();
+            if op_fmt.is_empty() {
+                continue;
+            }
+
+            writeln!(f, "    {op_fmt};")?;
+        }
+        match &*self.control_flow.borrow() {
+            ControlFlow::IfElse {
+                cond,
+                then,
+                or_else,
+                merge,
+            } => {
+                writeln!(
+                    f,
+                    "    {cond} ? bb{} : bb{}; merge: {}",
+                    then.index(),
+                    or_else.index(),
+                    merge
+                        .as_ref()
+                        .map(|it| format!("bb{}", it.index()))
+                        .unwrap_or("None".to_string())
+                )?;
+            }
+            super::ControlFlow::Switch {
+                value,
+                default,
+                branches,
+                ..
+            } => {
+                write!(f, "    switch({value}) ")?;
+                for (val, block) in branches {
+                    write!(f, "[{val}: bb{}] ", block.index())?;
+                }
+                writeln!(f, "[default: bb{}];", default.index())?;
+            }
+            super::ControlFlow::Loop {
+                body,
+                continue_target,
+                merge,
+            } => {
+                writeln!(
+                    f,
+                    "    loop(continue: bb{}, merge: bb{})",
+                    continue_target.index(),
+                    merge.index()
+                )?;
+                writeln!(f, "    branch bb{};", body.index())?
+            }
+            super::ControlFlow::LoopBreak {
+                break_cond,
+                body,
+                continue_target,
+                merge,
+            } => {
+                writeln!(
+                    f,
+                    "    loop(cond: {}, body: bb{} continue: bb{}, break: bb{})",
+                    break_cond,
+                    body.index(),
+                    continue_target.index(),
+                    merge.index()
+                )?;
+            }
+            super::ControlFlow::Return => writeln!(f, "    return;")?,
+            super::ControlFlow::None => {
+                writeln!(f, "    branch;")?;
+            }
+        }
+        Ok(())
     }
 }

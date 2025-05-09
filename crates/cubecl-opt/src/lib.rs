@@ -44,7 +44,12 @@ use passes::{
     EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
     ReduceStrength, RemoveIndexScalar,
 };
-use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
+use petgraph::{
+    Direction,
+    dot::{Config, Dot},
+    prelude::StableDiGraph,
+    visit::EdgeRef,
+};
 
 mod analyses;
 mod block;
@@ -101,12 +106,12 @@ pub struct ConstArray {
 struct Program {
     pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<Id, Item>,
-    pub graph: StableDiGraph<BasicBlock, ()>,
+    pub graph: StableDiGraph<BasicBlock, u32>,
     root: NodeIndex,
 }
 
 impl Deref for Program {
-    type Target = StableDiGraph<BasicBlock, ()>;
+    type Target = StableDiGraph<BasicBlock, u32>;
 
     fn deref(&self) -> &Self::Target {
         &self.graph
@@ -230,7 +235,7 @@ impl Optimizer {
         *self.program[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
         self.parse_scope(scope);
         if let Some(current_block) = self.current_block {
-            self.program.add_edge(current_block, self.ret, ());
+            self.program.add_edge(current_block, self.ret, 0);
         }
         // Analyses shouldn't have run at this point, but just in case they have, invalidate
         // all analyses that depend on the graph
@@ -409,7 +414,7 @@ impl Optimizer {
     pub(crate) fn ret(&mut self) -> NodeIndex {
         if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
             let new_ret = self.program.add_node(BasicBlock::default());
-            self.program.add_edge(new_ret, self.ret, ());
+            self.program.add_edge(new_ret, self.ret, 0);
             self.ret = new_ret;
             self.invalidate_structure();
             new_ret
@@ -420,6 +425,10 @@ impl Optimizer {
 
     pub fn const_arrays(&self) -> Vec<ConstArray> {
         self.program.const_arrays.clone()
+    }
+
+    pub fn dot_viz(&self) -> Dot<'_, &StableDiGraph<BasicBlock, u32>> {
+        Dot::with_config(&self.program, &[Config::EdgeNoLabel])
     }
 }
 
