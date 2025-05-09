@@ -257,7 +257,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let _offs = tensors.pop();
             let scale = tensors.pop().map(|it| it.0);
 
-            if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
+            if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 tensor_shape.swap(rank - 1, rank - 2);
                 strides.swap(rank - 1, rank - 2);
             }

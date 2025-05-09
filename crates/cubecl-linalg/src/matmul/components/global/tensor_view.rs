@@ -12,8 +12,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorReader<EI: Numeric> {
     pub tensor: VirtualTensor<EI>,
-    pub x_offset: u32,
-    pub y_offset: u32,
+    pub x_offset: RuntimeCell<u32>,
+    pub y_offset: RuntimeCell<u32>,
     pub stride_x: u32,
     pub stride_y: u32,
     pub shape_x: u32,
@@ -99,8 +99,8 @@ impl<EG: Numeric> TensorReader<EG> {
 
         TensorReader::<EG> {
             tensor,
-            x_offset,
-            y_offset,
+            x_offset: RuntimeCell::new(x_offset),
+            y_offset: RuntimeCell::new(y_offset),
             stride_x,
             stride_y,
             shape_x,
@@ -110,13 +110,13 @@ impl<EG: Numeric> TensorReader<EG> {
     }
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
-    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: InputIdent) {
+    pub fn update_view(&self, k_offset: u32, #[comptime] ident: InputIdent) {
         match ident {
             InputIdent::Lhs => {
-                self.y_offset += k_offset;
+                self.y_offset.store(self.y_offset.read() + k_offset);
             }
             InputIdent::Rhs => {
-                self.x_offset += k_offset;
+                self.x_offset.store(self.x_offset.read() + k_offset);
             }
         }
     }
@@ -210,8 +210,8 @@ impl<EG: Numeric> TensorReader<EG> {
             MatrixLayout::ColMajor => (0, nth_window),
         };
 
-        let view_tile_x = tile_offsets.0 + self.x_offset;
-        let view_tile_y = tile_offsets.1 + self.y_offset;
+        let view_tile_x = tile_offsets.0 + self.x_offset.read();
+        let view_tile_y = tile_offsets.1 + self.y_offset.read();
 
         let view_x = view_tile_x + load_x;
         let view_y = view_tile_y + load_y;
@@ -329,8 +329,8 @@ impl<EG: Numeric> TensorReader<EG> {
     ) -> Line<EG> {
         let line_size = config.global_line_size(input_ident);
 
-        let view_x = load_offsets.0 + self.x_offset;
-        let view_y = load_offsets.1 + self.y_offset;
+        let view_x = load_offsets.0 + self.x_offset.read();
+        let view_y = load_offsets.1 + self.y_offset.read();
 
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;

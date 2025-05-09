@@ -885,7 +885,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         let n = fragment.n;
         let k = fragment.k;
         if m != 8 || n != 8 || k != 8 {
-            panic!("{m}x{n}x{k} fragments not supported. Only 8x8x8 fragemts are supported.");
+            panic!("{m}x{n}x{k} fragments not supported. Only 8x8x8 fragments are supported.");
         }
         write!(f, "simdgroup_{ty}8x8")
     }
@@ -970,10 +970,10 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 } else {
                     writeln!(f, "simdgroup_store({frag}, {output} + {offset}, {stride});")
                 }?;
-                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")
+                writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")
             }
             WmmaInstruction::Cast { input, output } => {
-                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")?;
+                writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")?;
                 let ty = match output {
                     Variable::WmmaFragment { frag, .. } => frag.elem,
                     _ => panic!("should be a fragment"),

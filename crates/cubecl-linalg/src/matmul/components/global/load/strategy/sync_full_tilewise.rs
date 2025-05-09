@@ -48,12 +48,13 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
         let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
-        let num_planes = config.plane_dim();
+        let plane_dim = config.plane_dim();
 
-        if num_lines_per_plane % num_planes != 0 {
+        if num_lines_per_plane % plane_dim != 0 {
             return Err(FormattedConfigError::new(move || {
                 format!(
-                    "Number of planes {num_planes:?} must divide number of lines per plane {num_lines_per_plane:?} for tilewise loading.",
+                    "Plane dimension {:?} must divide number of lines per plane {:?} for tilewise loading.",
+                    plane_dim, num_lines_per_plane,
                 )
             }));
         }
@@ -99,19 +100,19 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
-    num_tiles_to_skip: u32,
-    num_lines_to_skip: u32,
+    pub num_tiles_to_skip: u32,
+    pub num_lines_to_skip: u32,
 
     #[cube(comptime)]
-    num_lines_per_tile: u32,
+    pub num_lines_per_tile: u32,
     #[cube(comptime)]
-    num_lines_per_unit: u32,
+    pub num_lines_per_unit: u32,
     #[cube(comptime)]
-    plane_dim: u32,
+    pub plane_dim: u32,
     #[cube(comptime)]
-    line_size: u32,
+    pub line_size: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    pub input_ident: InputIdent,
 }
 
 #[cube]

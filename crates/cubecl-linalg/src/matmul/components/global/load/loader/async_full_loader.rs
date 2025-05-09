@@ -86,7 +86,7 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
-                    if tensor_reader.x_offset
+                    if tensor_reader.x_offset.read()
                         > tensor_reader.shape_x - config.tiling_dimensions(Ident::Lhs).total_row()
                     {
                         stage_memory.clear::<G::SmmConfig>(ident, config.to_smm_config());
@@ -97,7 +97,7 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
-                    if tensor_reader.y_offset
+                    if tensor_reader.y_offset.read()
                         > tensor_reader.shape_y - config.tiling_dimensions(Ident::Rhs).total_col()
                     {
                         stage_memory.clear::<G::SmmConfig>(ident, config.to_smm_config());

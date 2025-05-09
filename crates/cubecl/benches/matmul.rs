@@ -110,6 +110,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
+    run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),

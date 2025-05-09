@@ -121,8 +121,8 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncFullLoader<MP, SMM::Config, LL>;
-    type RhsLoader = SyncFullLoader<MP, SMM::Config, RL>;
+    type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -142,14 +142,14 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
+        let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+        let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
+
         for _ in 0..num_loops {
             sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-
-            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             sync_cube();
 
@@ -183,7 +183,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(
+        Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
@@ -203,7 +203,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
+        Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,
