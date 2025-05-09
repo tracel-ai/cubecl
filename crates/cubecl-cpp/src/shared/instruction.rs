@@ -1,4 +1,4 @@
-use crate::{cuda::convert::special_cast, shared::FmtLeft};
+use crate::shared::FmtLeft;
 
 use super::{
     Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
@@ -654,7 +654,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::SpecialCast(UnaryInstruction { input, out }) => {
                 // Only supported in CUDA so I'm putting it here. Move to dialect if necessary.
-                special_cast::<D>(f, input, out)
+                #[cfg(not(feature = "cuda"))]
+                unimplemented!("FP8/FP6/FP4 casting isn't supported outside of CUDA");
+                #[cfg(feature = "cuda")]
+                crate::cuda::convert::special_cast::<D>(f, input, out)
             }
         }
     }
