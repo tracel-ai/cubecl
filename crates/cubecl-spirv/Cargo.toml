@@ -29,14 +29,13 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-featur
 half = { workspace = true }
 
 hashbrown = { workspace = true }
-# rspirv = "0.12"
-rspirv = { git = "https://github.com/gfx-rs/rspirv.git", rev = "267882d4e77a7457a1d87e3c8189f0d44e19e169" }
-rspirv-ext = { git = "https://github.com/wingertge/rspirv-ext.git", rev = "991bf4b5d979554cc903ca6519fbb238beec21c7" }
+rspirv = "0.12"
+rspirv-ext = "0.1"
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "0.6.0" }
 
 [dev-dependencies]
 cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
