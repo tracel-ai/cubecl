@@ -1,7 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use cubecl::tensor_line_size_parallel;
 use cubecl_common::{rand::get_seeded_rng, stub::Mutex};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -27,12 +26,15 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     let cube_dim = CubeDim::default();
     let cube_count = prng_cube_count(output.size(), cube_dim, N_VALUES_PER_THREAD);
 
-    let output_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&E::as_elem_native_unchecked()),
-        output.shape,
-        output.strides,
-        output.strides.len() - 1,
-    );
+    let output_line_size = 1;
+    // TODO: Higher vectorization can add some correlation locally.
+    //
+    // let output_line_size = tensor_line_size_parallel(
+    //     R::line_size_elem(&E::as_elem_native_unchecked()),
+    //     output.shape,
+    //     output.strides,
+    //     output.strides.len() - 1,
+    // );
 
     let output = output.as_tensor_arg(output_line_size);
 
