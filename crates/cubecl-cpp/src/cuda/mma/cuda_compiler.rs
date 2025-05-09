@@ -1,8 +1,8 @@
 use crate::{
     cuda::{CudaDialect, arch::CudaArchitecture},
     shared::{
-        DialectWmmaCompiler, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
-        WmmaInstruction, wmma_api_base,
+        Architecture, DialectWmmaCompiler, Fragment, FragmentIdent, FragmentLayout,
+        SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -62,7 +62,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
 
     fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
         let mut result: SupportedWmmaCombinations = vec![];
-        if arch.version >= WMMA_MINIMUM_VERSION {
+        if arch.get_version() >= WMMA_MINIMUM_VERSION {
             let tdims = vec![(16, 16, 16), (32, 8, 16), (8, 32, 16)];
             // Types fully supported.
             let types = vec![
@@ -95,12 +95,14 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
                 })
                 .collect();
             result.extend(combinations);
-            result.push((
-                gpu::Elem::Float(gpu::FloatKind::TF32),
-                gpu::Elem::Float(gpu::FloatKind::TF32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                vec![(16, 16, 8)],
-            ));
+            if arch.get_version() >= 80 {
+                result.push((
+                    gpu::Elem::Float(gpu::FloatKind::TF32),
+                    gpu::Elem::Float(gpu::FloatKind::TF32),
+                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    vec![(16, 16, 8)],
+                ));
+            }
         }
         result
     }

@@ -7,6 +7,8 @@ use crate::{
 };
 use cubecl_core::ir::{self as gpu, ConstantScalarValue};
 
+use super::WMMA_MINIMUM_VERSION;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PtxWmmaCompiler {}
 
@@ -295,9 +297,8 @@ for (int i = 0; i < {reg_count}; ++i) {{
     }
 
     fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
-        // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
         let mut result: SupportedWmmaCombinations = vec![];
-        if arch.is_wmma_capable() {
+        if arch.get_version() >= WMMA_MINIMUM_VERSION {
             // Types fully supported.
             let types = vec![
                 (
@@ -322,12 +323,14 @@ for (int i = 0; i < {reg_count}; ++i) {{
                 .map(|(i, o, c)| (i, o, c, vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
-            result.push((
-                gpu::Elem::Float(gpu::FloatKind::TF32),
-                gpu::Elem::Float(gpu::FloatKind::TF32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                vec![(16, 16, 8)],
-            ));
+            if arch.get_version() >= 80 {
+                result.push((
+                    gpu::Elem::Float(gpu::FloatKind::TF32),
+                    gpu::Elem::Float(gpu::FloatKind::TF32),
+                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    vec![(16, 16, 8)],
+                ));
+            }
         }
         result
     }
