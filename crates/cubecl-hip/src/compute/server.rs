@@ -16,6 +16,7 @@ use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
+use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
