@@ -33,7 +33,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
 ///
 /// Each tile is contiguous, and tiles are placed side by side,
 /// row by row (left to right, top to bottom).
-/// /// Example tile indices:
+/// Example tile indices:
 ///
 /// ```text
 /// ┌───┬───┐
