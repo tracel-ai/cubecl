@@ -1,5 +1,6 @@
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::future::{self, DynFut};
+use cubecl_core::server::ProfilingToken;
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
@@ -514,16 +515,16 @@ impl ComputeServer for CudaServer {
         Box::pin(self.sync_stream_async())
     }
 
-    fn start_profile(&mut self) {
+    fn start_profile(&mut self) -> ProfilingToken {
         // Wait for current work to be done.
         self.ctx.sync();
-        self.ctx.timestamps.start();
+        self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.logger.profile_summary();
         self.ctx.sync();
-        self.ctx.timestamps.stop()
+        self.ctx.timestamps.stop(token)
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {

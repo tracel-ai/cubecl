@@ -29,6 +29,10 @@ pub enum ProfileLevel {
 }
 
 impl Profiled {
+    /// If some computation was profiled.
+    pub fn is_empty(&self) -> bool {
+        self.durations.is_empty()
+    }
     pub fn update(&mut self, name: &String, duration: core::time::Duration) {
         let name = if name.contains("\n") {
             name.split("\n").next().unwrap()

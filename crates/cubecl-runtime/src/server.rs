@@ -91,10 +91,17 @@ where
     fn memory_cleanup(&mut self);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self);
+    fn start_profile(&mut self) -> ProfilingToken;
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self) -> ProfileDuration;
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration;
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+/// Profiling identification so that the server can support recursive and overlapping profilings.
+pub struct ProfilingToken {
+    /// The token value.
+    pub id: u64,
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).

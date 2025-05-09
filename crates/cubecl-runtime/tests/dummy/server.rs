@@ -1,7 +1,7 @@
 use cubecl_common::future::DynFut;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
-use cubecl_runtime::server::{BindingWithMeta, Bindings};
+use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfilingToken};
 use std::sync::Arc;
 
 use super::DummyKernel;
@@ -140,12 +140,12 @@ impl ComputeServer for DummyServer {
         self.memory_management.cleanup(true);
     }
 
-    fn start_profile(&mut self) {
-        self.timestamps.start();
+    fn start_profile(&mut self) -> ProfilingToken {
+        self.timestamps.start()
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
-        self.timestamps.stop()
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+        self.timestamps.stop(token)
     }
 }
 
