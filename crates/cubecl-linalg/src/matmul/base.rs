@@ -195,7 +195,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
         },
         Strategy::OrderedDoubleBuffering => {
             matmul::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<Accelerated>>(
-                client, lhs, rhs, out,
+                client, lhs, lhs_scale, rhs, rhs_scale, out,
             )
         }
         Strategy::Tiling2D(config) => {
