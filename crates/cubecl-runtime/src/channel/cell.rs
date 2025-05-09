@@ -1,5 +1,7 @@
 use super::ComputeChannel;
-use crate::server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle};
+use crate::server::{
+    Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+};
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -120,12 +122,12 @@ where
         self.server.borrow_mut().memory_cleanup();
     }
 
-    fn start_profile(&self) {
+    fn start_profile(&self) -> ProfilingToken {
         self.server.borrow_mut().start_profile()
     }
 
-    fn end_profile(&self) -> ProfileDuration {
-        self.server.borrow_mut().end_profile()
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
+        self.server.borrow_mut().end_profile(token)
     }
 }
 

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
@@ -7,6 +5,7 @@ use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::future::DynFut;
+use cubecl_core::server::ProfilingToken;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
@@ -29,7 +28,6 @@ pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     logger: ServerLogger,
-    duration_profiled: Option<Duration>,
     stream: WgpuStream,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
@@ -64,7 +62,6 @@ impl WgpuServer {
             device,
             pipelines: HashMap::new(),
             logger,
-            duration_profiled: None,
             stream,
             backend,
         }
@@ -156,41 +153,25 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
     ) {
-        // Check for any profiling work to be done before execution.
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel.id()))
+        let profile_info = if let Some(level) = self.logger.profile_level() {
+            Some((
+                kernel.name(),
+                kernel.id(),
+                level,
+                self.stream.start_profile(),
+            ))
         } else {
             None
         };
-
-        let currently_profiling = self.stream.is_profiling();
-
-        if profile_level.is_some() {
-            // Add in current time if currently profiling.
-            if currently_profiling {
-                let profile = self.stream.stop_profile();
-                let duration = future::block_on(profile.resolve());
-                self.duration_profiled =
-                    Some(self.duration_profiled.unwrap_or_default() + duration);
-            }
-
-            self.stream.start_profile();
-        }
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
         self.stream.register(pipeline, bindings, &count);
 
-        // If profiling, write out results.
-        if let Some(level) = profile_level {
-            let profile = self.stream.stop_profile();
+        if let Some((name, kernel_id, level, token)) = profile_info {
+            let profile = self.stream.stop_profile(token);
             // Execute the task.
             let duration = future::block_on(profile.resolve());
-
-            let (name, kernel_id) = profile_info.unwrap();
-
-            self.duration_profiled = Some(self.duration_profiled.unwrap_or_default() + duration);
 
             let info = match level {
                 ProfileLevel::Basic | ProfileLevel::Medium => {
@@ -205,11 +186,6 @@ impl ComputeServer for WgpuServer {
                 }
             };
             self.logger.register_profiled(info, duration);
-
-            // Restart profile if currently profiling.
-            if currently_profiling {
-                self.stream.start_profile();
-            }
         }
     }
 
@@ -224,22 +200,16 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    fn start_profile(&mut self) {
-        self.stream.start_profile();
+    fn start_profile(&mut self) -> ProfilingToken {
+        self.stream.start_profile()
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.logger.profile_summary();
 
-        // TODO: Deal with BS recursive profile thing...
-        let profile = self.stream.stop_profile();
-        let duration_profiled = self.duration_profiled;
-        self.duration_profiled = None;
+        let profile = self.stream.stop_profile(token);
 
-        // Add in profiled duration if needed.
-        ProfileDuration::from_future(async move {
-            profile.resolve().await + duration_profiled.unwrap_or(Duration::from_secs(0))
-        })
+        ProfileDuration::from_future(async move { profile.resolve().await })
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

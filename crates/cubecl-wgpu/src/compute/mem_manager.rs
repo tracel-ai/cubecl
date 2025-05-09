@@ -67,8 +67,8 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn query(&mut self) -> (Handle, WgpuResource) {
-        let size = 2 * size_of::<u64>() as u64;
+    pub(crate) fn query(&mut self, num_values: u64) -> (Handle, WgpuResource) {
+        let size = num_values * size_of::<u64>() as u64;
 
         let handle = Handle::new(
             self.memory_pool_queries.reserve(size, None),
