@@ -96,7 +96,7 @@ impl OperationReflect for CoopMma {
 impl Display for CoopMma {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            CoopMma::Fill { value } => write!(f, "{}", value),
+            CoopMma::Fill { value } => write!(f, "{value}"),
             CoopMma::Load {
                 value,
                 stride,
@@ -108,15 +108,14 @@ impl Display for CoopMma {
                     .unwrap_or(String::new());
                 write!(
                     f,
-                    "matrix_load({}, stride: {}{layout}, offset: {:?})",
-                    value, stride, offset
+                    "matrix_load({value}, stride: {stride}{layout}, offset: {offset:?})"
                 )
             }
             CoopMma::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
-            } => write!(f, "execute_cmma({}, {}, {})", mat_a, mat_b, mat_c),
+            } => write!(f, "execute_cmma({mat_a}, {mat_b}, {mat_c})"),
             CoopMma::Store {
                 mat,
                 stride,
@@ -124,11 +123,10 @@ impl Display for CoopMma {
                 layout,
             } => write!(
                 f,
-                "matrix_store({}, stride: {}, layout: {:?}, offset: {:?})",
-                mat, stride, layout, offset
+                "matrix_store({mat}, stride: {stride}, layout: {layout:?}, offset: {offset:?})"
             ),
             CoopMma::Cast { input } => {
-                write!(f, "matrix_cast(input: {})", input)
+                write!(f, "matrix_cast(input: {input})")
             }
         }
     }

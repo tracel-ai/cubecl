@@ -1,5 +1,4 @@
 use cubecl_core::compute::{Binding, Location, Visibility};
-use hashbrown::HashMap;
 use rspirv::{
     dr,
     spirv::{
@@ -9,16 +8,11 @@ use rspirv::{
 };
 use std::{fmt::Debug, iter};
 
-use crate::{
-    SpirvCompiler, debug,
-    extensions::{TargetExtensions, glcompute},
-    item::Item,
-};
+use crate::{SpirvCompiler, extensions::TargetExtensions, item::Item};
 
 pub trait SpirvTarget:
     TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
 {
-    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> HashMap<String, Word>;
     fn set_modes(
         &mut self,
         b: &mut SpirvCompiler<Self>,
@@ -167,25 +161,6 @@ impl SpirvTarget for GLCompute {
         b.member_decorate(struct_ty, 0, Decoration::Offset, vec![0u32.into()]);
 
         var
-    }
-
-    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> HashMap<String, Word> {
-        let mut extensions = HashMap::new();
-        extensions.insert(
-            glcompute::STD_NAME.to_string(),
-            b.ext_inst_import(glcompute::STD_NAME),
-        );
-        if b.debug_symbols {
-            extensions.insert(
-                debug::DEBUG_EXT_NAME.to_string(),
-                b.ext_inst_import(debug::DEBUG_EXT_NAME),
-            );
-            extensions.insert(
-                debug::PRINT_EXT_NAME.to_string(),
-                b.ext_inst_import(debug::PRINT_EXT_NAME),
-            );
-        }
-        extensions
     }
 
     fn set_kernel_name(&mut self, name: impl Into<String>) {
