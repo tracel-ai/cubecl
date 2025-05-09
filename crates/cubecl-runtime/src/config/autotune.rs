@@ -1,4 +1,4 @@
-#[cfg(feature = "std")]
+#[cfg(std_io)]
 use super::cache::CacheConfig;
 use super::logger::{LogLevel, LoggerConfig};
 
@@ -15,7 +15,7 @@ pub struct AutotuneConfig {
 
     /// Cache location for storing autotune results.
     #[serde(default)]
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     pub cache: CacheConfig,
 }
 

@@ -93,7 +93,7 @@ impl CopyStrategy for DummyCopy {
     }
 
     fn wait<E: Float>(_barrier: Self::Barrier<E>) {
-        sync_units();
+        sync_cube();
     }
 }
 
@@ -122,7 +122,7 @@ impl CopyStrategy for CoalescedCopy {
     }
 
     fn wait<E: Float>(_barrier: Self::Barrier<E>) {
-        sync_units();
+        sync_cube();
     }
 }
 

@@ -6,7 +6,7 @@ use alloc::{string::ToString, sync::Arc, vec::Vec};
 use core::fmt::Display;
 use hashbrown::HashMap;
 
-#[cfg(feature = "std")]
+#[cfg(std_io)]
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
@@ -21,7 +21,7 @@ use std::{
 pub struct LoggerConfig<L: LogLevel> {
     /// Path to the log file, if file logging is enabled (requires `std` feature).
     #[serde(default)]
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     pub file: Option<PathBuf>,
 
     /// Whether to append to the log file (true) or overwrite it (false). Defaults to true.
@@ -123,7 +123,7 @@ impl Logger {
 
         #[derive(Hash, PartialEq, Eq)]
         enum LoggerId {
-            #[cfg(feature = "std")]
+            #[cfg(std_io)]
             File(PathBuf),
             #[cfg(feature = "std")]
             Stdout,
@@ -163,7 +163,7 @@ impl Logger {
             loggers: &mut Vec<LoggerKind>,
             logger2index: &mut HashMap<LoggerId, usize>,
         ) {
-            #[cfg(feature = "std")]
+            #[cfg(std_io)]
             if let Some(file) = &kind.file {
                 new_logger(
                     setting_index,
@@ -340,7 +340,7 @@ impl LogLevel for BinaryLogLevel {}
 #[derive(Debug)]
 enum LoggerKind {
     /// Logs to a file.
-    #[cfg(feature = "std")]
+    #[cfg(std_io)]
     File(FileLogger),
 
     /// Logs to standard output.
@@ -358,7 +358,7 @@ enum LoggerKind {
 impl LoggerKind {
     fn log<S: Display>(&mut self, msg: &S) {
         match self {
-            #[cfg(feature = "std")]
+            #[cfg(std_io)]
             LoggerKind::File(file_logger) => file_logger.log(msg),
             #[cfg(feature = "std")]
             LoggerKind::Stdout => println!("{msg}"),
@@ -375,12 +375,12 @@ impl LoggerKind {
 
 /// Logger that writes messages to a file.
 #[derive(Debug)]
-#[cfg(feature = "std")]
+#[cfg(std_io)]
 struct FileLogger {
     writer: BufWriter<File>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(std_io)]
 impl FileLogger {
     // Creates a new file logger.
     fn new(path: &PathBuf, append: bool) -> Self {

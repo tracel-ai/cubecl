@@ -12,16 +12,11 @@ macro_rules! testgen_random_normal {
                 seed(0);
 
                 let client = R::client(&Default::default());
+                let output = TensorHandle::<R, E>::empty(&client, shape.to_vec());
 
-                let elem_size = size_of::<E>();
-                let (handle, strides) = client.empty_tensor(shape, elem_size);
-                let mut output: TensorHandleRef<'_, R> = unsafe {
-                    TensorHandleRef::from_raw_parts(&handle, strides.as_slice(), shape, elem_size)
-                };
+                random_normal::<R, E>(&client, mean, std, output.as_ref());
 
-                random_normal::<R, E>(&client, mean, std, &mut output);
-
-                let output_data = client.read_one(handle.binding());
+                let output_data = client.read_one(output.handle.binding());
                 let output_data = E::from_bytes(&output_data);
 
                 output_data.to_owned()
@@ -33,6 +28,14 @@ macro_rules! testgen_random_normal {
                 let shape = &[100, 100];
                 let mean = 10.;
                 let std = 2.;
+
+                let output_data = get_random_normal_data::<TestRuntime, f32>(shape, mean, std);
+
+                assert_mean_approx_equal(&output_data, mean);
+
+                let shape = &[1000, 1000];
+                let mean = 0.;
+                let std = 1.;
 
                 let output_data = get_random_normal_data::<TestRuntime, f32>(shape, mean, std);
 
