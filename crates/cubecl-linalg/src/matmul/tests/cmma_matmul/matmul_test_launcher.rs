@@ -160,17 +160,16 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let shape = shape(problem, Ident::Lhs);
+            let mut tensor_shape = shape(problem, Ident::Lhs);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample::<R>(client, &tensor_shape, 1234);
 
             let data = client.read_one(handle.handle.binding());
             let data = P::EG::from_bytes(&data);
-            let mut original_data = data.to_owned();
+            let original_data = data.to_owned();
 
             let mut quant_params = None;
 
-            let mut tensor_shape = shape(problem, Ident::Lhs);
             let rank = tensor_shape.len();
 
             if let Some(params) = P::quantization_params(Ident::Lhs) {
@@ -229,7 +228,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let data = client.read_one(handle.handle.binding());
             let data = P::EG::from_bytes(&data);
-            let mut original_data = data.to_owned();
+            let original_data = data.to_owned();
 
             let mut quant_params = None;
 

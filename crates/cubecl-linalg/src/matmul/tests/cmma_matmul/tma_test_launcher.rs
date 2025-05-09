@@ -148,7 +148,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let data = client.read_one(handle.handle.binding());
             let data = P::EG::from_bytes(&data);
-            let mut original_data = data.to_owned();
+            let original_data = data.to_owned();
 
             let rank = shape.len();
 
@@ -184,7 +184,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let data = client.read_one(handle.handle.binding());
             let data = P::EG::from_bytes(&data);
-            let mut original_data = data.to_owned();
+            let original_data = data.to_owned();
 
             let rank = shape.len();
 
