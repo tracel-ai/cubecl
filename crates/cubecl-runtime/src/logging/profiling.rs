@@ -29,6 +29,10 @@ pub enum ProfileLevel {
 }
 
 impl Profiled {
+    /// If some computation was profiled.
+    pub fn is_empty(&self) -> bool {
+        self.durations.is_empty()
+    }
     pub fn update(&mut self, name: &String, duration: core::time::Duration) {
         let name = if name.contains("\n") {
             name.split("\n").next().unwrap()
@@ -83,8 +87,8 @@ impl Display for Profiled {
             })
             .collect();
 
-        let total_duration_fmt = format!("{:?}", total_duration);
-        let total_compute_fmt = format!("{:?}", total_computed);
+        let total_duration_fmt = format!("{total_duration:?}");
+        let total_compute_fmt = format!("{total_computed:?}");
         let total_ratio_fmt = "100 %";
 
         duration_len = usize::max(duration_len, total_duration_fmt.len());
@@ -102,15 +106,7 @@ impl Display for Profiled {
 
         writeln!(
             f,
-            "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
-            header_name,
-            header_duration,
-            header_num_computed,
-            header_ratio,
-            width_name = name_len,
-            width_duration = duration_len,
-            width_num_computed = num_computed_len,
-            width_ratio = ratio_len,
+            "| {header_name:<name_len$} | {header_duration:<duration_len$} | {header_num_computed:<num_computed_len$} | {header_ratio:<ratio_len$} |",
         )?;
 
         write_line("⎼", f)?;

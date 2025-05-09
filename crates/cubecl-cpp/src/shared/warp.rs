@@ -289,7 +289,7 @@ fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {
         let qualifier = input.const_qualifier();
         format!("reinterpret_cast<{addr_space}{target}{qualifier}&>({input})")
     } else {
-        format!("{}", input)
+        format!("{input}")
     }
 }
 

@@ -11,7 +11,12 @@ use cubecl_runtime::config::GlobalConfig;
 use cubecl_random::random_uniform;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
+    type Args = (
+        TensorHandle<R, MP::EI>,
+        Option<TensorHandle<R, f32>>,
+        TensorHandle<R, MP::EI>,
+        Option<TensorHandle<R, f32>>,
+    );
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
@@ -31,14 +36,23 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             rhs.as_ref(),
         );
 
-        (lhs, rhs)
+        (lhs, None, rhs, None)
     }
 
-    fn execute(&self, (lhs, rhs): Self::Args) {
+    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Args) {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, MP>(&self.strategy, &self.client, lhs, rhs, out).unwrap();
+        matmul::launch::<R, MP>(
+            &self.strategy,
+            &self.client,
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            out,
+        )
+        .unwrap();
     }
 
     fn name(&self) -> String {
@@ -122,14 +136,14 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         Default::default(),
         matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
     );
-    // // run::<R, MP>(
-    // //     Default::default(),
-    // //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // // );
-    // // run::<R, MP>(
-    // //     Default::default(),
-    // //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
@@ -153,7 +167,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 fn main() {
     #[cfg(feature = "wgpu")]
     {
-        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
 
     #[cfg(feature = "wgpu-spirv")]

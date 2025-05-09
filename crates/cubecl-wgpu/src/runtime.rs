@@ -1,6 +1,7 @@
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend,
     compute::{WgpuServer, WgpuStorage},
+    contiguous_strides,
 };
 use cubecl_common::future;
 use cubecl_core::{
@@ -91,6 +92,20 @@ impl Runtime for WgpuRuntime {
             WgpuDevice::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
             WgpuDevice::Existing(id) => DeviceId::new(5, *id),
         }
+    }
+
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+        if shape.is_empty() {
+            return true;
+        }
+
+        for (expected, &stride) in contiguous_strides(shape).into_iter().zip(strides) {
+            if expected != stride {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
@@ -228,10 +243,7 @@ pub(crate) fn create_client_on_setup(
         .features()
         .contains(wgpu::Features::TIMESTAMP_QUERY)
     {
-        #[cfg(target_family = "wasm")]
-        true => TimeMeasurement::Device, // Still unstable, but the only one that works on wasm.
-        #[cfg(not(target_family = "wasm"))]
-        true => TimeMeasurement::System,
+        true => TimeMeasurement::Device,
         false => TimeMeasurement::System,
     };
 

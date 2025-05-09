@@ -31,7 +31,9 @@ impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
             lhs.as_tensor_arg(problem.lhs_line_size),
+            None.into(),
             rhs.as_tensor_arg(problem.rhs_line_size),
+            None.into(),
         )
     }
 }

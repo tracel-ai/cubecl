@@ -157,7 +157,8 @@ impl ReduceConfig {
             // TODO that this can be improved
             let rank = output.strides.len();
             let is_contiguous =
-                is_contiguous(&output.strides[axis..rank]) && output.strides[rank - 1] == 1;
+                is_contiguous(&output.shape[axis..rank], &output.strides[axis..rank])
+                    && output.strides[rank - 1] == 1;
             let shape = output.shape.get(axis + 1).cloned().unwrap_or(1) as u32;
 
             if is_contiguous && shape % self.line_size_input == 0 {

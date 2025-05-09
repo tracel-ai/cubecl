@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
@@ -7,13 +5,14 @@ use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::future::DynFut;
+use cubecl_core::server::ProfilingToken;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
     prelude::*,
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };
-use cubecl_runtime::TimeMeasurement;
+use cubecl_runtime::{TimeMeasurement, memory_management::offset_handles};
 use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryDeviceProperties,
@@ -29,7 +28,6 @@ pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     logger: ServerLogger,
-    duration_profiled: Option<Duration>,
     stream: WgpuStream,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
@@ -64,7 +62,6 @@ impl WgpuServer {
             device,
             pipelines: HashMap::new(),
             logger,
-            duration_profiled: None,
             stream,
             backend,
         }
@@ -156,41 +153,25 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
     ) {
-        // Check for any profiling work to be done before execution.
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel.id()))
+        let profile_info = if let Some(level) = self.logger.profile_level() {
+            Some((
+                kernel.name(),
+                kernel.id(),
+                level,
+                self.stream.start_profile(),
+            ))
         } else {
             None
         };
-
-        let currently_profiling = self.stream.is_profiling();
-
-        if profile_level.is_some() {
-            // Add in current time if currently profiling.
-            if currently_profiling {
-                let profile = self.stream.stop_profile();
-                let duration = future::block_on(profile.resolve());
-                self.duration_profiled =
-                    Some(self.duration_profiled.unwrap_or_default() + duration);
-            }
-
-            self.stream.start_profile();
-        }
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
         self.stream.register(pipeline, bindings, &count);
 
-        // If profiling, write out results.
-        if let Some(level) = profile_level {
-            let profile = self.stream.stop_profile();
+        if let Some((name, kernel_id, level, token)) = profile_info {
+            let profile = self.stream.stop_profile(token);
             // Execute the task.
             let duration = future::block_on(profile.resolve());
-
-            let (name, kernel_id) = profile_info.unwrap();
-
-            self.duration_profiled = Some(self.duration_profiled.unwrap_or_default() + duration);
 
             let info = match level {
                 ProfileLevel::Basic | ProfileLevel::Medium => {
@@ -205,11 +186,6 @@ impl ComputeServer for WgpuServer {
                 }
             };
             self.logger.register_profiled(info, duration);
-
-            // Restart profile if currently profiling.
-            if currently_profiling {
-                self.stream.start_profile();
-            }
         }
     }
 
@@ -224,22 +200,16 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    fn start_profile(&mut self) {
-        self.stream.start_profile();
+    fn start_profile(&mut self) -> ProfilingToken {
+        self.stream.start_profile()
     }
 
-    fn end_profile(&mut self) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.logger.profile_summary();
 
-        // TODO: Deal with BS recursive profile thing...
-        let profile = self.stream.stop_profile();
-        let duration_profiled = self.duration_profiled;
-        self.duration_profiled = None;
+        let profile = self.stream.stop_profile(token);
 
-        // Add in profiled duration if needed.
-        ProfileDuration::from_future(async move {
-            profile.resolve().await + duration_profiled.unwrap_or(Duration::from_secs(0))
-        })
+        ProfileDuration::from_future(async move { profile.resolve().await })
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -255,22 +225,46 @@ impl ComputeServer for WgpuServer {
         self.read(bindings)
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        _elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let handle = self.create(data);
-        (handle, strides)
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_size);
+
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+
+            self.stream.copy_to_handle(handle.clone(), data);
+        }
+
+        handles_strides
     }
 
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        let strides = contiguous_strides(shape);
-        let size = shape.iter().product::<usize>() * elem_size;
-        let handle = self.empty(size);
-        (handle, strides)
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let strides = shape
+            .iter()
+            .map(|shape| contiguous_strides(shape))
+            .collect::<Vec<_>>();
+        let sizes = shape
+            .iter()
+            .map(|it| it.iter().product::<usize>())
+            .zip(elem_size)
+            .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
+            .collect::<Vec<_>>();
+        let total_size = sizes.iter().product::<usize>();
+
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
+
+        handles.into_iter().zip(strides).collect()
     }
 }
 
@@ -284,7 +278,7 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     }
 }
 
-fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {

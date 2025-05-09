@@ -86,7 +86,9 @@ impl ServerLogger {
             core::mem::swap(&mut self.profiled, &mut profiled);
 
             if let DebugLoggerKind::Activated(logger, _) = &mut self.kind {
-                logger.log_profiling(&profiled);
+                if !profiled.is_empty() {
+                    logger.log_profiling(&profiled);
+                }
             }
         }
     }

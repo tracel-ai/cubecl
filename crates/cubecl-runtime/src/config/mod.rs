@@ -6,7 +6,7 @@ pub mod compilation;
 pub mod profiling;
 
 mod base;
-#[cfg(feature = "std")]
+#[cfg(std_io)]
 pub(crate) mod cache;
 mod logger;
 

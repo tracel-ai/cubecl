@@ -52,18 +52,22 @@ where
     /// strides to index.
     /// For example, in CUDA, this will allocate a padded tensor where the last dimension is padded
     /// to the cache lines, so row access is faster.
-    fn create_tensor(
+    fn create_tensors(
         &mut self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>);
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn empty(&mut self, size: usize) -> Handle;
 
     /// Reserves `shape` bytes in the storage, and returns a handle to it.
-    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>);
+    fn empty_tensors(
+        &mut self,
+        shapes: Vec<&[usize]>,
+        elem_sizes: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -91,10 +95,17 @@ where
     fn memory_cleanup(&mut self);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self);
+    fn start_profile(&mut self) -> ProfilingToken;
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self) -> ProfileDuration;
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration;
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+/// Profiling identification so that the server can support recursive and overlapping profilings.
+pub struct ProfilingToken {
+    /// The token value.
+    pub id: u64,
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).
