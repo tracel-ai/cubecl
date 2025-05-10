@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use crate::shared::Architecture;
 
 pub enum AMDArchitecture {
@@ -17,11 +15,9 @@ pub enum AMDArchitecture {
     Other,
 }
 
-impl FromStr for AMDArchitecture {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let norm = s.to_lowercase();
+impl AMDArchitecture {
+    pub fn parse(arg: &str) -> Result<Self, String> {
+        let norm = arg.to_lowercase();
         if norm.starts_with("gfx11") {
             Ok(AMDArchitecture::GFX11)
         } else if norm.starts_with("gfx10") {

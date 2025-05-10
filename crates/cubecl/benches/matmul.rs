@@ -8,6 +8,8 @@ use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 use cubecl_runtime::config::GlobalConfig;
 
+use cubecl_random::random_uniform;
+
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (
         TensorHandle<R, MP::EI>,
@@ -19,8 +21,20 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
 
-        let lhs = TensorHandle::zeros(&client, vec![self.b, self.m, self.k]);
-        let rhs = TensorHandle::zeros(&client, vec![self.b, self.k, self.n]);
+        let lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            lhs.as_ref(),
+        );
+        let rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+        random_uniform::<R, MP::EI>(
+            &client,
+            MP::EI::from_int(0),
+            MP::EI::from_int(1),
+            rhs.as_ref(),
+        );
 
         (lhs, None, rhs, None)
     }
@@ -110,6 +124,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
+    run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),

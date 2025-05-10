@@ -9,7 +9,7 @@ use crate::matmul::{
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
-pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
+pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub smm_config: S,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
@@ -23,7 +23,7 @@ pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     precompute_job: LoadingPrecomputeStrategy,
 }
 
-impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
+impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -82,14 +82,17 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         self.precompute_job.into()
     }
 
-    fn num_stages(&self, _ident: InputIdent) -> u32 {
-        2
+    fn num_stages(&self, ident: InputIdent) -> u32 {
+        match ident {
+            InputIdent::Lhs => 1,
+            InputIdent::Rhs => 2,
+        }
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for OrderedDoubleBufferingGlobalConfig<S> {}
 
-impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
+impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,

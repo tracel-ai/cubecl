@@ -158,7 +158,7 @@ impl<K: AutotuneKey> Tuner<K> {
                                 Ok(val) => {
                                     self.logger.log_autotune(&format!("{val}"));
                                 }
-                                Err(_) => todo!(),
+                                Err(err) => self.logger.log_autotune(&format!("{err:?}")),
                             }
                         }
                     }

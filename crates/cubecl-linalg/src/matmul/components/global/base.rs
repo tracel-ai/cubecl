@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
     stage::{self, StageWriter},
@@ -169,5 +169,5 @@ pub trait GlobalConfig: MatmulConfig {
 
     fn precompute_job(&self) -> bool;
 
-    fn num_stages(&self) -> u32;
+    fn num_stages(&self, ident: InputIdent) -> u32;
 }

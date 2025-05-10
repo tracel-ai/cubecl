@@ -20,6 +20,7 @@ use super::{
                 CyclicDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm,
                 TilewiseDoubleBufferingAlgorithm,
             },
+            ordered_double_buffering::OrderedDoubleBufferingAlgorithm,
             simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm,
             simple_tma::SimpleTmaAlgorithm,
@@ -34,6 +35,7 @@ pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
     DoubleBuffering(SyncBufferLoadingStrategy),
+    OrderedDoubleBuffering,
     Naive,
     Tiling2D(Tiling2dConfig),
     #[default]
@@ -191,6 +193,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 )
             }
         },
+        Strategy::OrderedDoubleBuffering => {
+            matmul::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<Accelerated>>(
+                client, lhs, lhs_scale, rhs, rhs_scale, out,
+            )
+        }
         Strategy::Tiling2D(config) => {
             // TODO Implement tiling2d with EI and EO
             tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());

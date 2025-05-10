@@ -31,7 +31,7 @@ pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;
@@ -93,8 +93,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
-    fn num_stages() -> u32 {
-        1
+    fn num_stages() -> (u32, u32) {
+        (1, 1)
     }
 }
 
