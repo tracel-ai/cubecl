@@ -30,7 +30,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
+        Self::TileMatmul,
+        BufferReaderFamily,
+        BufferReaderFamily,
+    >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
@@ -53,8 +57,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> u32 {
-        2
+    fn num_stages() -> (u32, u32) {
+        (2, 2)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {
@@ -70,7 +74,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
+        Self::TileMatmul,
+        BufferReaderFamily,
+        BufferReaderFamily,
+    >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
@@ -94,8 +102,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> u32 {
-        2
+    fn num_stages() -> (u32, u32) {
+        (2, 2)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {
@@ -111,7 +119,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
+        Self::TileMatmul,
+        BufferReaderFamily,
+        BufferReaderFamily,
+    >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
@@ -134,8 +146,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> u32 {
-        2
+    fn num_stages() -> (u32, u32) {
+        (2, 2)
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {

@@ -29,6 +29,7 @@ template = ["cubecl-core/template"]
 
 # Runtimes
 cuda = ["cubecl-cuda"]
+cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
 hip-intrinsic = ["cubecl-hip?/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]
@@ -55,15 +56,19 @@ half = { workspace = true }
 [[bench]]
 harness = false
 name = "matmul"
+required-features = ["random"]
 
 [[bench]]
 harness = false
 name = "conv2d"
+required-features = ["random"]
 
 [[bench]]
 harness = false
 name = "memcpy_async"
+required-features = ["random"]
 
 [[bench]]
 harness = false
 name = "unary"
+required-features = ["random"]

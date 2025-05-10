@@ -1,4 +1,5 @@
 use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
+use cubecl_random::random_uniform;
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
@@ -26,9 +27,13 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
-        let lhs = TensorHandle::zeros(&client, self.shape.clone());
-        let rhs = TensorHandle::zeros(&client, self.shape.clone());
-        let out = TensorHandle::zeros(&client, self.shape.clone());
+
+        let lhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), lhs.as_ref());
+        let rhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), rhs.as_ref());
+        let out = TensorHandle::<R, E>::empty(&client, self.shape.clone());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), out.as_ref());
 
         (lhs, rhs, out)
     }

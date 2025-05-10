@@ -30,6 +30,7 @@ pub trait Dialect:
     + Hash
     + 'static
 {
+    type Architecture: Architecture;
 }
 
 // Includes
@@ -641,26 +642,28 @@ pub trait DialectInstructions<D: Dialect> {
 pub trait DialectWmmaCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
-    type Architecture: Architecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_fragment_ident(
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &Variable<D>,
+    ) -> std::fmt::Result;
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &FragmentIdent<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &FragmentLayout<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &Fragment<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn compile_instruction(
+    fn compile_wmma_instruction(
+        f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations;
+    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
 }
