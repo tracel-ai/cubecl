@@ -248,7 +248,7 @@ impl ComputeServer for WgpuServer {
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
-        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         let strides = shape
             .iter()
             .map(|shape| contiguous_strides(shape))
@@ -259,7 +259,7 @@ impl ComputeServer for WgpuServer {
             .zip(elem_size)
             .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
             .collect::<Vec<_>>();
-        let total_size = sizes.iter().product::<usize>();
+        let total_size = sizes.iter().sum::<usize>();
 
         let mem_handle = self.empty(total_size);
         let handles = offset_handles(mem_handle, &sizes);
