@@ -139,9 +139,7 @@ where
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
     pub fn read_one_tensor(&self, binding: BindingWithMeta) -> Vec<u8> {
-        self.profile_guard();
-
-        cubecl_common::reader::read_sync(self.channel.read_tensor([binding].into())).remove(0)
+        self.read_tensor(vec![binding]).remove(0)
     }
 
     /// Given a resource handle, returns the storage resource.
