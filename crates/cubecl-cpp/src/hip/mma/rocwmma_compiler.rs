@@ -13,8 +13,6 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 pub struct RocWmmaCompiler {}
 
 impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
-    type Architecture = AMDArchitecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
@@ -23,49 +21,56 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         Ok(())
     }
 
-    fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
-    fn compile_fragment_ident(
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &crate::shared::Variable<HipDialect<Self>>,
+    ) -> std::fmt::Result {
+        wmma_api_base::compile_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &FragmentIdent<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_ident(ROCWMMA_NAMESPACE, ident, f)
+        wmma_api_base::compile_fragment_ident(f, ROCWMMA_NAMESPACE, ident)
     }
 
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &FragmentLayout<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_layout(ROCWMMA_NAMESPACE, layout, f)
+        wmma_api_base::compile_fragment_layout(f, ROCWMMA_NAMESPACE, layout)
     }
 
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &Fragment<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment(ROCWMMA_NAMESPACE, fragment, f)
+        wmma_api_base::compile_fragment(f, ROCWMMA_NAMESPACE, fragment)
     }
 
-    fn compile_instruction(
+    fn compile_wmma_instruction(
+        f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<HipDialect<Self>>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_instruction(ROCWMMA_NAMESPACE, instruction, f)
+        wmma_api_base::compile_instruction(f, ROCWMMA_NAMESPACE, instruction)
     }
 
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
         match arch {
-            Self::Architecture::GFX10 | Self::Architecture::GFX11 => {
+            AMDArchitecture::GFX10 | AMDArchitecture::GFX11 => {
                 // For gfx11 the supported tile dimensions are always the same
                 //                                   m   n   k
                 let tdims = vec![(16, 16, 16), (16, 16, 32)];
                 let types = vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16), // i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // c
+                        gpu::Elem::Float(gpu::FloatKind::F16), // m / i
+                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
+                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
                     ),
                     (
                         gpu::Elem::Float(gpu::FloatKind::F16),
@@ -101,12 +106,12 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                     })
                     .collect()
             }
-            Self::Architecture::GFX908 => {
+            AMDArchitecture::GFX908 => {
                 vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F32), // i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // c
+                        gpu::Elem::Float(gpu::FloatKind::F32), // m / i
+                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
+                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
                         vec![
                             //m  n   k
                             (16, 16, 4),
@@ -200,12 +205,12 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                     ),
                 ]
             }
-            Self::Architecture::GFX90A | Self::Architecture::GFX94 => {
+            AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => {
                 vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F32), // i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // c
+                        gpu::Elem::Float(gpu::FloatKind::F32), // m / i
+                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
+                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
                         vec![
                             //m  n   k
                             (16, 16, 4),
@@ -293,7 +298,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                     ),
                 ]
             }
-            Self::Architecture::Other => vec![],
+            AMDArchitecture::Other => vec![],
         }
     }
 }

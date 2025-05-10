@@ -1,7 +1,7 @@
-use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
+use std::{ffi::CStr, mem::MaybeUninit};
 
 use cubecl_cpp::{
-    hip::HipDialect,
+    hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
     shared::{
         Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_wmma_features,
@@ -81,7 +81,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_cube_dim.z = ll_device_props.maxThreadsDim[2] as u32;
     };
     let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
-    let arch = M::Architecture::from_str(normalized_arch_name).unwrap();
+    let arch = AMDArchitecture::parse(normalized_arch_name).unwrap();
     assert_eq!(prop_warp_size as u32, arch.warp_size());
 
     unsafe {

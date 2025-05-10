@@ -1,21 +1,10 @@
-use std::{fmt::Display, str::FromStr};
+use std::fmt::Display;
 
 use crate::shared::Architecture;
 
 #[derive(Debug)]
 pub struct CudaArchitecture {
     pub version: u32,
-}
-
-impl FromStr for CudaArchitecture {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let version = s
-            .parse()
-            .map_err(|e| format!("bad cuda architecture: {e}"))?;
-        Ok(Self { version })
-    }
 }
 
 impl Display for CudaArchitecture {
@@ -35,5 +24,9 @@ impl Architecture for CudaArchitecture {
 
     fn is_mfma_capable(&self) -> bool {
         false
+    }
+
+    fn get_version(&self) -> u32 {
+        self.version
     }
 }

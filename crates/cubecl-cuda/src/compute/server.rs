@@ -1,12 +1,12 @@
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::future::{self, DynFut};
 use cubecl_core::server::ProfilingToken;
-use cubecl_cpp::{
-    CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
-};
+use cubecl_cpp::{cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions};
 
 use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
 use serde::{Deserialize, Serialize};
+
+use crate::{CudaCompiler, WmmaCompiler};
 
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
@@ -706,7 +706,7 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect> =
+        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect<WmmaCompiler>> =
             kernel_compiled.repr.unwrap();
 
         #[cfg(feature = "compilation-cache")]

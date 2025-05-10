@@ -7,7 +7,7 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
         FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
-        SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction,
+        SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -27,7 +27,9 @@ pub struct MslDialect {}
 
 // Base dialect
 
-impl Dialect for MslDialect {}
+impl Dialect for MslDialect {
+    type Architecture = MetalArchitecture;
+}
 
 // Includes
 
@@ -843,8 +845,6 @@ impl DialectInstructions<Self> for MslDialect {
 // Coop Matrices dialect
 
 impl DialectWmmaCompiler<Self> for MslDialect {
-    type Architecture = MetalArchitecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "#include <metal_simdgroup_matrix>")
     }
@@ -854,30 +854,37 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         Ok(())
     }
 
-    fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // not used
         Ok(())
     }
 
-    fn compile_fragment_ident(
-        _ident: &FragmentIdent<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        // not used
-        Ok(())
-    }
-
-    fn compile_fragment_layout(
-        _layout: &FragmentLayout<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        // not used
-        Ok(())
-    }
-
-    fn compile_fragment(
-        fragment: &Fragment<Self>,
+    fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
+        var: &crate::shared::Variable<MslDialect>,
+    ) -> std::fmt::Result {
+        wmma_api_base::compile_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        _f: &mut std::fmt::Formatter<'_>,
+        _ident: &FragmentIdent<Self>,
+    ) -> std::fmt::Result {
+        // not used
+        Ok(())
+    }
+
+    fn compile_wmma_fragment_layout(
+        _f: &mut std::fmt::Formatter<'_>,
+        _layout: &FragmentLayout<Self>,
+    ) -> std::fmt::Result {
+        // not used
+        Ok(())
+    }
+
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
+        fragment: &Fragment<Self>,
     ) -> std::fmt::Result {
         let ty = fragment.elem;
         // currently as of Metal 3.2 only fragments of 8x8x8 are supported
@@ -890,9 +897,9 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         write!(f, "simdgroup_{ty}8x8")
     }
 
-    fn compile_instruction(
-        instruction: &WmmaInstruction<Self>,
+    fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
+        instruction: &WmmaInstruction<Self>,
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
@@ -1005,7 +1012,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         }
     }
 
-    fn supported_wmma_combinations(_arch: &Self::Architecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
         vec![
             (
                 gpu::Elem::Float(gpu::FloatKind::F16),

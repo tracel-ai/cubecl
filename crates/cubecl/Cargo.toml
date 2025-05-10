@@ -29,6 +29,7 @@ template = ["cubecl-core/template"]
 
 # Runtimes
 cuda = ["cubecl-cuda"]
+cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
 hip-intrinsic = ["cubecl-hip?/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]

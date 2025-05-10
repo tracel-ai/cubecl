@@ -21,6 +21,7 @@ default = [
     "cudarc/dynamic-loading",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+ptx-wmma = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }

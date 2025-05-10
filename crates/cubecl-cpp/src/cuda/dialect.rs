@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
@@ -12,18 +12,22 @@ use crate::{
     },
 };
 
-use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
+use super::{Extension, arch::CudaArchitecture};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct CudaDialect {}
+pub struct CudaDialect<M> {
+    _wmma_compiler: PhantomData<M>,
+}
 
 // Base dialect
 
-impl Dialect for CudaDialect {}
+impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
+    type Architecture = CudaArchitecture;
+}
 
 // Includes
 
-impl DialectIncludes<Self> for CudaDialect {
+impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
     type Extension = Extension;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
@@ -78,7 +82,7 @@ alignas(64) unsigned long long int opaque[16];
 
 // Types
 
-impl DialectTypes<Self> for CudaDialect {
+impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
     fn item_can_be_optimized() -> bool {
         true
     }
@@ -186,7 +190,7 @@ impl DialectTypes<Self> for CudaDialect {
 
 // Kernel argument bindings
 
-impl DialectBindings<Self> for CudaDialect {
+impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
@@ -246,7 +250,7 @@ extern \"C\" __global__ void "
 
 // Cube builtins dialect
 
-impl DialectCubeBuiltins<Self> for CudaDialect {
+impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for CudaDialect<M> {
     fn compile_cluster_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "cluster.block_rank()")
     }
@@ -266,7 +270,8 @@ impl DialectCubeBuiltins<Self> for CudaDialect {
 
 // Instructions
 
-impl DialectInstructions<Self> for CudaDialect {
+impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> {
+    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__syncthreads();\n")
     }
@@ -396,52 +401,57 @@ impl DialectInstructions<Self> for CudaDialect {
 
 // Coop Matrices dialect
 
-impl DialectWmmaCompiler<Self> for CudaDialect {
-    type Architecture = CudaArchitecture;
-
+impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> {
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_wmma_includes(f)
+        M::compile_wmma_includes(f)
     }
 
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_wmma_type_definitions(f)
+        M::compile_wmma_type_definitions(f)
     }
 
-    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_local_variables(f)
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::compile_wmma_local_variables(f)
     }
 
-    fn compile_fragment_ident(
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &Variable<Self>,
+    ) -> std::fmt::Result {
+        M::compile_wmma_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &crate::shared::FragmentIdent<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_fragment_ident(ident, f)
+        M::compile_wwma_fragment_ident(f, ident)
     }
 
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &crate::shared::FragmentLayout<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_fragment_layout(layout, f)
+        M::compile_wmma_fragment_layout(f, layout)
     }
 
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &crate::shared::Fragment<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_fragment(fragment, f)
+        M::compile_wmma_fragment(f, fragment)
     }
 
-    fn compile_instruction(
-        instruction: &crate::shared::WmmaInstruction<Self>,
+    fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
+        instruction: &crate::shared::WmmaInstruction<Self>,
     ) -> std::fmt::Result {
-        CudaWmmaCompiler::compile_instruction(instruction, f)
+        M::compile_wmma_instruction(f, instruction)
     }
 
     fn supported_wmma_combinations(
-        arch: &Self::Architecture,
+        arch: &CudaArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
-        CudaWmmaCompiler::supported_wmma_combinations(arch)
+        M::supported_wmma_combinations(arch)
     }
 }
