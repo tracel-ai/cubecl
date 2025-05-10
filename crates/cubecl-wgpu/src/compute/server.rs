@@ -221,8 +221,21 @@ impl ComputeServer for WgpuServer {
     }
 
     fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let expected_sizes = bindings
+            .iter()
+            .map(|it| it.shape.iter().product::<usize>() * it.elem_size)
+            .collect::<Vec<_>>();
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
-        self.read(bindings)
+        let data = self.read(bindings);
+        Box::pin(async move {
+            let mut data = data.await;
+
+            for (data, expected_size) in data.iter_mut().zip(expected_sizes) {
+                data.truncate(expected_size);
+            }
+
+            data
+        })
     }
 
     fn create_tensors(
