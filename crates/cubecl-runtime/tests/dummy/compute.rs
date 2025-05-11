@@ -46,6 +46,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
         num_streaming_multiprocessors: None,
         num_tensor_cores: None,
+        min_tensor_cores_dim: None,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,

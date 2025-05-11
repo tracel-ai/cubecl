@@ -7,7 +7,8 @@ use alloc::collections::BTreeSet;
 pub struct DeviceProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
     memory: MemoryDeviceProperties,
-    hardware: HardwareProperties,
+    /// The topology properties of this client.
+    pub hardware: HardwareProperties,
     time_measurement: TimeMeasurement,
 }
 
@@ -70,5 +71,9 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     /// The topology properties of this client.
     pub fn hardware_properties(&self) -> &HardwareProperties {
         &self.hardware
+    }
+    /// The topology properties of this client.
+    pub fn hardware_properties_mut(&mut self) -> &mut HardwareProperties {
+        &mut self.hardware
     }
 }
