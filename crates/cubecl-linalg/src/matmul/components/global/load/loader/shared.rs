@@ -15,3 +15,9 @@ impl BufferId {
         }
     }
 }
+
+#[derive(CubeType, Clone)]
+pub struct TaskCounter {
+    #[cube(comptime)]
+    pub counter: u32,
+}

@@ -1,4 +1,4 @@
-#![allow(unknown_lints, unnecessary_transmutes)] // `cast` functions stabilize in 1.87
+#![allow(unknown_lints, unnecessary_transmutes)]
 
 use std::{
     mem::{replace, transmute},

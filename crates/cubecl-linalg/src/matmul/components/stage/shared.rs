@@ -1,7 +1,7 @@
 use super::{StageBuffering, StageConfig};
 use crate::matmul::components::{
-    CompleteStageTiling, Ident, MatmulConfig, MatmulPrecision, MatmulSize, MatrixLayout,
-    TilingDimensions,
+    CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulPrecision, MatmulSize,
+    MatrixLayout, TilingDimensions,
     global::AccumulatorLoader,
     tile::{TileConfig, TileMatmul},
 };
@@ -16,7 +16,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub num_planes: u32,
     pub quantized: bool,
     pub buffering: StageBuffering,
-    pub num_stages: u32,
+    pub num_stages: (u32, u32),
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -62,8 +62,11 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.buffering
     }
 
-    fn num_stages(&self) -> u32 {
-        self.num_stages
+    fn num_stages(&self, ident: InputIdent) -> u32 {
+        match ident {
+            InputIdent::Lhs => self.num_stages.0,
+            InputIdent::Rhs => self.num_stages.1,
+        }
     }
 }
 
@@ -77,7 +80,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         num_planes: u32,
         quantized: bool,
         buffering: StageBuffering,
-        num_stages: u32,
+        num_stages: (u32, u32),
     ) -> Self {
         Self {
             tmm_config,

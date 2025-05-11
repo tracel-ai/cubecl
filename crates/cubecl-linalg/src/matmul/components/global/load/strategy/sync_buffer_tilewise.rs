@@ -84,7 +84,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
-        let num_stages = config.num_stages();
+        let num_stages = config.num_stages(input_ident);
         let stage_width = comptime!(match input_ident {
             InputIdent::Lhs => tiling.tile_count_col(),
             InputIdent::Rhs => tiling.tile_count_row(),
@@ -154,13 +154,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
                 comptime!(config.tiling_dimensions(this.input_ident).tile_count_row()),
                 comptime!(
                     config.tiling_dimensions(this.input_ident).tile_count_col()
-                        * config.num_stages()
+                        * config.num_stages(InputIdent::Lhs)
                 ),
             ),
             InputIdent::Rhs => (
                 comptime!(
                     config.tiling_dimensions(this.input_ident).tile_count_row()
-                        * config.num_stages()
+                        * config.num_stages(InputIdent::Rhs)
                 ),
                 comptime!(config.tiling_dimensions(this.input_ident).tile_count_col()),
             ),

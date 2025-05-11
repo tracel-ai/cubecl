@@ -5,7 +5,9 @@ use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 
@@ -41,16 +43,25 @@ where
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
     ),
     Create(Vec<u8>, Callback<Handle>),
-    CreateTensor(Vec<u8>, Vec<usize>, usize, Callback<(Handle, Vec<usize>)>),
+    CreateTensor(
+        Vec<Vec<u8>>,
+        Vec<Vec<usize>>,
+        Vec<usize>,
+        Callback<Vec<(Handle, Vec<usize>)>>,
+    ),
     Empty(usize, Callback<Handle>),
-    EmptyTensor(Vec<usize>, usize, Callback<(Handle, Vec<usize>)>),
+    EmptyTensor(
+        Vec<Vec<usize>>,
+        Vec<usize>,
+        Callback<Vec<(Handle, Vec<usize>)>>,
+    ),
     ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Bindings),
     Flush,
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
-    StartProfile,
-    StopMeasure(Callback<ProfileDuration>),
+    StartProfile(Callback<ProfilingToken>),
+    StopMeasure(Callback<ProfileDuration>, ProfilingToken),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -84,7 +95,9 @@ where
                             callback.send(handle).await.unwrap();
                         }
                         Message::CreateTensor(data, shape, elem_size, callback) => {
-                            let handle = server.create_tensor(&data, &shape, elem_size);
+                            let data = data.iter().map(|it| it.as_slice()).collect();
+                            let shape = shape.iter().map(|it| it.as_slice()).collect();
+                            let handle = server.create_tensors(data, shape, elem_size);
                             callback.send(handle).await.unwrap();
                         }
                         Message::Empty(size, callback) => {
@@ -92,7 +105,8 @@ where
                             callback.send(handle).await.unwrap();
                         }
                         Message::EmptyTensor(shape, elem_size, callback) => {
-                            let handle = server.empty_tensor(&shape, elem_size);
+                            let shape = shape.iter().map(|it| it.as_slice()).collect();
+                            let handle = server.empty_tensors(shape, elem_size);
                             callback.send(handle).await.unwrap();
                         }
                         Message::ExecuteKernel(kernel, bindings) => unsafe {
@@ -111,11 +125,12 @@ where
                         Message::MemoryCleanup => {
                             server.memory_cleanup();
                         }
-                        Message::StartProfile => {
-                            server.start_profile();
+                        Message::StartProfile(callback) => {
+                            let token = server.start_profile();
+                            callback.send(token).await.unwrap();
                         }
-                        Message::StopMeasure(callback) => {
-                            callback.send(server.end_profile()).await.unwrap();
+                        Message::StopMeasure(callback, token) => {
+                            callback.send(server.end_profile(token)).await.unwrap();
                         }
                     };
                 }
@@ -190,19 +205,19 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
         let (callback, response) = async_channel::unbounded();
 
         self.state
             .sender
             .send_blocking(Message::CreateTensor(
-                data.to_vec(),
-                shape.to_vec(),
+                data.into_iter().map(|it| it.to_vec()).collect(),
+                shape.into_iter().map(|it| it.to_vec()).collect(),
                 elem_size,
                 callback,
             ))
@@ -221,11 +236,19 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
+    fn empty_tensors(
+        &self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::EmptyTensor(shape.to_vec(), elem_size, callback))
+            .send_blocking(Message::EmptyTensor(
+                shape.into_iter().map(|it| it.to_vec()).collect(),
+                elem_size,
+                callback,
+            ))
             .unwrap();
 
         handle_response(response.recv_blocking())
@@ -274,18 +297,22 @@ where
             .unwrap()
     }
 
-    fn start_profile(&self) {
+    fn start_profile(&self) -> ProfilingToken {
+        let (callback, response) = async_channel::unbounded();
+
         self.state
             .sender
-            .send_blocking(Message::StartProfile)
+            .send_blocking(Message::StartProfile(callback))
             .unwrap();
+
+        handle_response(response.recv_blocking())
     }
 
-    fn end_profile(&self) -> ProfileDuration {
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::StopMeasure(callback))
+            .send_blocking(Message::StopMeasure(callback, token))
             .unwrap();
         handle_response(response.recv_blocking())
     }

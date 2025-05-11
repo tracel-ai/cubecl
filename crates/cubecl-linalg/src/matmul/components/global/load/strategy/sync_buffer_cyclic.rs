@@ -134,10 +134,10 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let (total_tile_count_row, total_tile_count_col) = match comptime!(this.input_ident) {
             InputIdent::Lhs => (
                 comptime!(tile_count_row),
-                comptime!(tile_count_col * config.num_stages()),
+                comptime!(tile_count_col * config.num_stages(InputIdent::Lhs)),
             ),
             InputIdent::Rhs => (
-                comptime!(tile_count_row * config.num_stages()),
+                comptime!(tile_count_row * config.num_stages(InputIdent::Rhs)),
                 comptime!(tile_count_col),
             ),
         };

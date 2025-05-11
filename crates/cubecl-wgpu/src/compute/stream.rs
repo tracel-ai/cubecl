@@ -1,32 +1,25 @@
+use super::{
+    mem_manager::WgpuMemManager,
+    poll::WgpuPoll,
+    timings::{Timestamp, Timings},
+};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     benchmark::ProfileDuration,
     future::{self, DynFut},
-    server::{Binding, Bindings, Handle},
+    server::{Binding, Bindings, Handle, ProfilingToken},
 };
-use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
-
-use web_time::{Duration, Instant};
-use wgpu::QuerySet;
-
-use super::{mem_manager::WgpuMemManager, poll::WgpuPoll};
 use cubecl_runtime::{TimeMeasurement, memory_management::MemoryDeviceProperties};
-use wgpu::{ComputePipeline, QuerySetDescriptor, QueryType};
-
-#[derive(Debug)]
-enum KernelTimestamps {
-    Device { query_set: QuerySet, init: bool },
-    Full { start_time: Instant },
-    Disabled,
-}
+use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
+use web_time::Duration;
+use wgpu::ComputePipeline;
 
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
-
-    timestamps: KernelTimestamps,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
+    timings: Timings,
     tasks_count: usize,
     tasks_max: usize,
     device: wgpu::Device,
@@ -61,7 +54,7 @@ impl WgpuStream {
         Self {
             mem_manage,
             compute_pass: None,
-            timestamps: KernelTimestamps::Disabled,
+            timings: Timings::default(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -119,25 +112,19 @@ impl WgpuStream {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.compute_pass.get_or_insert_with(|| {
-            // Write out timestamps. The first compute pass writes both a start and end timestamp.
-            // the second timestamp writes out only an end stamp.
-            let timestamps =
-                if let KernelTimestamps::Device { query_set, init } = &mut self.timestamps {
-                    let result = Some(wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: if !*init { Some(0) } else { None },
-                        end_of_pass_write_index: Some(1),
-                    });
-                    *init = true;
-                    result
-                } else {
-                    None
-                };
+            let writes = self
+                .timings
+                .register_profile_device(&self.device)
+                .map(|query_set| wgpu::ComputePassTimestampWrites {
+                    query_set,
+                    beginning_of_pass_write_index: Some(0),
+                    end_of_pass_write_index: Some(1),
+                });
 
             self.encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
-                    timestamp_writes: timestamps,
+                    timestamp_writes: writes,
                 })
                 .forget_lifetime()
         });
@@ -249,37 +236,19 @@ impl WgpuStream {
         })
     }
 
-    pub fn is_profiling(&self) -> bool {
-        !matches!(self.timestamps, KernelTimestamps::Disabled)
-    }
-
-    pub fn start_profile(&mut self) {
-        if self.is_profiling() {
-            panic!(
-                "Can't start a profile while one is running, recursive profiling is not supported."
-            );
-        }
+    pub fn start_profile(&mut self) -> ProfilingToken {
+        let token = self.timings.start_profile_prepare();
 
         if matches!(self.time_measurement, TimeMeasurement::Device) {
             // Flush all commands to the queue. This isn't really needed, but this should mean
             // new work after this will be run with less overlap.
             self.flush();
 
-            let query_set = self.device.create_query_set(&QuerySetDescriptor {
-                label: Some("CubeCL profile queries"),
-                ty: QueryType::Timestamp,
-                count: 2,
-            });
-            self.timestamps = KernelTimestamps::Device {
-                query_set,
-                init: false,
-            };
+            self.timings.start_profile_device(token);
         } else if !cfg!(target_family = "wasm") {
             // On native platforms, fallback to measuring full time elapsed.
             future::block_on(self.sync());
-            self.timestamps = KernelTimestamps::Full {
-                start_time: Instant::now(),
-            };
+            self.timings.start_profile_system(token);
         } else {
             // On WASM, there's not much we can do here anymore. This should be very rare however,
             // all modern GPU's support timestamp queries.
@@ -287,53 +256,75 @@ impl WgpuStream {
                 "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
             );
         }
+
+        token
     }
 
-    pub fn stop_profile(&mut self) -> ProfileDuration {
+    pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         self.compute_pass = None;
 
-        let timestamp = std::mem::replace(&mut self.timestamps, KernelTimestamps::Disabled);
+        let timestamp = self.timings.stop_profile_prepare(token);
 
         match timestamp {
-            KernelTimestamps::Device { query_set, init } => {
-                if !init {
+            Timestamp::Device { start, end } => {
+                let (start, end) = if let (Some(start), Some(end)) = (start, end) {
+                    (start, end)
+                } else {
                     // If there was no work done between the start and stop of the profile, logically the
                     // time should be 0. We could use a ProfileDuration::from_duration here,
                     // but it seems better to always return things as 'device' timing method.
-                    ProfileDuration::from_future(async move { Duration::from_secs(0) })
-                } else {
-                    let (handle, resource) = self.mem_manage.query();
-                    self.encoder.resolve_query_set(
-                        &query_set,
-                        0..2,
-                        resource.buffer(),
-                        resource.offset(),
+                    return ProfileDuration::from_future(async move { Duration::from_secs(0) });
+                };
+
+                // TODO: We could optimize this by having a single handle for both `start` and `end`
+                // when a single query_set is used, but it probably doesn't impact much the real
+                // performance.
+                let (handle_start, resource_start) = self.mem_manage.query(1);
+                let (handle_end, resource_end) = self.mem_manage.query(1);
+
+                self.timings.stop_profile_device(
+                    start,
+                    end,
+                    &mut self.encoder,
+                    resource_start,
+                    resource_end,
+                );
+
+                let period = self.queue.get_timestamp_period() as f64 * 1e-9;
+                let fut = self.read_buffers(vec![handle_start.binding(), handle_end.binding()]);
+                let resolve_fut = async move {
+                    let mut result = fut.await;
+                    let data_end = u64::from_le_bytes(
+                        result
+                            .remove(1)
+                            .chunks_exact(8)
+                            .next()
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
                     );
-                    let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                    let fut = self.read_buffers(vec![handle.binding()]);
-                    let resolve_fut = async move {
-                        let data = fut
-                            .await
+                    let data_start = u64::from_le_bytes(
+                        result
                             .remove(0)
                             .chunks_exact(8)
-                            .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                            .collect::<Vec<_>>();
-                        let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
-                        Duration::from_secs_f64(delta as f64 * period)
-                    };
-                    ProfileDuration::from_future(resolve_fut)
-                }
+                            .next()
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                    );
+
+                    let delta = u64::checked_sub(data_end, data_start).unwrap_or(1);
+                    Duration::from_secs_f64(delta as f64 * period)
+                };
+                ProfileDuration::from_future(resolve_fut)
             }
-            KernelTimestamps::Full { start_time } => {
+            Timestamp::Full { start_time } => {
                 let fut = self.sync();
                 let duration_fut = async move {
                     fut.await;
                     start_time.elapsed()
                 };
                 ProfileDuration::from_future(duration_fut)
-            }
-            KernelTimestamps::Disabled => {
-                panic!("Must start a profile before stopping a profile.")
             }
         }
     }
@@ -392,7 +383,22 @@ impl WgpuStream {
         // Any handles with compute work are kept in pending operations,
         // and the allocation here won't try to use that buffer.
         let alloc = self.mem_manage.reserve(aligned_len, true);
-        let resource = self.mem_manage.get_resource(alloc.clone().binding());
+        self.copy_to_handle(alloc.clone(), data);
+
+        alloc
+    }
+
+    pub fn copy_to_handle(&mut self, handle: Handle, data: &[u8]) {
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let size = handle.size();
+
+        // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
+        // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
+        // a buffer we copy to MUST not have any outstanding compute work associated with it.
+        // Any handles with compute work are kept in pending operations,
+        // and the allocation here won't try to use that buffer.
+        let resource = self.mem_manage.get_resource(handle.binding());
 
         // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
         // its API as a slice to write into.
@@ -400,13 +406,13 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        if aligned_len > data.len() as u64 {
+        if size != data.len() as u64 {
             let mut buffer = self
                 .queue
                 .write_buffer_with(
                     resource.buffer(),
                     resource.offset(),
-                    NonZero::new(aligned_len).unwrap(),
+                    NonZero::new(size).unwrap(),
                 )
                 .unwrap();
             buffer[0..data.len()].copy_from_slice(data);
@@ -416,8 +422,6 @@ impl WgpuStream {
         }
 
         self.flush_if_needed();
-
-        alloc
     }
 
     fn flush_if_needed(&mut self) {

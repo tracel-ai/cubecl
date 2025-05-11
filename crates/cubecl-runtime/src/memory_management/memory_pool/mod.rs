@@ -3,7 +3,7 @@ mod ring;
 
 mod base;
 mod exclusive_pool;
-mod handle;
+pub(crate) mod handle;
 mod sliced_pool;
 
 pub(crate) use base::*;
