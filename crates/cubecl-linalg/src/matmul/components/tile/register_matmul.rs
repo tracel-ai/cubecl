@@ -72,10 +72,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         // out.data[6] = Line::cast_from(33);
         // out.data[7] = Line::cast_from(22);
 
-        // Lined arrays don't work well
-        let lhs_data = lhs.data.to_slice().with_line_size(tile_size);
-        let rhs_data = rhs.data.to_slice().with_line_size(tile_size);
-        let mut out_data = out.data.to_slice_mut().with_line_size(tile_size);
+        let lhs_data = lhs.data.to_slice().with_line_size(1u32);
+        let rhs_data = rhs.data.to_slice().with_line_size(1u32);
+        let mut out_data = out.data.to_slice_mut().with_line_size(1u32);
 
         match comptime!(lhs.layout) {
             MatrixLayout::RowMajor => match comptime!(rhs.layout) {
@@ -88,20 +87,17 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
             },
             MatrixLayout::ColMajor => match comptime!(rhs.layout) {
                 MatrixLayout::RowMajor => {
-                    #[unroll]
+                    // #[unroll]
                     for k in 0..tile_size {
-                        // Get kth line from Lhs, keep in ES, it will be converted to EA individually
-                        let line_lhs = lhs_data[k];
-                        // Get kth line from Rhs, in EA
-                        let line_rhs: Line<MP::EA> = Line::cast_from(rhs_data[k]);
-
-                        // Break the lines of lhs and broadcast each element on rhs
-                        #[unroll]
-                        for m in 0..tile_size {
-                            // Slice += not supporte
-                            let mut l = out_data[m];
-                            l += Line::cast_from(line_lhs[m]) * line_rhs;
-                            out_data[m] = l;
+                        // #[unroll]
+                        for i in 0..tile_size {
+                            let l: Line<MP::EA> = Line::cast_from(lhs_data[k * tile_size + i]);
+                            // #[unroll]
+                            for j in 0..tile_size {
+                                let r: Line<MP::EA> = Line::cast_from(rhs_data[k * tile_size + j]);
+                                let index = j * tile_size + i;
+                                out_data[index] = out_data[index] + l * r;
+                            }
                         }
                     }
                 }
@@ -110,6 +106,45 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                 }
             },
         }
+
+        // Lined arrays don't work well
+        // let lhs_data = lhs.data.to_slice().with_line_size(tile_size);
+        // let rhs_data = rhs.data.to_slice().with_line_size(tile_size);
+        // let mut out_data = out.data.to_slice_mut().with_line_size(tile_size);
+
+        // match comptime!(lhs.layout) {
+        //     MatrixLayout::RowMajor => match comptime!(rhs.layout) {
+        //         MatrixLayout::RowMajor => {
+        //             unimplemented!()
+        //         }
+        //         MatrixLayout::ColMajor => {
+        //             unimplemented!()
+        //         }
+        //     },
+        //     MatrixLayout::ColMajor => match comptime!(rhs.layout) {
+        //         MatrixLayout::RowMajor => {
+        //             #[unroll]
+        //             for k in 0..tile_size {
+        //                 // Get kth line from Lhs, keep in ES, it will be converted to EA individually
+        //                 let line_lhs = lhs_data[k];
+        //                 // Get kth line from Rhs, in EA
+        //                 let line_rhs: Line<MP::EA> = Line::cast_from(rhs_data[k]);
+
+        //                 // Break the lines of lhs and broadcast each element on rhs
+        //                 #[unroll]
+        //                 for m in 0..tile_size {
+        //                     // Slice += not supporte
+        //                     let mut l = out_data[m];
+        //                     l += Line::cast_from(line_lhs[m]) * line_rhs;
+        //                     out_data[m] = l;
+        //                 }
+        //             }
+        //         }
+        //         MatrixLayout::ColMajor => {
+        //             unimplemented!()
+        //         }
+        //     },
+        // }
 
         // let lhs_data: Slice<MP::EA> = lhs.data.to_slice().try_cast_unchecked();
         // let rhs_data: Slice<MP::EA> = rhs.data.to_slice().try_cast_unchecked();
@@ -161,16 +196,16 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] _config: Config) {
-        #[unroll]
-        for i in 0..lhs.tile_size {
-            lhs.data[i] = tile.slice[i * tile.stride];
+        // #[unroll]
+        for i in 0..comptime!(lhs.tile_size * lhs.tile_size) {
+            lhs.data[i] = tile.slice.with_line_size(1u32)[i * tile.stride];
         }
     }
 
     fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] _config: Config) {
-        #[unroll]
-        for i in 0..rhs.tile_size {
-            rhs.data[i] = tile.slice[i * tile.stride];
+        // #[unroll]
+        for i in 0..comptime!(rhs.tile_size * rhs.tile_size) {
+            rhs.data[i] = tile.slice.with_line_size(1u32)[i * tile.stride];
         }
     }
 
@@ -179,9 +214,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] _config: Config,
     ) {
-        #[unroll]
-        for i in 0..acc.tile_size {
-            acc.data[i] = tile.slice[i * tile.stride];
+        // #[unroll]
+        for i in 0..comptime!(acc.tile_size * acc.tile_size) {
+            acc.data[i] = tile.slice.with_line_size(1u32)[i * tile.stride];
         }
     }
 
@@ -190,9 +225,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         slice: &mut SliceMut<Line<C>>,
         #[comptime] _config: Config,
     ) {
-        #[unroll]
-        for i in 0..acc.tile_size {
-            slice[i] = Line::cast_from(acc.data[i]);
+        // #[unroll]
+        for i in 0..comptime!(acc.tile_size * acc.tile_size) {
+            slice.with_line_size(1u32)[i] = Line::cast_from(acc.data[i]);
         }
     }
 
@@ -207,8 +242,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        #[unroll]
-        for i in 0..acc.tile_size {
+        // #[unroll]
+        for i in 0..comptime!(acc.tile_size * acc.tile_size) {
             acc.data[i] = Line::cast_from(0);
         }
     }
