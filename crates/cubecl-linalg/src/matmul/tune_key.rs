@@ -113,6 +113,7 @@ pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> boo
 impl MatmulAutotuneKey {
     /// Create the autotune key based on the shape of both lhs and rhs as well as the element type
     /// used for the calculation.
+    #[allow(clippy::too_many_arguments)]
     pub fn generate<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         lhs_shape: &[usize],

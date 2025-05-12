@@ -26,12 +26,14 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
 #[derive(Clone)]
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>>,
-    should_autotune: Vec<Option<Arc<dyn Fn(&K) -> bool>>>,
+    should_autotune: Vec<ShouldAutotuneFn<K>>,
     key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
     input_gen: Arc<dyn InputGenerator<K, Inputs>>,
     #[allow(clippy::type_complexity)]
     checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
+
+type ShouldAutotuneFn<K> = Option<Arc<dyn Fn(&K) -> bool>>;
 
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
