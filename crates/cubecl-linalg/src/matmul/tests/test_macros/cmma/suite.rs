@@ -145,7 +145,6 @@ macro_rules! matmul_standard_tests {
             HybridDoubleBufferingAlgorithm};
         use $crate::matmul::kernels::matmul::ordered_double_buffering::OrderedDoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
-        use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
 
         #[test]
@@ -365,6 +364,12 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+
+    };
+
+    (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
+
         #[test]
         pub fn simple_unit() {
             cubecl_linalg::matmul::tests::test_algo::<
@@ -432,6 +437,17 @@ macro_rules! matmul_standard_tests {
     };
 
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident) => {
+        mod t4x4x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 4, n: 4, k: 4 }
+            );
+        }
+
+
         mod t8x8x8 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -564,7 +580,7 @@ macro_rules! matmul_standard_tests {
                 $kind;
                 $lhs_layout,
                 $rhs_layout,
-                $tile,
+
                 MatmulSize { m: 4, n: 4, k: 2 }
             );
         }

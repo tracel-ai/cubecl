@@ -27,6 +27,29 @@ macro_rules! testgen_matmul_accelerated {
 }
 
 #[macro_export]
+macro_rules! testgen_matmul_unit {
+    ([$($float:ident),*]) => {
+        #[allow(non_snake_case)]
+        mod matmul_unit {
+            use super::*;
+            type TMM = $crate::matmul::components::tile::register_matmul::RegisterMatmul;
+
+            ::paste::paste! {
+                $(mod [<$float _ty>] {
+                    use super::*;
+                    $crate::testgen_matmul_unit!($float, $float);
+                })*
+            }
+        }
+    };
+    ($eg:ty, $es:ty) => {
+        type Precision = ($eg, $es);
+
+        $crate::matmul_standard_tests!(unit);
+    };
+}
+
+#[macro_export]
 macro_rules! testgen_matmul_tma {
     ([$($float:ident: $stage: ident),*]) => {
         #[allow(non_snake_case)]
