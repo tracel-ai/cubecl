@@ -142,6 +142,7 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
         use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm};
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
+        use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
 
         #[test]
@@ -343,6 +344,21 @@ macro_rules! matmul_standard_tests {
                 $stage,
                 $problem,
                 2,
+            );
+        }
+
+        #[test]
+        pub fn simple_unit() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                1,
             );
         }
     };
