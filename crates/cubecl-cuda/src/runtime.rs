@@ -244,6 +244,7 @@ impl Runtime for CudaRuntime {
 
         let mut sorted = strides.to_vec();
         sorted.sort();
+        sorted.reverse();
 
         if sorted != strides {
             return false;
