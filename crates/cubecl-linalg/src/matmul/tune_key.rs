@@ -9,44 +9,104 @@ use crate::tensor::{MatrixBatchLayout, matrix_batch_layout};
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
 pub struct MatmulAutotuneKey {
+    definition: MatmulProblemDefinition,
+    pub analysis: MatmulAutotuneAnalysis,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
+struct MatmulProblemDefinition {
     #[autotune(anchor)]
     m: usize,
     #[autotune(anchor)]
     n: usize,
     #[autotune(anchor)]
     k: usize,
-    round: bool, // If m, k, n are not anchored.
     elem_lhs: Elem,
     elem_rhs: Elem,
     elem_out: Elem,
     matrix_layout_lhs: MatrixBatchLayout,
     matrix_layout_rhs: MatrixBatchLayout,
-    pub kind: MatmulAutotuneKind,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub enum MatmulScale {
+pub enum MatmulGlobalScale {
     Large,
     Medium,
     Small,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct MatmulAutotuneKind {
-    pub scale: MatmulScale,
+/// The potential scale of a stage matmul.
+///
+/// # Notes
+///
+/// The values are exponent of the 2.
+///
+/// ```rust, ignore
+/// let state_size_m = 2.pow(m);
+/// ```
+pub struct MatmulStageScale {
+    pub m: u8,
+    pub n: u8,
+    pub k: u8,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct MatmulAutotuneAnalysis {
+    pub scale_global: MatmulGlobalScale,
+    pub stage_stage: MatmulStageScale,
     pub may_use_tensor_cores: bool,
     pub mat2vec: bool,
 }
 
+impl MatmulGlobalScale {
+    pub fn from_size(m: usize, n: usize, k: usize) -> Self {
+        if m < 512 && k < 512 && n < 512 {
+            MatmulGlobalScale::Small
+        } else if m < 2048 && k < 2048 && n < 2048 {
+            MatmulGlobalScale::Medium
+        } else {
+            MatmulGlobalScale::Large
+        }
+    }
+}
+
+impl MatmulStageScale {
+    pub fn from_size(m_size: usize, n_size: usize, k_size: usize) -> Self {
+        let mut m = 0;
+        let mut n = 0;
+        let mut k = 0;
+
+        let set_scale = |current: u8, size: usize, maybe_updated: u8| {
+            if current != 0 && size % 2usize.pow(maybe_updated as u32) == 0 {
+                maybe_updated
+            } else {
+                current
+            }
+        };
+
+        // Right now we only consider potential stage size of 64 (2^5) & 256 (2^8).
+        // But we could put more in the analysis based on the autotune level.
+        //
+        // It is important to start with the bigguest stage size first.
+        for scale in [8, 6] {
+            m = set_scale(m, m_size, scale);
+            n = set_scale(n, n_size, scale);
+            k = set_scale(k, k_size, scale);
+        }
+
+        Self { m, n, k }
+    }
+}
+
 /// Whether it's a good idea to try and run double buffering matmul.
 pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> bool {
-    key.kind.may_use_tensor_cores
-        && !key.kind.mat2vec
-        && match key.kind.scale {
-            MatmulScale::Large => true,
-            MatmulScale::Medium => fused,
-            MatmulScale::Small => false, // TODO: maybe enable it when autotune level is set to the
-                                         // max.
+    key.analysis.may_use_tensor_cores
+        && !key.analysis.mat2vec
+        && match key.analysis.scale_global {
+            MatmulGlobalScale::Large => true,
+            MatmulGlobalScale::Medium => true,
+            MatmulGlobalScale::Small => fused,
         }
 }
 
@@ -71,17 +131,19 @@ impl MatmulAutotuneKey {
         let matrix_layout_lhs = matrix_batch_layout(lhs_strides);
         let matrix_layout_rhs = matrix_batch_layout(rhs_strides);
 
-        // TODO: Use the number of SMs.
-        let scale = if m < 512 && k < 512 && n < 512 {
-            MatmulScale::Small
-        } else if m < 2048 && k < 2048 && n < 2048 {
-            MatmulScale::Medium
-        } else {
-            MatmulScale::Large
-        };
-
-        let kind = MatmulAutotuneKind {
-            scale,
+        let definition = MatmulProblemDefinition::new(
+            m,
+            n,
+            k,
+            elem_lhs,
+            elem_rhs,
+            elem_out,
+            matrix_layout_lhs,
+            matrix_layout_rhs,
+        );
+        let analysis = MatmulAutotuneAnalysis {
+            scale_global: MatmulGlobalScale::from_size(m, n, k),
+            stage_stage: MatmulStageScale::from_size(m, n, k),
             may_use_tensor_cores: match client
                 .properties()
                 .hardware_properties()
@@ -94,21 +156,6 @@ impl MatmulAutotuneKey {
             mat2vec: n == 1 || m == 1 || k == 1,
         };
 
-        let mut key = Self::new(
-            m,
-            n,
-            k,
-            false,
-            elem_lhs,
-            elem_rhs,
-            elem_out,
-            matrix_layout_lhs,
-            matrix_layout_rhs,
-            kind,
-        );
-
-        key.round = !(key.m == m && key.n == n && key.k == k);
-
-        key
+        Self::new(definition, analysis)
     }
 }
