@@ -1056,6 +1056,7 @@ fn index(
     let is_scalar = match lhs {
         Variable::LocalMut { item, .. } => item.vectorization_factor() == 1,
         Variable::LocalConst { item, .. } => item.vectorization_factor() == 1,
+        Variable::ConstantScalar(..) => true,
         _ => false,
     };
 
