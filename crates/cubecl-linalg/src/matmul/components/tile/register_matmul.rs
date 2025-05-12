@@ -62,6 +62,21 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     ) {
         let tile_size = lhs.tile_size;
 
+        // comptime!(println!("{:?}", out.data.len()));
+        // out.data[0] = Line::cast_from(99);
+        // out.data[1] = Line::cast_from(88);
+        // out.data[2] = Line::cast_from(77);
+        // out.data[3] = Line::cast_from(66);
+        // out.data[4] = Line::cast_from(55);
+        // out.data[5] = Line::cast_from(44);
+        // out.data[6] = Line::cast_from(33);
+        // out.data[7] = Line::cast_from(22);
+
+        // Lined arrays don't work well
+        let lhs_data = lhs.data.to_slice().with_line_size(tile_size);
+        let rhs_data = rhs.data.to_slice().with_line_size(tile_size);
+        let mut out_data = out.data.to_slice_mut().with_line_size(tile_size);
+
         match comptime!(lhs.layout) {
             MatrixLayout::RowMajor => match comptime!(rhs.layout) {
                 MatrixLayout::RowMajor => {
@@ -76,13 +91,17 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     #[unroll]
                     for k in 0..tile_size {
                         // Get kth line from Lhs, keep in ES, it will be converted to EA individually
-                        let line_lhs = lhs.data[k];
+                        let line_lhs = lhs_data[k];
                         // Get kth line from Rhs, in EA
-                        let line_rhs: Line<MP::EA> = Line::cast_from(rhs.data[k]);
+                        let line_rhs: Line<MP::EA> = Line::cast_from(rhs_data[k]);
 
                         // Break the lines of lhs and broadcast each element on rhs
+                        #[unroll]
                         for m in 0..tile_size {
-                            out.data[m] += Line::cast_from(line_lhs[m]) * line_rhs;
+                            // Slice += not supporte
+                            let mut l = out_data[m];
+                            l += Line::cast_from(line_lhs[m]) * line_rhs;
+                            out_data[m] = l;
                         }
                     }
                 }
@@ -127,7 +146,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
     fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
         TileArray::<MP::ES> {
-            data: Array::<Line<MP::ES>>::new(config.tile_size),
+            data: Array::<Line<MP::ES>>::new(config.tile_size * config.tile_size),
             layout: config.lhs_layout,
             tile_size: config.tile_size,
         }
@@ -135,7 +154,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
     fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
         TileArray::<MP::ES> {
-            data: Array::<Line<MP::ES>>::new(config.tile_size),
+            data: Array::<Line<MP::ES>>::new(config.tile_size * config.tile_size),
             layout: config.rhs_layout,
             tile_size: config.tile_size,
         }
@@ -181,7 +200,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         let tile_size = config.stage_line_size(Ident::Out);
 
         TileArray::<MP::EA> {
-            data: Array::<Line<MP::EA>>::new(tile_size),
+            data: Array::<Line<MP::EA>>::new(config.tile_size * config.tile_size),
             layout: MatrixLayout::RowMajor,
             tile_size,
         }

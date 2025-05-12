@@ -7,15 +7,15 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
+        load::{SyncFullLoadingStrategy, sync_full_cyclic, sync_full_cyclic_checked},
     },
     stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder},
     tile,
 };
 
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+    LL = sync_full_cyclic_checked::LoadingStrategy<ColMajorTilingOrder>,
+    RL = sync_full_cyclic_checked::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _ll: PhantomData<LL>,
@@ -35,8 +35,10 @@ where
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
-        CubeDim::new(selection.plane_dim, num_planes, 1)
+        let num_tile_matmuls = selection.tile_count.m * selection.tile_count.n;
+        let plane_dim = selection.plane_dim;
+        let num_planes = num_tile_matmuls.div_ceil(plane_dim);
+        CubeDim::new(plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {

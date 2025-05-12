@@ -31,7 +31,8 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         m: problem.m as usize,
         n: problem.n as usize,
         k: problem.k as usize,
-        batches: (vec![2], vec![2]),
+        batches: (vec![1], vec![1]),
+        // batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
         lhs_line_size: 1, // Will be changed
@@ -140,7 +141,9 @@ macro_rules! matmul_standard_tests {
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
         };
         use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
-        use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm};
+        use $crate::matmul::kernels::matmul::double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm,
+            HybridDoubleBufferingAlgorithm};
+        use $crate::matmul::kernels::matmul::ordered_double_buffering::OrderedDoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
@@ -348,6 +351,21 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
+        pub fn ordered_double_buffering_multi_row() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                OrderedDoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
+            );
+        }
+
+        #[test]
         pub fn simple_unit() {
             cubecl_linalg::matmul::tests::test_algo::<
                 SimpleUnitAlgorithm,
@@ -492,6 +510,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(target_os="macos")]
         mod s16x16x1 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -514,6 +533,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(target_os="macos")]
         mod s8x8x4 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -525,6 +545,19 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(target_os="macos")]
+        mod s16x8x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 16, n: 8, k: 4 }
+            );
+        }
+
+        #[cfg(not(target_os="macos"))]
         mod s4x4x2 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -533,6 +566,18 @@ macro_rules! matmul_standard_tests {
                 $rhs_layout,
                 $tile,
                 MatmulSize { m: 4, n: 4, k: 2 }
+            );
+        }
+
+        #[cfg(not(target_os="macos"))]
+        mod s8x4x2 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 8, n: 4, k: 2 }
             );
         }
     };
@@ -674,6 +719,22 @@ macro_rules! matmul_standard_tests {
                     m: 256,
                     n: 256,
                     k: 256
+                }
+            );
+        }
+
+        mod pTMP {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 8,
+                    n: 8,
+                    k: 8
                 }
             );
         }

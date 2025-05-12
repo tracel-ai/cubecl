@@ -9,6 +9,7 @@ mod accumulator_loader;
 mod base;
 mod copy_mechanism;
 mod tilewise_unloading;
+mod unit_unloading;
 
 pub mod output_loader;
 

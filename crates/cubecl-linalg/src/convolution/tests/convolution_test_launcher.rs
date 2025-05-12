@@ -68,7 +68,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     ) {
         Ok(config) => config,
         Err(err) => {
-            let msg = format!("Can't launch the test: {}", err);
+            let msg = format!("Can't launch the test: {err}");
             if panic_on_launch_err {
                 panic!("{msg}");
             } else {
@@ -79,7 +79,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     };
 
     if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
-        let msg = format!("Skipped - not supported: {:?}", err);
+        let msg = format!("Skipped - not supported: {err:?}");
         if panic_on_launch_err {
             panic!("{msg}")
         } else {
@@ -142,31 +142,39 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
             let shape = shape(problem, ident);
 
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&original_data), &shape, size_of::<P::EG>());
+            let handle = P::EG::sample::<R>(client, &shape, 1234);
+
+            let data = client.read_one(handle.handle.clone().binding());
+            let data = P::EG::from_bytes(&data);
+            let original_data = data.to_owned();
 
             TensorRawParts {
-                handle,
+                handle: handle.handle,
+                scale: None,
                 shape,
-                strides,
+                strides: handle.strides,
                 original_data: Some(original_data),
+                quant_params: None,
             }
         }
         Ident::Rhs => {
-            let original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
             let shape = shape(problem, ident);
 
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&original_data), &shape, size_of::<P::EG>());
+            let handle = P::EG::sample::<R>(client, &shape, 1234);
+
+            let data = client.read_one(handle.handle.clone().binding());
+            let data = P::EG::from_bytes(&data);
+            let original_data = data.to_owned();
 
             TensorRawParts {
-                handle,
+                handle: handle.handle,
+                scale: None,
                 shape,
-                strides,
+                strides: handle.strides,
                 original_data: Some(original_data),
+                quant_params: None,
             }
         }
         Ident::Out => {
@@ -180,9 +188,11 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: None,
+                quant_params: None,
             }
         }
     }

@@ -6,9 +6,9 @@ use crate::matmul::components::global::load::{
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
+use crate::matmul::components::stage::{BufferReader, StageConfig};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -54,6 +54,17 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
+
+        // Check necessary for multi row.
+        let stage_n = config
+            .to_smm_config()
+            .tiling_dimensions(Ident::Rhs)
+            .tile_count_col();
+        if stage_n != config.num_planes() {
+            return Err(Box::new(
+                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row.",
+            ));
+        }
 
         SMM::check_config(&config.to_smm_config())
     }
@@ -143,8 +154,7 @@ where
         let num_loops = (num_stage_matmuls - 2) / 2;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
-        let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
-        let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
         let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
@@ -154,72 +164,62 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        sync_units();
+        sync_cube();
 
         for _ in 0..num_loops {
             SMM::execute_with_listener::<
-                DoubleBufferingEventListener<
-                    SyncBufferLoader<MP, Self::Config, LL>,
-                    SyncBufferLoader<MP, Self::Config, RL>,
-                    Self::Config,
-                >,
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_reader_a,
                 &rhs_reader_a,
-                &mut lhs_tile_a,
-                &mut rhs_tile_a,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
-            SyncBufferLoader::<MP, Self::Config, LL>::advance_view(&mut lhs_loader, loop_step);
-            SyncBufferLoader::<MP, Self::Config, RL>::advance_view(&mut rhs_loader, loop_step);
+            // We always advance by 2 * k because Buffer B shares the same global memory state as Buffer A,
+            // but it is implicitly offset by one buffer's worth (k elements) when reading.
+            Self::LhsLoader::advance_view(&mut lhs_loader, loop_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
-            sync_units();
+            sync_cube();
 
             SMM::execute_with_listener::<
-                DoubleBufferingEventListener<
-                    SyncBufferLoader<MP, Self::Config, LL>,
-                    SyncBufferLoader<MP, Self::Config, RL>,
-                    Self::Config,
-                >,
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_reader_b,
                 &rhs_reader_b,
-                &mut lhs_tile_b,
-                &mut rhs_tile_b,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
-            sync_units();
+            sync_cube();
         }
 
         SMM::execute_with_listener::<
-            DoubleBufferingEventListener<
-                SyncBufferLoader<MP, Self::Config, LL>,
-                SyncBufferLoader<MP, Self::Config, RL>,
-                Self::Config,
-            >,
+            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
         >(
             &lhs_reader_a,
             &rhs_reader_a,
-            &mut lhs_tile_a,
-            &mut rhs_tile_a,
+            &mut lhs_tile,
+            &mut rhs_tile,
             acc,
             config.to_smm_config(),
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
-        sync_units();
+        sync_cube();
 
         SMM::execute(
             &lhs_reader_b,
             &rhs_reader_b,
-            &mut lhs_tile_b,
-            &mut rhs_tile_b,
+            &mut lhs_tile,
+            &mut rhs_tile,
             acc,
             config.to_smm_config(),
         );
@@ -432,7 +432,7 @@ impl<
 
         comptime! {
             let step = 1u32;
-            let start = event_count_total - (step * num_tasks_total);
+            let start = event_count_total.saturating_sub(step * num_tasks_total);
 
             EventAnalysis {
                 lhs: lhs_num_task_executed * step + start,

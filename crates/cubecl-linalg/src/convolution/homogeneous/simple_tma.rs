@@ -86,7 +86,7 @@ where
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        sync_units();
+        sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(
             &mut acc_loader,
@@ -97,7 +97,7 @@ where
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.to_smm_config());
@@ -122,7 +122,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        sync_units();
+        sync_cube();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,

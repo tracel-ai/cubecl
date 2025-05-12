@@ -2,7 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout, TilingDimensions,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
+    TilingDimensions,
     config::MatmulConfig,
     global::{self, AccumulatorLoader},
     tile::TileConfig,
@@ -166,7 +167,7 @@ pub trait StageConfig: MatmulConfig {
 
     fn buffering(&self) -> StageBuffering;
 
-    fn num_stages(&self) -> u32;
+    fn num_stages(&self, ident: InputIdent) -> u32;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

@@ -382,7 +382,7 @@ pub fn reduce_tree<P: ReducePrecision, Inst: ReduceInstruction<P>>(
                 fuse_accumulator_inplace::<P, Inst>(inst, accumulator, destination, origin);
             }
             jump *= 2;
-            sync_units();
+            sync_cube();
         }
     } else {
         let mut num_remaining_items = size.runtime();
@@ -395,10 +395,10 @@ pub fn reduce_tree<P: ReducePrecision, Inst: ReduceInstruction<P>>(
             }
             num_remaining_items = div_ceil(num_remaining_items, 2);
             jump *= 2;
-            sync_units();
+            sync_cube();
         }
     }
-    sync_units();
+    sync_cube();
     Inst::SharedAccumulator::read(accumulator, 0)
 }
 

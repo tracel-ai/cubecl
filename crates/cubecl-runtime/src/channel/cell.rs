@@ -1,5 +1,7 @@
 use super::ComputeChannel;
-use crate::server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle};
+use crate::server::{
+    Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+};
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -71,23 +73,27 @@ where
         self.server.borrow_mut().create(resource)
     }
 
-    fn create_tensor(
+    fn create_tensors(
         &self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
         self.server
             .borrow_mut()
-            .create_tensor(data, shape, elem_size)
+            .create_tensors(data, shape, elem_size)
     }
 
     fn empty(&self, size: usize) -> Handle {
         self.server.borrow_mut().empty(size)
     }
 
-    fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        self.server.borrow_mut().empty_tensor(shape, elem_size)
+    fn empty_tensors(
+        &self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        self.server.borrow_mut().empty_tensors(shape, elem_size)
     }
 
     unsafe fn execute(
@@ -116,12 +122,12 @@ where
         self.server.borrow_mut().memory_cleanup();
     }
 
-    fn start_profile(&self) {
+    fn start_profile(&self) -> ProfilingToken {
         self.server.borrow_mut().start_profile()
     }
 
-    fn end_profile(&self) -> ProfileDuration {
-        self.server.borrow_mut().end_profile()
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
+        self.server.borrow_mut().end_profile(token)
     }
 }
 

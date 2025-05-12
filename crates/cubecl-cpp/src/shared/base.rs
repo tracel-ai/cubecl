@@ -285,7 +285,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
             gpu::Operation::Synchronization(val) => match val {
-                gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
+                gpu::Synchronization::SyncCube => instructions.push(Instruction::SyncThreads),
+                gpu::Synchronization::SyncPlane => instructions.push(Instruction::SyncWarp),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncProxyShared => {
                     self.flags.inst_tma = true;

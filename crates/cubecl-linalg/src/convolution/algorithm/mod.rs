@@ -22,7 +22,12 @@ pub mod simple;
 pub mod simple_tma;
 
 pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
-pub type StageInput = (CompleteStageTiling, StageBuffering, StageVectorization, u32);
+pub type StageInput = (
+    CompleteStageTiling,
+    StageBuffering,
+    StageVectorization,
+    (u32, u32),
+);
 
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
@@ -34,7 +39,7 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
-    fn num_stages() -> u32;
+    fn num_stages() -> (u32, u32);
 
     fn multi_row_strategy() -> MultiRowStrategy {
         MultiRowStrategy::Never

@@ -94,7 +94,9 @@ pub mod config {
 
     use crate::{
         convolution::{ConvGemmConfig, base::Dimensionality},
-        matmul::components::{MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig},
+        matmul::components::{
+            InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig,
+        },
     };
 
     use super::*;
@@ -161,7 +163,7 @@ pub mod config {
             self.matmul.precompute_job()
         }
 
-        fn num_stages(&self) -> u32 {
+        fn num_stages(&self, _ident: InputIdent) -> u32 {
             self.num_stages
         }
     }

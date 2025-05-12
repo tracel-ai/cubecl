@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global;
 use crate::matmul::components::global::tensor_view::TensorWriter;
 use crate::matmul::components::global::tilewise_unloading::TilewiseUnloading;
+use crate::matmul::components::global::{self, unit_unloading::UnitUnloading};
 use crate::matmul::components::stage::StageWriter;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
@@ -44,12 +44,19 @@ impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
         tile_col: u32,
         #[comptime] config: G,
     ) {
-        TilewiseUnloading::unload_from_slice::<EG, ES, G>(
+        UnitUnloading::unload_from_slice::<EG, ES, G>(
             &mut this.tensor_view,
             slice,
             tile_row,
             tile_col,
             config,
         );
+        // TilewiseUnloading::unload_from_slice::<EG, ES, G>(
+        //     &mut this.tensor_view,
+        //     slice,
+        //     tile_row,
+        //     tile_col,
+        //     config,
+        // );
     }
 }

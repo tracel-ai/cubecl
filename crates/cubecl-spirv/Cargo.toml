@@ -30,11 +30,12 @@ half = { workspace = true }
 
 hashbrown = { workspace = true }
 rspirv = "0.12"
+rspirv-ext = "0.1"
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "0.6.0" }
 
 [dev-dependencies]
 cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }

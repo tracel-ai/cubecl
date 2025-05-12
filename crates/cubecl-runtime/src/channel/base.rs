@@ -1,7 +1,9 @@
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use crate::{
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::vec::Vec;
@@ -28,14 +30,22 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn create(&self, data: &[u8]) -> Handle;
 
     /// Given a resource as bytes and a shape, stores it and returns the tensor handle
-    fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize)
-    -> (Handle, Vec<usize>);
+    fn create_tensors(
+        &self,
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them
     fn empty(&self, size: usize) -> Handle;
 
     /// Reserves a tensor with `shape` in the storage, and returns a handle to it
-    fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>);
+    fn empty_tensors(
+        &self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Executes the `kernel` over the given `bindings`.
     ///
@@ -66,10 +76,10 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// This function will handle any required synchronization.
     ///
     /// Recursive profiling is not allowed and will panic.
-    fn start_profile(&self);
+    fn start_profile(&self) -> ProfilingToken;
 
     /// End the profile and return a [`ProfileDuration`].
     ///
     /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
-    fn end_profile(&self) -> ProfileDuration;
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration;
 }

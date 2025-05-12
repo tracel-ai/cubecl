@@ -4,7 +4,7 @@ use cubecl_core::{
     CubeElement, Feature, Runtime,
     client::ComputeClient,
     flex32,
-    prelude::{Float, Numeric},
+    prelude::{CubePrimitive, Float, Numeric},
     server::{self},
     tf32,
 };
@@ -13,7 +13,7 @@ pub use cubecl_std::SymQ8;
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem},
+        components::{Ident, MatmulPrecision, MatmulProblem},
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
@@ -28,16 +28,21 @@ pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
     type ES: Numeric + Display + CastInto<Self::EA>;
     type EA: Numeric + Display + CastInto<Self::EG>;
+    type MP: MatmulPrecision;
     const QUANTIZED: bool;
 
     fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
 
+    #[allow(clippy::too_many_arguments)]
     fn assert_result<R: Runtime>(
         lhs: &[Self::EG],
+        lhs_quant: Option<(f32, i32)>,
         rhs: &[Self::EG],
+        rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
+        out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     );
@@ -45,13 +50,14 @@ pub trait TestPrecision {
 
 impl<EG, ES> TestPrecision for (EG, ES)
 where
-    EG: Float + CubeElement + Display + CastInto<ES> + Sample,
+    EG: Float + CubeElement + Display + CastInto<ES> + Sample + MatmulPrecision,
     ES: Numeric + Display + CastInto<f32>,
     f32: CastInto<EG>,
 {
     type EG = EG;
     type ES = ES;
     type EA = f32;
+    type MP = EG;
     const QUANTIZED: bool = false;
 
     fn quantization_params(_: Ident) -> Option<QuantizationParams<Self::EG>> {
@@ -60,10 +66,13 @@ where
 
     fn assert_result<R: Runtime>(
         lhs: &[EG],
+        _lhs_quant: Option<(f32, i32)>,
         rhs: &[EG],
+        _rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
+        _out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     ) {
@@ -122,23 +131,27 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
+    println!("{:?}", actual);
+    println!("{:?}", expected);
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        // account for lower precision at higher values
-        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        println!("i {:?}, a {:?}, e {:?}", i, a, e);
 
-        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
-            return Err(format!(
-                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-                i,
-                *a,
-                *e,
-                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-                epsilon
-            ));
-        }
+        // account for lower precision at higher values
+        // let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+
+        // if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
+        //     return Err(format!(
+        //         "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+        //         i,
+        //         *a,
+        //         *e,
+        //         f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
+        //         epsilon
+        //     ));
+        // }
     }
 
-    // return Err("".to_string());
+    return Err("".to_string());
 
     Ok(())
 }
@@ -150,6 +163,7 @@ impl TestPrecision for SymQ8 {
     type EG = u8;
     type ES = u16;
     type EA = i32;
+    type MP = SymQ8;
 
     const QUANTIZED: bool = true;
 
@@ -174,10 +188,13 @@ impl TestPrecision for SymQ8 {
 
     fn assert_result<R: Runtime>(
         lhs: &[u8],
+        lhs_quant: Option<(f32, i32)>,
         rhs: &[u8],
+        rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
+        out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     ) {
@@ -188,9 +205,9 @@ impl TestPrecision for SymQ8 {
         ));
         let out = u8::from_bytes(&out);
 
-        let (lhs_scaling, lhs_offset) = read_quantized_metadata(lhs);
-        let (rhs_scaling, rhs_offset) = read_quantized_metadata(rhs);
-        let (out_scaling, out_offset) = read_quantized_metadata(out);
+        let (lhs_scaling, lhs_offset) = lhs_quant.unwrap();
+        let (rhs_scaling, rhs_offset) = rhs_quant.unwrap();
+        let (out_scaling, out_offset) = out_quant.unwrap();
 
         // TODO Move to some better place and wrap into a function.
         let scaling_factor = (lhs_scaling * rhs_scaling) / out_scaling;
@@ -236,25 +253,6 @@ impl ApproxScaling {
         let prod_with_rounding = prod + self.rounding;
         (prod_with_rounding >> self.shift) as i32
     }
-}
-
-fn read_quantized_metadata(data: &[u8]) -> (f32, i32) {
-    let start = data.len() - 8;
-    let scaling = f32::from_be_bytes([
-        data[start],
-        data[start + 1],
-        data[start + 2],
-        data[start + 3],
-    ]);
-
-    let start = data.len() - 4;
-    let offset = i32::from_be_bytes([
-        data[start],
-        data[start + 1],
-        data[start + 2],
-        data[start + 3],
-    ]);
-    (scaling, offset)
 }
 
 pub trait CastInto<E> {
@@ -357,8 +355,12 @@ impl CastInto<u8> for i32 {
     }
 }
 
-pub trait Sample: Sized {
-    fn sample(num_elements: usize, seed: u64) -> Vec<Self>;
+pub trait Sample: Sized + CubePrimitive {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self>;
 }
 
 macro_rules! sample_float {
@@ -366,17 +368,13 @@ macro_rules! sample_float {
         $(
             impl Sample for $t
             {
-                fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
-                    fn lcg(seed: &mut u64) -> f32 {
-                        const A: u64 = 1664525;
-                        const C: u64 = 1013904223;
-                        const M: f64 = 2u64.pow(32) as f64;
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
+                    cubecl_random::seed(seed);
+                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                        *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
-                        (*seed as f64 / M * 2.0 - 1.0) as f32
-                    }
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
 
-                    (0..num_elements).map(|_| <$t as Float>::new(lcg(&mut seed))).collect()
+                    output
                 }
             }
         )*
@@ -385,23 +383,47 @@ macro_rules! sample_float {
 
 sample_float!(half::f16);
 sample_float!(half::bf16);
-sample_float!(flex32);
 sample_float!(f32);
-sample_float!(tf32);
 sample_float!(f64);
+sample_float!(u8);
 
-impl Sample for u8 {
-    fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
-        fn lcg(seed: &mut u64) -> u8 {
-            const A: u64 = 1664525;
-            const C: u64 = 1013904223;
-            const M: u64 = 2u64.pow(32);
+impl Sample for flex32 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
 
-            *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % M;
-            (*seed % 4) as u8
-        }
+        cubecl_random::random_uniform::<R, f32>(
+            &client,
+            f32::from_int(-1),
+            f32::from_int(1),
+            output.as_ref(),
+        );
 
-        (0..num_elements).map(|_| lcg(&mut seed)).collect()
+        output
+    }
+}
+
+impl Sample for tf32 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+
+        cubecl_random::random_uniform::<R, f32>(
+            &client,
+            f32::from_int(-1),
+            f32::from_int(1),
+            output.as_ref(),
+        );
+
+        output
     }
 }
 
@@ -614,9 +636,6 @@ impl MatmulTestCase {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = F::sample(shape.iter().product(), 999);
-        let (handle, strides) =
-            client.create_tensor(bytemuck::cast_slice(&data), &shape, size_of::<F>());
-        TensorHandle::new(handle, shape, strides)
+        F::sample::<R>(client, &shape, 999)
     }
 }

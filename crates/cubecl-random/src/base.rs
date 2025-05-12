@@ -15,10 +15,10 @@ pub fn seed(seed: u64) {
 }
 
 /// Pseudo-random generator
-pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
+pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    prng: P,
-    output: &mut TensorHandleRef<'_, R>,
+    prng: F::Runtime<E>,
+    output: TensorHandleRef<'_, R>,
 ) {
     let seeds = get_seeds();
     let args = prng.args();
@@ -26,9 +26,19 @@ pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
     let cube_dim = CubeDim::default();
     let cube_count = prng_cube_count(output.size(), cube_dim, N_VALUES_PER_THREAD);
 
-    let output = output.as_tensor_arg(1);
+    let output_line_size = 1;
+    // TODO: Higher vectorization can add some correlation locally.
+    //
+    // let output_line_size = tensor_line_size_parallel(
+    //     R::line_size_elem(&E::as_elem_native_unchecked()),
+    //     output.shape,
+    //     output.strides,
+    //     output.strides.len() - 1,
+    // );
 
-    prng_kernel::launch::<P, E, R>(
+    let output = output.as_tensor_arg(output_line_size);
+
+    prng_kernel::launch::<F, E, R>(
         client,
         cube_count,
         cube_dim,
@@ -39,6 +49,7 @@ pub(crate) fn random<P: PrngRuntime<E>, R: Runtime, E: CubeElement + Numeric>(
         ScalarArg::new(seeds[3]),
         args,
         N_VALUES_PER_THREAD as u32,
+        output_line_size as u32,
     );
 }
 
@@ -66,43 +77,49 @@ pub(crate) fn get_seeds() -> [u32; 4] {
     seeds.try_into().unwrap()
 }
 
-pub(crate) trait PrngArgs<E: CubeElement>: Send + Sync + 'static {
+pub(crate) trait PrngArgs<E: Numeric>: Send + Sync + 'static {
     type Args: LaunchArg;
 
     fn args<'a, R: Runtime>(self) -> <Self::Args as LaunchArg>::RuntimeArg<'a, R>;
 }
 
+pub(crate) trait RandomFamily: Send + Sync + 'static + std::fmt::Debug {
+    type Runtime<E: Numeric>: PrngRuntime<E>;
+}
+
 #[cube]
-pub(crate) trait PrngRuntime<E: CubeElement + CubeType>:
-    Send + Sync + 'static + PrngArgs<E>
-{
+pub(crate) trait PrngRuntime<E: Numeric>: Send + Sync + 'static + PrngArgs<E> {
     #[allow(clippy::too_many_arguments)]
     fn inner_loop(
         args: Self::Args,
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
+        #[comptime] line_size: u32,
         state_0: &mut u32,
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut Tensor<E>,
+        output: &mut Tensor<Line<E>>,
     );
 }
 
+type Args<F, E> = <<F as RandomFamily>::Runtime<E> as PrngArgs<E>>::Args;
+
 #[cube(launch)]
-fn prng_kernel<P: PrngRuntime<E>, E: CubeElement + Numeric>(
-    output: &mut Tensor<E>,
+fn prng_kernel<F: RandomFamily, E: Numeric>(
+    output: &mut Tensor<Line<E>>,
     seed_0: u32,
     seed_1: u32,
     seed_2: u32,
     seed_3: u32,
-    args: P::Args,
+    args: Args<F, E>,
     #[comptime] n_values_per_thread: u32,
+    #[comptime] line_size: u32,
 ) {
     let cube_offset = CUBE_POS * CUBE_DIM;
 
-    let write_index_base = cube_offset * n_values_per_thread + UNIT_POS;
+    let write_index_base = cube_offset * n_values_per_thread / line_size + UNIT_POS;
 
     #[allow(arithmetic_overflow)]
     let thread_seed = 1000000007u32 * ABSOLUTE_POS;
@@ -113,11 +130,12 @@ fn prng_kernel<P: PrngRuntime<E>, E: CubeElement + Numeric>(
     let mut state_3 = thread_seed + seed_3;
 
     // Creation of n_values_per_thread values, specific to the distribution
-    P::inner_loop(
+    F::Runtime::inner_loop(
         args,
         write_index_base,
         CUBE_DIM,
         n_values_per_thread,
+        line_size,
         &mut state_0,
         &mut state_1,
         &mut state_2,

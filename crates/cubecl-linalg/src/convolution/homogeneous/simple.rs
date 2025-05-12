@@ -58,7 +58,7 @@ where
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
-        SyncFullLoader<MP, SMM::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
+        SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Out = Unloader<MP::EO>;
@@ -82,7 +82,7 @@ where
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        sync_units();
+        sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(
             &mut acc_loader,
@@ -91,15 +91,15 @@ where
         );
 
         for _ in 0..num_loops {
-            sync_units();
+            sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config.to_matmul_config());
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
-            sync_units();
+            sync_cube();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -114,7 +114,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        sync_units();
+        sync_cube();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
@@ -141,7 +141,7 @@ where
         _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
+        Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,

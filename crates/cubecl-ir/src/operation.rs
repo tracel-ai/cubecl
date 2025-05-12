@@ -148,7 +148,7 @@ impl Display for Operation {
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Copy(variable) => write!(f, "{}", variable),
+            Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),

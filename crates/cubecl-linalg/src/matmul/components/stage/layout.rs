@@ -29,9 +29,72 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
 }
 
 #[derive(CubeType, Clone, Copy)]
+/// Tiles laid out in row-major order.
+///
+/// Each tile is contiguous, and tiles are placed side by side,
+/// row by row (left to right, top to bottom).
+/// Example tile indices:
+///
+/// ```text
+/// ┌───┬───┐
+/// │ 0 │ 1 │
+/// ├───┼───┤
+/// │ 2 │ 3 │
+/// ├───┼───┤
+/// │ 4 │ 5 │
+/// ├───┼───┤
+/// │ 6 │ 7 │
+/// └───┴───┘
+/// ```
 pub struct RowMajorTilingOrder {}
+
 #[derive(CubeType, Clone, Copy)]
+/// Tiles laid out in column-major order.
+///
+/// Each tile is contiguous, and tiles are placed top to bottom,
+/// column by column (like reading columns left to right).
+///
+/// Example tile indices:
+///
+/// ```text
+/// ┌───┬───┐
+/// │ 0 │ 4 │
+/// ├───┼───┤
+/// │ 1 │ 5 │
+/// ├───┼───┤
+/// │ 2 │ 6 │
+/// ├───┼───┤
+/// │ 3 │ 7 │
+/// └───┴───┘
+/// ```
 pub struct ColMajorTilingOrder {}
+
+#[derive(CubeType, Clone, Copy)]
+/// Tiles are laid out in column-major order across a fixed number of rows,
+/// with all tiles from those rows placed contiguously side by side.
+///
+/// The grouping should match the set of tiles processed by a warp,
+/// so warp-local tile memory remains contiguous.
+///
+/// This layout ensures that for Lhs data, all tiles needed for a given
+/// `k` iteration are stored contiguously, before moving to the next iteration.
+///
+/// Note: use only for Lhs
+///
+/// Example tile indices for 4 rows grouped 2 at a time:
+///
+/// ```text
+/// ┌───┬───┐
+/// │ 0 │ 2 │
+/// ├───┼───┤
+/// │ 1 │ 3 │
+/// ├───┼───┤
+/// │ 4 │ 6 │
+/// ├───┼───┤
+/// │ 5 │ 7 │
+/// └───┴───┘
+/// ```
+pub struct OrderedTilingOrder {}
 
 #[cube]
 impl TilingOrder for RowMajorTilingOrder {
@@ -76,6 +139,55 @@ impl TilingOrder for ColMajorTilingOrder {
         #[comptime] _config: C,
     ) -> u32 {
         col * tile_count_rows + row
+    }
+}
+
+#[cube]
+impl TilingOrder for OrderedTilingOrder {
+    fn to_row_col<C: StageConfig>(
+        nth: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: C,
+    ) -> (u32, u32) {
+        if Ident::Lhs != ident {
+            panic!("Ordered tiling order should be used only on Lhs")
+        }
+
+        let group_rows = tile_count_rows / config.num_planes();
+        let tiles_per_group = group_rows * tile_count_cols;
+
+        let group = nth / tiles_per_group;
+        let pos_within_group = nth % tiles_per_group;
+
+        let local_row = pos_within_group % group_rows;
+        let row = group * group_rows + local_row;
+        let col = pos_within_group / group_rows;
+
+        (row, col)
+    }
+
+    fn to_nth_tile<C: StageConfig>(
+        row: u32,
+        col: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: C,
+    ) -> u32 {
+        if Ident::Lhs != ident {
+            panic!("Ordered tiling order should be used only on Lhs")
+        }
+
+        let group_rows = tile_count_rows / config.num_planes();
+        let group = row / group_rows;
+
+        let local_row = row % group_rows;
+        let tiles_per_group = group_rows * tile_count_cols;
+        let pos_within_group = col * group_rows + local_row;
+
+        group * tiles_per_group + pos_within_group
     }
 }
 
@@ -136,7 +248,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                     let y_tile_offset = tiling_dimensions.tile_count_col() * buffer_index;
                     let total_tile_count_x = tiling_dimensions.tile_count_row();
                     let total_tile_count_y =
-                        tiling_dimensions.tile_count_col() * config.num_stages();
+                        tiling_dimensions.tile_count_col() * config.num_stages(InputIdent::Lhs);
                     (
                         x_tile_offset,
                         y_tile_offset,
@@ -148,7 +260,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                     let x_tile_offset = tiling_dimensions.tile_count_row() * buffer_index;
                     let y_tile_offset = 0;
                     let total_tile_count_x =
-                        tiling_dimensions.tile_count_row() * config.num_stages();
+                        tiling_dimensions.tile_count_row() * config.num_stages(InputIdent::Rhs);
                     let total_tile_count_y = tiling_dimensions.tile_count_col();
                     (
                         x_tile_offset,
@@ -234,7 +346,7 @@ impl TilingLayout for StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        if config.num_stages() > 1 {
+        if comptime!(config.num_stages(ident.as_input_ident()) > 1) {
             unimplemented!()
         }
 

@@ -1,12 +1,13 @@
-/// Checks if the tensor associated with the given strides is contiguous.
-pub fn is_contiguous(strides: &[usize]) -> bool {
-    let mut current = 1;
+/// Checks if the tensor associated with the given shape and strides is contiguous.
+pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
+    if shape.is_empty() {
+        return true;
+    }
 
-    for stride in strides.iter().rev() {
-        if current > *stride {
+    for (expected, &stride) in compact_strides(shape).into_iter().zip(strides) {
+        if expected != stride {
             return false;
         }
-        current = *stride;
     }
 
     true

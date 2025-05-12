@@ -61,7 +61,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let config = match A::make_config(input, &problem, &cube_dim, &cube_count, P::QUANTIZED) {
         Ok(config) => config,
         Err(err) => {
-            let msg = format!("Can't launch the test: {:?}", err);
+            let msg = format!("Can't launch the test: {err:?}");
             if panic_on_launch_err {
                 panic!("{msg}");
             } else {
@@ -72,7 +72,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     };
 
     if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
-        let msg = format!("Skipped - not supported: {:?}", err);
+        let msg = format!("Skipped - not supported: {err:?}");
         if panic_on_launch_err {
             panic!("{msg}")
         } else {
@@ -98,7 +98,8 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         runtime: PhantomData,
     };
 
-    let inputs = TensorMapInputs::create(&lhs_handle, &rhs_handle, &selection, &problem);
+    let inputs =
+        TensorMapInputs::create(&lhs_handle, &None, &rhs_handle, &None, &selection, &problem);
     let output = unsafe {
         TensorArg::<R>::from_raw_parts::<P::EG>(
             &out.handle,
@@ -122,10 +123,13 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     P::assert_result::<R>(
         &lhs.original_data.unwrap(),
+        lhs.quant_params,
         &rhs.original_data.unwrap(),
+        rhs.quant_params,
         &problem,
         &client,
         out.handle,
+        out.quant_params,
         &out.shape,
         &out.strides,
     );
@@ -138,15 +142,14 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
-
-            if let Some(params) = P::quantization_params(Ident::Lhs) {
-                original_data.extend_from_slice(&params.scaling);
-                let zero = P::EG::from_int(0);
-                original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
-            }
-
             let mut shape = shape(problem, ident);
+
+            let handle = P::EG::sample::<R>(client, &shape, 1234);
+
+            let data = client.read_one(handle.handle.binding());
+            let data = P::EG::from_bytes(&data);
+            let original_data = data.to_owned();
+
             let rank = shape.len();
 
             let data = match problem.lhs_layout {
@@ -167,21 +170,22 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: Some(original_data),
+                quant_params: None,
             }
         }
         Ident::Rhs => {
-            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
-
-            if let Some(params) = P::quantization_params(Ident::Rhs) {
-                original_data.extend_from_slice(&params.scaling);
-                let zero = P::EG::from_int(0);
-                original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
-            }
-
             let mut shape = shape(problem, ident);
+
+            let handle = P::EG::sample::<R>(client, &shape, 5678);
+
+            let data = client.read_one(handle.handle.binding());
+            let data = P::EG::from_bytes(&data);
+            let original_data = data.to_owned();
+
             let rank = shape.len();
 
             let data = match problem.rhs_layout {
@@ -202,29 +206,28 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: Some(original_data),
+                quant_params: None,
             }
         }
         Ident::Out => {
             let zero = P::EG::from_int(0);
 
-            let mut data = vec![zero; tensor_size(problem, Ident::Out)];
-
-            if let Some(params) = P::quantization_params(Ident::Out) {
-                data.extend_from_slice(&params.scaling);
-                data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
-            }
+            let data = vec![zero; tensor_size(problem, Ident::Out)];
 
             let shape = shape(problem, Ident::Out);
             let (handle, strides) =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {
                 handle,
+                scale: None,
                 shape,
                 strides,
                 original_data: None,
+                quant_params: None,
             }
         }
     }

@@ -131,7 +131,7 @@ fn shared_sum_kernel<N: Numeric>(
     let line = sum_shared_memory(&mut shared_memory);
 
     // Sum all the elements within the line.
-    let mut sum = RuntimeCell::<N>::new(N::from_int(0));
+    let sum = RuntimeCell::<N>::new(N::from_int(0));
     #[unroll]
     for k in 0..line_size {
         let update = line[k] + sum.read();
@@ -149,7 +149,7 @@ fn shared_sum_kernel<N: Numeric>(
 // Here we assume that `CUBE_DIM` is always a power of two.
 #[cube]
 fn sum_shared_memory<N: Numeric>(accumulator: &mut SharedMemory<Line<N>>) -> Line<N> {
-    sync_units();
+    sync_cube();
     let mut num_active_units = CUBE_DIM;
     let mut jump = 1;
     while num_active_units > 1 {
@@ -161,7 +161,7 @@ fn sum_shared_memory<N: Numeric>(accumulator: &mut SharedMemory<Line<N>>) -> Lin
             accumulator[destination] += element;
         }
         jump *= 2;
-        sync_units();
+        sync_cube();
     }
     accumulator[0]
 }

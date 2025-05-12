@@ -1,7 +1,7 @@
-use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
+use std::{ffi::CStr, mem::MaybeUninit};
 
 use cubecl_cpp::{
-    hip::HipDialect,
+    hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
     shared::{
         Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_wmma_features,
@@ -23,7 +23,7 @@ use cubecl_runtime::{
 
 use crate::{
     HipWmmaCompiler,
-    compute::{HipContext, HipServer, HipStorage},
+    compute::{HipContext, HipServer, HipStorage, contiguous_strides},
     device::HipDevice,
 };
 
@@ -81,7 +81,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_cube_dim.z = ll_device_props.maxThreadsDim[2] as u32;
     };
     let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
-    let arch = M::Architecture::from_str(normalized_arch_name).unwrap();
+    let arch = AMDArchitecture::parse(normalized_arch_name).unwrap();
     assert_eq!(prop_warp_size as u32, arch.warp_size());
 
     unsafe {
@@ -147,6 +147,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+    device_props.register_feature(Feature::SyncPlane);
 
     device_props.register_feature(Feature::DynamicLineSize);
 
@@ -193,5 +194,19 @@ impl Runtime for HipRuntime {
 
     fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
         DeviceId::new(0, device.index as u32)
+    }
+
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+        if shape.is_empty() {
+            return true;
+        }
+
+        for (expected, &stride) in contiguous_strides(shape).into_iter().zip(strides) {
+            if expected != stride {
+                return false;
+            }
+        }
+
+        true
     }
 }

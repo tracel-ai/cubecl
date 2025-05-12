@@ -8,7 +8,6 @@ use crate::shared::{
 };
 use crate::{
     Dialect,
-    cuda::CudaDialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
         DialectWmmaCompiler, Flags, Item,
@@ -16,6 +15,7 @@ use crate::{
 };
 
 use super::Extension;
+use super::arch::AMDArchitecture;
 use super::extension::{format_f162bf16, format_max, format_min};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -25,7 +25,9 @@ pub struct HipDialect<M> {
 
 // Base dialect
 
-impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {}
+impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {
+    type Architecture = AMDArchitecture;
+}
 
 // Includes
 
@@ -242,9 +244,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
             f,
             "
 
-extern \"C\" __global__ void {}(
-",
-            kernel_name
+extern \"C\" __global__ void {kernel_name}(
+"
         )?;
         shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
         shared::compile_scalars_dynamic::<Self>(f, scalars)?;
@@ -259,13 +260,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {
 // Instructions
 
 impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
-    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaDialect::compile_instruction_sync_threads(f)
+        writeln!(f, "__syncthreads();\n")
+    }
+
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "__syncwarp();\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        CudaDialect::compile_instruction_thread_fence(f)
+        writeln!(f, "__threadfence();")
     }
 
     // unary
@@ -391,8 +395,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
-    type Architecture = M::Architecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         M::compile_wmma_includes(f)
     }
@@ -401,40 +403,47 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
         M::compile_wmma_type_definitions(f)
     }
 
-    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_local_variables(f)
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::compile_wmma_local_variables(f)
     }
 
-    fn compile_fragment_ident(
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &Variable<Self>,
+    ) -> std::fmt::Result {
+        M::compile_wmma_fragment_declaration(f, var)
+    }
+
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &crate::shared::FragmentIdent<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        M::compile_fragment_ident(ident, f)
+        M::compile_wwma_fragment_ident(f, ident)
     }
 
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &crate::shared::FragmentLayout<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        M::compile_fragment_layout(layout, f)
+        M::compile_wmma_fragment_layout(f, layout)
     }
 
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &crate::shared::Fragment<Self>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        M::compile_fragment(fragment, f)
+        M::compile_wmma_fragment(f, fragment)
     }
 
-    fn compile_instruction(
-        instruction: &crate::shared::WmmaInstruction<Self>,
+    fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
+        instruction: &crate::shared::WmmaInstruction<Self>,
     ) -> std::fmt::Result {
-        M::compile_instruction(instruction, f)
+        M::compile_wmma_instruction(f, instruction)
     }
 
     fn supported_wmma_combinations(
-        arch: &Self::Architecture,
+        arch: &AMDArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
     }

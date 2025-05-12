@@ -1,6 +1,6 @@
 use crate::matmul::{
     components::{
-        Ident, MatmulConfig, MatrixLayout, TilingDimensions,
+        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
         global::GlobalConfig,
         stage::{self},
     },
@@ -82,7 +82,7 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         self.precompute_job.into()
     }
 
-    fn num_stages(&self) -> u32 {
+    fn num_stages(&self, _ident: InputIdent) -> u32 {
         2
     }
 }

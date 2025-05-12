@@ -176,6 +176,7 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     SyncThreads,
+    SyncWarp,
     ThreadFence,
     ProxySharedFence,
     BulkCommitGroup,
@@ -251,7 +252,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
             Instruction::DeclareVariable { var } => match var {
-                Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
+                Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
                 _ => {
                     let item = var.item();
                     writeln!(f, "{item} {var};")
@@ -516,6 +517,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 out,
             } => Clamp::format(f, input, min_value, max_value, out),
             Instruction::SyncThreads => D::compile_instruction_sync_threads(f),
+            Instruction::SyncWarp => D::compile_instruction_sync_warp(f),
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
             Instruction::Round(it) => Round::format(f, &it.input, &it.out),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),

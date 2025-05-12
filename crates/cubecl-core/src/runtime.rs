@@ -45,6 +45,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the maximum cube count on each dimension that can be launched.
     fn max_cube_count() -> (u32, u32, u32);
+
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).
@@ -76,6 +78,8 @@ pub enum Feature {
     CubeCluster,
     /// Enables to change the line size of containers during kernel execution.
     DynamicLineSize,
+    /// Enables synchronization within a plane only
+    SyncPlane,
 }
 
 /// Atomic features that may be supported by a [cube runtime](Runtime).

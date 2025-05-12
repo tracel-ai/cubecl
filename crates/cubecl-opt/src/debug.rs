@@ -56,7 +56,7 @@ impl Display for Optimizer {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;
             }
             let live_vars = liveness.at_block(node).iter();
-            let live_vars = live_vars.map(|it| format!("local({})", it));
+            let live_vars = live_vars.map(|it| format!("local({it})"));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
 

@@ -30,6 +30,7 @@ pub trait Dialect:
     + Hash
     + 'static
 {
+    type Architecture: Architecture;
 }
 
 // Includes
@@ -502,7 +503,7 @@ pub trait DialectInstructions<D: Dialect> {
         let elem = input.elem();
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}(log1p(float({input})))", elem)
+                write!(f, "{elem}(log1p(float({input})))")
             }
             _ => write!(f, "log1p({input})"),
         }
@@ -510,6 +511,7 @@ pub trait DialectInstructions<D: Dialect> {
 
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     // trigo
@@ -520,7 +522,7 @@ pub trait DialectInstructions<D: Dialect> {
         let elem = input.elem();
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}(tanh(float({input})))", elem)
+                write!(f, "{elem}(tanh(float({input})))")
             }
             _ => write!(f, "tanh({input})"),
         }
@@ -640,26 +642,28 @@ pub trait DialectInstructions<D: Dialect> {
 pub trait DialectWmmaCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
-    type Architecture: Architecture;
-
     fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_fragment_ident(
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_wmma_fragment_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &Variable<D>,
+    ) -> std::fmt::Result;
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
         ident: &FragmentIdent<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn compile_fragment_layout(
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
         layout: &FragmentLayout<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn compile_fragment(
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
         fragment: &Fragment<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn compile_instruction(
+    fn compile_wmma_instruction(
+        f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result;
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations;
+    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
 }

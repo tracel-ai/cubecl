@@ -9,11 +9,16 @@ mod runtime;
 pub use device::*;
 pub use runtime::*;
 
+#[cfg(feature = "ptx-wmma")]
+pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
+#[cfg(not(feature = "ptx-wmma"))]
+pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
+
 #[cfg(test)]
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
-    pub use cubecl_core::tf32;
+
     pub use half::{bf16, f16};
 
     cubecl_core::testgen_all!(f32: [f16, bf16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
