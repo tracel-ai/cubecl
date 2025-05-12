@@ -669,7 +669,11 @@ impl CudaContext {
         let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
         let cube_dim = kernel_compiled.cube_dim;
         let fast_math = compute_kernel.flags.inst_fast_math;
-        let arch = format!("--gpu-architecture=sm_{}", self.arch);
+        let arch = if self.arch.version >= 90 {
+            format!("--gpu-architecture=sm_{}a", self.arch)
+        } else {
+            format!("--gpu-architecture=sm_{}", self.arch)
+        };
 
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
@@ -862,6 +866,11 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
     match elem {
         Elem::Float(kind) => match kind {
+            FloatKind::E2M1 | FloatKind::E2M3 | FloatKind::E3M2 => {
+                todo!("Needs more complex handling and CUDA 12.8")
+            }
+            // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
+            FloatKind::E4M3 | FloatKind::E5M2 | FloatKind::UE8M0 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             FloatKind::F16 => CU_TENSOR_MAP_DATA_TYPE_FLOAT16,
             FloatKind::BF16 => CU_TENSOR_MAP_DATA_TYPE_BFLOAT16,
             FloatKind::Flex32 | FloatKind::F32 => CU_TENSOR_MAP_DATA_TYPE_FLOAT32,
@@ -869,7 +878,9 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
             FloatKind::F64 => CU_TENSOR_MAP_DATA_TYPE_FLOAT64,
         },
         Elem::Int(kind) => match kind {
-            IntKind::I8 | IntKind::I16 => unimplemented!("Not supported for tensor map type"),
+            // UInt is fine because zero bits and size is the same between both
+            IntKind::I8 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
+            IntKind::I16 => CU_TENSOR_MAP_DATA_TYPE_UINT16,
             IntKind::I32 => CU_TENSOR_MAP_DATA_TYPE_INT32,
             IntKind::I64 => CU_TENSOR_MAP_DATA_TYPE_INT64,
         },

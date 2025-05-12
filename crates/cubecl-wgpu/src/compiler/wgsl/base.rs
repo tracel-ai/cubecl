@@ -295,15 +295,22 @@ impl Display for Variable {
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, _) => write!(f, "{}", *val),
                 ConstantScalarValue::Float(val, kind) => match kind {
-                    FloatKind::BF16 | FloatKind::TF32 => {
+                    FloatKind::BF16
+                    | FloatKind::TF32
+                    | FloatKind::E2M1
+                    | FloatKind::E2M3
+                    | FloatKind::E3M2
+                    | FloatKind::E4M3
+                    | FloatKind::E5M2
+                    | FloatKind::UE8M0 => {
                         todo!("Unsupported")
                     }
                     FloatKind::F16 => f.write_str(&format_number(*val, "h")),
                     FloatKind::F32 | FloatKind::Flex32 => f.write_str(&format_number(*val, "f")),
                     FloatKind::F64 => f.write_str(&format_number(*val, "lf")),
                 },
-                ConstantScalarValue::UInt(val, UIntKind::U32) => write!(f, "{}u", *val),
-                ConstantScalarValue::UInt(val, UIntKind::U64) => write!(f, "{}lu", *val),
+                ConstantScalarValue::UInt(val, UIntKind::U32) => write!(f, "{val}u"),
+                ConstantScalarValue::UInt(val, UIntKind::U64) => write!(f, "{val}lu"),
                 ConstantScalarValue::UInt(_, _) => unimplemented!("Unsupported"),
                 ConstantScalarValue::Bool(val) => write!(f, "{val}"),
             },
