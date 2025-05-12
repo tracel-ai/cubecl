@@ -1,3 +1,5 @@
+use crate::matmul::kernels::matmul::NUM_SM_APPROX;
+
 use super::TensorHandle;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
@@ -190,60 +192,13 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     input: &TensorHandleRef<'_, R>,
 ) -> TensorHandle<R, E> {
     let num_elems: usize = input.shape.iter().product();
-    // Vectorization is only enabled when the last dimension is contiguous.
-    let rank = input.strides.len();
-    let vectorization_factor = tensor_line_size_parallel(
-        R::supported_line_sizes().iter().cloned(),
-        input.shape,
-        input.strides,
-        rank - 1,
-    );
-    let num_vecs = num_elems / vectorization_factor as usize;
-    let approx_sm = 64;
-    let approx_simul_vecs = approx_sm * CubeDim::default().num_elems();
-    let elems_per_unit = match num_vecs as u32 / approx_simul_vecs {
-        0..2 => 1,
-        2..4 => 2,
-        4..8 => 4,
-        8.. => 8,
-    };
 
     let handle = client.empty(num_elems * size_of::<E>());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
-    // TODO: Benchmark to find good default prefetch, for now preserve existing behaviour
-    into_contiguous_prefetch::<R, E>(client, input, &output.as_ref(), elems_per_unit);
+    into_contiguous_ref::<R, E>(client, input, &output.as_ref());
 
     output
-}
-
-/// Make a jit tensor contiguous.
-pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
-) {
-    let num_elems: usize = input.shape.iter().product();
-    // Vectorization is only enabled when the last dimension is contiguous.
-    let rank = input.strides.len();
-    let vectorization_factor = tensor_line_size_parallel(
-        R::supported_line_sizes().iter().cloned(),
-        input.shape,
-        input.strides,
-        rank - 1,
-    );
-    let num_vecs = num_elems / vectorization_factor as usize;
-    let approx_sm = 64;
-    let approx_simul_vecs = approx_sm * CubeDim::default().num_elems();
-    let elems_per_unit = match num_vecs as u32 / approx_simul_vecs {
-        0..2 => 1,
-        2..4 => 2,
-        4..8 => 4,
-        8.. => 8,
-    };
-
-    // TODO: Benchmark to find good default prefetch, for now preserve existing behaviour
-    into_contiguous_prefetch::<R, E>(client, input, output, elems_per_unit);
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
@@ -256,7 +211,21 @@ pub fn into_contiguous_pitched<R: Runtime, E: CubePrimitive>(
         return into_contiguous(client, input);
     }
 
+    let output = TensorHandle::empty(client, input.shape.to_vec());
+
+    into_contiguous_ref::<R, E>(client, input, &output.as_ref());
+
+    output
+}
+
+/// Make a jit tensor contiguous.
+pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: &TensorHandleRef<'_, R>,
+    output: &TensorHandleRef<'_, R>,
+) {
     let num_elems: usize = input.shape.iter().product();
+
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let vectorization_factor = tensor_line_size_parallel(
@@ -266,40 +235,19 @@ pub fn into_contiguous_pitched<R: Runtime, E: CubePrimitive>(
         rank - 1,
     );
     let num_vecs = num_elems / vectorization_factor as usize;
-    let approx_sm = 64;
-    let approx_simul_vecs = approx_sm * CubeDim::default().num_elems();
-    let elems_per_unit = match num_vecs as u32 / approx_simul_vecs {
+    let num_sm = client
+        .properties()
+        .hardware_properties()
+        .num_streaming_multiprocessors
+        .unwrap_or(NUM_SM_APPROX);
+    let simul_vecs = num_sm * CubeDim::default().num_elems();
+    let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
         0..2 => 1,
         2..4 => 2,
         4..8 => 4,
         8.. => 8,
     };
 
-    let output = TensorHandle::empty(client, input.shape.to_vec());
-
-    // TODO: Benchmark to find good default prefetch, for now preserve existing behaviour
-    into_contiguous_prefetch::<R, E>(client, input, &output.as_ref(), elems_per_unit);
-
-    output
-}
-
-/// Make a jit tensor contiguous.
-pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
-    mut elems_per_unit: u32,
-) {
-    // Vectorization is only enabled when the last dimension is contiguous.
-    let rank = input.strides.len();
-    let vectorization_factor = tensor_line_size_parallel(
-        R::supported_line_sizes().iter().cloned(),
-        input.shape,
-        input.strides,
-        rank - 1,
-    );
-
-    let num_elems: usize = input.shape.iter().product();
     let mut num_elems_per_unit = vectorization_factor as u32 * elems_per_unit;
 
     let last_dim = output.shape[rank - 1];
