@@ -48,8 +48,9 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
+    let arch_major;
     let arch_version = unsafe {
-        let major = cudarc::driver::result::device::get_attribute(
+        arch_major = cudarc::driver::result::device::get_attribute(
             device_ptr,
             cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
         )
@@ -59,7 +60,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
         )
         .unwrap();
-        major * 10 + minor
+        arch_major * 10 + minor
     } as u32;
 
     let ctx = unsafe {
@@ -149,6 +150,10 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
         comp_opts.grid_constants = true;
     }
+    if arch_version >= 89 {
+        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E4M3)));
+        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E5M2)));
+    }
     if arch_version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
         device_props.register_feature(Feature::CubeCluster);
@@ -156,6 +161,15 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     }
     if arch_version >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
+    }
+    // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
+    // major version. Try to keep this up to date with new arch major revisions if they also
+    // implement it.
+    if arch_major == 10 || arch_major == 12 {
+        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E2M1)));
+        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E2M3)));
+        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E3M2)));
+        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::UE8M0)));
     }
     // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
     // if arch.get_version() >= 80 {

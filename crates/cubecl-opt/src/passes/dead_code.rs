@@ -247,11 +247,11 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             }
             for incoming in opt.predecessors(successors[0]) {
                 if incoming != block_idx {
-                    opt.program.add_edge(incoming, block_idx, ());
+                    opt.program.add_edge(incoming, block_idx, 0);
                 }
             }
             for outgoing in opt.successors(successors[0]) {
-                opt.program.add_edge(block_idx, outgoing, ());
+                opt.program.add_edge(block_idx, outgoing, 0);
             }
             *opt.program.node_weight_mut(block_idx).unwrap() = new_block;
             opt.program.remove_node(successors[0]);

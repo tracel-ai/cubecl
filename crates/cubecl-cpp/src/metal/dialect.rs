@@ -161,12 +161,18 @@ struct alignas({alignment}) {item} {{"
     ) -> std::fmt::Result {
         // we always use the word form of types
         match elem {
+            shared::Elem::FP4(_)
+            | shared::Elem::FP4x2(_)
+            | shared::Elem::FP6(_)
+            | shared::Elem::FP6x2(_)
+            | shared::Elem::FP8(_)
+            | shared::Elem::FP8x2(_) => unimplemented!("FP4/FP6/FP8 not supported in Metal"),
             shared::Elem::F16 => f.write_str("half"),
-            shared::Elem::F162 => panic!("type F162 not supported!"),
+            shared::Elem::F16x2 => panic!("type F162 not supported!"),
             shared::Elem::F32 => f.write_str("float"),
             shared::Elem::F64 => panic!("type double not supported!"),
             shared::Elem::BF16 => f.write_str("bfloat"),
-            shared::Elem::BF162 => panic!("type BF162 not supported!"),
+            shared::Elem::BF16x2 => panic!("type BF162 not supported!"),
             shared::Elem::TF32 => f.write_str("float"),
             shared::Elem::I8 => f.write_str("char"),
             shared::Elem::I16 => f.write_str("short"),
@@ -676,7 +682,7 @@ impl DialectInstructions<Self> for MslDialect {
         input: T,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                 write!(f, "log(half(1.0f) + {input})")
             }
             _ => write!(f, "log(1.0f + {input})"),

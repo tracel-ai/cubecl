@@ -90,7 +90,7 @@ impl WgpuServer {
         }
         let compile = self.logger.log_compilation(compile);
         // /!\ Do not delete the following commented code.
-        // This is usefull while working on the metal compiler.
+        // This is useful while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
         // that does it.
         // println!("SOURCE:\n{}", compile.source);

@@ -88,7 +88,7 @@ pub trait FunctionFmt<D: Dialect> {
         if Self::half_support() {
             let prefix = match elem {
                 Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
+                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
             format!("{prefix}{}", Self::base_function_name())
@@ -105,7 +105,7 @@ pub trait FunctionFmt<D: Dialect> {
             write!(f, "{}({input})", Self::function_name(elem))
         } else {
             match elem {
-                Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                     write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
                 }
                 _ => write!(f, "{}({input})", Self::function_name(elem)),

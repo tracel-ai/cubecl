@@ -354,6 +354,11 @@ fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_co
                 format!("{}", repr.optimizer),
             )
             .unwrap();
+            fs::write(
+                format!("{dir}/{name}.ir.dot"),
+                format!("{}", repr.optimizer.dot_viz()),
+            )
+            .unwrap();
         }
     }
 }

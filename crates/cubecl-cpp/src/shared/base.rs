@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{ExpandElement, UIntKind, VariableKind};
+use cubecl_core::ir::{ExpandElement, FloatKind, UIntKind, VariableKind};
 use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
     Compiler, Feature,
@@ -14,13 +14,14 @@ use cubecl_core::{
 };
 use cubecl_runtime::DeviceProperties;
 
-use super::barrier::BarrierOps;
-use super::pipeline::PipelineOps;
 use super::{
-    AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Dialect, Elem,
-    Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction, Instruction,
-    Item, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
+    AtomicKind, BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect,
+    Elem, FP6Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
+    IndexInstruction, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction, Variable,
+    WarpInstruction, WmmaInstruction,
 };
+use super::{FP4Kind, barrier::BarrierOps};
+use super::{FP8Kind, pipeline::PipelineOps};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
@@ -66,6 +67,9 @@ pub struct CubeIndexFlags {
 /// Flags gathered during Cube IR translation for the kernel compilation.
 #[derive(Debug, Clone, Default)]
 pub struct Flags {
+    pub elem_fp4: bool,
+    pub elem_fp6: bool,
+    pub elem_fp8: bool,
     pub elem_bf16: bool,
     pub elem_f16: bool,
     pub indexes: CubeIndexFlags,
@@ -154,6 +158,9 @@ impl<D: Dialect> CppCompiler<D> {
             inst_wmma: self.flags.inst_wmma,
             op_pipeline: self.flags.op_pipeline,
             op_barrier: self.flags.op_barrier,
+            elem_fp4: self.flags.elem_fp4,
+            elem_fp6: self.flags.elem_fp6,
+            elem_fp8: self.flags.elem_fp8,
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
             inst_fast_math: value
@@ -163,7 +170,7 @@ impl<D: Dialect> CppCompiler<D> {
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
             use_grid_constants: self.compilation_options.grid_constants,
-            // TODO: At some point we should only pass dymamic meta if tensors are present,
+            // TODO: At some point we should only pass dynamic meta if tensors are present,
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
@@ -1098,6 +1105,24 @@ impl<D: Dialect> CppCompiler<D> {
                 or_else: self.compile_variable(op.or_else),
                 out: self.compile_variable(out),
             }),
+            // Needs special conversion semantics
+            gpu::Operator::Cast(op)
+                if is_fp4_fp6_fp8(op.input.elem()) || is_fp4_fp6_fp8(out.elem()) =>
+            {
+                let inst = self.compile_unary(op, out);
+
+                // We may need these for intermediates
+                self.flags.elem_f16 = true;
+                self.flags.elem_bf16 = true;
+                let vec = NonZero::new(inst.input.item().vectorization as u8);
+                self.compile_item(gpu::Item::vectorized(gpu::Elem::Float(FloatKind::F16), vec));
+                self.compile_item(gpu::Item::vectorized(
+                    gpu::Elem::Float(FloatKind::BF16),
+                    vec,
+                ));
+
+                instructions.push(Instruction::SpecialCast(inst));
+            }
             gpu::Operator::Cast(op) => {
                 instructions.push(Instruction::Assign(self.compile_unary(op, out)))
             }
@@ -1430,6 +1455,30 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_elem(&mut self, value: gpu::Elem) -> Elem<D> {
         match value {
             gpu::Elem::Float(kind) => match kind {
+                gpu::FloatKind::E2M1 => {
+                    self.flags.elem_fp4 = true;
+                    Elem::FP4(FP4Kind::E2M1)
+                }
+                gpu::FloatKind::E2M3 => {
+                    self.flags.elem_fp6 = true;
+                    Elem::FP6(FP6Kind::E2M3)
+                }
+                gpu::FloatKind::E3M2 => {
+                    self.flags.elem_fp6 = true;
+                    Elem::FP6(FP6Kind::E3M2)
+                }
+                gpu::FloatKind::E4M3 => {
+                    self.flags.elem_fp8 = true;
+                    Elem::FP8(FP8Kind::E4M3)
+                }
+                gpu::FloatKind::E5M2 => {
+                    self.flags.elem_fp8 = true;
+                    Elem::FP8(FP8Kind::E5M2)
+                }
+                gpu::FloatKind::UE8M0 => {
+                    self.flags.elem_fp8 = true;
+                    Elem::FP8(FP8Kind::UE8M0)
+                }
                 gpu::FloatKind::F16 => {
                     self.flags.elem_f16 = true;
                     Elem::F16
@@ -1474,6 +1523,21 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Elem::Bool => Elem::Bool,
         }
+    }
+}
+
+fn is_fp4_fp6_fp8(elem: gpu::Elem) -> bool {
+    match elem {
+        gpu::Elem::Float(kind) => matches!(
+            kind,
+            FloatKind::E2M1
+                | FloatKind::E2M3
+                | FloatKind::E3M2
+                | FloatKind::E4M3
+                | FloatKind::E5M2
+                | FloatKind::UE8M0
+        ),
+        _ => false,
     }
 }
 
