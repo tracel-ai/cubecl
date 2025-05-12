@@ -116,7 +116,7 @@ where
     /// The tensor must be in the same layout as created by the runtime, or more strict.
     /// Contiguous tensors are always fine, strided tensors are only ok if the stride is similar to
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
-    /// stride compatiblity on the runtime will be added in the future.
+    /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [ComputeClient::create_tensor].
     pub fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {

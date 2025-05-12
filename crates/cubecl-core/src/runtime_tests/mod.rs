@@ -14,6 +14,7 @@ pub mod index;
 pub mod launch;
 pub mod line;
 pub mod metadata;
+pub mod minifloat;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
@@ -93,6 +94,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_atomic_float!();
         cubecl_core::testgen_tensormap!();
+        cubecl_core::testgen_minifloat!();
     };
 }
 

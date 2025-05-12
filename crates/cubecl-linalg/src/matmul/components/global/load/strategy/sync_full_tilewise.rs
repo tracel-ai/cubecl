@@ -53,8 +53,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
         if num_lines_per_plane % plane_dim != 0 {
             return Err(FormattedConfigError::new(move || {
                 format!(
-                    "Plane dimension {:?} must divide number of lines per plane {:?} for tilewise loading.",
-                    plane_dim, num_lines_per_plane,
+                    "Plane dimension {plane_dim:?} must divide number of lines per plane {num_lines_per_plane:?} for tilewise loading.",
                 )
             }));
         }

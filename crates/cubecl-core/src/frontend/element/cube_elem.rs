@@ -20,7 +20,7 @@ pub trait CubePrimitive:
     + Copy
 {
     /// Return the element type to use on GPU.
-    fn as_elem(_context: &Scope) -> Elem {
+    fn as_elem(_scope: &Scope) -> Elem {
         Self::as_elem_native().expect("To be overridden if not native")
     }
 
@@ -39,6 +39,17 @@ pub trait CubePrimitive:
         Self::as_elem_native().map(|t| t.size())
     }
 
+    /// Only native element types have a size.
+    fn size_bits() -> Option<usize> {
+        Self::as_elem_native().map(|t| t.size_bits())
+    }
+
+    /// Minimum line size of this type
+    fn min_line_size(&self) -> Option<u8> {
+        Self::as_elem_native().map(|t| t.min_line_size())
+    }
+
+
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
     }
@@ -54,7 +65,15 @@ pub trait CubePrimitive:
         Self::as_elem_native_unchecked().size() as u32
     }
 
-    fn __expand_elem_size(context: &Scope) -> u32 {
-        Self::as_elem(context).size() as u32
+    fn elem_size_bits() -> u32 {
+        Self::as_elem_native_unchecked().size_bits() as u32
+    }
+
+    fn __expand_elem_size(scope: &Scope) -> u32 {
+        Self::as_elem(scope).size() as u32
+    }
+
+    fn __expand_elem_size_bits(scope: &Scope) -> u32 {
+        Self::as_elem(scope).size_bits() as u32
     }
 }

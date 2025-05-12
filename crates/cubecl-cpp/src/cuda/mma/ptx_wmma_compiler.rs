@@ -120,7 +120,7 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                         "wmma.load.{matrix}.sync.aligned.{layout}.m{}n{}k{}.{ty}",
                         frag.m, frag.n, frag.k,
                     ),
-                    other => panic!("{} fragment type not supported", other),
+                    other => panic!("{other} fragment type not supported"),
                 };
                 // constraints
                 let mut reg_count = 0;
@@ -172,7 +172,7 @@ asm volatile(
                         "wmma.mma.sync.aligned.{layout_a}.{layout_b}.m{}n{}k{}.f32.tf32.tf32.f32",
                         frag_a.m, frag_a.n, frag_a.k,
                     ),
-                    other => panic!("{} fragment type not supported", other),
+                    other => panic!("{other} fragment type not supported"),
                 };
                 let mut reg_count = 0;
                 // order matters, declare the registers in the same order as the intrinsic
@@ -229,7 +229,7 @@ asm volatile(
                         "wmma.store.d.sync.aligned.{layout}.m{}n{}k{}.f32",
                         frag_acc.m, frag_acc.n, frag_acc.k,
                     ),
-                    other => panic!("{} fragment type not supported", other),
+                    other => panic!("{other} fragment type not supported"),
                 };
                 // constraints
                 let mut reg_count = 0;
@@ -425,7 +425,7 @@ fn get_variable_regs_decl_constraints(
                 },
             );
             let constraints = (0..reg_total_count)
-                .map(|i| format!("\"{modifier}\"({var}[{}])", i))
+                .map(|i| format!("\"{modifier}\"({var}[{i}])"))
                 .collect::<Vec<_>>()
                 .join(", ");
             (reg_decl, constraints)
