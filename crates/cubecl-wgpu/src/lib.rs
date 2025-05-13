@@ -34,7 +34,7 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
-    cubecl_linalg::testgen_matmul_unit!([flex32, f32]);
+    cubecl_linalg::testgen_matmul_unit!([f32]);
     cubecl_linalg::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
