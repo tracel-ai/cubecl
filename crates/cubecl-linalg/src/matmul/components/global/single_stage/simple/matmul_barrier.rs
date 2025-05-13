@@ -139,7 +139,7 @@ where
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut out_unloader: Self::Out,
+        mut out_writer: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -190,7 +190,7 @@ where
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
-            &mut out_unloader,
+            &mut out_writer,
             config.to_smm_config(),
             config,
         );
@@ -236,7 +236,7 @@ where
         )
     }
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,

@@ -39,7 +39,7 @@ pub trait GlobalMatmulFamily:
 /// # Safety
 ///
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
-/// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
+/// It is therefore important that Loaders and Writers perform checks to avoid out-of-bounds
 /// before loading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
@@ -51,14 +51,14 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
-    /// using the output unloader.
+    /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
-        unloader: Self::Out,
+        writer: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -86,8 +86,8 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
-    /// Initialize the unloader at row m and column n
-    fn init_unloader(
+    /// Initialize the writer at row m and column n
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         m_offset: u32,
         n_offset: u32,

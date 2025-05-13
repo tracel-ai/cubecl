@@ -41,7 +41,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs the convolution over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
-    /// using the output unloader.
+    /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
@@ -49,7 +49,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
         acc_loader: Self::AccumulatorLoader,
-        unloader: Self::Out,
+        writer: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -77,7 +77,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::AccumulatorLoader;
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
