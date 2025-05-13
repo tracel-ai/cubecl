@@ -251,13 +251,6 @@ where
         let k_iterations = config.tiling.tile_count.k;
         let stage_n = config.tiling.tile_count.n;
 
-        comptime!(
-            println!("m {:?}", config.tiling.tile_count.m);
-            println!("n {:?}", config.tiling.tile_count.n);
-            println!("k {:?}", config.tiling.tile_count.k);
-            println!("num_units {:?}", config.num_planes * config.plane_dim());
-        );
-
         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
         let mut k_iter = comptime![0u32];

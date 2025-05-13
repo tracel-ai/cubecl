@@ -13,7 +13,7 @@ use crate::{
             EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
             MatmulSpec, OutputRuntimeArg,
             global::{
-                AccumulatorLoader, GlobalConfig, 
+                AccumulatorLoader, GlobalConfig,
                 load::{SyncFullLoader, sync_full_cyclic},
                 single_stage,
             },
