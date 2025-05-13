@@ -75,8 +75,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                         MatrixLayout::ColMajor => n_ * k + k_,
                     };
                     let r = MP::EA::cast_from(rhs.data[rhs_index]);
-                    let o = m_ * n + n_;
-                    out.data[o] = out.data[o] + l * r;
+                    out.data[m_ * n + n_] += l * r;
                 }
             }
         }
