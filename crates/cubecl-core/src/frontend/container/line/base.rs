@@ -49,6 +49,7 @@ mod new {
         }
 
         #[allow(unused_variables)]
+        /// Get the length of the current line.
         pub fn line_size(&self) -> comptime_type!(u32) {
             intrinsic!(|_| {
                 let elem: ExpandElementTyped<Line<P>> = self;

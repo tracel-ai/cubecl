@@ -35,10 +35,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, EG: Numeric>(
 ) {
     assert!(
         EG::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
-            <= client
-                .properties()
-                .hardware_properties()
-                .max_shared_memory_size,
+            <= client.properties().hardware.max_shared_memory_size,
         "Shared memory limit will be busted. "
     );
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {

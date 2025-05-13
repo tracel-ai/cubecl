@@ -62,10 +62,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         .unwrap();
         arch_major * 10 + minor
     } as u32;
-    // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
-    // if arch.get_version() >= 80 {
-    //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
-    // }
+
     // Ask the wmma compiler for its supported combinations
     let arch = CudaArchitecture {
         version: arch_version,
@@ -164,6 +161,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
         comp_opts.grid_constants = true;
     }
+
+    // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
+    // if arch.get_version() >= 80 {
+    //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
+    // }
+
     if arch_version >= 89 {
         device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E4M3)));
         device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E5M2)));
@@ -173,10 +176,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         device_props.register_feature(Feature::CubeCluster);
         comp_opts.supports_clusters = true;
     }
+
     if arch_version >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
     }
-    //
+
     // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
     // major version. Try to keep this up to date with new arch major revisions if they also
     // implement it.

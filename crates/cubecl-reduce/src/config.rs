@@ -174,7 +174,7 @@ impl ReduceConfig {
         use_planes: bool,
     ) -> Self {
         self.cube_dim = if use_planes {
-            let plane_dim = client.properties().hardware_properties().plane_size_min;
+            let plane_dim = client.properties().hardware.plane_size_min;
             CubeDim::new_2d(plane_dim, DEFAULT_PLANE_COUNT)
         } else {
             DEFAULT_CUBE_DIM

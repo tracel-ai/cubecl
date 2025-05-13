@@ -40,7 +40,7 @@ pub enum MatmulGlobalScale {
 ///
 /// # Notes
 ///
-/// The values are exponent of the 2.
+/// The values are powers of 2.
 ///
 /// ```rust, ignore
 /// let state_size_m = 2.pow(m);
@@ -85,10 +85,10 @@ impl MatmulStageScale {
             }
         };
 
-        // Right now we only consider potential stage size of 64 (2^5) & 256 (2^8).
-        // But we could put more in the analysis based on the autotune level.
+        // Right now we only consider potential stage sizes of 64 (2^6) & 256 (2^8).
+        // But we could include more in the analysis based on the autotune level.
         //
-        // It is important to start with the bigguest stage size first.
+        // It is important to start with the biggest stage size first.
         for scale in [8, 6] {
             m = set_scale(m, m_size, scale);
             n = set_scale(n, n_size, scale);
@@ -99,7 +99,7 @@ impl MatmulStageScale {
     }
 }
 
-/// Whether it's a good idea to try and run double buffering matmul.
+/// Whether it's a good idea to try and run double-buffered matmul.
 pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> bool {
     key.analysis.may_use_tensor_cores
         && !key.analysis.mat2vec
@@ -147,7 +147,7 @@ impl MatmulAutotuneKey {
             stage_stage: MatmulStageScale::from_size(m, n, k),
             may_use_tensor_cores: match client
                 .properties()
-                .hardware_properties()
+                .hardware
                 .min_tensor_cores_dim
                 .map(|tc| tc as usize)
             {

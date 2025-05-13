@@ -198,10 +198,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         out_line_size,
     };
 
-    let plane_size = client
-        .properties()
-        .hardware_properties()
-        .defined_plane_size();
+    let plane_size = client.properties().hardware.defined_plane_size();
 
     let plane_dim = match plane_size {
         Some(32) | Some(64) => plane_size.expect("32 or 64"),
@@ -296,10 +293,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         out_line_size,
     };
 
-    let plane_size = client
-        .properties()
-        .hardware_properties()
-        .defined_plane_size();
+    let plane_size = client.properties().hardware.defined_plane_size();
 
     let plane_dim = match plane_size {
         Some(32) | Some(64) => plane_size.expect("32 or 64"),

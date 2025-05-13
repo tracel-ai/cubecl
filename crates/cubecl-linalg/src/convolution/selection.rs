@@ -127,7 +127,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
     );
 
-    let hardware = client.properties().hardware_properties();
+    let hardware = &client.properties().hardware;
     let num_sm = hardware
         .num_streaming_multiprocessors
         .unwrap_or(NUM_TENSOR_CORES_APPROX);

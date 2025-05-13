@@ -120,10 +120,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server,
 }
 
 pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let total_shared_size = client
-        .properties()
-        .hardware_properties()
-        .max_shared_memory_size;
+    let total_shared_size = client.properties().hardware.max_shared_memory_size;
 
     let handle = client.create(u32::as_bytes(&[0, 1, 2, 3, 4, 5, 6, 7]));
 
