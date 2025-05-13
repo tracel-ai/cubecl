@@ -237,7 +237,7 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
     let num_vecs = num_elems / vectorization_factor as usize;
     let num_sm = client
         .properties()
-        .hardware_properties()
+        .hardware
         .num_streaming_multiprocessors
         .unwrap_or(NUM_SM_APPROX);
     let simul_vecs = num_sm * CubeDim::default().num_elems();
