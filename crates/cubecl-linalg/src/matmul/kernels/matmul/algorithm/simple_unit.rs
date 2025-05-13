@@ -7,15 +7,15 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{SyncFullLoadingStrategy, sync_full_cyclic, sync_full_cyclic_checked},
+        load::{SyncFullLoadingStrategy, sync_full_cyclic},
     },
     stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder},
     tile,
 };
 
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic_checked::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic_checked::LoadingStrategy<RowMajorTilingOrder>,
+    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _ll: PhantomData<LL>,
