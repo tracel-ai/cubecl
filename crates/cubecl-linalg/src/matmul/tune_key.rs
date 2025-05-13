@@ -68,6 +68,12 @@ pub enum MatmulKind {
     /// (M, K) @ (K, 1) → (M, 1)
     MatVec,
 
+    /// (1, 1) @ (1, N) → (1, N)
+    ScalarVec,
+
+    /// (M, 1) @ (1, 1) → (M, 1)
+    VecScalar,
+
     /// (1, K) @ (K, N) → (1, N)
     VecMat,
 
@@ -76,25 +82,31 @@ pub enum MatmulKind {
 
     /// (M, 1) @ (1, N) → (M, N)
     OuterProduct,
+
+    /// (1, 1) @ (1, 1) → (1, 1)
+    ScalarProduct,
 }
 
 impl MatmulKind {
     pub fn from_size(m: usize, n: usize, k: usize) -> Self {
-        if m > 1 && k > 1 && n > 1 {
-            MatmulKind::General
-        } else if m > 1 && k > 1 && n == 1 {
-            MatmulKind::MatVec
-        } else if m == 1 && k > 1 && n > 1 {
-            MatmulKind::VecMat
-        } else if m == 1 && k > 1 && n == 1 {
-            MatmulKind::InnerProduct
-        } else if m > 1 && k == 1 && n > 1 {
-            MatmulKind::OuterProduct
-        } else {
-            unreachable!(
-                "Invalid dimensions for matrix multiplication: m={}, k={}, n={}",
-                m, k, n
-            )
+        enum Axis {
+            One,
+            Many,
+        }
+
+        let m = if m == 1 { Axis::One } else { Axis::Many };
+        let n = if n == 1 { Axis::One } else { Axis::Many };
+        let k = if k == 1 { Axis::One } else { Axis::Many };
+
+        match (m, n, k) {
+            (Axis::One, Axis::One, Axis::One) => MatmulKind::ScalarProduct,
+            (Axis::One, Axis::One, Axis::Many) => MatmulKind::InnerProduct,
+            (Axis::One, Axis::Many, Axis::One) => MatmulKind::ScalarVec,
+            (Axis::One, Axis::Many, Axis::Many) => MatmulKind::VecMat,
+            (Axis::Many, Axis::One, Axis::One) => MatmulKind::VecScalar,
+            (Axis::Many, Axis::One, Axis::Many) => MatmulKind::MatVec,
+            (Axis::Many, Axis::Many, Axis::One) => MatmulKind::OuterProduct,
+            (Axis::Many, Axis::Many, Axis::Many) => MatmulKind::General,
         }
     }
 }
