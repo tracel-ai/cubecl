@@ -1,5 +1,5 @@
-mod tilewise_writer;
-mod unit_writer;
+mod tilewise;
+mod unit;
 
-pub use tilewise_writer::TilewiseWriter;
-pub use unit_writer::UnitWriter;
+pub use tilewise::TilewiseWriter;
+pub use unit::UnitWriter;
