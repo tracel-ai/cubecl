@@ -70,8 +70,8 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         self
     }
 
-    /// Register an optional tunable with this tunable set with a function that tell if the function should
-    /// execute based on the autotune tune key.
+    /// Register a tunable with this tunable set alongside a function that calculates
+    /// if the function should be used based on the autotune key.
     pub fn with_tunable_optional<Marker>(
         mut self,
         tunable: impl IntoTunable<Inputs, Output, Marker>,
@@ -97,7 +97,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         self.tunables.clone()
     }
 
-    /// Returns a vector of all candidate that should run during autotuning.
+    /// Returns a vector of all candidates that should run during autotuning.
     pub fn should_autotune(&self, key: &K) -> Vec<bool> {
         self.should_autotune
             .iter()
