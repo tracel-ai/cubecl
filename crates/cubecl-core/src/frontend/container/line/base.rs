@@ -33,6 +33,8 @@ impl<P: CubePrimitive> Copy for Line<P> {}
 
 /// Module that contains the implementation details of the new function.
 mod new {
+    use cubecl_macros::comptime_type;
+
     use super::*;
 
     #[cube]
@@ -43,6 +45,19 @@ mod new {
             intrinsic!(|_| {
                 let elem: ExpandElementTyped<P> = val;
                 elem.expand.into()
+            })
+        }
+
+        #[allow(unused_variables)]
+        /// Get the length of the current line.
+        pub fn line_size(&self) -> comptime_type!(u32) {
+            intrinsic!(|_| {
+                let elem: ExpandElementTyped<Line<P>> = self;
+                elem.expand
+                    .item
+                    .vectorization
+                    .map(|a| a.get() as u32)
+                    .unwrap_or(1)
             })
         }
     }
@@ -82,6 +97,8 @@ mod fill {
 
 /// Module that contains the implementation details of the empty function.
 mod empty {
+    use crate::prelude::Cast;
+
     use super::*;
 
     #[cube]
@@ -91,13 +108,16 @@ mod empty {
         /// Note that a line can't change in size once it's fixed.
         #[allow(unused_variables)]
         pub fn empty(#[comptime] size: u32) -> Self {
+            let zero = Line::<P>::cast_from(0);
             intrinsic!(|scope| {
                 let length = NonZero::new(size as u8);
                 // We don't declare const variables in our compilers, only mut variables.
                 // So we need to create the variable as mut here.
-                scope
+                let var: ExpandElementTyped<Line<P>> = scope
                     .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
-                    .into()
+                    .into();
+                cubecl::frontend::assign::expand(scope, zero, var.clone());
+                var
             })
         }
     }

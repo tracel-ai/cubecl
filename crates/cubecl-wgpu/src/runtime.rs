@@ -233,6 +233,7 @@ pub(crate) fn create_client_on_setup(
         ),
         num_streaming_multiprocessors: None,
         num_tensor_cores: None,
+        min_tensor_cores_dim: None,
     };
 
     let mut compilation_options = Default::default();

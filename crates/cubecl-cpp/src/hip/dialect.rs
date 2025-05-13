@@ -172,12 +172,18 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
             }
         } else {
             match elem {
+                shared::Elem::FP4(_)
+                | shared::Elem::FP4x2(_)
+                | shared::Elem::FP6(_)
+                | shared::Elem::FP6x2(_)
+                | shared::Elem::FP8(_)
+                | shared::Elem::FP8x2(_) => unimplemented!("FP4/FP6/FP8 not supported in HIP"),
                 shared::Elem::F16 => f.write_str("__half"),
-                shared::Elem::F162 => f.write_str("__half2"),
+                shared::Elem::F16x2 => f.write_str("__half2"),
                 shared::Elem::F32 => f.write_str("float"),
                 shared::Elem::F64 => f.write_str("double"),
                 shared::Elem::BF16 => f.write_str("__hip_bfloat16"),
-                shared::Elem::BF162 => f.write_str("__hip_bfloat162"),
+                shared::Elem::BF16x2 => f.write_str("__hip_bfloat162"),
                 shared::Elem::TF32 => f.write_str("float"),
                 shared::Elem::I8 => f.write_str("int8"),
                 shared::Elem::I16 => f.write_str("int16"),

@@ -26,11 +26,14 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
 #[derive(Clone)]
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>>,
+    should_autotune: Vec<ShouldAutotuneFn<K>>,
     key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
     input_gen: Arc<dyn InputGenerator<K, Inputs>>,
     #[allow(clippy::type_complexity)]
     checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
+
+type ShouldAutotuneFn<K> = Option<Arc<dyn Fn(&K) -> bool>>;
 
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
@@ -50,6 +53,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     ) -> Self {
         Self {
             tunables: Default::default(),
+            should_autotune: Default::default(),
             input_gen: Arc::new(input_gen.into_input_gen()),
             key_gen: Arc::new(key_gen.into_key_gen()),
             checksum_override: None,
@@ -62,6 +66,19 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         tunable: impl IntoTunable<Inputs, Output, Marker>,
     ) -> Self {
         self.tunables.push(Arc::new(tunable.into_tunable()));
+        self.should_autotune.push(None);
+        self
+    }
+
+    /// Register a tunable with this tunable set alongside a function that calculates
+    /// if the function should be used based on the autotune key.
+    pub fn with_tunable_optional<Marker>(
+        mut self,
+        tunable: impl IntoTunable<Inputs, Output, Marker>,
+        should_autotune: impl Fn(&K) -> bool + 'static,
+    ) -> Self {
+        self.tunables.push(Arc::new(tunable.into_tunable()));
+        self.should_autotune.push(Some(Arc::new(should_autotune)));
         self
     }
 
@@ -78,6 +95,17 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     /// Operations can run on toy tensors of relevant size
     pub fn autotunables(&self) -> Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>> {
         self.tunables.clone()
+    }
+
+    /// Returns a vector of all candidates that should run during autotuning.
+    pub fn should_autotune(&self, key: &K) -> Vec<bool> {
+        self.should_autotune
+            .iter()
+            .map(|func| match func.as_ref() {
+                Some(func) => func(key),
+                None => true,
+            })
+            .collect()
     }
 
     /// Returns the operation for the given index, matching the order

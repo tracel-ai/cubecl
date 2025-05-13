@@ -254,6 +254,12 @@ fn register_cmma(
                 && it.scope == ScopeKHR::SUBGROUP
         })
         .filter_map(|it| {
+            let mut min_current = props.hardware.min_tensor_cores_dim.unwrap_or(it.m_size);
+            min_current = u32::min(min_current, it.m_size);
+            min_current = u32::min(min_current, it.n_size);
+            min_current = u32::min(min_current, it.k_size);
+            props.hardware.min_tensor_cores_dim = Some(min_current);
+
             Some(Feature::Cmma {
                 a: convert_type(it.a_type)?,
                 b: convert_type(it.b_type)?,
@@ -265,6 +271,7 @@ fn register_cmma(
         })
         .collect::<Vec<_>>();
     log::debug!("Supported CMMA sizes: {sizes:#?}");
+
     for size in sizes {
         props.register_feature(size);
     }
@@ -352,6 +359,11 @@ fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_co
             fs::write(
                 format!("{dir}/{name}.ir.txt"),
                 format!("{}", repr.optimizer),
+            )
+            .unwrap();
+            fs::write(
+                format!("{dir}/{name}.ir.dot"),
+                format!("{}", repr.optimizer.dot_viz()),
             )
             .unwrap();
         }

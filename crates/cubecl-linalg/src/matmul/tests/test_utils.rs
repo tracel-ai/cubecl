@@ -393,7 +393,7 @@ impl Sample for flex32 {
         let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
 
         cubecl_random::random_uniform::<R, f32>(
-            &client,
+            client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
@@ -413,7 +413,7 @@ impl Sample for tf32 {
         let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
 
         cubecl_random::random_uniform::<R, f32>(
-            &client,
+            client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),

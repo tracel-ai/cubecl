@@ -117,6 +117,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_page_size: max_memory as u64 / 4,
         alignment: HipStorage::ALIGNMENT,
     };
+    let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
@@ -129,6 +130,11 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_cube_dim,
         num_streaming_multiprocessors: None,
         num_tensor_cores: None,
+        min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
+            None
+        } else {
+            Some(16)
+        },
     };
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
@@ -151,7 +157,6 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
 
     device_props.register_feature(Feature::DynamicLineSize);
 
-    let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
     let comp_opts = CompilationOptions {

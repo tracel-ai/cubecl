@@ -116,7 +116,7 @@ where
     /// The tensor must be in the same layout as created by the runtime, or more strict.
     /// Contiguous tensors are always fine, strided tensors are only ok if the stride is similar to
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
-    /// stride compatiblity on the runtime will be added in the future.
+    /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [ComputeClient::create_tensor].
     pub fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
@@ -139,9 +139,7 @@ where
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
     pub fn read_one_tensor(&self, binding: BindingWithMeta) -> Vec<u8> {
-        self.profile_guard();
-
-        cubecl_common::reader::read_sync(self.channel.read_tensor([binding].into())).remove(0)
+        self.read_tensor(vec![binding]).remove(0)
     }
 
     /// Given a resource handle, returns the storage resource.
@@ -307,7 +305,7 @@ where
 
         let result = self.channel.end_profile(token);
 
-        let result = match self.properties().time_measurement() {
+        let result = match self.properties().time_measurement {
             TimeMeasurement::Device => result,
             TimeMeasurement::System => {
                 #[cfg(target_family = "wasm")]

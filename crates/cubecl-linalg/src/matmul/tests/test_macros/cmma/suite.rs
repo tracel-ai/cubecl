@@ -15,11 +15,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     rows_per_plane: u32,
 ) {
     let client = R::client(&Default::default());
-    let plane_dim = match client
-        .properties()
-        .hardware_properties()
-        .defined_plane_size()
-    {
+    let plane_dim = match client.properties().hardware.defined_plane_size() {
         Some(val) => val,
         None => {
             println!("Can't run test without a fixed plane size.");
@@ -78,11 +74,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     problem: MatmulSize,
 ) {
     let client = R::client(&Default::default());
-    let plane_dim = match client
-        .properties()
-        .hardware_properties()
-        .defined_plane_size()
-    {
+    let plane_dim = match client.properties().hardware.defined_plane_size() {
         Some(val) => val,
         None => {
             println!("Can't run test without a fixed plane size.");

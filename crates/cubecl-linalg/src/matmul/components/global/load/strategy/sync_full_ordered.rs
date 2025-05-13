@@ -40,8 +40,7 @@ impl LoadingValidation for LoadingStrategy {
         if num_tiles % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
                 format!(
-                    "Number of planes {:?} must divide number of tiles {:?} for ordered loading.",
-                    num_planes, num_tiles,
+                    "Number of planes {num_planes:?} must divide number of tiles {num_tiles:?} for ordered loading.",
                 )
             }));
         }
@@ -56,8 +55,7 @@ impl LoadingValidation for LoadingStrategy {
         if num_lines_per_plane % plane_dim != 0 {
             return Err(FormattedConfigError::new(move || {
                 format!(
-                    "Plane dimension {:?} must divide number of lines per plane {:?} for ordered loading.",
-                    plane_dim, num_lines_per_plane,
+                    "Plane dimension {plane_dim:?} must divide number of lines per plane {num_lines_per_plane:?} for ordered loading.",
                 )
             }));
         }

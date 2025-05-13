@@ -2,12 +2,26 @@ use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
 use core::num::NonZero;
-use cubecl_common::{flex32, tf32};
+use cubecl_common::{e2m1, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum FloatKind {
+    /// FP4, 2 bit exponent, 1 bit mantissa
+    E2M1,
+    /// FP6, 2 bit exponent, 3 bit mantissa
+    /// Note: represented by an 8-bit value, with the upper two bits being insignificant
+    E2M3,
+    /// FP6, 3 bit exponent, 2 bit mantissa
+    /// Note: represented by an 8-bit value, with the upper two bits being insignificant
+    E3M2,
+    /// FP8, 4 bit exponent, 3 bit mantissa
+    E4M3,
+    /// FP8, 5 bit exponent, 2 bit mantissa
+    E5M2,
+    /// FP8, unsigned, 8 bit exponent, 0 bit mantissa
+    UE8M0,
     F16,
     BF16,
     Flex32,
@@ -125,6 +139,12 @@ impl Elem {
     pub const fn size(&self) -> usize {
         match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+                FloatKind::E2M1 => panic!("Can't get byte size of sub-byte type"),
+                FloatKind::E2M3
+                | FloatKind::E3M2
+                | FloatKind::E4M3
+                | FloatKind::E5M2
+                | FloatKind::UE8M0 => core::mem::size_of::<u8>(),
                 FloatKind::F16 => core::mem::size_of::<half::f16>(),
                 FloatKind::BF16 => core::mem::size_of::<half::bf16>(),
                 FloatKind::F32 => core::mem::size_of::<f32>(),
@@ -148,6 +168,38 @@ impl Elem {
         }
     }
 
+    /// Get the size in bytes.
+    pub const fn size_bits(&self) -> usize {
+        match self {
+            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+                FloatKind::E2M3
+                | FloatKind::E3M2
+                | FloatKind::E4M3
+                | FloatKind::E5M2
+                | FloatKind::UE8M0
+                | FloatKind::F16
+                | FloatKind::BF16
+                | FloatKind::F32
+                | FloatKind::F64
+                | FloatKind::Flex32
+                | FloatKind::TF32 => self.size() * 8,
+                FloatKind::E2M1 => 4,
+            },
+            Elem::Int(_)
+            | Elem::AtomicInt(_)
+            | Elem::UInt(_)
+            | Elem::AtomicUInt(_)
+            | Elem::Bool => self.size() * 8,
+        }
+    }
+
+    pub const fn min_line_size(&self) -> u8 {
+        match self {
+            Elem::Float(FloatKind::E2M1) => 2,
+            _ => 1,
+        }
+    }
+
     pub fn is_atomic(&self) -> bool {
         matches!(
             self,
@@ -165,6 +217,12 @@ impl Elem {
     pub fn max_variable(&self) -> Variable {
         let value = match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+                FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MAX, FloatKind::E2M1),
+                FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MAX, FloatKind::E2M3),
+                FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MAX, FloatKind::E3M2),
+                FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MAX, FloatKind::E4M3),
+                FloatKind::E5M2 => ConstantScalarValue::Float(e5m2::MAX, FloatKind::E5M2),
+                FloatKind::UE8M0 => ConstantScalarValue::Float(ue8m0::MAX, FloatKind::UE8M0),
                 FloatKind::F16 => {
                     ConstantScalarValue::Float(half::f16::MAX.to_f64(), FloatKind::F16)
                 }
@@ -197,6 +255,12 @@ impl Elem {
     pub fn min_variable(&self) -> Variable {
         let value = match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+                FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MIN, FloatKind::E2M1),
+                FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MIN, FloatKind::E2M3),
+                FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MIN, FloatKind::E3M2),
+                FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MIN, FloatKind::E4M3),
+                FloatKind::E5M2 => ConstantScalarValue::Float(e5m2::MIN, FloatKind::E5M2),
+                FloatKind::UE8M0 => ConstantScalarValue::Float(ue8m0::MIN, FloatKind::UE8M0),
                 FloatKind::F16 => {
                     ConstantScalarValue::Float(half::f16::MIN.to_f64(), FloatKind::F16)
                 }
@@ -237,6 +301,12 @@ impl Display for Elem {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Float(kind) => match kind {
+                FloatKind::E2M1 => f.write_str("e2m1"),
+                FloatKind::E2M3 => f.write_str("e2m3"),
+                FloatKind::E3M2 => f.write_str("e3m2"),
+                FloatKind::E4M3 => f.write_str("e4m3"),
+                FloatKind::E5M2 => f.write_str("e5m2"),
+                FloatKind::UE8M0 => f.write_str("ue8m0"),
                 FloatKind::F16 => f.write_str("f16"),
                 FloatKind::BF16 => f.write_str("bf16"),
                 FloatKind::Flex32 => f.write_str("flex32"),
@@ -341,6 +411,42 @@ impl From<i32> for Variable {
 impl From<i64> for Variable {
     fn from(value: i64) -> Self {
         Variable::constant(ConstantScalarValue::Int(value, IntKind::I64))
+    }
+}
+
+impl From<e2m1> for Variable {
+    fn from(_value: e2m1) -> Self {
+        unimplemented!("Can't currently construct minifloats")
+    }
+}
+
+impl From<e2m3> for Variable {
+    fn from(_value: e2m3) -> Self {
+        unimplemented!("Can't currently construct minifloats")
+    }
+}
+
+impl From<e3m2> for Variable {
+    fn from(_value: e3m2) -> Self {
+        unimplemented!("Can't currently construct minifloats")
+    }
+}
+
+impl From<e4m3> for Variable {
+    fn from(_value: e4m3) -> Self {
+        unimplemented!("Can't currently construct minifloats")
+    }
+}
+
+impl From<e5m2> for Variable {
+    fn from(_value: e5m2) -> Self {
+        unimplemented!("Can't currently construct minifloats")
+    }
+}
+
+impl From<ue8m0> for Variable {
+    fn from(_value: ue8m0) -> Self {
+        unimplemented!("Can't currently construct minifloats")
     }
 }
 

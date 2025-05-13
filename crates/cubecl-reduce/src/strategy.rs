@@ -45,6 +45,6 @@ fn support_plane<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> b
 }
 
 fn precise_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {
-    let hw_props = client.properties().hardware_properties();
+    let hw_props = &client.properties().hardware;
     hw_props.plane_size_min == hw_props.plane_size_max
 }

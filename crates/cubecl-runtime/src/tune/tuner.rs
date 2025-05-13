@@ -63,6 +63,8 @@ enum AutotuneMessage<K> {
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
+    /// The autotune is skipped manually.
+    Skip,
 }
 
 impl From<String> for AutotuneError {
@@ -210,6 +212,8 @@ impl<K: AutotuneKey> Tuner<K> {
             .enumerate()
             .collect();
 
+        let should_autotune = tunables.should_autotune(&key);
+
         let client = client.clone();
 
         let message = 'message: {
@@ -235,18 +239,25 @@ impl<K: AutotuneKey> Tuner<K> {
             let mut tunable_profiles = Vec::with_capacity(autotunables.len());
 
             for (index, op) in autotunables.into_iter() {
-                let name = op.name().to_string();
-                let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
-                #[cfg(feature = "autotune-checks")]
-                checks_outputs.push(tuner.output_for_checks());
-                let profiles = tuner.profile().map(|bench| (name, index, bench));
-                tunable_profiles.push(profiles);
+                if should_autotune[index] {
+                    let name = op.name().to_string();
+                    let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
+                    #[cfg(feature = "autotune-checks")]
+                    checks_outputs.push(tuner.output_for_checks());
+                    let profiles = tuner.profile().map(|bench| (name, index, bench));
+                    tunable_profiles.push(profiles);
+                } else {
+                    tunable_profiles.push(Err(AutotuneError::Skip));
+                }
             }
 
             // Panic if all tuners panicked.
             if tunable_profiles.iter().all(|result| result.is_err()) {
                 let first_error = tunable_profiles.into_iter().next().unwrap().err().unwrap();
                 match first_error {
+                    AutotuneError::Skip => {
+                        panic!("No autotune was flagged as valid for the problem.")
+                    }
                     AutotuneError::Unknown(reason) => panic!("{reason}"),
                 }
             }
