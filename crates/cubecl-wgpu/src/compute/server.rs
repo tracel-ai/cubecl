@@ -221,8 +221,21 @@ impl ComputeServer for WgpuServer {
     }
 
     fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let expected_sizes = bindings
+            .iter()
+            .map(|it| it.shape.iter().product::<usize>() * it.elem_size)
+            .collect::<Vec<_>>();
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
-        self.read(bindings)
+        let data = self.read(bindings);
+        Box::pin(async move {
+            let mut data = data.await;
+
+            for (data, expected_size) in data.iter_mut().zip(expected_sizes) {
+                data.truncate(expected_size);
+            }
+
+            data
+        })
     }
 
     fn create_tensors(
@@ -248,7 +261,7 @@ impl ComputeServer for WgpuServer {
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
-        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         let strides = shape
             .iter()
             .map(|shape| contiguous_strides(shape))
@@ -259,7 +272,7 @@ impl ComputeServer for WgpuServer {
             .zip(elem_size)
             .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
             .collect::<Vec<_>>();
-        let total_size = sizes.iter().product::<usize>();
+        let total_size = sizes.iter().sum::<usize>();
 
         let mem_handle = self.empty(total_size);
         let handles = offset_handles(mem_handle, &sizes);
