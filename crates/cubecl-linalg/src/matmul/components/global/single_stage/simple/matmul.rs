@@ -4,8 +4,8 @@ use crate::matmul::{
         global::{
             GlobalMatmul, Quantization, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
-            output_loader::Unloader,
             single_stage::Config,
+            write::TilewiseWriter,
         },
         stage::{FullReader, StageMatmul},
     },
@@ -124,7 +124,7 @@ where
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Out = TilewiseWriter<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

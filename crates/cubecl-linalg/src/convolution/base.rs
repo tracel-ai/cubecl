@@ -1,8 +1,7 @@
 use crate::matmul::{
     components::{
         InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-        MatrixLayout, OutputRuntimeArg,
-        global::{AccumulatorLoader, OutputLoader},
+        MatrixLayout, OutputRuntimeArg, global::AccumulatorLoader, stage::Writer,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -37,7 +36,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
     type AccumulatorLoader: AccumulatorLoader<MP>;
 
-    type Out: OutputLoader<MP::EO>;
+    type Out: Writer<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the

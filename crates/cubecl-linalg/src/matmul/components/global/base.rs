@@ -5,7 +5,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
-    stage::{self, StageWriter},
+    stage::{self, Writer},
     tile,
 };
 use cubecl_std::{
@@ -46,7 +46,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type AccumulatorLoader: CubeType;
-    type Out: OutputLoader<MP::EO>;
+    type Out: Writer<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -116,19 +116,6 @@ pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sy
         nth_tile: u32,
         #[comptime] config: Tile::Config,
     );
-}
-
-#[cube]
-/// Output to the global matmul
-///
-/// # Note
-///
-/// It is only a wrapper over the stage writer because there is no K for the output.
-/// Could be deleted in favor of having only the StageWriter
-pub trait OutputLoader<EO: Numeric>: CubeType + 'static + Send + Sync {
-    type StageWriter: StageWriter<EO>;
-
-    fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
 }
 
 pub trait LoadingValidation {

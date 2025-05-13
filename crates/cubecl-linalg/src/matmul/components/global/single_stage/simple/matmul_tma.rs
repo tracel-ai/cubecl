@@ -2,8 +2,8 @@ use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::load::arrive_tma;
-use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::write::TilewiseWriter;
 use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
 use crate::matmul::components::global::{Quantization, load::TmaReader};
 use crate::matmul::components::stage::StageMatmul;
@@ -133,7 +133,7 @@ where
     type LhsLoader = TmaLoader<MP, SMM::Config>;
     type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Out = TilewiseWriter<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

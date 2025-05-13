@@ -8,7 +8,7 @@ use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
-use crate::matmul::components::{Ident, MatmulProblem, global, stage::StageWriter, tile};
+use crate::matmul::components::{Ident, MatmulProblem, global, stage::Writer, tile};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -61,9 +61,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         }
 
         if num_tmm > 64 {
-            return Err(Box::new(format!(
-                "Error: will probably bust shared memory",
-            )));
+            return Err(Box::new(
+                format!("Error: will probably bust shared memory",),
+            ));
         }
 
         TMM::check_config(&config.to_tmm_config())
@@ -174,9 +174,9 @@ where
         (lhs, TMM::allocate_rhs(tmm_config))
     }
 
-    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
+    fn read_accumulator<W: Writer<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
-        out: &mut SW,
+        out: &mut W,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -194,7 +194,7 @@ where
         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
         TMM::read_accumulator(acc, &mut smem_slice, stage_config.to_tmm_config());
-        SW::write::<MP::EO, G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
+        W::write::<MP::EO, G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

@@ -4,7 +4,7 @@ use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::write::TilewiseWriter;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
@@ -133,7 +133,7 @@ where
     type LhsLoader = SyncBufferLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Out = TilewiseWriter<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

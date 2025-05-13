@@ -17,8 +17,7 @@ use crate::{
             EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
             MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
             global::{
-                AccumulatorLoader, GlobalConfig, load::arrive_tma, output_loader::Unloader,
-                single_stage,
+                AccumulatorLoader, GlobalConfig, TilewiseWriter, load::arrive_tma, single_stage,
             },
             stage::{FullReader, FullReaderFamily, StageConfig, StageMatmul, StageMatmulFamily},
         },
@@ -75,7 +74,7 @@ where
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
-    type Out = Unloader<MP::EO>;
+    type Out = TilewiseWriter<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

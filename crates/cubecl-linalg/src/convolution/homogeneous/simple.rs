@@ -13,9 +13,8 @@ use crate::{
             EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
             MatmulSpec, OutputRuntimeArg,
             global::{
-                AccumulatorLoader, GlobalConfig,
+                AccumulatorLoader, GlobalConfig, TilewiseWriter,
                 load::{SyncFullLoader, sync_full_cyclic},
-                output_loader::Unloader,
                 single_stage,
             },
             stage::{
@@ -61,7 +60,7 @@ where
         SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
-    type Out = Unloader<MP::EO>;
+    type Out = TilewiseWriter<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

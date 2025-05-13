@@ -9,7 +9,7 @@ use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
-use crate::matmul::components::{Ident, MatmulProblem, global, stage::StageWriter, tile};
+use crate::matmul::components::{Ident, MatmulProblem, global, stage::Writer, tile};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -205,9 +205,9 @@ where
         (lhs, rhs)
     }
 
-    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
+    fn read_accumulator<W: Writer<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
-        out: &mut SW,
+        out: &mut W,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -236,7 +236,7 @@ where
             for _ in 0..comptime![n_iterations] {
                 let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
                 TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-                SW::write::<MP::EO, G>(
+                W::write::<MP::EO, G>(
                     out,
                     smem_slice.to_slice(),
                     m_offset + m_iter,

@@ -7,8 +7,8 @@ use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::load::AsyncLoader;
-use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::write::TilewiseWriter;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::{FullReader, FullReaderFamily};
 use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
@@ -133,7 +133,7 @@ where
     type LhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, LL>;
     type RhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Out = TilewiseWriter<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

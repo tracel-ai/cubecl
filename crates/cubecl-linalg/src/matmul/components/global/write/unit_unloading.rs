@@ -1,21 +1,37 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorWriter;
+use crate::matmul::components::stage::Writer;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[derive(CubeType)]
-/// Writes the contents of a tile to the tensor view using a single plane,
-/// iterating with steps determined by the plane's dimension.
-pub struct UnitUnloading {}
+pub struct UnitWriter<EG: Numeric> {
+    pub tensor_view: TensorWriter<EG>,
+}
 
 #[cube]
-impl UnitUnloading {
-    pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        write_view: &mut TensorWriter<EG>,
+impl<EG: Numeric> UnitWriter<EG> {
+    pub fn new(
+        tensor: VirtualTensor<EG, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self {
+        UnitWriter::<EG> {
+            tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
+        }
+    }
+}
+
+#[cube]
+impl<EG: Numeric> Writer<EG> for UnitWriter<EG> {
+    fn write<ES: Numeric, G: GlobalConfig>(
+        this: &mut Self,
         out_smem_slice: Slice<Line<ES>>,
-        tile_x: u32,
-        tile_y: u32,
+        tile_row: u32,
+        tile_col: u32,
         #[comptime] config: G,
     ) {
         let tiling = config.tiling_dimensions(Ident::Out);
@@ -24,13 +40,12 @@ impl UnitUnloading {
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let num_lines = tile_size / output_line_size;
-        comptime!(println!("{:?}", num_lines));
 
         for i in 0..num_lines {
             let value = out_smem_slice[i];
-            write_view.write_coalesced::<ES, G>(
-                tile_x,
-                tile_y,
+            this.tensor_view.write_coalesced::<ES, G>(
+                tile_row,
+                tile_col,
                 i * output_line_size,
                 value,
                 config,
