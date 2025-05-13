@@ -56,7 +56,47 @@ pub struct MatmulAutotuneAnalysis {
     pub scale_global: MatmulGlobalScale,
     pub stage_stage: MatmulStageScale,
     pub may_use_tensor_cores: bool,
-    pub mat2vec: bool,
+    pub kind: MatmulKind,
+}
+
+/// Interpretation of matrix multiplication based on input shapes.
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub enum MatmulKind {
+    /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
+    General,
+
+    /// (M, K) @ (K, 1) → (M, 1)
+    MatVec,
+
+    /// (1, K) @ (K, N) → (1, N)
+    VecMat,
+
+    /// (1, K) @ (K, 1) → (1, 1)
+    InnerProduct,
+
+    /// (M, 1) @ (1, N) → (M, N)
+    OuterProduct,
+}
+
+impl MatmulKind {
+    pub fn from_size(m: usize, n: usize, k: usize) -> Self {
+        if m > 1 && k > 1 && n > 1 {
+            MatmulKind::General
+        } else if m > 1 && k > 1 && n == 1 {
+            MatmulKind::MatVec
+        } else if m == 1 && k > 1 && n > 1 {
+            MatmulKind::VecMat
+        } else if m == 1 && k > 1 && n == 1 {
+            MatmulKind::InnerProduct
+        } else if m > 1 && k == 1 && n > 1 {
+            MatmulKind::OuterProduct
+        } else {
+            unreachable!(
+                "Invalid dimensions for matrix multiplication: m={}, k={}, n={}",
+                m, k, n
+            )
+        }
+    }
 }
 
 impl MatmulGlobalScale {
@@ -102,7 +142,7 @@ impl MatmulStageScale {
 /// Whether it's a good idea to try and run double-buffered matmul.
 pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> bool {
     key.analysis.may_use_tensor_cores
-        && !key.analysis.mat2vec
+        && matches!(key.analysis.kind, MatmulKind::General)
         && match key.analysis.scale_global {
             MatmulGlobalScale::Large => true,
             MatmulGlobalScale::Medium => true,
@@ -154,7 +194,7 @@ impl MatmulAutotuneKey {
                 Some(tc) => m > tc && n > tc && k > tc,
                 None => false,
             },
-            mat2vec: n == 1 || m == 1 || k == 1,
+            kind: MatmulKind::from_size(m, n, k),
         };
 
         Self::new(definition, analysis)
