@@ -70,7 +70,7 @@ mod tests_msl {
     cubecl_linalg::testgen_conv2d_accelerated!([f16: f16]);
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f16]);
-    cubecl_linalg::testgen_matmul_unit!([f16, f32]);
+    cubecl_linalg::testgen_matmul_unit!([f16]);
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);

@@ -739,20 +739,5 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        mod pTMP {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                $stage,
-                MatmulSize {
-                    m: 8,
-                    n: 8,
-                    k: 8
-                }
-            );
-        }
     };
 }

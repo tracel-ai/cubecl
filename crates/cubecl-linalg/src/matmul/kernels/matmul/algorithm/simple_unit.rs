@@ -14,8 +14,8 @@ use crate::matmul::components::{
 };
 
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic_checked::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic_checked::LoadingStrategy<RowMajorTilingOrder>,
+    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _ll: PhantomData<LL>,

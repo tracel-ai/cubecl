@@ -24,11 +24,16 @@ impl UnitUnloading {
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let num_lines = tile_size / output_line_size;
-        let base_index = UNIT_POS * num_lines;
 
         for i in 0..num_lines {
-            let value = out_smem_slice[base_index + i];
-            write_view.write_coalesced::<ES, G>(tile_x, tile_y, i * 8, value, config);
+            let value = out_smem_slice[i];
+            write_view.write_coalesced::<ES, G>(
+                tile_x,
+                tile_y,
+                i * output_line_size,
+                value,
+                config,
+            );
         }
     }
 }
