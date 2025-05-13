@@ -24,6 +24,7 @@ impl UnitUnloading {
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let num_lines = tile_size / output_line_size;
+        comptime!(println!("{:?}", num_lines));
 
         for i in 0..num_lines {
             let value = out_smem_slice[i];

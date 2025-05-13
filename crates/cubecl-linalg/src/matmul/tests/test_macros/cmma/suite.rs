@@ -458,6 +458,16 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        mod t3x5x7 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 3, n: 5, k: 7 }
+            );
+        }
+
         mod t16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -739,5 +749,20 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        mod pTMP {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $kind;
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 3,
+                    n: 5,
+                    k: 7
+                }
+            );
+        }
     };
 }
