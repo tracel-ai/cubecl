@@ -31,11 +31,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
-    let plane_dim = match client
-        .properties()
-        .hardware_properties()
-        .defined_plane_size()
-    {
+    let plane_dim = match client.properties().hardware.defined_plane_size() {
         Some(val) => val,
         None => {
             println!("Can't run test without a fixed plane size.");

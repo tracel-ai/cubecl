@@ -63,6 +63,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         arch_major * 10 + minor
     } as u32;
 
+    // Ask the wmma compiler for its supported combinations
+    let arch = CudaArchitecture {
+        version: arch_version,
+    };
+    let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
+
     let ctx = unsafe {
         let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
         cudarc::driver::result::ctx::set_current(ctx).unwrap();
@@ -125,6 +131,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             max_cube_dim,
             num_streaming_multiprocessors,
             num_tensor_cores,
+            min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
+                None
+            } else {
+                Some(8)
+            },
         }
     };
 
@@ -150,6 +161,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
         comp_opts.grid_constants = true;
     }
+
+    // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
+    // if arch.get_version() >= 80 {
+    //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
+    // }
+
     if arch_version >= 89 {
         device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E4M3)));
         device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E5M2)));
@@ -159,9 +176,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         device_props.register_feature(Feature::CubeCluster);
         comp_opts.supports_clusters = true;
     }
+
     if arch_version >= 100 {
         device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
     }
+
     // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
     // major version. Try to keep this up to date with new arch major revisions if they also
     // implement it.
@@ -171,21 +190,13 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E3M2)));
         device_props.register_feature(Feature::Type(Elem::Float(FloatKind::UE8M0)));
     }
-    // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
-    // if arch.get_version() >= 80 {
-    //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
-    // }
-    // Ask the wmma compiler for its supported combinations
-    let arch = CudaArchitecture {
-        version: arch_version,
-    };
-    let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
-    register_wmma_features(supported_wmma_combinations, &mut device_props);
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
     device_props.register_feature(Feature::DynamicLineSize);
+
+    register_wmma_features(supported_wmma_combinations, &mut device_props);
 
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);

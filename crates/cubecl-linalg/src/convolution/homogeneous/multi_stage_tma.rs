@@ -401,10 +401,7 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     let output_stage_size = tile_size.m * tile_size.n * num_planes;
     let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
 
-    let max_smem = client
-        .properties()
-        .hardware_properties()
-        .max_shared_memory_size;
+    let max_smem = client.properties().hardware.max_shared_memory_size;
 
     let max_stages = (max_smem as u32 - output_stage_size_bytes) / inputs_stage_size_bytes;
     let max_stages = Ord::min(max_stages, NUM_STAGES_MAX);

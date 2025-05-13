@@ -369,7 +369,7 @@ impl Index {
     ) -> std::fmt::Result {
         if matches!(
             list,
-            Variable::LocalMut { .. } | Variable::LocalConst { .. }
+            Variable::LocalMut { .. } | Variable::LocalConst { .. } | Variable::ConstantScalar(..)
         ) {
             return IndexVector::format(f, list, index, out);
         }

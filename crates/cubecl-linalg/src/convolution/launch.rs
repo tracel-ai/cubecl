@@ -125,7 +125,7 @@ where
 
     let plane_dim = client
         .properties()
-        .hardware_properties()
+        .hardware
         .defined_plane_size()
         .unwrap_or(32);
 

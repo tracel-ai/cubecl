@@ -305,7 +305,7 @@ where
 
         let result = self.channel.end_profile(token);
 
-        let result = match self.properties().time_measurement() {
+        let result = match self.properties().time_measurement {
             TimeMeasurement::Device => result,
             TimeMeasurement::System => {
                 #[cfg(target_family = "wasm")]

@@ -221,7 +221,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     let num_tensor_cores = client
         .properties()
-        .hardware_properties()
+        .hardware
         .num_tensor_cores
         .unwrap_or(NUM_TENSOR_CORES_APPROX);
     // The number of planes that can send tasks to tensor cores.
@@ -235,7 +235,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.num_batches(),
         client
             .properties()
-            .hardware_properties()
+            .hardware
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
         tensor_cores_channels,

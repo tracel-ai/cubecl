@@ -116,6 +116,11 @@ pub struct HardwareProperties {
     pub num_streaming_multiprocessors: Option<u32>,
     /// Number of tensor cores per SM, if any
     pub num_tensor_cores: Option<u32>,
+    /// The minimum tiling dimension for a single axis in tensor cores.
+    ///
+    /// For a backend that only supports 16x16x16, the value would be 16.
+    /// For a backend that also supports 32x8x16, the value would be 8.
+    pub min_tensor_cores_dim: Option<u32>,
 }
 
 impl HardwareProperties {

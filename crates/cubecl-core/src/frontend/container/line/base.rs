@@ -33,6 +33,8 @@ impl<P: CubePrimitive> Copy for Line<P> {}
 
 /// Module that contains the implementation details of the new function.
 mod new {
+    use cubecl_macros::comptime_type;
+
     use super::*;
 
     #[cube]
@@ -43,6 +45,19 @@ mod new {
             intrinsic!(|_| {
                 let elem: ExpandElementTyped<P> = val;
                 elem.expand.into()
+            })
+        }
+
+        #[allow(unused_variables)]
+        /// Get the length of the current line.
+        pub fn line_size(&self) -> comptime_type!(u32) {
+            intrinsic!(|_| {
+                let elem: ExpandElementTyped<Line<P>> = self;
+                elem.expand
+                    .item
+                    .vectorization
+                    .map(|a| a.get() as u32)
+                    .unwrap_or(1)
             })
         }
     }

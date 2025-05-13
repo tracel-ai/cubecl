@@ -6,9 +6,12 @@ use alloc::collections::BTreeSet;
 #[derive(Debug)]
 pub struct DeviceProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
-    memory: MemoryDeviceProperties,
-    hardware: HardwareProperties,
-    time_measurement: TimeMeasurement,
+    /// The memory properties of this client.
+    pub memory: MemoryDeviceProperties,
+    /// The topology properties of this client.
+    pub hardware: HardwareProperties,
+    /// The [time measurement](TimeMeasurement) of the current device.
+    pub time_measurement: TimeMeasurement,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,11 +48,6 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
         }
     }
 
-    /// Get the [time measurement](TimeMeasurement) of the current device.
-    pub fn time_measurement(&self) -> TimeMeasurement {
-        self.time_measurement
-    }
-
     /// Check if the provided `Feature` is supported by the runtime.
     pub fn feature_enabled(&self, feature: Feature) -> bool {
         self.set.contains(&feature)
@@ -60,15 +58,5 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     /// This should only be used by a [runtime](cubecl_core::Runtime) when initializing a device.
     pub fn register_feature(&mut self, feature: Feature) -> bool {
         self.set.insert(feature)
-    }
-
-    /// The memory properties of this client.
-    pub fn memory_properties(&self) -> &MemoryDeviceProperties {
-        &self.memory
-    }
-
-    /// The topology properties of this client.
-    pub fn hardware_properties(&self) -> &HardwareProperties {
-        &self.hardware
     }
 }
