@@ -57,11 +57,37 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     ) {
         match comptime!(lhs.layout) {
             MatrixLayout::RowMajor => match comptime!(rhs.layout) {
-                MatrixLayout::RowMajor => {
-                    unimplemented!()
+                MatrixLayout::RowMajor =>
+                {
+                    #[unroll]
+                    for k_ in 0..lhs.cols {
+                        #[unroll]
+                        for i in 0..lhs.rows {
+                            let l = MP::EA::cast_from(lhs.data[i * lhs.cols + k_]);
+                            #[unroll]
+                            for j in 0..rhs.cols {
+                                let r = MP::EA::cast_from(rhs.data[k_ * rhs.cols + j]);
+                                let o = i * rhs.cols + j;
+                                out.data[o] = out.data[o] + l * r;
+                            }
+                        }
+                    }
                 }
-                MatrixLayout::ColMajor => {
-                    unimplemented!()
+                MatrixLayout::ColMajor =>
+                {
+                    #[unroll]
+                    for k_ in 0..lhs.cols {
+                        #[unroll]
+                        for i in 0..lhs.rows {
+                            let l = MP::EA::cast_from(lhs.data[i * lhs.cols + k_]);
+                            #[unroll]
+                            for j in 0..rhs.cols {
+                                let r = MP::EA::cast_from(rhs.data[j * rhs.rows + k_]);
+                                let o = i * rhs.cols + j;
+                                out.data[o] = out.data[o] + l * r;
+                            }
+                        }
+                    }
                 }
             },
             MatrixLayout::ColMajor => match comptime!(rhs.layout) {
@@ -81,8 +107,21 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                         }
                     }
                 }
-                MatrixLayout::ColMajor => {
-                    unimplemented!()
+                MatrixLayout::ColMajor =>
+                {
+                    #[unroll]
+                    for k_ in 0..lhs.cols {
+                        #[unroll]
+                        for i in 0..lhs.rows {
+                            let l = MP::EA::cast_from(lhs.data[k_ * lhs.rows + i]);
+                            #[unroll]
+                            for j in 0..rhs.cols {
+                                let r = MP::EA::cast_from(rhs.data[j * rhs.rows + k_]);
+                                let o = i * rhs.cols + j;
+                                out.data[o] = out.data[o] + l * r;
+                            }
+                        }
+                    }
                 }
             },
         }
@@ -115,7 +154,18 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
         match comptime!(lhs.layout) {
             MatrixLayout::RowMajor => {
-                unimplemented!()
+                let num_lines_per_row = comptime!(lhs.cols / line_size); // assumed to be perfectly divisible as per check config
+                #[unroll]
+                for row in 0..lhs.rows {
+                    #[unroll]
+                    for r in 0..num_lines_per_row {
+                        let line = tile.slice[row * num_lines_per_row + r];
+                        #[unroll]
+                        for i in 0..line_size {
+                            lhs.data[row * lhs.cols + r * line_size + i] = line[i];
+                        }
+                    }
+                }
             }
             MatrixLayout::ColMajor => {
                 let num_lines_per_col = comptime!(lhs.rows / line_size); // assumed to be perfectly divisible as per check config
@@ -147,13 +197,24 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                         let line = tile.slice[row * num_lines_per_row + r];
                         #[unroll]
                         for i in 0..line_size {
-                            rhs.data[row * rhs.rows + r * line_size + i] = line[i];
+                            rhs.data[row * rhs.cols + r * line_size + i] = line[i];
                         }
                     }
                 }
             }
             MatrixLayout::ColMajor => {
-                unimplemented!()
+                let num_lines_per_col = comptime!(rhs.rows / line_size); // assumed to be perfectly divisible as per check config
+                #[unroll]
+                for col in 0..rhs.cols {
+                    #[unroll]
+                    for l in 0..num_lines_per_col {
+                        let line = tile.slice[col * num_lines_per_col + l];
+                        #[unroll]
+                        for i in 0..line_size {
+                            rhs.data[col * rhs.rows + l * line_size + i] = line[i];
+                        }
+                    }
+                }
             }
         }
     }
@@ -252,17 +313,14 @@ impl MatmulConfigFactory for RegisterMatmul {
 
         match config.lhs_layout {
             MatrixLayout::RowMajor => {
-                return Err(RegisterMatmulConfigError::new(move || {
-                    format!("Lhs row major unsupported for now",)
-                }));
-                // if k % lhs != 0 {
-                //     return Err(RegisterMatmulConfigError::new(move || {
-                //         format!(
-                //             "When Lhs is row major, register matmul k {:?} must be divisible by lhs line size {:?}.",
-                //             k, lhs
-                //         )
-                //     }));
-                // }
+                if k % lhs != 0 {
+                    return Err(RegisterMatmulConfigError::new(move || {
+                        format!(
+                            "When Lhs is row major, register matmul k {:?} must be divisible by lhs line size {:?}.",
+                            k, lhs
+                        )
+                    }));
+                }
             }
             MatrixLayout::ColMajor => {
                 if m % lhs != 0 {
@@ -288,17 +346,14 @@ impl MatmulConfigFactory for RegisterMatmul {
                 }
             }
             MatrixLayout::ColMajor => {
-                return Err(RegisterMatmulConfigError::new(move || {
-                    format!("Rhs col major unsupported for now",)
-                }));
-                // if k % rhs != 0 {
-                //     return Err(RegisterMatmulConfigError::new(move || {
-                //         format!(
-                //             "When Rhs is col major, register matmul k {:?} must be divisible by rhs line size {:?}.",
-                //             k, rhs
-                //         )
-                //     }));
-                // }
+                if k % rhs != 0 {
+                    return Err(RegisterMatmulConfigError::new(move || {
+                        format!(
+                            "When Rhs is col major, register matmul k {:?} must be divisible by rhs line size {:?}.",
+                            k, rhs
+                        )
+                    }));
+                }
             }
         }
 
