@@ -1,4 +1,5 @@
-use crate::matmul::components::global::AccumulatorLoader;
+use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
+use crate::matmul::components::stage::base::Writer;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
 use crate::matmul::components::stage::{Reader, ReaderFamily};
@@ -8,11 +9,12 @@ use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
-use crate::matmul::components::{Ident, MatmulProblem, global, stage::Writer, tile};
+use crate::matmul::components::{Ident, MatmulProblem, global, tile};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::shared::StageVectorization;
 
@@ -133,6 +135,7 @@ where
     type Accumulator = TMM::Accumulator;
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
+    type Writer = UnitWriter<MP::EO>;
 
     fn execute(
         lhs_reader: &RL,
@@ -174,9 +177,9 @@ where
         (lhs, TMM::allocate_rhs(tmm_config))
     }
 
-    fn read_accumulator<W: Writer<MP::EO>, G: global::GlobalConfig>(
+    fn read_accumulator<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
-        out: &mut W,
+        out: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -194,7 +197,7 @@ where
         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
         TMM::read_accumulator(acc, &mut smem_slice, stage_config.to_tmm_config());
-        W::write::<MP::EO, G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
+        Self::Writer::write::<G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -211,6 +214,15 @@ where
         #[comptime] config: Self::Config,
     ) {
         L::load::<TMM>(loader, acc, 0, config.to_tmm_config());
+    }
+
+    fn init_writer(
+        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Writer {
+        Self::Writer::new(tensor, x_offset, y_offset, batch_offset)
     }
 }
 

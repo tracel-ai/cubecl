@@ -5,7 +5,6 @@ use crate::matmul::{
             GlobalMatmul, Quantization, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
-            write::TilewiseWriter,
         },
         stage::{FullReader, StageMatmul},
     },
@@ -124,7 +123,7 @@ where
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = TilewiseWriter<MP::EO>;
+    type Out = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -166,12 +165,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_writer,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::read_accumulator::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -221,7 +215,7 @@ where
         _nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, batch_offset)
+        SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

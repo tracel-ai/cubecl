@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::matmul::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
@@ -66,6 +67,8 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsTile: CubeType;
     type RhsTile: CubeType;
 
+    type Writer: Writer<MP::EO>;
+
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     ///
     /// Equivalent to execute_with_listener with SEL:=NoEvent
@@ -104,15 +107,22 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// If some `quantization` is provided, the read will also requantize the stage in the output
     /// and update the scaling of the output tensor. This assumes that [execute] is called
     /// with some `scaling` provided.
-    fn read_accumulator<Out: Writer<MP::EO>, G: global::GlobalConfig>(
+    fn read_accumulator<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
-        out: &mut Out,
+        out: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
 
     /// Create an instance of the accumulator, without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    fn init_writer(
+        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Writer;
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
@@ -131,9 +141,9 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 pub trait Writer<EO: Numeric>: CubeType + 'static + Send + Sync {
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
-    fn write<ES: Numeric, G: global::GlobalConfig>(
+    fn write<G: global::GlobalConfig>(
         this: &mut Self,
-        slice: Slice<Line<ES>>,
+        slice: Slice<Line<EO>>,
         tile_m: u32,
         tile_n: u32,
         #[comptime] config: G,

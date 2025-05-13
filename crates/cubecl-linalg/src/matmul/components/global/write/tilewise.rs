@@ -28,9 +28,9 @@ impl<EG: Numeric> TilewiseWriter<EG> {
 
 #[cube]
 impl<EG: Numeric> Writer<EG> for TilewiseWriter<EG> {
-    fn write<ES: Numeric, G: GlobalConfig>(
+    fn write<G: GlobalConfig>(
         this: &mut Self,
-        out_smem_slice: Slice<Line<ES>>,
+        out_smem_slice: Slice<Line<EG>>,
         tile_row: u32,
         tile_col: u32,
         #[comptime] config: G,
@@ -52,12 +52,12 @@ impl<EG: Numeric> Writer<EG> for TilewiseWriter<EG> {
             if comptime!(balanced_workload) {
                 let value = out_smem_slice[unit_write / output_line_size];
                 this.tensor_view
-                    .write_coalesced::<ES, G>(tile_row, tile_col, unit_write, value, config);
+                    .write_coalesced::<G>(tile_row, tile_col, unit_write, value, config);
             } else {
                 if unit_write < tile_size {
                     let value = out_smem_slice[unit_write / output_line_size];
                     this.tensor_view
-                        .write_coalesced::<ES, G>(tile_row, tile_col, unit_write, value, config);
+                        .write_coalesced::<G>(tile_row, tile_col, unit_write, value, config);
                 }
             }
         }

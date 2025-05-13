@@ -13,7 +13,7 @@ use crate::{
             EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
             MatmulSpec, OutputRuntimeArg,
             global::{
-                AccumulatorLoader, GlobalConfig, TilewiseWriter,
+                AccumulatorLoader, GlobalConfig, 
                 load::{SyncFullLoader, sync_full_cyclic},
                 single_stage,
             },
@@ -60,7 +60,7 @@ where
         SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
-    type Out = TilewiseWriter<MP::EO>;
+    type Out = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -115,12 +115,7 @@ where
 
         sync_cube();
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_writer,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::read_accumulator::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -164,7 +159,7 @@ where
         x_offset: u32,
         y_offset: u32,
     ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, 0)
+        SMM::init_writer(out, x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
