@@ -28,6 +28,12 @@ macro_rules! testgen_matmul_accelerated {
 
 #[macro_export]
 macro_rules! testgen_matmul_unit {
+    ($eg:ty, $es:ty) => {
+        type Precision = ($eg, $es);
+
+        $crate::matmul_standard_tests!(unit);
+    };
+
     ([$($float:ident),*]) => {
         #[allow(non_snake_case)]
         mod matmul_unit {
@@ -41,11 +47,6 @@ macro_rules! testgen_matmul_unit {
                 })*
             }
         }
-    };
-    ($eg:ty, $es:ty) => {
-        type Precision = ($eg, $es);
-
-        $crate::matmul_standard_tests!(unit);
     };
 }
 

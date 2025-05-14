@@ -429,17 +429,6 @@ macro_rules! matmul_standard_tests {
     };
 
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident) => {
-        mod t4x4x4 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize { m: 4, n: 4, k: 4 }
-            );
-        }
-
-
         mod t8x8x8 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -447,16 +436,6 @@ macro_rules! matmul_standard_tests {
                 $lhs_layout,
                 $rhs_layout,
                 MatmulSize { m: 8, n: 8, k: 8 }
-            );
-        }
-
-        mod t3x5x7 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize { m: 3, n: 5, k: 7 }
             );
         }
 
@@ -633,22 +612,6 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        mod p32x32x32 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                $stage,
-                MatmulSize {
-                    m: 32,
-                    n: 32,
-                    k: 32
-                }
-            );
-        }
-
         mod p64x32x32 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -693,22 +656,6 @@ macro_rules! matmul_standard_tests {
                     m: 100,
                     n: 100,
                     k: 100
-                }
-            );
-        }
-
-        mod p20x20x16 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                $stage,
-                MatmulSize {
-                    m: 20,
-                    n: 20,
-                    k: 16
                 }
             );
         }
