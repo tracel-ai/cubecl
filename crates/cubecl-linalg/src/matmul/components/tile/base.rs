@@ -114,13 +114,15 @@ pub trait TileConfig: MatmulConfig {
     fn tile_shape(&self) -> &MatmulSize;
 }
 
-#[derive(CubeType)]
+#[derive(CubeType, Clone)]
 /// Data to be handed to the tile matmul
 pub struct Tile<ES: Numeric> {
     /// Slice containing all data
     pub slice: Slice<Line<ES>>,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
     pub stride: u32,
+    #[cube(comptime)]
+    pub layout: MatrixLayout,
 }
 
 #[cube]
@@ -130,23 +132,36 @@ impl<ES: Numeric> Tile<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: T,
     ) -> Tile<ES> {
+        let layout = config.matrix_layout(ident);
         let stride = comptime! {
             (match ident.as_input_ident() {
-            InputIdent::Lhs => match config.matrix_layout(ident) {
+            InputIdent::Lhs => match layout {
                 MatrixLayout::RowMajor => config.tile_shape().k,
                 MatrixLayout::ColMajor => config.tile_shape().m,
             },
-            InputIdent::Rhs => match config.matrix_layout(ident) {
+            InputIdent::Rhs => match layout {
                 MatrixLayout::RowMajor => config.tile_shape().n,
                 MatrixLayout::ColMajor => config.tile_shape().k,
             },
         }) / config.stage_line_size(ident)};
 
-        Tile::<ES> { slice, stride }
+        Tile::<ES> {
+            slice,
+            stride,
+            layout,
+        }
     }
 
-    pub fn new_strided(slice: Slice<Line<ES>>, stride: u32) -> Tile<ES> {
-        Tile::<ES> { slice, stride }
+    pub fn new_strided(
+        slice: Slice<Line<ES>>,
+        stride: u32,
+        #[comptime] layout: MatrixLayout,
+    ) -> Tile<ES> {
+        Tile::<ES> {
+            slice,
+            stride,
+            layout,
+        }
     }
 
     pub fn as_unlined<T: TileConfig>(
@@ -158,5 +173,13 @@ impl<ES: Numeric> Tile<ES> {
             self.slice.try_cast_unchecked(),
             self.stride * config.stage_line_size(ident),
         )
+    }
+
+    pub fn get_line(&self, row: u32, col: u32) -> Line<ES> {
+        let index = match comptime!(self.layout) {
+            MatrixLayout::RowMajor => row * self.stride + col,
+            MatrixLayout::ColMajor => col * self.stride + row,
+        };
+        self.slice[index]
     }
 }

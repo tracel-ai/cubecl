@@ -182,6 +182,9 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         out.strides,
         rank - 1,
     );
+    let lhs_line_size = 4;
+    let rhs_line_size = 4;
+    let out_line_size = 4;
 
     let problem = MatmulProblem {
         m: m as usize,

@@ -369,6 +369,7 @@ impl TilingLayout for StridedTilingLayout {
                 Tile::new_strided(
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
+                    matrix_layout,
                 )
             }
             MatrixLayout::ColMajor => {
@@ -382,6 +383,7 @@ impl TilingLayout for StridedTilingLayout {
                 Tile::new_strided(
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
+                    matrix_layout,
                 )
             }
         }

@@ -148,7 +148,18 @@ pub(crate) fn find_instruction_shape(
                 (16, 16, 8)
             }
         }
-        None => (8, 8, 8),
+        // TODO: instead, make another selector for non-cmma
+        // -> Better: every Algorithm implements its selector
+        // Though most will call the same function
+        // In refactoring selector, never be generic over element type, only use DTYPE
+        // Also, never use TensorHandleRef
+        //
+        // For unit selector, 
+        // We first want to choose the stage size, to have a good unit count
+        // Then, we want a small tile size
+        //
+        // None => (8, 8, 8),
+        None => (4, 4, 4),
     }
 }
 
@@ -252,6 +263,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     // Makes all rows the length of plane_dim
     let k = plane_dim / instruction_k as u32;
+    let k = 2;
 
     MatmulSelection {
         tile_shape: MatmulSize {
