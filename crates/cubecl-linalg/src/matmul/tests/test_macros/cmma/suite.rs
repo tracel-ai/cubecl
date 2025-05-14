@@ -27,8 +27,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         m: problem.m as usize,
         n: problem.n as usize,
         k: problem.k as usize,
-        batches: (vec![1], vec![1]),
-        // batches: (vec![2], vec![2]),
+        batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
         lhs_line_size: 1, // Will be changed

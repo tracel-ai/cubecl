@@ -1,7 +1,7 @@
 use crate::matmul::{
     components::{
         InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-        MatrixLayout, OutputRuntimeArg, global::AccumulatorLoader, stage::Writer,
+        MatrixLayout, OutputRuntimeArg, global::AccumulatorLoader, stage::GlobalWriter,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -36,7 +36,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
     type AccumulatorLoader: AccumulatorLoader<MP>;
 
-    type Out: Writer<MP::EO>;
+    type Writer: GlobalWriter<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the
@@ -49,7 +49,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
         acc_loader: Self::AccumulatorLoader,
-        writer: Self::Out,
+        writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -81,7 +81,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
-    ) -> Self::Out;
+    ) -> Self::Writer;
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 }

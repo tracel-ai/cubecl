@@ -132,13 +132,13 @@ where
     type LhsLoader = TmaLoader<MP, SMM::Config>;
     type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = SMM::Writer;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut out_writer: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -230,7 +230,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-    ) -> Self::Out {
+    ) -> Self::Writer {
         SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 

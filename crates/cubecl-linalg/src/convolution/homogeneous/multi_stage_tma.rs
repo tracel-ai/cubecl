@@ -72,14 +72,14 @@ where
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
-    type Out = SMM::Writer;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut acc_loader: Self::AccumulatorLoader,
-        mut out_writer: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -231,7 +231,7 @@ where
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
-    ) -> Self::Out {
+    ) -> Self::Writer {
         SMM::init_writer(out, x_offset, y_offset, 0)
     }
 
@@ -405,10 +405,6 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;
     }
-
-    // println!(
-    //     "max_stages: {max_stages}, num_stages: {num_stages}, max_smem: {max_smem}, stage_in: {inputs_stage_size_bytes}, stage_out: {output_stage_size_bytes}"
-    // );
 
     num_stages
 }

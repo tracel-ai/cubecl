@@ -1,7 +1,7 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorWriter;
-use crate::matmul::components::stage::Writer;
+use crate::matmul::components::stage::GlobalWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -26,7 +26,7 @@ impl<EG: Numeric> UnitWriter<EG> {
 }
 
 #[cube]
-impl<EG: Numeric> Writer<EG> for UnitWriter<EG> {
+impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
     fn write<G: GlobalConfig>(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,

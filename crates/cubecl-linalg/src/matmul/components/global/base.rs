@@ -5,7 +5,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
-    stage::{self, Writer},
+    stage::{self, GlobalWriter},
     tile,
 };
 use cubecl_std::{
@@ -46,7 +46,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type AccumulatorLoader: CubeType;
-    type Out: Writer<MP::EO>;
+    type Writer: GlobalWriter<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -58,7 +58,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
-        writer: Self::Out,
+        writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -93,7 +93,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
-    ) -> Self::Out;
+    ) -> Self::Writer;
 
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;

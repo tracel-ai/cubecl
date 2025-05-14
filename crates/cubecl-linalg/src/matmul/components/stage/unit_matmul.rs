@@ -1,5 +1,5 @@
 use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
-use crate::matmul::components::stage::base::Writer;
+use crate::matmul::components::stage::base::GlobalWriter;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
 use crate::matmul::components::stage::{Reader, ReaderFamily};

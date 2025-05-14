@@ -67,7 +67,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsTile: CubeType;
     type RhsTile: CubeType;
 
-    type Writer: Writer<MP::EO>;
+    type Writer: GlobalWriter<MP::EO>;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     ///
@@ -138,7 +138,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait Writer<EO: Numeric>: CubeType + 'static + Send + Sync {
+pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
     fn write<G: global::GlobalConfig>(
