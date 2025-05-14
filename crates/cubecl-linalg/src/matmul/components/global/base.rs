@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TilingDimensions, config::MatmulConfig, stage, tile,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
+    config::MatmulConfig, stage,
 };
 use cubecl_std::{
     CubeOption,
@@ -97,26 +97,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Writer;
-}
-
-#[cube]
-/// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
-/// for it.
-pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sync {
-    fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G);
-
-    /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
-    /// for the underlying tile.
-    fn load<Tile: tile::TileMatmul<MP>>(
-        this: &mut Self,
-        acc: &mut Tile::Accumulator,
-        nth_tile: u32,
-        #[comptime] config: Tile::Config,
-    );
-}
-
-pub trait LoadingValidation {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.

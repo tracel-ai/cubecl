@@ -1,7 +1,7 @@
-use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, Quantization};
 use crate::matmul::components::stage::{StageMemory, TilingLayout};
+use crate::matmul::components::{Ident, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
@@ -37,4 +37,8 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
     );
 
     fn task_count(this: &Self) -> comptime_type!(u32);
+}
+
+pub trait LoadingValidation {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }

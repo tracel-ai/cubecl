@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::AsyncLoadingJob;
+use crate::matmul::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
 use crate::matmul::components::global::{Quantization, single_stage};
 use crate::matmul::components::stage::FullReader;
 use crate::matmul::components::stage::TilingLayout;

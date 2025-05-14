@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::LoadingJob;
+use crate::matmul::components::global::load::LoadingValidation;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::FullReader;
 use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::stage::TilingLayout;

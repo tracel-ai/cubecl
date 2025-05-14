@@ -1,9 +1,9 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
-use crate::matmul::components::global::load::AsyncLoadingJob;
+use crate::matmul::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, LoadingValidation, Quantization};
+use crate::matmul::components::global::{CopyMechanism, Quantization};
 use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::{self, StageMemory};

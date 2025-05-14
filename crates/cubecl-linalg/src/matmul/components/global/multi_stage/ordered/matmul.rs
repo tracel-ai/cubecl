@@ -1,10 +1,9 @@
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
-    BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy, SyncFullLoader,
-    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
+    BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
+    SyncFullLoader, SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::matmul::components::global::{self, LoadingValidation};
-use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::{BufferReader, StageConfig};
 use crate::matmul::components::stage::{FullReader, StageEvent};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};

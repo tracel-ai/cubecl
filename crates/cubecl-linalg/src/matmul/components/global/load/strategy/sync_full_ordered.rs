@@ -3,14 +3,11 @@ use crate::matmul::components::stage::OrderedTilingOrder;
 use crate::matmul::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
-use crate::matmul::components::{
-    global::{GlobalConfig, LoadingValidation},
-    stage::ContiguousTilingLayout,
-};
+use crate::matmul::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::sync_full_tilewise;
+use super::{LoadingValidation, sync_full_tilewise};
 
 #[derive(CubeType, Clone, Copy)]
 /// Similar to `sync_full_tilewise`, but includes additional validation checks.
