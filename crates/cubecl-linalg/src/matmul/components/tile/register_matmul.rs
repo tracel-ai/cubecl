@@ -32,11 +32,11 @@ impl TileMatmulFamily for RegisterMatmul {
 #[derive(CubeType)]
 /// Contains the accumulated result, within a row major array of size rows x cols
 pub struct TileAccumulator<EA: Numeric> {
-    data: Array<Line<EA>>,
+    data: Array<EA>,
     #[cube(comptime)]
     rows: u32,
     #[cube(comptime)]
-    line_cols: u32,
+    cols: u32,
 }
 
 #[derive(CubeType)]
@@ -61,11 +61,16 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         let n = config.size.n;
         let k = config.size.k;
 
+        let lhs_line_size = config.lhs_line_size;
+        let rhs_line_size = config.rhs_line_size;
+
         let lhs = lhs.tile.read().unwrap();
         let rhs = rhs.tile.read().unwrap();
 
         // TODO
         // - If line < m,k, iterate on lines
+        // - If stage_line_size > tile_size
+        // -> ignore stage_line_size, reread with pgcd(stage_line_size, tile_size)
         // - Implement for other layouts. If in the end they all look the same, refactor. Otherwise not a big deal
         // Don't make loaders that transpose, not worth it at all.
 
@@ -73,15 +78,42 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
             (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => unimplemented!(),
             (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => unimplemented!(),
             (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => {
-                assert!(config.size.m == config.lhs_line_size);
-                assert!(config.size.n == config.rhs_line_size);
+                let m_line_size = lhs_line_size;
+                let m_num_lines = m / lhs_line_size;
+                let n_line_size = rhs_line_size;
+                let n_num_lines = n / rhs_line_size;
+
+                comptime! {
+                    println!("{:?}", m_line_size);
+                    println!("{:?}", m_num_lines);
+                }
+
                 #[unroll]
                 for k_ in 0..k {
-                    let l: Line<MP::EA> = Line::cast_from(lhs.get_line(0, k_));
-                    let r: Line<MP::EA> = Line::cast_from(rhs.get_line(k_, 0));
                     #[unroll]
-                    for m_ in 0..m {
-                        out.data[m_] += Line::cast_from(l[m_]) * r;
+                    for m_line_index in 0..m_num_lines {
+                        let m_line: Line<MP::EA> = Line::cast_from(lhs.get_line(m_line_index, k_));
+
+                        #[unroll]
+                        for m_pos_within_line in 0..m_line_size {
+                            let m_elem: MP::EA = m_line[m_pos_within_line];
+                            let m_iter = m_line_index * m_line_size + m_pos_within_line;
+
+                            #[unroll]
+                            for n_line_index in 0..n_num_lines {
+                                let n_line: Line<MP::EA> =
+                                    Line::cast_from(rhs.get_line(k_, n_line_index));
+
+                                #[unroll]
+                                for n_pos_within_line in 0..n_line_size {
+                                    let n_elem: MP::EA = n_line[n_pos_within_line];
+                                    let n_iter = n_line_index * n_line_size + n_pos_within_line;
+
+                                    out.data[m_iter * k + n_iter] =
+                                        out.data[m_iter * k + n_iter] + m_elem * n_elem;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -117,38 +149,46 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         #[comptime] _config: Config,
     ) {
         #[unroll]
-        for i in 0..comptime!(acc.rows * acc.line_cols) {
-            acc.data[i] = tile.slice[i * tile.stride];
+        for i in 0..comptime!(acc.rows) {
+            for j in 0..comptime!(acc.cols) {
+                acc.data[i * acc.cols + j] =
+                    tile.slice.with_line_size(1u32)[i * tile.stride + j][0];
+            }
         }
     }
 
     fn write_results(
         acc: &Self::Accumulator,
         slice: &mut SliceMut<Line<MP::EO>>,
-        #[comptime] _config: Config,
+        #[comptime] config: Config,
     ) {
-        // Assuming acc and slice have same line size
+        let out_line_size = config.out_line_size;
         #[unroll]
-        for i in 0..comptime!(acc.rows * acc.line_cols) {
-            slice[i] = Line::cast_from(acc.data[i]);
+        for i in 0..comptime!(acc.rows * acc.cols / out_line_size) {
+            let mut line = Line::empty(out_line_size);
+            #[unroll]
+            for j in 0..comptime!(out_line_size) {
+                line[j] = acc.data[i * out_line_size + j];
+            }
+            slice[i] = Line::cast_from(line);
         }
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         let rows = config.size.m;
-        let line_cols = config.size.n / config.out_line_size;
+        let cols = config.size.n;
 
         TileAccumulator::<MP::EA> {
-            data: Array::<Line<MP::EA>>::vectorized(rows * line_cols, config.out_line_size),
+            data: Array::<MP::EA>::new(rows * cols),
             rows,
-            line_cols,
+            cols,
         }
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
         #[unroll]
-        for i in 0..comptime!(acc.rows * acc.line_cols) {
-            acc.data[i] = Line::cast_from(0);
+        for i in 0..comptime!(acc.rows * acc.cols) {
+            acc.data[i] = MP::EA::cast_from(0);
         }
     }
 }
@@ -181,6 +221,7 @@ impl MatmulConfigFactory for RegisterMatmul {
         let n = config.size.n;
         let k = config.size.k;
 
+        // TODO this is selector logic
         if m > 8 || n > 8 || k > 8 {
             return Err(RegisterMatmulConfigError::new(move || {
                 format!(

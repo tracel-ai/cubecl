@@ -157,6 +157,7 @@ pub(crate) fn find_instruction_shape(
         // For unit selector, 
         // We first want to choose the stage size, to have a good unit count
         // Then, we want a small tile size
+        // Depends on problem, like if it's mat@vec
         //
         // None => (8, 8, 8),
         None => (4, 4, 4),
