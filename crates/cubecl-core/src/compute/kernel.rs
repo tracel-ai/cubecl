@@ -90,7 +90,7 @@ fn compilation_level() -> u8 {
         };
 
         COMPILATION_LEVEL.store(val, Ordering::Relaxed);
-        return val as u8;
+        val as u8
     } else {
         compilation_level as u8
     }
