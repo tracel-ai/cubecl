@@ -1,4 +1,5 @@
 use super::{autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig};
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 
