@@ -25,7 +25,9 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
     adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: None,
-            required_features: adapter.features(),
+            required_features: adapter
+                .features()
+                .difference(Features::MAPPABLE_PRIMARY_BUFFERS),
             required_limits: limits,
             // The default is MemoryHints::Performance, which tries to do some bigger
             // block allocations. However, we already batch allocations, so we

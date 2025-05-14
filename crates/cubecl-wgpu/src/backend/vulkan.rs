@@ -40,7 +40,9 @@ pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
-    let features = adapter.features();
+    let features = adapter
+        .features()
+        .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
         adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
             request_device(adapter, hal_adapter.unwrap(), features, limits)
