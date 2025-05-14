@@ -16,7 +16,7 @@ pub enum ProfilingLogLevel {
     #[serde(rename = "disabled")]
     Disabled,
 
-    /// Only the kernels that run are log without timing.
+    /// Only the kernels that run are logged without timing.
     #[serde(rename = "minimal")]
     Minimal,
 

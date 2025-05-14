@@ -13,6 +13,7 @@ use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -272,6 +273,7 @@ impl ComputeServer for HipServer {
             match level {
                 ProfileLevel::ExecutionOnly => {
                     let (name, _kernel_id) = profile_info.unwrap();
+                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
                     self.logger.register_profiled_no_timing(&name);
                 }
                 _ => {
@@ -285,13 +287,7 @@ impl ComputeServer for HipServer {
                         ProfileLevel::Full => {
                             format!("{name}: {kernel_id} CubeCount {count:?}")
                         }
-                        _ => {
-                            if let Some(val) = name.split("<").next() {
-                                val.split("::").last().unwrap_or(name).to_string()
-                            } else {
-                                name.to_string()
-                            }
-                        }
+                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                     };
 
                     self.logger

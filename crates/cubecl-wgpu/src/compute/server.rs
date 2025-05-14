@@ -12,6 +12,7 @@ use cubecl_core::{
     prelude::*,
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };
+use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
 use cubecl_runtime::{TimeMeasurement, memory_management::offset_handles};
 use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
@@ -171,6 +172,7 @@ impl ComputeServer for WgpuServer {
         if let Some((name, kernel_id, level, token)) = profile_info {
             match level {
                 ProfileLevel::ExecutionOnly => {
+                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
                     self.logger.register_profiled_no_timing(&name);
                 }
                 _ => {
@@ -182,13 +184,7 @@ impl ComputeServer for WgpuServer {
                         ProfileLevel::Full => {
                             format!("{name}: {kernel_id} CubeCount {count:?}")
                         }
-                        _ => {
-                            if let Some(val) = name.split("<").next() {
-                                val.split("::").last().unwrap_or(name).to_string()
-                            } else {
-                                name.to_string()
-                            }
-                        }
+                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                     };
                     self.logger.register_profiled(info, duration);
                 }

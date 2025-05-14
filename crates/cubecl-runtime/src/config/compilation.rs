@@ -22,7 +22,7 @@ pub enum CompilationLogLevel {
     #[serde(rename = "disabled")]
     Disabled,
 
-    /// Basic compilation information is logged such as when kernels are comiled
+    /// Basic compilation information is logged such as when kernels are compiled.
     #[serde(rename = "basic")]
     Basic,
 

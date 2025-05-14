@@ -510,13 +510,7 @@ impl ComputeServer for CudaServer {
             match level {
                 ProfileLevel::ExecutionOnly => {
                     let (name, _kernel_id) = profile_info.unwrap();
-                    let name = match level {
-                        ProfileLevel::Basic => type_name_format(name, TypeNameFormatLevel::Short),
-                        _ => {
-                            let name = type_name_format(name, TypeNameFormatLevel::Balanced);
-                            format!("{name} {count:?}")
-                        }
-                    };
+                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
                     self.logger.register_profiled_no_timing(&name);
                 }
                 _ => {
