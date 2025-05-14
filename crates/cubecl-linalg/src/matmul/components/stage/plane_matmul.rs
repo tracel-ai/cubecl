@@ -1,5 +1,5 @@
+use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::global::{AccumulatorLoader, TilewiseWriter};
-use crate::matmul::components::stage::base::GlobalWriter;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
@@ -208,7 +208,7 @@ where
         (lhs, rhs)
     }
 
-    fn read_accumulator<G: global::GlobalConfig>(
+    fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
@@ -238,7 +238,7 @@ where
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
                 let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
-                TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
+                TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
                 Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),

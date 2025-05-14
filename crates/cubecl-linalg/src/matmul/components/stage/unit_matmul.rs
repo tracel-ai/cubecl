@@ -1,5 +1,5 @@
+use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
-use crate::matmul::components::stage::base::GlobalWriter;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
 use crate::matmul::components::stage::{Reader, ReaderFamily};
@@ -177,7 +177,7 @@ where
         (lhs, TMM::allocate_rhs(tmm_config))
     }
 
-    fn read_accumulator<G: global::GlobalConfig>(
+    fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
@@ -196,7 +196,7 @@ where
         let stage_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col();
         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
-        TMM::read_accumulator(acc, &mut smem_slice, stage_config.to_tmm_config());
+        TMM::write_results(acc, &mut smem_slice, stage_config.to_tmm_config());
         Self::Writer::write::<G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
     }
 

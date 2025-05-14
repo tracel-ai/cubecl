@@ -165,7 +165,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::read_accumulator::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(

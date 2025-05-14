@@ -24,13 +24,11 @@ pub trait TileMatmulFamily:
 /// Provides matrix multiplication operations at the tile level.
 ///
 /// At the tile level,
-///  - Inputs are raw slices of data, called tiles.
-///  - units within one plane can collaborate to solve the problem
-///  - dimensions M, N and K are fixed to an integer, and the
+///  - Dimensions M, N and K are fixed to an integer, and the
 ///    matrix multiplication works only for size (M, K) · (K, N) = (M, N).
 ///
 /// Assumptions:
-///  - Slices given as inputs must always be valid. If the actual matrix multiplication
+///  - Inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 #[cube]
@@ -59,6 +57,9 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Make sure to call [fill_lhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
+    /// Fill the container of LHS with data
+    fn fill_lhs(slice: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+
     /// Create the container for RHS data
     ///
     /// # Safety
@@ -67,26 +68,8 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Make sure to call [fill_rhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
-    /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
-
     /// Fill the container of RHS with data
     fn fill_rhs(slice: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
-
-    /// Fill the accumulator with data
-    fn fill_accumulator(
-        tile: &Tile<MP::EA>,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    );
-
-    /// Write the content of the output container to the given slice
-    fn read_accumulator<C: Numeric>(
-        // TODO is this always MP::EG?
-        out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<C>>,
-        #[comptime] config: Self::Config,
-    );
 
     /// Allocate the container to receive the execution output.
     ///
@@ -98,8 +81,22 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// or [zero_accumulator](TileMatmul::zero_accumulator).
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
+    /// Fill the accumulator with data
+    fn fill_accumulator(
+        tile: &Tile<MP::EA>,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
+
     /// Fill the accumulator with zeros.
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
+    /// Write the content of the output container to the given slice
+    fn write_results(
+        out: &Self::Accumulator,
+        slice: &mut SliceMut<Line<MP::EO>>,
+        #[comptime] config: Self::Config,
+    );
 }
 
 /// Configuration for the Tile matmul (TMM) level

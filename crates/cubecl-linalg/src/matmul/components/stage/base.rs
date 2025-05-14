@@ -6,7 +6,7 @@ use crate::matmul::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
-    global::{self, AccumulatorLoader},
+    global::{self, AccumulatorLoader, GlobalWriter},
     tile::TileConfig,
 };
 
@@ -100,29 +100,8 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
-    /// Reads the result of the accumulator and hands it to the stage writer
-    ///
-    /// # Quantization
-    ///
-    /// If some `quantization` is provided, the read will also requantize the stage in the output
-    /// and update the scaling of the output tensor. This assumes that [execute] is called
-    /// with some `scaling` provided.
-    fn read_accumulator<G: global::GlobalConfig>(
-        acc: &Self::Accumulator,
-        out: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    );
-
     /// Create an instance of the accumulator, without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-
-    fn init_writer(
-        tensor: VirtualTensor<MP::EO, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self::Writer;
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
@@ -133,20 +112,26 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
-}
 
-#[cube]
-/// Responsible of writing the accumulated stage matmul output
-/// to global memory
-pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
-    /// Writes the given slice to global memory, at a position that depends on
-    /// plane and accumulator indexes.
-    fn write<G: global::GlobalConfig>(
-        this: &mut Self,
-        slice: Slice<Line<EO>>,
-        tile_m: u32,
-        tile_n: u32,
-        #[comptime] config: G,
+    fn init_writer(
+        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Writer;
+
+    /// Reads the result of the accumulator and hands it to the stage writer
+    ///
+    /// # Quantization
+    ///
+    /// If some `quantization` is provided, the read will also requantize the stage in the output
+    /// and update the scaling of the output tensor. This assumes that [execute] is called
+    /// with some `scaling` provided.
+    fn write_results<G: global::GlobalConfig>(
+        acc: &Self::Accumulator,
+        out: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
     );
 }
 

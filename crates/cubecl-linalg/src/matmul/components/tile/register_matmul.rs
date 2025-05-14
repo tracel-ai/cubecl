@@ -112,7 +112,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
         match comptime!(lhs.layout) {
             MatrixLayout::RowMajor => {
-                let num_lines_per_row = comptime!(k / line_size); // assumed to be perfectly divisible as per check config
+                let num_lines_per_row = comptime!(k / line_size);
                 #[unroll]
                 for row in 0..m {
                     #[unroll]
@@ -126,7 +126,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                 }
             }
             MatrixLayout::ColMajor => {
-                let num_lines_per_col = comptime!(m / line_size); // assumed to be perfectly divisible as per check config
+                let num_lines_per_col = comptime!(m / line_size);
                 #[unroll]
                 for col in 0..k {
                     #[unroll]
@@ -190,9 +190,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         }
     }
 
-    fn read_accumulator<C: Numeric>(
+    fn write_results(
         acc: &Self::Accumulator,
-        slice: &mut SliceMut<Line<C>>,
+        slice: &mut SliceMut<Line<MP::EO>>,
         #[comptime] config: Config,
     ) {
         let m = acc.rows;

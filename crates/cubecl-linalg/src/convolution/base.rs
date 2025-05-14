@@ -1,7 +1,8 @@
 use crate::matmul::{
     components::{
         InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-        MatrixLayout, OutputRuntimeArg, global::AccumulatorLoader, stage::GlobalWriter,
+        MatrixLayout, OutputRuntimeArg,
+        global::{AccumulatorLoader, GlobalWriter},
     },
     kernels::MatmulAvailabilityError,
 };

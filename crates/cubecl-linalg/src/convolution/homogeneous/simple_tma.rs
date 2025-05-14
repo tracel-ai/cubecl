@@ -121,7 +121,7 @@ where
 
         sync_cube();
 
-        SMM::read_accumulator::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(

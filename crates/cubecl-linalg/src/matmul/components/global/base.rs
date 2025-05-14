@@ -3,17 +3,14 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TilingDimensions,
-    config::MatmulConfig,
-    stage::{self, GlobalWriter},
-    tile,
+    TilingDimensions, config::MatmulConfig, stage, tile,
 };
 use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use super::Quantization;
+use super::{GlobalWriter, Quantization};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -86,6 +83,12 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
+    /// Initialize the accumulator without data
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    /// Fill the accumulator with zeros
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
     /// Initialize the writer at row m and column n
     fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
@@ -94,12 +97,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Writer;
-
-    /// Initialize the accumulator without data
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-
-    /// Fill the accumulator with zeros
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]

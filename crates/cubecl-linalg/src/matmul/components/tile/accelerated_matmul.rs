@@ -46,7 +46,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         let layout = config.matrix_layout(Ident::Lhs);
         unsafe {
             cmma::Matrix::<MP::ES>::uninitialized(
-                cmma::MatrixIdent::A, // Check versus Ident
+                cmma::MatrixIdent::A,
                 size.m,
                 size.n,
                 size.k,
@@ -89,12 +89,12 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         cmma::load_with_layout(acc, &slice, stride, layout);
     }
 
-    fn read_accumulator<C: Numeric>(
+    fn write_results(
         out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<C>>,
+        slice: &mut SliceMut<Line<MP::EO>>,
         #[comptime] config: Config,
     ) {
-        let acc = cmma::cast::<MP::EA, C>(out);
+        let acc = cmma::cast::<MP::EA, MP::EO>(out);
         cmma::store(slice, &acc, config.size.n, cmma::MatrixLayout::RowMajor);
     }
 

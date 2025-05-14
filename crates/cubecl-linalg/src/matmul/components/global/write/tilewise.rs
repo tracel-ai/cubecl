@@ -1,11 +1,12 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorWriter;
-use crate::matmul::components::stage::GlobalWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+
+use super::GlobalWriter;
 
 #[derive(CubeType)]
 pub struct TilewiseWriter<EG: Numeric> {
