@@ -17,7 +17,10 @@ use crate::{
             EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
             MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
-            stage::{FullStageToTileReader, FullReaderFamily, StageConfig, StageMatmul, StageMatmulFamily},
+            stage::{
+                FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
+                StageMatmulFamily,
+            },
         },
         kernels::{MatmulAvailabilityError, matmul::LoadingPrecomputeStrategy},
     },

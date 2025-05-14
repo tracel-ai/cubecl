@@ -5,8 +5,8 @@ use crate::matmul::components::global::load::{
 };
 use crate::matmul::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
-use crate::matmul::components::stage::{FullStageToTileReader, StageEvent};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
+use crate::matmul::components::stage::{FullStageToTileReader, StageEvent};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -128,7 +128,10 @@ impl<MP: MatmulPrecision, SMM, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = FullStageToTileReader<MP::ES, <LL as SyncFullLoadingStrategy>::TilingLayout>,
+            LhsReader = FullStageToTileReader<
+                MP::ES,
+                <LL as SyncFullLoadingStrategy>::TilingLayout,
+            >,
             RhsReader = BufferStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     RL: SyncBufferLoadingStrategy,

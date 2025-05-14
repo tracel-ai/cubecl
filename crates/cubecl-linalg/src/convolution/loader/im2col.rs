@@ -59,7 +59,9 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         this.tensor_view.update_view(k_offset);
     }
 
-    pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
+    pub fn reader(
+        this: &Self,
+    ) -> FullStageToTileReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
         FullStageToTileReader::new(this.stage, InputIdent::Lhs)
     }
 

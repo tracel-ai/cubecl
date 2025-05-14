@@ -10,7 +10,7 @@ use crate::matmul::components::{
     tile::TileConfig,
 };
 
-use super::{StageToTileReader, StageEventListener, TilingLayout};
+use super::{StageEventListener, StageToTileReader, TilingLayout};
 
 pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;

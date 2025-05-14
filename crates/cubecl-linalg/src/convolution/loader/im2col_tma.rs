@@ -13,7 +13,8 @@ use crate::{
     matmul::components::{
         Ident, InputIdent, MatmulPrecision,
         stage::{
-            ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageConfig, StageMemory,
+            ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageConfig,
+            StageMemory,
         },
     },
 };

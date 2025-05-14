@@ -18,8 +18,8 @@ use crate::{
                 single_stage,
             },
             stage::{
-                ContiguousTilingLayout, FullStageToTileReader, FullReaderFamily, RowMajorTilingOrder,
-                StageMatmul, StageMatmulFamily,
+                ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader,
+                RowMajorTilingOrder, StageMatmul, StageMatmulFamily,
             },
         },
         kernels::matmul::LoadingPrecomputeStrategy,

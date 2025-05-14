@@ -9,7 +9,7 @@ use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::load::AsyncLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::{FullStageToTileReader, FullReaderFamily};
+use crate::matmul::components::stage::{FullReaderFamily, FullStageToTileReader};
 use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 use crate::matmul::{
     components::{

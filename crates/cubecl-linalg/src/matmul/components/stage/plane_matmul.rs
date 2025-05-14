@@ -3,7 +3,7 @@ use crate::matmul::components::global::{AccumulatorLoader, TilewiseWriter};
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
-use crate::matmul::components::stage::{StageToTileReader, ReaderFamily};
+use crate::matmul::components::stage::{ReaderFamily, StageToTileReader};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
