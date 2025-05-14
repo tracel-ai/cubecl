@@ -5,7 +5,7 @@ use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::load::LoadingValidation;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::FullReader;
+use crate::matmul::components::stage::FullStageToTileReader;
 use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{InputIdent, MatmulPrecision};
@@ -74,8 +74,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         }
     }
 
-    pub fn reader(this: &Self) -> FullReader<MP::ES, L::TilingLayout> {
-        FullReader::new(this.stage_memory, this.input_ident)
+    pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
+        FullStageToTileReader::new(this.stage_memory, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {

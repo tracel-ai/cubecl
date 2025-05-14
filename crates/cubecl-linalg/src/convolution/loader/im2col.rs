@@ -8,7 +8,7 @@ use crate::{
     convolution::base::RuntimeArgs,
     matmul::components::{
         Ident, InputIdent, MatmulPrecision,
-        stage::{ContiguousTilingLayout, FullReader, RowMajorTilingOrder},
+        stage::{ContiguousTilingLayout, FullStageToTileReader, RowMajorTilingOrder},
     },
 };
 use crate::{
@@ -59,8 +59,8 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         this.tensor_view.update_view(k_offset);
     }
 
-    pub fn reader(this: &Self) -> FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
-        FullReader::new(this.stage, InputIdent::Lhs)
+    pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
+        FullStageToTileReader::new(this.stage, InputIdent::Lhs)
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {

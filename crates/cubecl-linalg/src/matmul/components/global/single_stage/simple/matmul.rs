@@ -6,7 +6,7 @@ use crate::matmul::{
             load::{SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
         },
-        stage::{FullReader, StageMatmul},
+        stage::{FullStageToTileReader, StageMatmul},
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
@@ -113,8 +113,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
-            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullStageToTileReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,

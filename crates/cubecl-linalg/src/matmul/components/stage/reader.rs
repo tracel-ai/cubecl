@@ -10,7 +10,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait Reader<ES: Numeric>: CubeType + Send + Sync + 'static {
+pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
     fn read_tile<TC: TileConfig>(
         this: &Self,
         row: u32,
@@ -20,7 +20,7 @@ pub trait Reader<ES: Numeric>: CubeType + Send + Sync + 'static {
 }
 
 #[derive(CubeType)]
-pub struct FullReader<ES: Numeric, T: TilingLayout> {
+pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {
     pub stage_memory: StageMemory<ES, T>,
     #[cube(comptime)]
     pub input_ident: InputIdent,
@@ -29,13 +29,13 @@ pub struct FullReader<ES: Numeric, T: TilingLayout> {
 pub struct FullReaderFamily;
 
 impl ReaderFamily for FullReaderFamily {
-    type Reader<ES: Numeric, T: TilingLayout> = FullReader<ES, T>;
+    type Reader<ES: Numeric, T: TilingLayout> = FullStageToTileReader<ES, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
     pub fn new(stage_memory: StageMemory<ES, T>, #[comptime] input_ident: InputIdent) -> Self {
-        FullReader::<ES, T> {
+        FullStageToTileReader::<ES, T> {
             stage_memory,
             input_ident,
         }
@@ -43,7 +43,7 @@ impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> Reader<ES> for FullReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileReader<ES, T> {
     fn read_tile<TC: TileConfig>(
         this: &Self,
         row: u32,
@@ -61,7 +61,7 @@ impl<ES: Numeric, T: TilingLayout> Reader<ES> for FullReader<ES, T> {
 }
 
 #[derive(CubeType)]
-pub struct BufferReader<ES: Numeric, T: TilingLayout> {
+pub struct BufferStageToTileReader<ES: Numeric, T: TilingLayout> {
     pub stage_memory: StageMemory<ES, T>,
     #[cube(comptime)]
     pub buffer_id: BufferId,
@@ -72,17 +72,17 @@ pub struct BufferReader<ES: Numeric, T: TilingLayout> {
 pub struct BufferReaderFamily;
 
 impl ReaderFamily for BufferReaderFamily {
-    type Reader<I: Numeric, T: TilingLayout> = BufferReader<I, T>;
+    type Reader<I: Numeric, T: TilingLayout> = BufferStageToTileReader<I, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> BufferStageToTileReader<ES, T> {
     pub fn new(
         stage_memory: StageMemory<ES, T>,
         #[comptime] buffer_id: BufferId,
         #[comptime] input_ident: InputIdent,
-    ) -> BufferReader<ES, T> {
-        BufferReader::<ES, T> {
+    ) -> BufferStageToTileReader<ES, T> {
+        BufferStageToTileReader::<ES, T> {
             stage_memory,
             buffer_id,
             input_ident,
@@ -91,7 +91,7 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> Reader<ES> for BufferReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for BufferStageToTileReader<ES, T> {
     fn read_tile<TC: TileConfig>(
         this: &Self,
         row: u32,

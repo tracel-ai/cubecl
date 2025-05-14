@@ -7,7 +7,7 @@ use crate::matmul::components::global::multi_stage::double_buffering::DoubleBuff
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::{BufferReader, StageConfig};
+use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -122,8 +122,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = BufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = BufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = BufferStageToTileReader<MP::ES, LL::TilingLayout>,
+            RhsReader = BufferStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,

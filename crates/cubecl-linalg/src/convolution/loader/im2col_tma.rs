@@ -13,13 +13,13 @@ use crate::{
     matmul::components::{
         Ident, InputIdent, MatmulPrecision,
         stage::{
-            ColMajorTilingOrder, ContiguousTilingLayout, FullReader, StageConfig, StageMemory,
+            ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageConfig, StageMemory,
         },
     },
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
-pub type TmaIm2colReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaIm2colTiling>;
+pub type TmaIm2colReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaIm2colTiling>;
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]

@@ -17,7 +17,7 @@ use crate::{
             EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
             MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
-            stage::{FullReader, FullReaderFamily, StageConfig, StageMatmul, StageMatmulFamily},
+            stage::{FullStageToTileReader, FullReaderFamily, StageConfig, StageMatmul, StageMatmulFamily},
         },
         kernels::{MatmulAvailabilityError, matmul::LoadingPrecomputeStrategy},
     },
@@ -63,8 +63,8 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for MultiStageTmaConvolution<MP, 
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, TmaIm2colTiling>,
-            RhsReader = FullReader<MP::ES, TmaWeightTiling>,
+            LhsReader = FullStageToTileReader<MP::ES, TmaIm2colTiling>,
+            RhsReader = FullStageToTileReader<MP::ES, TmaWeightTiling>,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;

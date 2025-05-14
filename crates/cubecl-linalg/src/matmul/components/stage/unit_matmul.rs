@@ -2,7 +2,7 @@ use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
-use crate::matmul::components::stage::{Reader, ReaderFamily};
+use crate::matmul::components::stage::{ReaderFamily, StageToTileReader};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
@@ -114,8 +114,8 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 pub struct UnitMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: Reader<MP::ES>,
-    RR: Reader<MP::ES>,
+    RL: StageToTileReader<MP::ES>,
+    RR: StageToTileReader<MP::ES>,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR)>,
 }
@@ -125,8 +125,8 @@ impl<MP, TMM, RL, RR> StageMatmul<MP> for UnitMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: Reader<MP::ES>,
-    RR: Reader<MP::ES>,
+    RL: StageToTileReader<MP::ES>,
+    RR: StageToTileReader<MP::ES>,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -233,8 +233,8 @@ impl<MP, TMM, RL, RR> UnitMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: TileMatmul<MP>,
-    RL: Reader<MP::ES>,
-    RR: Reader<MP::ES>,
+    RL: StageToTileReader<MP::ES>,
+    RR: StageToTileReader<MP::ES>,
 {
     // Execute stage matmul with a single buffer for rhs.
     fn execute_single_buffer<SEL: StageEventListener>(

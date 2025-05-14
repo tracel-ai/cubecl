@@ -149,7 +149,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
         match comptime!(rhs.layout) {
             MatrixLayout::RowMajor => {
-                let num_lines_per_row = comptime!(n / line_size); // assumed to be perfectly divisible as per check config
+                let num_lines_per_row = comptime!(n / line_size);
                 #[unroll]
                 for row in 0..k {
                     #[unroll]
@@ -163,7 +163,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                 }
             }
             MatrixLayout::ColMajor => {
-                let num_lines_per_col = comptime!(k / line_size); // assumed to be perfectly divisible as per check config
+                let num_lines_per_col = comptime!(k / line_size);
                 #[unroll]
                 for col in 0..n {
                     #[unroll]

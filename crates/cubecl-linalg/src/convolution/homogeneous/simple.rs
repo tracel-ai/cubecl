@@ -18,7 +18,7 @@ use crate::{
                 single_stage,
             },
             stage::{
-                ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder,
+                ContiguousTilingLayout, FullStageToTileReader, FullReaderFamily, RowMajorTilingOrder,
                 StageMatmul, StageMatmulFamily,
             },
         },
@@ -50,8 +50,8 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for SimpleConvolution<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, ConvTilingLayout>,
-            RhsReader = FullReader<MP::ES, ConvTilingLayout>,
+            LhsReader = FullStageToTileReader<MP::ES, ConvTilingLayout>,
+            RhsReader = FullStageToTileReader<MP::ES, ConvTilingLayout>,
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;

@@ -9,7 +9,7 @@ use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::load::AsyncLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::{FullReader, FullReaderFamily};
+use crate::matmul::components::stage::{FullStageToTileReader, FullReaderFamily};
 use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
 use crate::matmul::{
     components::{
@@ -122,8 +122,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
-            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullStageToTileReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,

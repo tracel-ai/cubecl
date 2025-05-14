@@ -24,6 +24,7 @@ use super::{
             simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm,
             simple_tma::SimpleTmaAlgorithm,
+            simple_unit::SimpleUnitAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -35,6 +36,7 @@ pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
     DoubleBuffering(SyncBufferLoadingStrategy),
+    SimpleUnit,
     OrderedDoubleBuffering,
     Naive,
     Tiling2D(Tiling2dConfig),
@@ -198,6 +200,9 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 client, lhs, lhs_scale, rhs, rhs_scale, out,
             )
         }
+        Strategy::SimpleUnit => matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+            client, lhs, lhs_scale, rhs, rhs_scale, out,
+        ),
         Strategy::Tiling2D(config) => {
             // TODO Implement tiling2d with EI and EO
             tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());

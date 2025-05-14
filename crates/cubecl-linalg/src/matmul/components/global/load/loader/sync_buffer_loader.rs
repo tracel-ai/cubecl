@@ -9,7 +9,7 @@ use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::load::LoadingValidation;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::BufferReader;
+use crate::matmul::components::stage::BufferStageToTileReader;
 use crate::matmul::components::stage::StageMemory;
 use crate::matmul::components::stage::TilingLayout;
 use cubecl_core as cubecl;
@@ -84,8 +84,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
     pub fn reader(
         this: &Self,
         #[comptime] buffer_id: BufferId,
-    ) -> BufferReader<MP::ES, L::TilingLayout> {
-        BufferReader::new(this.stage, buffer_id, this.input_ident)
+    ) -> BufferStageToTileReader<MP::ES, L::TilingLayout> {
+        BufferStageToTileReader::new(this.stage, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
