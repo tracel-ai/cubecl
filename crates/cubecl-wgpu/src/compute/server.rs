@@ -169,23 +169,30 @@ impl ComputeServer for WgpuServer {
         self.stream.register(pipeline, bindings, &count);
 
         if let Some((name, kernel_id, level, token)) = profile_info {
-            let profile = self.stream.stop_profile(token);
-            // Execute the task.
-            let duration = future::block_on(profile.resolve());
+            match level {
+                ProfileLevel::ExecutionOnly => {
+                    self.logger.register_profiled_no_timing(&name);
+                }
+                _ => {
+                    let profile = self.stream.stop_profile(token);
+                    // Execute the task.
+                    let duration = future::block_on(profile.resolve());
 
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
-                    }
+                    let info = match level {
+                        ProfileLevel::Full => {
+                            format!("{name}: {kernel_id} CubeCount {count:?}")
+                        }
+                        _ => {
+                            if let Some(val) = name.split("<").next() {
+                                val.split("::").last().unwrap_or(name).to_string()
+                            } else {
+                                name.to_string()
+                            }
+                        }
+                    };
+                    self.logger.register_profiled(info, duration);
                 }
-                ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
-            };
-            self.logger.register_profiled(info, duration);
+            }
         }
     }
 

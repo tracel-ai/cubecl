@@ -26,6 +26,8 @@ pub enum ProfileLevel {
     Medium,
     /// Provide more information about kernels being run.
     Full,
+    /// Only the execution are logged.
+    ExecutionOnly,
 }
 
 impl Profiled {

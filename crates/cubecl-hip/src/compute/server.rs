@@ -269,27 +269,35 @@ impl ComputeServer for HipServer {
         resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
 
         if let Some(level) = profile_level {
-            ctx.sync();
-            let start = std::time::SystemTime::now();
-            ctx.execute_task(kernel_id, count, resources);
-            ctx.sync();
-
-            let (name, kernel_id) = profile_info.unwrap();
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
-                    }
+            match level {
+                ProfileLevel::ExecutionOnly => {
+                    let (name, _kernel_id) = profile_info.unwrap();
+                    self.logger.register_profiled_no_timing(&name);
                 }
-                cubecl_runtime::logging::ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
-            };
+                _ => {
+                    ctx.sync();
+                    let start = std::time::SystemTime::now();
+                    ctx.execute_task(kernel_id, count, resources);
+                    ctx.sync();
 
-            self.logger
-                .register_profiled(info, start.elapsed().unwrap());
+                    let (name, kernel_id) = profile_info.unwrap();
+                    let info = match level {
+                        ProfileLevel::Full => {
+                            format!("{name}: {kernel_id} CubeCount {count:?}")
+                        }
+                        _ => {
+                            if let Some(val) = name.split("<").next() {
+                                val.split("::").last().unwrap_or(name).to_string()
+                            } else {
+                                name.to_string()
+                            }
+                        }
+                    };
+
+                    self.logger
+                        .register_profiled(info, start.elapsed().unwrap());
+                }
+            }
         } else {
             ctx.execute_task(kernel_id, count, resources);
         }
