@@ -1,4 +1,5 @@
 use super::{autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig};
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 
 /// Static mutex holding the global configuration, initialized as `None`.
