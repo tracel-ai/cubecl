@@ -4,6 +4,7 @@ use cubecl_core::{
     ir::{Elem, UIntKind},
 };
 use cubecl_runtime::DeviceProperties;
+use wgpu::Features;
 
 use crate::WgslCompiler;
 
