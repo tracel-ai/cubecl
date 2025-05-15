@@ -1,6 +1,6 @@
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
+    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem, MatmulSpec,
+    MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
@@ -327,7 +327,7 @@ pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: MatmulSelection,
+    selection: A::MatmulSelection,
 ) -> Result<(), MatmulLaunchError> {
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);

@@ -1,3 +1,4 @@
+use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
@@ -7,10 +8,11 @@ use crate::matmul::components::global::load::{sync_buffer_cyclic, sync_buffer_ti
 use crate::matmul::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, RowMajorTilingOrder,
 };
-use crate::matmul::components::{MatmulSelection, tile};
+use crate::matmul::components::tile;
 use crate::matmul::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
+use super::{PlaneMatmulSelection, plane_matmul_selection};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
@@ -42,13 +44,14 @@ where
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type MatmulSelection = PlaneMatmulSelection;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
         let m_stage = selection.tile_count.m * selection.tile_shape.m;
         let n_stage = selection.tile_count.n * selection.tile_shape.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
@@ -61,10 +64,23 @@ where
         (2, 2)
     }
 
-    fn multi_row_strategy() -> MultiRowStrategy {
-        MultiRowStrategy::Adaptive {
-            minimum_stage_count: 8,
-        }
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection {
+        plane_matmul_selection::<Self::TileMatmul, R>(
+            client,
+            problem,
+            plane_dim,
+            MultiRowStrategy::Adaptive {
+                minimum_stage_count: 8,
+            },
+            elem_stage,
+            elem_acc,
+        )
     }
 }
 
@@ -87,13 +103,14 @@ where
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type MatmulSelection = PlaneMatmulSelection;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
         let m_stage = selection.tile_count.m * selection.tile_shape.m;
         let n_stage = selection.tile_count.n * selection.tile_shape.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
@@ -106,10 +123,23 @@ where
         (2, 2)
     }
 
-    fn multi_row_strategy() -> MultiRowStrategy {
-        MultiRowStrategy::Adaptive {
-            minimum_stage_count: 8,
-        }
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection {
+        plane_matmul_selection::<Self::TileMatmul, R>(
+            client,
+            problem,
+            plane_dim,
+            MultiRowStrategy::Adaptive {
+                minimum_stage_count: 8,
+            },
+            elem_stage,
+            elem_acc,
+        )
     }
 }
 
@@ -131,13 +161,14 @@ where
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type MatmulSelection = PlaneMatmulSelection;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
         let m_stage = selection.tile_count.m * selection.tile_shape.m;
         let n_stage = selection.tile_count.n * selection.tile_shape.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
@@ -150,9 +181,22 @@ where
         (2, 2)
     }
 
-    fn multi_row_strategy() -> MultiRowStrategy {
-        MultiRowStrategy::Adaptive {
-            minimum_stage_count: 8,
-        }
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection {
+        plane_matmul_selection::<Self::TileMatmul, R>(
+            client,
+            problem,
+            plane_dim,
+            MultiRowStrategy::Adaptive {
+                minimum_stage_count: 8,
+            },
+            elem_stage,
+            elem_acc,
+        )
     }
 }

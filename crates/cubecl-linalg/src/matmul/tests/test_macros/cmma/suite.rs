@@ -1,13 +1,17 @@
+use crate::matmul::components::MatmulSize;
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
-use crate::matmul::components::{MatmulSelection, MatmulSize};
-use crate::matmul::kernels::matmul::Algorithm;
+use crate::matmul::components::{MatmulProblem, MatrixLayout};
+use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection, UnitMatmulSelection};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
 
-pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
+pub fn test_algo<
+    A: Algorithm<MatmulSelection = PlaneMatmulSelection>,
+    P: TestPrecision,
+    R: Runtime,
+>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
@@ -35,16 +39,13 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         out_line_size: 1, // Will be changed
     };
 
-    let selection = MatmulSelection {
+    let selection = PlaneMatmulSelection {
         tile_shape,
         tile_count,
         plane_dim,
         rows_per_plane,
     };
-    let config_input = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count,
-    };
+    let config_input = (&selection).into();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -66,7 +67,11 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     );
 }
 
-pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
+pub fn test_algo_unit<
+    A: Algorithm<MatmulSelection = UnitMatmulSelection>,
+    P: TestPrecision,
+    R: Runtime,
+>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
@@ -93,16 +98,71 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         out_line_size: 1, // Will be changed
     };
 
-    let selection = MatmulSelection {
+    let selection = UnitMatmulSelection {
+        tile_shape,
+        tile_count,
+        plane_dim,
+    };
+    let config_input = (&selection).into();
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
+
+    test_matmul_algorithm::<A, P, R>(
+        client,
+        problem,
+        (
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
+        ),
+        selection,
+    );
+}
+
+pub fn test_algo_tma<
+    A: Algorithm<MatmulSelection = PlaneMatmulSelection>,
+    P: TestPrecision,
+    R: Runtime,
+>(
+    layouts: (MatrixLayout, MatrixLayout),
+    tile_shape: MatmulSize,
+    tile_count: MatmulSize,
+    problem: MatmulSize,
+) {
+    let client = R::client(&Default::default());
+    let plane_dim = match client.properties().hardware.defined_plane_size() {
+        Some(val) => val,
+        None => {
+            println!("Can't run test without a fixed plane size.");
+            return;
+        }
+    };
+
+    let problem = MatmulProblem {
+        m: problem.m as usize,
+        n: problem.n as usize,
+        k: problem.k as usize,
+        batches: (vec![2], vec![2]),
+        lhs_layout: layouts.0,
+        rhs_layout: layouts.1,
+        lhs_line_size: 1, // Will be changed
+        rhs_line_size: 1, // Will be changed
+        out_line_size: 1, // Will be changed
+    };
+
+    let selection = PlaneMatmulSelection {
         tile_shape,
         tile_count,
         plane_dim,
         rows_per_plane: 1,
     };
-    let config_input = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count,
-    };
+    let config_input = (&selection).into();
 
     let vectorization = StageVectorization {
         stage_line_size: 0,
@@ -363,7 +423,7 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn simple_unit() {
-            cubecl_linalg::matmul::tests::test_algo::<
+            cubecl_linalg::matmul::tests::test_algo_unit::<
                 SimpleUnitAlgorithm,
                 Precision,
                 TestRuntime,
@@ -372,7 +432,6 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
-                1,
             );
         }
     };

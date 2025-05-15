@@ -1,9 +1,9 @@
-use super::base;
-use cubecl_core::prelude::*;
+use super::{UnitMatmulSelection, base, unit_matmul_selection};
+use cubecl_core::{ir::Elem, prelude::*};
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    MatmulProblem, MatmulSelection,
+    MatmulProblem,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
@@ -33,20 +33,33 @@ where
     type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type MatmulSelection = UnitMatmulSelection;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_tile_matmuls = selection.tile_count.m * selection.tile_count.n;
         let plane_dim = selection.plane_dim;
         let num_planes = num_tile_matmuls.div_ceil(plane_dim);
         CubeDim::new(plane_dim, num_planes, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
         let m_stage = selection.tile_count.m * selection.tile_shape.m;
         let n_stage = selection.tile_count.n * selection.tile_shape.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
+    }
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection {
+        unit_matmul_selection::<Self::TileMatmul, R>(
+            client, problem, plane_dim, elem_stage, elem_acc,
+        )
     }
 }

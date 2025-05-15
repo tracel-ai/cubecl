@@ -8,17 +8,20 @@ use cubecl_std::{
 };
 
 use super::Quantization;
-use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
+use crate::matmul::{
+    components::{self, MatmulPrecision, MatmulProblem},
+    kernels::matmul::MatmulSelection,
+};
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteInputsFactory: LaunchArg {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
         rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        selection: &MatmulSelection,
+        selection: &M,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R>;
 }
@@ -26,9 +29,9 @@ pub trait ConcreteInputsFactory: LaunchArg {
 /// Create the output runtime argument for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteOutputFactory: LaunchArg {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
-        selection: &MatmulSelection,
+        selection: &M,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R>;
 }
@@ -450,12 +453,12 @@ pub struct TensorInputs<EG: Numeric> {
 }
 
 impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
         rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        _selection: &MatmulSelection,
+        _selection: &M,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
@@ -468,9 +471,9 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
 }
 
 impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
-        _selection: &MatmulSelection,
+        _selection: &M,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R> {
         out.as_tensor_arg(problem.out_line_size)
@@ -646,24 +649,24 @@ pub struct TensorMapInputs<EG: Numeric> {
 }
 
 impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         _lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
         _rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        selection: &MatmulSelection,
+        selection: &M,
         problem: &MatmulProblem,
     ) -> Self::RuntimeArg<'a, R> {
-        let stage_m = selection.tile_count.m * selection.tile_shape.m;
-        let stage_n = selection.tile_count.n * selection.tile_shape.n;
-        let stage_k = selection.tile_count.k * selection.tile_shape.k;
+        let stage_m = selection.tile_count().m * selection.tile_shape().m;
+        let stage_n = selection.tile_count().n * selection.tile_shape().n;
+        let stage_k = selection.tile_count().k * selection.tile_shape().k;
         let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_m, selection.tile_shape.k],
-            components::MatrixLayout::ColMajor => vec![1, stage_k, selection.tile_shape.m],
+            components::MatrixLayout::RowMajor => vec![1, stage_m, selection.tile_shape().k],
+            components::MatrixLayout::ColMajor => vec![1, stage_k, selection.tile_shape().m],
         };
         let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, selection.tile_shape.n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, selection.tile_shape.k],
+            components::MatrixLayout::RowMajor => vec![1, stage_k, selection.tile_shape().n],
+            components::MatrixLayout::ColMajor => vec![1, stage_n, selection.tile_shape().k],
         };
 
         let elem_size = size_of::<EG>();

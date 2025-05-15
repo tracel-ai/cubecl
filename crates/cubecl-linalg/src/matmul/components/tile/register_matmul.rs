@@ -68,7 +68,6 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         let rhs = rhs.tile.read().unwrap();
 
         // TODO
-        // - If line < m,k, iterate on lines
         // - If stage_line_size > tile_size
         // -> ignore stage_line_size, reread with pgcd(stage_line_size, tile_size)
         // - Implement for other layouts. If in the end they all look the same, refactor. Otherwise not a big deal
@@ -82,11 +81,6 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                 let m_num_lines = m / lhs_line_size;
                 let n_line_size = rhs_line_size;
                 let n_num_lines = n / rhs_line_size;
-
-                comptime! {
-                    println!("{:?}", m_line_size);
-                    println!("{:?}", m_num_lines);
-                }
 
                 #[unroll]
                 for k_ in 0..k {
