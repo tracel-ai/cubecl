@@ -10,6 +10,12 @@ pub struct MatmulSize {
     pub k: u32,
 }
 
+impl From<MatmulSize> for (u32, u32, u32) {
+    fn from(matmul_size: MatmulSize) -> Self {
+        (matmul_size.m, matmul_size.n, matmul_size.k)
+    }
+}
+
 /// Provides launch entry point to solve a matmul
 pub trait MatmulLaunch: MatmulConfigFactory {
     /// Entry point

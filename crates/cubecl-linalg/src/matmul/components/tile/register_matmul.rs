@@ -54,16 +54,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     fn execute(
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
-        out: &mut Self::Accumulator,
+        acc: &mut Self::Accumulator,
         #[comptime] config: Config,
     ) {
-        let m = config.size.m;
-        let n = config.size.n;
-        let k = config.size.k;
-
-        let lhs_line_size = config.lhs_line_size;
-        let rhs_line_size = config.rhs_line_size;
-
         let lhs = lhs.tile.read().unwrap();
         let rhs = rhs.tile.read().unwrap();
 
@@ -77,39 +70,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
             (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => unimplemented!(),
             (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => unimplemented!(),
             (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => {
-                let m_line_size = lhs_line_size;
-                let m_num_lines = m / lhs_line_size;
-                let n_line_size = rhs_line_size;
-                let n_num_lines = n / rhs_line_size;
-
-                #[unroll]
-                for k_ in 0..k {
-                    #[unroll]
-                    for m_line_index in 0..m_num_lines {
-                        let m_line: Line<MP::EA> = Line::cast_from(lhs.get_line(m_line_index, k_));
-
-                        #[unroll]
-                        for m_pos_within_line in 0..m_line_size {
-                            let m_elem: MP::EA = m_line[m_pos_within_line];
-                            let m_iter = m_line_index * m_line_size + m_pos_within_line;
-
-                            #[unroll]
-                            for n_line_index in 0..n_num_lines {
-                                let n_line: Line<MP::EA> =
-                                    Line::cast_from(rhs.get_line(k_, n_line_index));
-
-                                #[unroll]
-                                for n_pos_within_line in 0..n_line_size {
-                                    let n_elem: MP::EA = n_line[n_pos_within_line];
-                                    let n_iter = n_line_index * n_line_size + n_pos_within_line;
-
-                                    out.data[m_iter * k + n_iter] =
-                                        out.data[m_iter * k + n_iter] + m_elem * n_elem;
-                                }
-                            }
-                        }
-                    }
-                }
+                outer_product(lhs, rhs, acc, config)
             }
             (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => unimplemented!(),
         }
@@ -183,6 +144,98 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         #[unroll]
         for i in 0..comptime!(acc.rows * acc.cols) {
             acc.data[i] = MP::EA::cast_from(0);
+        }
+    }
+}
+
+// #[cube]
+// /// Optimized for the case where `lhs` is row-major and `rhs` is column-major.
+// /// Assumes that the input tiles follow these memory layouts.
+// fn inner_product<ES: Numeric, EA: Numeric>(
+//     lhs: Tile<ES>,
+//     rhs: Tile<ES>,
+//     acc: &mut TileAccumulator<EA>,
+//     #[comptime] config: Config,
+// ) {
+//     assert!(lhs.layout == MatrixLayout::RowMajor);
+//     assert!(rhs.layout == MatrixLayout::ColMajor);
+
+//     let (m, n, k) = comptime! {let (m, n, k) =config.size.into(); (m,n,k)};
+
+//     let lhs_line_size = config.lhs_line_size;
+//     let rhs_line_size = config.rhs_line_size;
+//     let lhs_num_lines = m / lhs_line_size;
+//     let rhs_num_lines = n / rhs_line_size;
+
+//     #[unroll]
+//     for m_line_index in 0..lhs_num_lines {
+//         let m_line: Line<EA> = Line::cast_from(lhs.get_line(m_line_index, k_));
+
+//         #[unroll]
+//         for m_pos_within_line in 0..lhs_line_size {
+//             let m_elem: EA = m_line[m_pos_within_line];
+//             let m_iter = m_line_index * lhs_line_size + m_pos_within_line;
+
+//             #[unroll]
+//             for n_line_index in 0..rhs_num_lines {
+//                 let n_line: Line<EA> = Line::cast_from(rhs.get_line(k_, n_line_index));
+
+//                 #[unroll]
+//                 for n_pos_within_line in 0..rhs_line_size {
+//                     let n_elem: EA = n_line[n_pos_within_line];
+//                     let n_iter = n_line_index * rhs_line_size + n_pos_within_line;
+
+//                     acc.data[m_iter * k + n_iter] = acc.data[m_iter * k + n_iter] + m_elem * n_elem;
+//                 }
+//             }
+//         }
+//     }
+// }
+
+#[cube]
+/// Optimized for the case where `lhs` is column-major and `rhs` is row-major.
+/// Assumes that the input tiles follow these memory layouts.
+fn outer_product<ES: Numeric, EA: Numeric>(
+    lhs: Tile<ES>,
+    rhs: Tile<ES>,
+    acc: &mut TileAccumulator<EA>,
+    #[comptime] config: Config,
+) {
+    assert!(lhs.layout == MatrixLayout::ColMajor);
+    assert!(rhs.layout == MatrixLayout::RowMajor);
+
+    let (m, n, k) = comptime! {let (m, n, k) =config.size.into(); (m,n,k)};
+
+    let lhs_line_size = config.lhs_line_size;
+    let rhs_line_size = config.rhs_line_size;
+    let lhs_num_lines = m / lhs_line_size;
+    let rhs_num_lines = n / rhs_line_size;
+
+    #[unroll]
+    for k_ in 0..k {
+        #[unroll]
+        for m_line_index in 0..lhs_num_lines {
+            let m_line: Line<EA> = Line::cast_from(lhs.get_line(m_line_index, k_));
+
+            #[unroll]
+            for m_pos_within_line in 0..lhs_line_size {
+                let m_elem: EA = m_line[m_pos_within_line];
+                let m_iter = m_line_index * lhs_line_size + m_pos_within_line;
+
+                #[unroll]
+                for n_line_index in 0..rhs_num_lines {
+                    let n_line: Line<EA> = Line::cast_from(rhs.get_line(k_, n_line_index));
+
+                    #[unroll]
+                    for n_pos_within_line in 0..rhs_line_size {
+                        let n_elem: EA = n_line[n_pos_within_line];
+                        let n_iter = n_line_index * rhs_line_size + n_pos_within_line;
+
+                        acc.data[m_iter * k + n_iter] =
+                            acc.data[m_iter * k + n_iter] + m_elem * n_elem;
+                    }
+                }
+            }
         }
     }
 }
