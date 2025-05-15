@@ -1,7 +1,7 @@
 pub mod kernel;
 pub mod supported_types;
 
-use cubecl_core::{Compiler, ExecutionMode, prelude::KernelDefinition};
+use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
 use kernel::MLIRKernel;
 
 #[derive(Debug, Clone)]
@@ -24,8 +24,8 @@ impl Compiler for MLIRCompiler {
         todo!()
     }
 
-    fn elem_size(&self, elem: cubecl_core::ir::Elem) -> usize {
-        todo!()
+    fn elem_size(&self, elem: ir::Elem) -> usize {
+        elem.size()
     }
 
     fn extension(&self) -> &'static str {

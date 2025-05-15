@@ -1,10 +1,12 @@
 use cubecl_core::{
     Feature, MemoryUsage,
+    benchmark::ProfileDuration,
     future::DynFut,
     prelude::CubeTask,
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, Handle, ProfilingToken},
 };
 use cubecl_runtime::{
+    kernel_timestamps::KernelTimestamps,
     logging::ServerLogger,
     memory_management::MemoryManagement,
     storage::{BindingResource, BytesStorage, ComputeStorage},
@@ -30,11 +32,37 @@ impl CpuServer {
 #[derive(Debug)]
 pub struct CpuContext {
     memory_management: MemoryManagement<BytesStorage>,
+    timestamps: KernelTimestamps,
 }
 
 impl CpuContext {
     pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
-        Self { memory_management }
+        Self {
+            memory_management,
+            timestamps: KernelTimestamps::default(),
+        }
+    }
+}
+
+impl CpuServer {
+    fn read_async(
+        &mut self,
+        bindings: Vec<Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
+        let mut result = Vec::with_capacity(bindings.len());
+
+        for binding in bindings {
+            let resource = self
+                .ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
+
+            let data = resource.read().to_vec();
+
+            result.push(data);
+        }
+        async move { result }
     }
 }
 
@@ -45,26 +73,29 @@ impl ComputeServer for CpuServer {
     type Info = ();
 
     fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
-        todo!()
+        Box::pin(self.read_async(bindings))
     }
 
     fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
-        todo!()
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
+        Box::pin(self.read_async(bindings))
     }
 
-    fn sync(&mut self) -> DynFut<()> {
-        todo!()
+    fn memory_usage(&self) -> MemoryUsage {
+        self.ctx.memory_management.memory_usage()
     }
 
-    fn get_resource(
-        &mut self,
-        binding: Binding,
-    ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource> {
-        todo!()
+    fn memory_cleanup(&mut self) {
+        self.ctx.memory_management.cleanup(true)
     }
 
     fn create(&mut self, data: &[u8]) -> Handle {
-        todo!()
+        let handle = self.empty(data.len());
+
+        let binding = handle.clone().binding();
+        self.copy_to_binding(binding, data);
+
+        handle
     }
 
     fn create_tensors(
@@ -73,11 +104,19 @@ impl ComputeServer for CpuServer {
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
-        todo!()
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+            let binding = handle.clone().binding();
+            self.copy_to_binding(binding, data);
+        }
+        handles_strides
     }
 
     fn empty(&mut self, size: usize) -> Handle {
-        todo!()
+        let handle = self.ctx.memory_management.reserve(size as u64, None);
+        Handle::new(handle, None, None, size as u64)
     }
 
     fn empty_tensors(
@@ -85,7 +124,7 @@ impl ComputeServer for CpuServer {
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
-        todo!()
+        todo!("Check how strides should be done on CPU")
     }
 
     unsafe fn execute(
@@ -95,26 +134,50 @@ impl ComputeServer for CpuServer {
         bindings: Bindings,
         kind: cubecl_core::ExecutionMode,
     ) {
-        todo!()
+        // TODO implement the runtime
     }
 
-    fn flush(&mut self) {
-        todo!()
-    }
+    fn flush(&mut self) {}
 
-    fn memory_usage(&self) -> MemoryUsage {
-        todo!()
-    }
-
-    fn memory_cleanup(&mut self) {
-        todo!()
+    // TODO find when task are finish to be scheduled
+    fn sync(&mut self) -> DynFut<()> {
+        self.logger.profile_summary();
+        Box::pin(async move {})
     }
 
     fn start_profile(&mut self) -> ProfilingToken {
-        todo!()
+        cubecl_common::future::block_on(self.sync());
+        self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> cubecl_core::benchmark::ProfileDuration {
-        todo!()
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+        self.logger.profile_summary();
+        cubecl_common::future::block_on(self.sync());
+        self.ctx.timestamps.stop(token)
+    }
+
+    fn get_resource(
+        &mut self,
+        binding: Binding,
+    ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource> {
+        BindingResource::new(
+            binding.clone(),
+            self.ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Can't find resource"),
+        )
+    }
+}
+
+impl CpuServer {
+    fn copy_to_binding(&mut self, binding: Binding, data: &[u8]) {
+        let resource = self
+            .ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
+
+        resource.write().copy_from_slice(data);
     }
 }
