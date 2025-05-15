@@ -1,6 +1,6 @@
 #[cfg(std_io)]
 use super::cache::CacheConfig;
-use super::logger::{BinaryLogLevel, LoggerConfig};
+use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for compilation settings in CubeCL.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -14,5 +14,21 @@ pub struct CompilationConfig {
     pub cache: Option<CacheConfig>,
 }
 
-/// Type alias for the log level used in compilation logging.
-pub type CompilationLogLevel = BinaryLogLevel;
+/// Log levels for compilation in CubeCL.
+#[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub enum CompilationLogLevel {
+    /// Compilation logging is disabled.
+    #[default]
+    #[serde(rename = "disabled")]
+    Disabled,
+
+    /// Basic compilation information is logged such as when kernels are compiled.
+    #[serde(rename = "basic")]
+    Basic,
+
+    /// Full compilation details are logged including source code.
+    #[serde(rename = "full")]
+    Full,
+}
+
+impl LogLevel for CompilationLogLevel {}

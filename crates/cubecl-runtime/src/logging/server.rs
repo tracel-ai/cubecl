@@ -57,6 +57,13 @@ impl ServerLogger {
         }
     }
 
+    /// Register a profiled task without timing.
+    pub fn register_profiled_no_timing(&mut self, name: &str) {
+        if let DebugLoggerKind::Activated(logger, ..) = &mut self.kind {
+            logger.log_profiling(&format!("Executing {name}"));
+        }
+    }
+
     /// Register a profiled task.
     pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
     where
@@ -105,6 +112,9 @@ impl DebugLoggerKind {
 
         match logger.config.profiling.logger.level {
             ProfilingLogLevel::Disabled => {}
+            ProfilingLogLevel::Minimal => {
+                profile = Some(ProfileLevel::ExecutionOnly);
+            }
             ProfilingLogLevel::Basic => {
                 profile = Some(ProfileLevel::Basic);
             }
@@ -117,7 +127,9 @@ impl DebugLoggerKind {
         };
 
         let option = if let Some(level) = profile {
-            if let CompilationLogLevel::Full = logger.config.compilation.logger.level {
+            if let CompilationLogLevel::Full | CompilationLogLevel::Basic =
+                logger.config.compilation.logger.level
+            {
                 ServerLoggerOptions::All(level)
             } else {
                 ServerLoggerOptions::ProfileOnly(level)

@@ -80,10 +80,10 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
 }
 
 fn debug_symbols_activated() -> bool {
-    match GlobalConfig::get().compilation.logger.level {
-        CompilationLogLevel::Full => true,
-        CompilationLogLevel::Disabled => false,
-    }
+    matches!(
+        GlobalConfig::get().compilation.logger.level,
+        CompilationLogLevel::Full
+    )
 }
 
 impl<T: SpirvTarget> Default for SpirvCompiler<T> {

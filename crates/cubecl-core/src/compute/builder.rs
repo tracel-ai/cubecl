@@ -125,8 +125,8 @@ impl KernelBuilder {
         let debug = DEBUG.load(Ordering::Relaxed);
         let debug = if debug == -1 {
             let val = match GlobalConfig::get().compilation.logger.level {
-                CompilationLogLevel::Disabled => 0,
                 CompilationLogLevel::Full => 1,
+                _ => 0,
             };
 
             DEBUG.store(val, Ordering::Relaxed);
