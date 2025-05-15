@@ -123,14 +123,14 @@ pub enum MatmulKind {
     /// (M, K) @ (K, 1) → (M, 1)
     MatVec,
 
+    /// (1, K) @ (K, N) → (1, N)
+    VecMat,
+
     /// (1, 1) @ (1, N) → (1, N)
     ScalarVec,
 
     /// (M, 1) @ (1, 1) → (M, 1)
     VecScalar,
-
-    /// (1, K) @ (K, N) → (1, N)
-    VecMat,
 
     /// (1, K) @ (K, 1) → (1, 1)
     InnerProduct,
@@ -188,6 +188,12 @@ impl From<MatmulProblem> for MatmulSize {
 
 impl From<MatmulProblem> for MatmulKind {
     fn from(problem: MatmulProblem) -> Self {
+        problem.into()
+    }
+}
+
+impl From<&MatmulProblem> for MatmulKind {
+    fn from(problem: &MatmulProblem) -> Self {
         problem.into()
     }
 }
