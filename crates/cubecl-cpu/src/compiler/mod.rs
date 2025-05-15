@@ -1,6 +1,7 @@
 pub mod kernel;
+pub mod supported_types;
 
-use cubecl_core::Compiler;
+use cubecl_core::{Compiler, ExecutionMode, prelude::KernelDefinition};
 use kernel::MLIRKernel;
 
 #[derive(Debug, Clone)]
@@ -16,9 +17,9 @@ impl Compiler for MLIRCompiler {
 
     fn compile(
         &mut self,
-        kernel: cubecl_core::prelude::KernelDefinition,
+        kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
-        mode: cubecl_core::ExecutionMode,
+        mode: ExecutionMode,
     ) -> Self::Representation {
         todo!()
     }

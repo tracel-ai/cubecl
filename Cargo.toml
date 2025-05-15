@@ -84,6 +84,9 @@ pretty_assertions = "1.4"
 embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
+# For CubeCL-CPU to get available RAM
+sysinfo = "0.35.1"
+
 [profile.dev]
 debug = 0     # Speed up compilation time and not necessary.
 opt-level = 0
