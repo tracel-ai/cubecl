@@ -148,49 +148,32 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 }
 
-// #[cube]
-// /// Optimized for the case where `lhs` is row-major and `rhs` is column-major.
-// /// Assumes that the input tiles follow these memory layouts.
-// fn inner_product<ES: Numeric, EA: Numeric>(
-//     lhs: Tile<ES>,
-//     rhs: Tile<ES>,
-//     acc: &mut TileAccumulator<EA>,
-//     #[comptime] config: Config,
-// ) {
-//     assert!(lhs.layout == MatrixLayout::RowMajor);
-//     assert!(rhs.layout == MatrixLayout::ColMajor);
+#[cube]
+/// Optimized for the case where `lhs` is row-major and `rhs` is column-major.
+/// Assumes that the input tiles follow these memory layouts.
+fn inner_product<ES: Numeric, EA: Numeric>(
+    lhs: Tile<ES>,
+    rhs: Tile<ES>,
+    acc: &mut TileAccumulator<EA>,
+    #[comptime] config: Config,
+) {
+    assert!(lhs.layout == MatrixLayout::RowMajor);
+    assert!(rhs.layout == MatrixLayout::ColMajor);
+    let line_size = config.lhs_line_size;
+    assert!(line_size == config.rhs_line_size);
 
-//     let (m, n, k) = comptime! {let (m, n, k) =config.size.into(); (m,n,k)};
+    let (m, n, k) = comptime! {let (m, n, k) =config.size.into(); (m,n,k)};
 
-//     let lhs_line_size = config.lhs_line_size;
-//     let rhs_line_size = config.rhs_line_size;
-//     let lhs_num_lines = m / lhs_line_size;
-//     let rhs_num_lines = n / rhs_line_size;
+    // ASSUME m=n=k=line_size
+    // for row-col, can benefit from Line::dot
+    // for m, get line
+    //  for n get line, dot with lhs line
+    //   store (k is implicit)
 
-//     #[unroll]
-//     for m_line_index in 0..lhs_num_lines {
-//         let m_line: Line<EA> = Line::cast_from(lhs.get_line(m_line_index, k_));
-
-//         #[unroll]
-//         for m_pos_within_line in 0..lhs_line_size {
-//             let m_elem: EA = m_line[m_pos_within_line];
-//             let m_iter = m_line_index * lhs_line_size + m_pos_within_line;
-
-//             #[unroll]
-//             for n_line_index in 0..rhs_num_lines {
-//                 let n_line: Line<EA> = Line::cast_from(rhs.get_line(k_, n_line_index));
-
-//                 #[unroll]
-//                 for n_pos_within_line in 0..rhs_line_size {
-//                     let n_elem: EA = n_line[n_pos_within_line];
-//                     let n_iter = n_line_index * rhs_line_size + n_pos_within_line;
-
-//                     acc.data[m_iter * k + n_iter] = acc.data[m_iter * k + n_iter] + m_elem * n_elem;
-//                 }
-//             }
-//         }
-//     }
-// }
+    // for row-row and col-col
+    // load a line to keep just one element :(
+    // later, maybe add option of dynamic_stage_line_size
+}
 
 #[cube]
 /// Optimized for the case where `lhs` is column-major and `rhs` is row-major.
@@ -231,8 +214,7 @@ fn outer_product<ES: Numeric, EA: Numeric>(
                         let n_elem: EA = n_line[n_pos_within_line];
                         let n_iter = n_line_index * rhs_line_size + n_pos_within_line;
 
-                        acc.data[m_iter * k + n_iter] =
-                            acc.data[m_iter * k + n_iter] + m_elem * n_elem;
+                        acc.data[m_iter * n + n_iter] += m_elem * n_elem;
                     }
                 }
             }
