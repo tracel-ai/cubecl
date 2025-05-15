@@ -274,7 +274,9 @@ impl ComputeServer for HipServer {
                 ProfileLevel::ExecutionOnly => {
                     let (name, _kernel_id) = profile_info.unwrap();
                     let name = type_name_format(name, TypeNameFormatLevel::Balanced);
-                    self.logger.register_profiled_no_timing(&name);
+                    logger.register_profiled_no_timing(&name);
+
+                    ctx.execute_task(kernel_id, count, resources);
                 }
                 _ => {
                     ctx.sync();
@@ -290,8 +292,7 @@ impl ComputeServer for HipServer {
                         _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                     };
 
-                    self.logger
-                        .register_profiled(info, start.elapsed().unwrap());
+                    logger.register_profiled(info, start.elapsed().unwrap());
                 }
             }
         } else {
