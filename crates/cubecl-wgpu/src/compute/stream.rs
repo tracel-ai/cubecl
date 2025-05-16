@@ -5,7 +5,7 @@ use super::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    benchmark::ProfileDuration,
+    benchmark::{ProfileDuration, TimingMethod},
     future::{self, DynFut},
     server::{Binding, Bindings, Handle, ProfilingToken},
 };
@@ -27,7 +27,7 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
-    has_query_stamps: bool,
+    time_measurement: TimingMethod,
 }
 
 impl WgpuStream {
@@ -50,6 +50,12 @@ impl WgpuStream {
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
+        let time_measurement = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            TimingMethod::Device
+        } else {
+            TimingMethod::System
+        };
+
         Self {
             mem_manage,
             compute_pass: None,
@@ -59,7 +65,6 @@ impl WgpuStream {
                     label: Some("CubeCL Tasks Encoder"),
                 })
             },
-            has_query_stamps: device.features().contains(wgpu::Features::TIMESTAMP_QUERY),
             device,
             queue,
             tasks_count: 0,
@@ -67,6 +72,7 @@ impl WgpuStream {
             poll,
             sync_buffer,
             submission_load: SubmissionLoad::default(),
+            time_measurement,
         }
     }
 
@@ -238,7 +244,7 @@ impl WgpuStream {
     pub fn start_profile(&mut self) -> ProfilingToken {
         let token = self.timings.start_profile_prepare();
 
-        if self.has_query_stamps {
+        if self.time_measurement == TimingMethod::Device {
             // Flush all commands to the queue. This isn't really needed, but this should mean
             // new work after this will be run with less overlap.
             self.flush();
