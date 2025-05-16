@@ -239,14 +239,13 @@ pub(crate) fn create_client_on_setup(
     let mut compilation_options = Default::default();
 
     let features = setup.adapter.features();
-    let time_measurement = match setup
-        .device
-        .features()
-        .contains(wgpu::Features::TIMESTAMP_QUERY)
-    {
-        true => TimeMeasurement::Device,
-        false => TimeMeasurement::System,
-    };
+    let time_measurement =
+        match setup.device.features().contains(
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES,
+        ) {
+            true => TimeMeasurement::Device,
+            false => TimeMeasurement::System,
+        };
 
     let mut device_props =
         DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
