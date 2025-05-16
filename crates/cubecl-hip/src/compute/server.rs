@@ -15,6 +15,7 @@ use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ProfileLevel;
+use cubecl_runtime::logging::ProfileLevel;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
@@ -376,7 +377,7 @@ impl HipContext {
                 jitc_kernel.source = formatted;
             }
         }
-        let jitc_kernel = logger.log_compilation(jitc_kernel);
+        logger.log_compilation(&jitc_kernel);
 
         // Create HIP Program
         let program = unsafe {
