@@ -524,22 +524,29 @@ impl Config {
     }
 
     fn product_type(&self) -> ProductType {
+        // Best algorithm benchmarked on metal
+        // Very surprising that RowCol is better in Outer while
+        // ColRow is better in Inner
         match (
             self.matrix_layout(Ident::Lhs),
             self.matrix_layout(Ident::Rhs),
         ) {
-            // We should benchmark, but normally:
-            // Col-Row should be Outer (probably the best case)
-            // Row-Col should be Inner
-            // Row-Row and Col-Col are unclear
             (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Inner,
-            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Inner,
+            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Outer,
             (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
-            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Inner,
+            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
         }
     }
 
     fn always_use_registers(&self) -> bool {
-        true
+        match (
+            self.matrix_layout(Ident::Lhs),
+            self.matrix_layout(Ident::Rhs),
+        ) {
+            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => true,
+            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => false,
+            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => false,
+            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => false,
+        }
     }
 }

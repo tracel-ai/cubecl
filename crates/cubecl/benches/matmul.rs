@@ -11,6 +11,7 @@ use cubecl_runtime::config::GlobalConfig;
 use cubecl_random::random_uniform;
 
 const TRANSPOSE_LHS: bool = true;
+const TRANSPOSE_RHS: bool = false;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (
@@ -35,7 +36,13 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             MP::EI::from_int(1),
             lhs.as_ref(),
         );
-        let rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+
+        let mut rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+        if TRANSPOSE_RHS {
+            let len = rhs.shape.len();
+            rhs.shape.swap(len - 2, len - 1);
+            rhs.strides.swap(len - 2, len - 1);
+        }
         random_uniform::<R, MP::EI>(
             &client,
             MP::EI::from_int(0),
