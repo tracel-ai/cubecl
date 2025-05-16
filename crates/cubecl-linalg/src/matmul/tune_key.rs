@@ -42,7 +42,12 @@ impl From<MatmulProblemDefinition> for MatmulSize {
 
 impl From<&MatmulProblemDefinition> for MatmulKind {
     fn from(problem_definition: &MatmulProblemDefinition) -> Self {
-        problem_definition.into()
+        let matmul_size = MatmulSize {
+            m: problem_definition.m as u32,
+            n: problem_definition.n as u32,
+            k: problem_definition.k as u32,
+        };
+        matmul_size.into()
     }
 }
 
