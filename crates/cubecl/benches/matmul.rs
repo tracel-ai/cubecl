@@ -130,7 +130,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
         };
         println!("b: {b} m: {m} n: {n} k: {k}");
         println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::Full));
+        println!("{}", bench.run(TimingMethod::System));
     }
 }
 
