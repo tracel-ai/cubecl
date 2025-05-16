@@ -1,4 +1,5 @@
 use super::ComputeChannel;
+use crate::logging::ServerLogger;
 use crate::server::{
     Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
 };
@@ -93,8 +94,13 @@ where
         count: CubeCount,
         handles: Bindings,
         kind: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
-        unsafe { self.server.lock().execute(kernel, count, handles, kind) }
+        unsafe {
+            self.server
+                .lock()
+                .execute(kernel, count, handles, kind, logger)
+        }
     }
 
     fn flush(&self) {

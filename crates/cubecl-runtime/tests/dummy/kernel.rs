@@ -1,8 +1,11 @@
+use cubecl_common::id::KernelId;
 use cubecl_runtime::storage::BytesResource;
 
 /// The DummyKernel trait should be implemented for every supported operation
 pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
     fn compute(&self, resources: &mut [&BytesResource]);
+
+    fn id(&self) -> cubecl_common::id::KernelId;
 }
 
 /// Contains the algorithm for element-wise addition
@@ -22,5 +25,9 @@ impl DummyKernel for DummyElementwiseAddition {
         for i in 0..size {
             out[i] = lhs[i] + rhs[i];
         }
+    }
+
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
     }
 }

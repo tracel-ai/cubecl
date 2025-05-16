@@ -1,5 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
+use cubecl_common::id::KernelId;
 use cubecl_runtime::storage::BytesResource;
 
 use crate::dummy::DummyKernel;
@@ -33,7 +34,12 @@ impl DummyKernel for DummyElementwiseAdditionSlowWrong {
             out[i] = lhs[i]
         }
     }
+
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
 }
+
 impl DummyKernel for DummyElementwiseMultiplication {
     fn compute(&self, inputs: &mut [&BytesResource]) {
         let lhs = &inputs[0].read();
@@ -46,7 +52,12 @@ impl DummyKernel for DummyElementwiseMultiplication {
             out[i] = lhs[i] * rhs[i];
         }
     }
+
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
 }
+
 impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
     fn compute(&self, inputs: &mut [&BytesResource]) {
         // Slow and wrong on purpose, for tests
@@ -60,7 +71,12 @@ impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
             out[i] = lhs[i];
         }
     }
+
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
 }
+
 impl DummyKernel for CacheTestFastOn3 {
     fn compute(&self, inputs: &mut [&BytesResource]) {
         // This is an artificial kernel designed for testing cache only
@@ -76,6 +92,10 @@ impl DummyKernel for CacheTestFastOn3 {
                 out[i] = lhs[i];
             }
         }
+    }
+
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
     }
 }
 
@@ -96,6 +116,10 @@ impl DummyKernel for CacheTestSlowOn3 {
             out[..size].copy_from_slice(&rhs[..size]);
         }
     }
+
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
 }
 
 impl DummyKernel for ParameteredKernel {
@@ -109,5 +133,8 @@ impl DummyKernel for ParameteredKernel {
         for i in 0..lhs.len() {
             out[i] = lhs[i] + rhs[i] + info[0];
         }
+    }
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
     }
 }

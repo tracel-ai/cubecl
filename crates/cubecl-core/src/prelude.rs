@@ -1,8 +1,8 @@
-pub use crate::{CubeLaunch, CubeType, Kernel, RuntimeArg, cube};
+pub use crate::{CubeLaunch, CubeType, RuntimeArg, cube};
 
 pub use crate::codegen::{KernelExpansion, KernelIntegrator, KernelSettings};
 pub use crate::compute::{
-    CompiledKernel, CubeTask, KernelBuilder, KernelDefinition, KernelLauncher, KernelTask,
+    CompiledKernel, CubeKernel, KernelBuilder, KernelDefinition, KernelLauncher, KernelTask,
 };
 pub use crate::frontend::cmma;
 pub use crate::frontend::{branch::*, synchronization::*};
@@ -22,5 +22,5 @@ pub use cubecl_runtime::server::CubeCount;
 
 pub use crate::frontend::*;
 pub use crate::{comment, comptime, comptime_type, derive_cube_comptime, terminate};
-pub use cubecl_common::{CubeDim, ExecutionMode, flex32, tf32};
+pub use cubecl_common::{CubeDim, ExecutionMode, Kernel, flex32, tf32};
 pub use cubecl_ir::Scope;

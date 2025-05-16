@@ -1,13 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::MetadataBuilder;
+use crate::Runtime;
 use crate::compute::KernelTask;
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
-use crate::{Kernel, Runtime};
 use crate::{KernelSettings, prelude::CubePrimitive};
 use bytemuck::{AnyBitPattern, NoUninit};
 use cubecl_runtime::server::{Binding, CubeCount, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{client::ComputeClient, server::Bindings};
+
+use super::CubeKernel;
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
@@ -105,7 +107,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Launch the kernel.
-    pub fn launch<K: Kernel>(
+    pub fn launch<K: CubeKernel>(
         self,
         cube_count: CubeCount,
         kernel: K,
@@ -125,7 +127,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// - Contain any out of bounds reads or writes. Doing so is immediate UB.
     /// - Contain any loops that never terminate. These may be optimized away entirely or cause
     ///   other unpredictable behaviour.
-    pub unsafe fn launch_unchecked<K: Kernel>(
+    pub unsafe fn launch_unchecked<K: CubeKernel>(
         self,
         cube_count: CubeCount,
         kernel: K,

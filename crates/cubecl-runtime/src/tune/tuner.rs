@@ -323,7 +323,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 if #[cfg(target_family = "wasm")] {
                     let sender = self.channel.0.clone();
                     let send_fut = async move {
-                        sender.try_send(fut_result.await).unwrap()
+                        // If the channel has been closed, ignore. Maybe the main app is exiting
+                        // before the tune results come in.
+                        let _ = sender.send(fut_result.await).await;
                     };
                     // On wasm, spawn the tuning as a detached task.
                     wasm_bindgen_futures::spawn_local(send_fut);
@@ -331,10 +333,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     AutotuneMessage::Pending(key)
                 } else {
                     // On native, it is possible to run the tuning on a thread, which could help startup times,
-                    // but might have two downsides:
-                    // - Benchmarks would need a "warmup" time until a good kernel is selected.
-                    // - Tuning could be less precise, as it's possible that other operations are
-                    //   submitted while tuning, which might skew results.
+                    // but it could be strange, as benchmarks would need a "warmup" time until a good kernel is selected.
                     cubecl_common::future::block_on(fut_result)
                 }
             }

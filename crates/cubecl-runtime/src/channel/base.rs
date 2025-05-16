@@ -1,11 +1,13 @@
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use crate::{
+    logging::ServerLogger,
     server::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
     },
     storage::{BindingResource, ComputeStorage},
 };
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 /// The ComputeChannel trait links the ComputeClient to the ComputeServer
@@ -49,6 +51,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
 
     /// Executes the `kernel` over the given `bindings`.
     ///
+    /// Optionally returns some debug information about the compilation to be logged.
     /// # Safety
     ///
     /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
@@ -58,6 +61,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     );
 
     /// Flush outstanding work of the server.
