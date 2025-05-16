@@ -1,4 +1,6 @@
 pub mod kernel;
+pub mod mlir_converter;
+pub mod scope;
 pub mod supported_types;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
@@ -22,6 +24,7 @@ impl Compiler for MLIRCompiler {
         mode: ExecutionMode,
     ) -> Self::Representation {
         println!("{}", kernel.body);
+        self.visit(&kernel.body);
         MLIRKernel
     }
 
