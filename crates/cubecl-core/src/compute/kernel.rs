@@ -252,15 +252,15 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
 }
 
 impl<C: Compiler, K: CubeKernel> Kernel for KernelTask<C, K> {
-    /// Identifier for the kernel, used for caching kernel compilation.
+    // Forward ID to underlying kernel definition.
     fn id(&self) -> KernelId {
-        KernelId::new::<Self>()
+        self.kernel_definition.id()
     }
 }
 
 impl<C: Compiler> Kernel for Box<dyn CubeTask<C>> {
-    /// Identifier for the kernel, used for caching kernel compilation.
+    // Deref and use existing ID.
     fn id(&self) -> KernelId {
-        KernelId::new::<Self>()
+        self.as_ref().id()
     }
 }

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::id::KernelId;
-use alloc::boxed::Box;
 
 /// An approximation of the plane dimension.
 pub const PLANE_DIM_APPROX: usize = 16;
@@ -72,10 +71,4 @@ pub trait Kernel: Send + Sync + 'static {
 
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
-}
-
-impl Kernel for Box<dyn Kernel> {
-    fn id(&self) -> KernelId {
-        self.as_ref().id()
-    }
 }
