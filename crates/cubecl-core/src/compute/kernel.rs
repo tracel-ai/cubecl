@@ -219,18 +219,6 @@ pub struct CubeTaskKernel<C: Compiler> {
     pub task: Box<dyn CubeTask<C>>,
 }
 
-// impl<C: Compiler> Kernel for CubeTaskKernel<C> {
-//     fn id(&self) -> KernelId {
-//         self.task.
-//     }
-// }
-
-// impl<C: Compiler> CubeTaskKernel<C> {
-//     fn new(task: impl CubeTask<C>) -> Self {
-//         Self { task }
-//     }
-// }
-
 impl<C: Compiler, K: CubeKernel> KernelTask<C, K> {
     pub fn new(kernel_definition: K) -> Self {
         Self {
