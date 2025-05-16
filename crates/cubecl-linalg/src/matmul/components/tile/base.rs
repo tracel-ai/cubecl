@@ -182,4 +182,9 @@ impl<ES: Numeric> Tile<ES> {
         };
         self.slice[index]
     }
+
+    pub fn get_segment_as_one_line(&self, index: u32) -> Line<ES> {
+        // Assumes one line per segment
+        self.slice[index * self.stride]
+    }
 }

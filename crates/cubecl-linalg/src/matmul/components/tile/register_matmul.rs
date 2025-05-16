@@ -17,6 +17,15 @@ use super::{Tile, TileMatmulConfigInput};
 /// Uses one unit to perform a small matmul entirely using its registers
 pub struct RegisterMatmul;
 
+pub enum ProductType {
+    /// Needs lhs to be row major and rhs to be col major
+    /// If not the case, tile will be preloaded and transposed
+    Inner,
+    /// Needs lhs to be col major and rhs to be row major
+    /// If not the case, tile will be preloaded and transposed
+    Outer,
+}
+
 impl TileMatmulFamily for RegisterMatmul {
     type Matmul<MP: MatmulPrecision> = RegisterMatmul;
 
@@ -40,8 +49,45 @@ pub struct TileAccumulator<EA: Numeric> {
 }
 
 #[derive(CubeType)]
-pub struct TileInput<ES: Numeric> {
-    tile: ComptimeCell<CubeOption<Tile<ES>>>,
+pub enum TileInput<ES: Numeric> {
+    OnTheFly(ComptimeCell<CubeOption<Tile<ES>>>),
+    Register(Array<ES>),
+}
+
+#[derive(CubeType, Copy, Clone)]
+// A row or column, the length of a line
+pub enum Segment<ES: Numeric> {
+    Line(Line<ES>),
+    Offset(u32),
+}
+
+#[cube]
+impl<ES: Numeric> TileInput<ES> {
+    fn prepare_segment(&self, segment_index: u32, length: u32) -> Segment<ES> {
+        match self {
+            TileInput::OnTheFly(comptime_cell) => {
+                let line = comptime_cell
+                    .read()
+                    .unwrap()
+                    .get_segment_as_one_line(segment_index);
+                Segment::new_Line(line)
+            }
+            TileInput::Register(_) => Segment::new_Offset(length),
+        }
+    }
+
+    fn get_elem_in_segment(&self, segment: Segment<ES>, element_index: u32) -> ES {
+        match self {
+            TileInput::OnTheFly(_) => match segment {
+                Segment::Line(line) => line[element_index],
+                Segment::Offset(_) => comptime!(unreachable!()),
+            },
+            TileInput::Register(array) => match segment {
+                Segment::Line(_) => comptime!(unreachable!()),
+                Segment::Offset(offset) => array[offset + element_index],
+            },
+        }
+    }
 }
 
 #[cube]
@@ -57,45 +103,72 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] config: Config,
     ) {
-        let lhs = lhs.tile.read().unwrap();
-        let rhs = rhs.tile.read().unwrap();
+        match config.product_type() {
+            ProductType::Inner => Self::inner_product(lhs, rhs, acc, config),
+            ProductType::Outer => Self::outer_product(lhs, rhs, acc, config),
+        }
+    }
 
-        // TODO
-        // - If stage_line_size > tile_size
-        // -> ignore stage_line_size, reread with pgcd(stage_line_size, tile_size)
-        // - Implement for other layouts. If in the end they all look the same, refactor. Otherwise not a big deal
-        // Don't make loaders that transpose, not worth it at all.
-
-        match comptime!((lhs.layout, rhs.layout)) {
-            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => unimplemented!(),
-            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => unimplemented!(),
-            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => {
-                outer_product(lhs, rhs, acc, config)
+    fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
+        match (config.product_type(), config.lhs_layout) {
+            (ProductType::Inner, MatrixLayout::RowMajor)
+            | (ProductType::Outer, MatrixLayout::ColMajor) => {
+                TileInput::new_OnTheFly(ComptimeCell::new(CubeOption::new_None()))
             }
-            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => unimplemented!(),
+            (ProductType::Inner, MatrixLayout::ColMajor)
+            | (ProductType::Outer, MatrixLayout::RowMajor) => {
+                TileInput::new_Register(Array::new(config.size.m * config.size.k))
+            }
         }
     }
 
-    fn allocate_lhs(#[comptime] _config: Config) -> Self::Lhs {
-        TileInput::<MP::ES> {
-            tile: ComptimeCell::new(CubeOption::new_None()),
+    fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
+        match (config.product_type(), config.rhs_layout) {
+            (ProductType::Inner, MatrixLayout::ColMajor)
+            | (ProductType::Outer, MatrixLayout::RowMajor) => {
+                TileInput::new_OnTheFly(ComptimeCell::new(CubeOption::new_None()))
+            }
+            (ProductType::Inner, MatrixLayout::RowMajor)
+            | (ProductType::Outer, MatrixLayout::ColMajor) => {
+                TileInput::new_Register(Array::new(config.size.k * config.size.n))
+            }
         }
     }
 
-    fn allocate_rhs(#[comptime] _config: Config) -> Self::Rhs {
-        TileInput::<MP::ES> {
-            tile: ComptimeCell::new(CubeOption::new_None()),
+    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+        match lhs {
+            TileInput::OnTheFly(comptime_cell) => {
+                comptime_cell.store(CubeOption::new_Some(comptime!(tile.clone())))
+            }
+            TileInput::Register(array) => match config.lhs_layout {
+                MatrixLayout::RowMajor => {
+                    assert!(config.lhs_line_size == config.size.k);
+                    Self::fill_transposed(tile, array, config.size.m, config.size.k);
+                }
+                MatrixLayout::ColMajor => {
+                    assert!(config.lhs_line_size == config.size.m);
+                    Self::fill_transposed(tile, array, config.size.k, config.size.m);
+                }
+            },
         }
     }
 
-    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] _config: Config) {
-        lhs.tile
-            .store(CubeOption::new_Some(comptime!(tile.clone())));
-    }
-
-    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] _config: Config) {
-        rhs.tile
-            .store(CubeOption::new_Some(comptime!(tile.clone())));
+    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+        match rhs {
+            TileInput::OnTheFly(comptime_cell) => {
+                comptime_cell.store(CubeOption::new_Some(comptime!(tile.clone())))
+            }
+            TileInput::Register(array) => match config.rhs_layout {
+                MatrixLayout::RowMajor => {
+                    assert!(config.rhs_line_size == config.size.n);
+                    Self::fill_transposed(tile, array, config.size.k, config.size.n);
+                }
+                MatrixLayout::ColMajor => {
+                    assert!(config.rhs_line_size == config.size.k);
+                    Self::fill_transposed(tile, array, config.size.n, config.size.k);
+                }
+            },
+        }
     }
 
     fn fill_accumulator(
@@ -105,6 +178,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     ) {
         #[unroll]
         for i in 0..comptime!(acc.rows) {
+            #[unroll]
             for j in 0..comptime!(acc.cols) {
                 acc.data[i * acc.cols + j] =
                     tile.slice.with_line_size(1u32)[i * tile.stride + j][0];
@@ -149,74 +223,67 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 }
 
 #[cube]
-/// Optimized for the case where `lhs` is row-major and `rhs` is column-major.
-/// Assumes that the input tiles follow these memory layouts.
-fn inner_product<ES: Numeric, EA: Numeric>(
-    lhs: Tile<ES>,
-    rhs: Tile<ES>,
-    acc: &mut TileAccumulator<EA>,
-    #[comptime] config: Config,
-) {
-    assert!(lhs.layout == MatrixLayout::RowMajor);
-    assert!(rhs.layout == MatrixLayout::ColMajor);
-    let line_size = config.lhs_line_size;
-    assert!(line_size == config.rhs_line_size);
+impl RegisterMatmul {
+    fn inner_product<ES: Numeric, EA: Numeric>(
+        lhs: &TileInput<ES>,
+        rhs: &TileInput<ES>,
+        acc: &mut TileAccumulator<EA>,
+        #[comptime] config: Config,
+    ) {
+        let (m, n, k) = comptime! {let (m, n, k) = config.size.into(); (m, n, k)};
 
-    let (m, n, k) = comptime! {let (m, n, k) =config.size.into(); (m,n,k)};
-
-    // ASSUME m=n=k=line_size
-    // for row-col, can benefit from Line::dot
-    // for m, get line
-    //  for n get line, dot with lhs line
-    //   store (k is implicit)
-
-    // for row-row and col-col
-    // load a line to keep just one element :(
-    // later, maybe add option of dynamic_stage_line_size
-}
-
-#[cube]
-/// Optimized for the case where `lhs` is column-major and `rhs` is row-major.
-/// Assumes that the input tiles follow these memory layouts.
-fn outer_product<ES: Numeric, EA: Numeric>(
-    lhs: Tile<ES>,
-    rhs: Tile<ES>,
-    acc: &mut TileAccumulator<EA>,
-    #[comptime] config: Config,
-) {
-    assert!(lhs.layout == MatrixLayout::ColMajor);
-    assert!(rhs.layout == MatrixLayout::RowMajor);
-
-    let (m, n, k) = comptime! {let (m, n, k) =config.size.into(); (m,n,k)};
-
-    let lhs_line_size = config.lhs_line_size;
-    let rhs_line_size = config.rhs_line_size;
-    let lhs_num_lines = m / lhs_line_size;
-    let rhs_num_lines = n / rhs_line_size;
-
-    #[unroll]
-    for k_ in 0..k {
         #[unroll]
-        for m_line_index in 0..lhs_num_lines {
-            let m_line: Line<EA> = Line::cast_from(lhs.get_line(m_line_index, k_));
-
+        for m_ in 0..m {
+            let lhs_segment = lhs.prepare_segment(m_, m_ * k);
             #[unroll]
-            for m_pos_within_line in 0..lhs_line_size {
-                let m_elem: EA = m_line[m_pos_within_line];
-                let m_iter = m_line_index * lhs_line_size + m_pos_within_line;
-
+            for n_ in 0..n {
+                let rhs_segment = rhs.prepare_segment(n_, n_ * k);
                 #[unroll]
-                for n_line_index in 0..rhs_num_lines {
-                    let n_line: Line<EA> = Line::cast_from(rhs.get_line(k_, n_line_index));
-
-                    #[unroll]
-                    for n_pos_within_line in 0..rhs_line_size {
-                        let n_elem: EA = n_line[n_pos_within_line];
-                        let n_iter = n_line_index * rhs_line_size + n_pos_within_line;
-
-                        acc.data[m_iter * n + n_iter] += m_elem * n_elem;
-                    }
+                for k_ in 0..k {
+                    let lhs_elem = EA::cast_from(lhs.get_elem_in_segment(lhs_segment, k_));
+                    let rhs_elem = EA::cast_from(rhs.get_elem_in_segment(rhs_segment, k_));
+                    acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
                 }
+            }
+        }
+    }
+
+    fn outer_product<ES: Numeric, EA: Numeric>(
+        lhs: &TileInput<ES>,
+        rhs: &TileInput<ES>,
+        acc: &mut TileAccumulator<EA>,
+        #[comptime] config: Config,
+    ) {
+        let (m, n, k) = comptime! {let (m, n, k) = config.size.into(); (m, n, k)};
+
+        #[unroll]
+        for k_ in 0..k {
+            let lhs_segment = lhs.prepare_segment(k_, k_ * m);
+            let rhs_segment = rhs.prepare_segment(k_, k_ * n);
+            #[unroll]
+            for m_ in 0..m {
+                let lhs_elem = EA::cast_from(lhs.get_elem_in_segment(lhs_segment, m_));
+                #[unroll]
+                for n_ in 0..n {
+                    let rhs_elem = EA::cast_from(rhs.get_elem_in_segment(rhs_segment, n_));
+                    acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
+                }
+            }
+        }
+    }
+
+    fn fill_transposed<ES: Numeric>(
+        tile: &Tile<ES>,
+        array: &mut Array<ES>,
+        num_lines: u32,
+        line_length: u32,
+    ) {
+        #[unroll]
+        for line_index in 0..num_lines {
+            let line = tile.get_segment_as_one_line(line_index);
+            #[unroll]
+            for pos_within_line in 0..line_length {
+                array[pos_within_line * line_length + line_index] = line[pos_within_line];
             }
         }
     }
@@ -265,20 +332,20 @@ impl MatmulConfigFactory for RegisterMatmul {
 
         match config.lhs_layout {
             MatrixLayout::RowMajor => {
-                if k % lhs != 0 {
+                if k != lhs {
                     return Err(RegisterMatmulConfigError::new(move || {
                         format!(
-                            "When Lhs is row major, register matmul k {:?} must be divisible by lhs line size {:?}.",
+                            "When Lhs is row major, register matmul k {:?} should equal lhs line size {:?}.",
                             k, lhs
                         )
                     }));
                 }
             }
             MatrixLayout::ColMajor => {
-                if m % lhs != 0 {
+                if m != lhs {
                     return Err(RegisterMatmulConfigError::new(move || {
                         format!(
-                            "When Lhs is col major, register matmul m {:?} must be divisible by lhs line size {:?}.",
+                            "When Lhs is col major, register matmul m {:?} should equal lhs line size {:?}.",
                             k, lhs
                         )
                     }));
@@ -288,20 +355,20 @@ impl MatmulConfigFactory for RegisterMatmul {
 
         match config.rhs_layout {
             MatrixLayout::RowMajor => {
-                if n % rhs != 0 {
+                if n != rhs {
                     return Err(RegisterMatmulConfigError::new(move || {
                         format!(
-                            "When Rhs is row major, register matmul n {:?} must be divisible by rhs line size {:?}.",
+                            "When Rhs is row major, register matmul n {:?} should equal rhs line size {:?}.",
                             n, rhs
                         )
                     }));
                 }
             }
             MatrixLayout::ColMajor => {
-                if k % rhs != 0 {
+                if k != rhs {
                     return Err(RegisterMatmulConfigError::new(move || {
                         format!(
-                            "When Rhs is col major, register matmul k {:?} must be divisible by rhs line size {:?}.",
+                            "When Rhs is col major, register matmul k {:?} should equal rhs line size {:?}.",
                             k, rhs
                         )
                     }));
@@ -443,6 +510,22 @@ impl Config {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
+        }
+    }
+
+    fn product_type(&self) -> ProductType {
+        match (
+            self.matrix_layout(Ident::Lhs),
+            self.matrix_layout(Ident::Rhs),
+        ) {
+            // We should benchmark, but normally:
+            // Col-Row should be Outer (probably the best case)
+            // Row-Col should be Inner
+            // Row-Row and Col-Col are unclear
+            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Outer,
+            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Inner,
+            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Outer,
+            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
         }
     }
 }

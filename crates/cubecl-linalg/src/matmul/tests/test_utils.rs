@@ -132,6 +132,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        // println!("i {:?} a {:?} e {:?}", i, a, e);
+
         // account for lower precision at higher values
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
@@ -148,6 +150,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
             ));
         }
     }
+
+    // return Err("".to_string());
 
     Ok(())
 }
