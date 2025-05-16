@@ -366,7 +366,7 @@ impl HipContext {
 
         // CubeCL compilation
         // jitc = just-in-time compiled
-        let jitc_kernel =
+        let mut jitc_kernel =
             cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
         if logger.compilation_activated() {
