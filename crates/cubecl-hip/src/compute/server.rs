@@ -2,19 +2,20 @@ use cubecl_core::server::ProfilingToken;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 
-use crate::runtime::HipCompiler;
-
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
+use crate::runtime::HipCompiler;
 use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::DynFut;
+use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ProfileLevel;
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
@@ -28,6 +29,7 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
