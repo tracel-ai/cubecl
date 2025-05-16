@@ -1,5 +1,5 @@
 use cubecl_core::{
-    Feature, MemoryUsage,
+    ExecutionMode, Feature, MemoryUsage,
     benchmark::ProfileDuration,
     future::DynFut,
     prelude::CubeTask,
@@ -12,7 +12,7 @@ use cubecl_runtime::{
     storage::{BindingResource, BytesStorage, ComputeStorage},
 };
 
-use crate::CpuCompiler;
+use crate::{CpuCompiler, compiler::MLIRCompilerOptions};
 
 #[derive(Debug)]
 pub struct CpuServer {
@@ -135,6 +135,11 @@ impl ComputeServer for CpuServer {
         kind: cubecl_core::ExecutionMode,
     ) {
         // TODO implement the runtime
+        kernel.compile(
+            &mut Default::default(),
+            &MLIRCompilerOptions::default(),
+            kind,
+        );
     }
 
     fn flush(&mut self) {}
