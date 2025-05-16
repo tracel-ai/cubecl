@@ -14,7 +14,6 @@ use cubecl_core::{
     ir::{Elem, FloatKind},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
-use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
@@ -22,7 +21,6 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
-use std::sync::Arc;
 
 use crate::{
     HipWmmaCompiler,
