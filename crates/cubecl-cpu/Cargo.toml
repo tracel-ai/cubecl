@@ -34,6 +34,7 @@ half = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
+melior = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
@@ -42,7 +43,6 @@ cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
     "export_tests",
 ] }
-cubecl-ir = { path = "../cubecl-ir", version = "0.6.0" }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
     "export_tests",
 ] }

@@ -5,10 +5,8 @@ const VECTORIZATION: u8 = 4;
 #[cube(launch_unchecked)]
 /// A [Line] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn gelu_array<F: Float>(input_a: &Array<F>, input_b: &Array<F>, output: &mut Array<F>) {
-    if ABSOLUTE_POS < input_a.len() {
-        output[ABSOLUTE_POS] = input_a[ABSOLUTE_POS] + input_b[ABSOLUTE_POS];
-    }
+fn sum_simple<F: Float>(input_a: &Array<F>, input_b: &Array<F>, output: &mut Array<F>) {
+    output[ABSOLUTE_POS] = input_a[ABSOLUTE_POS] + input_b[ABSOLUTE_POS];
 }
 
 pub fn launch<R: Runtime>(device: &R::Device) {
@@ -20,7 +18,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input_b_handle = client.create(f32::as_bytes(&input_b));
 
     unsafe {
-        gelu_array::launch_unchecked::<f32, R>(
+        sum_simple::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new((input_a.len() / VECTORIZATION as usize) as u32, 1, 1),
