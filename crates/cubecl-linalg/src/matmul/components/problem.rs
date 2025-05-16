@@ -188,12 +188,22 @@ impl From<MatmulProblem> for MatmulSize {
 
 impl From<MatmulProblem> for MatmulKind {
     fn from(problem: MatmulProblem) -> Self {
-        problem.into()
+        MatmulSize {
+            m: problem.m as u32,
+            n: problem.n as u32,
+            k: problem.k as u32,
+        }
+        .into()
     }
 }
 
 impl From<&MatmulProblem> for MatmulKind {
     fn from(problem: &MatmulProblem) -> Self {
-        problem.into()
+        MatmulSize {
+            m: problem.m as u32,
+            n: problem.n as u32,
+            k: problem.k as u32,
+        }
+        .into()
     }
 }

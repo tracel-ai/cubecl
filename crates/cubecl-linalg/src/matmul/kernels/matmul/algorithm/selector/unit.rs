@@ -32,7 +32,7 @@ pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     elem_stage: Elem,
     elem_acc: Elem,
 ) -> UnitMatmulSelection {
-    match Into::<MatmulKind>::into(problem) {
+    let selection = match Into::<MatmulKind>::into(problem) {
         MatmulKind::General => {
             general_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
@@ -57,7 +57,11 @@ pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         MatmulKind::ScalarProduct => {
             scalar_product_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
-    }
+    };
+
+    // println!("{:?}", selection);
+
+    selection
 }
 
 /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
@@ -75,7 +79,7 @@ fn general_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
         tile_shape: MatmulSize {
             m: problem.lhs_line_size as u32,
             n: problem.rhs_line_size as u32,
-            k: ARBITRARY_K_SHAPE,
+            k: problem.lhs_line_size as u32,
         },
         tile_count: MatmulSize {
             m: stage_m,

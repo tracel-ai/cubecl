@@ -330,50 +330,12 @@ impl MatmulConfigFactory for RegisterMatmul {
         let lhs = config.stage_line_size(Ident::Lhs);
         let rhs = config.stage_line_size(Ident::Rhs);
 
-        match config.lhs_layout {
-            MatrixLayout::RowMajor => {
-                if k != lhs {
-                    return Err(RegisterMatmulConfigError::new(move || {
-                        format!(
-                            "When Lhs is row major, register matmul k {:?} should equal lhs line size {:?}.",
-                            k, lhs
-                        )
-                    }));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if m != lhs {
-                    return Err(RegisterMatmulConfigError::new(move || {
-                        format!(
-                            "When Lhs is col major, register matmul m {:?} should equal lhs line size {:?}.",
-                            k, lhs
-                        )
-                    }));
-                }
-            }
-        }
-
-        match config.rhs_layout {
-            MatrixLayout::RowMajor => {
-                if n != rhs {
-                    return Err(RegisterMatmulConfigError::new(move || {
-                        format!(
-                            "When Rhs is row major, register matmul n {:?} should equal rhs line size {:?}.",
-                            n, rhs
-                        )
-                    }));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if k != rhs {
-                    return Err(RegisterMatmulConfigError::new(move || {
-                        format!(
-                            "When Rhs is col major, register matmul k {:?} should equal rhs line size {:?}.",
-                            k, rhs
-                        )
-                    }));
-                }
-            }
+        if k != m || m != lhs || lhs != rhs || rhs != n {
+            return Err(RegisterMatmulConfigError::new(move || {
+                format!(
+                    "Input line and tile sizes must all match. Got m={m:?}, n={n:?}, k={k:?}, lhs={lhs:?}, rhs={rhs:?}"
+                )
+            }));
         }
 
         Ok(())
@@ -522,10 +484,10 @@ impl Config {
             // Col-Row should be Outer (probably the best case)
             // Row-Col should be Inner
             // Row-Row and Col-Col are unclear
-            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Outer,
+            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Inner,
             (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Inner,
-            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Outer,
-            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
+            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
+            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Inner,
         }
     }
 }
