@@ -8,6 +8,7 @@ pub mod frontend;
 /// Input Output utilities.
 pub mod io;
 
+pub use cubecl_common::id::KernelId;
 /// Some future utilities that work across environments.
 pub use cubecl_common::{PLANE_DIM_APPROX, future};
 
@@ -32,7 +33,6 @@ pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::memory_management::MemoryUsage;
 
-use crate::compute::KernelDefinition;
 use frontend::LaunchArg;
 
 pub use cubecl_common::ExecutionMode;
@@ -43,16 +43,6 @@ pub use prelude::CubeDim;
 
 mod id;
 pub use id::*;
-
-/// Implement this trait to create a [kernel definition](KernelDefinition).
-pub trait Kernel: Send + Sync + 'static + Sized {
-    /// Convert to a kernel definition.
-    fn define(&self) -> KernelDefinition;
-    /// Identifier for the kernel, used for caching kernel compilation.
-    fn id(&self) -> KernelId {
-        KernelId::new::<Self>()
-    }
-}
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.

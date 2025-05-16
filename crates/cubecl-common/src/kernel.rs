@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use crate::id::KernelId;
+use alloc::boxed::Box;
+
 /// An approximation of the plane dimension.
 pub const PLANE_DIM_APPROX: usize = 16;
 
@@ -58,4 +61,21 @@ pub enum ExecutionMode {
     Checked,
     /// Unchecked kernels are unsafe.
     Unchecked,
+}
+
+/// Implement this trait to create a [kernel definition](KernelDefinition).
+pub trait Kernel: Send + Sync + 'static {
+    /// Name of the kernel for debugging.
+    fn name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
+
+    /// Identifier for the kernel, used for caching kernel compilation.
+    fn id(&self) -> KernelId;
+}
+
+impl Kernel for Box<dyn Kernel> {
+    fn id(&self) -> KernelId {
+        self.as_ref().id()
+    }
 }

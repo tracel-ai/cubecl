@@ -1,5 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
+use cubecl_common::{Kernel, id::KernelId};
 use cubecl_runtime::storage::BytesResource;
 
 use crate::dummy::DummyKernel;
@@ -34,6 +35,12 @@ impl DummyKernel for DummyElementwiseAdditionSlowWrong {
         }
     }
 }
+impl Kernel for DummyElementwiseAdditionSlowWrong {
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
+}
+
 impl DummyKernel for DummyElementwiseMultiplication {
     fn compute(&self, inputs: &mut [&BytesResource]) {
         let lhs = &inputs[0].read();
@@ -47,6 +54,12 @@ impl DummyKernel for DummyElementwiseMultiplication {
         }
     }
 }
+impl Kernel for DummyElementwiseMultiplication {
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
+}
+
 impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
     fn compute(&self, inputs: &mut [&BytesResource]) {
         // Slow and wrong on purpose, for tests
@@ -61,6 +74,12 @@ impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
         }
     }
 }
+impl Kernel for DummyElementwiseMultiplicationSlowWrong {
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
+}
+
 impl DummyKernel for CacheTestFastOn3 {
     fn compute(&self, inputs: &mut [&BytesResource]) {
         // This is an artificial kernel designed for testing cache only
@@ -76,6 +95,11 @@ impl DummyKernel for CacheTestFastOn3 {
                 out[i] = lhs[i];
             }
         }
+    }
+}
+impl Kernel for CacheTestFastOn3 {
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
     }
 }
 
@@ -97,6 +121,11 @@ impl DummyKernel for CacheTestSlowOn3 {
         }
     }
 }
+impl Kernel for CacheTestSlowOn3 {
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
+    }
+}
 
 impl DummyKernel for ParameteredKernel {
     fn compute(&self, inputs: &mut [&BytesResource]) {
@@ -109,5 +138,11 @@ impl DummyKernel for ParameteredKernel {
         for i in 0..lhs.len() {
             out[i] = lhs[i] + rhs[i] + info[0];
         }
+    }
+}
+
+impl Kernel for ParameteredKernel {
+    fn id(&self) -> cubecl_common::id::KernelId {
+        KernelId::new::<Self>()
     }
 }

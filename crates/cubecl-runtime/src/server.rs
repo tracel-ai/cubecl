@@ -1,4 +1,5 @@
 use crate::{
+    logging::ServerLogger,
     memory_management::{
         MemoryHandle, MemoryUsage,
         memory_pool::{SliceBinding, SliceHandle},
@@ -7,9 +8,10 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{ExecutionMode, Kernel, benchmark::ProfileDuration, future::DynFut};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -21,7 +23,7 @@ where
     Self: Sized,
 {
     /// The kernel type defines the computation algorithms.
-    type Kernel: Send;
+    type Kernel: Kernel;
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
@@ -83,6 +85,7 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
+        logger: Arc<ServerLogger>,
     );
 
     /// Flush all outstanding tasks in the server.

@@ -1,4 +1,5 @@
 use super::ComputeChannel;
+use crate::logging::ServerLogger;
 use crate::server::{
     Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
 };
@@ -102,11 +103,12 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         unsafe {
             self.server
                 .borrow_mut()
-                .execute(kernel_description, count, bindings, kind)
+                .execute(kernel_description, count, bindings, kind, logger)
         }
     }
 

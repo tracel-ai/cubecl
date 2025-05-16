@@ -17,7 +17,7 @@ version.workspace = true
 default = ["std"]
 serde = []
 std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
-cache = ["std", "serde_json", "hashbrown", "dirs", "sanitize-filename"]
+cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -39,7 +39,7 @@ serde = { workspace = true }
 spin = { workspace = true } # using in place of use std::sync::Mutex;
 
 # Cache
-hashbrown = { workspace = true, optional = true }
+hashbrown = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"], optional = true }
 dirs = { workspace = true, optional = true }
 sanitize-filename = { workspace = true, optional = true }
