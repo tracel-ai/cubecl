@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
-use crate::matmul::components::stage::{FullReader, RowMajorTilingOrder};
+use crate::matmul::components::stage::{FullStageToTileReader, RowMajorTilingOrder};
 use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision, MatrixLayout,
     global::{Quantization, single_stage},
@@ -17,7 +17,7 @@ use crate::matmul::components::{
 };
 
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
-pub type TmaReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaTiling>;
+pub type TmaReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaTiling>;
 
 #[derive(CubeType, Clone, Copy)]
 pub struct TmaTilingOrder;

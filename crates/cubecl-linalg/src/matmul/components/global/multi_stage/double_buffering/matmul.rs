@@ -4,11 +4,10 @@ use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::{BufferReader, StageConfig};
+use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -123,8 +122,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = BufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = BufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = BufferStageToTileReader<MP::ES, LL::TilingLayout>,
+            RhsReader = BufferStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
@@ -133,13 +132,13 @@ where
     type LhsLoader = SyncBufferLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut out_unloader: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -224,12 +223,7 @@ where
             config.to_smm_config(),
         );
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -272,14 +266,14 @@ where
         )
     }
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-    ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, batch_offset)
+    ) -> Self::Writer {
+        SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

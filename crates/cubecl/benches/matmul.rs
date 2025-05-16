@@ -10,6 +10,9 @@ use cubecl_runtime::config::GlobalConfig;
 
 use cubecl_random::random_uniform;
 
+const TRANSPOSE_LHS: bool = true;
+const TRANSPOSE_RHS: bool = false;
+
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (
         TensorHandle<R, MP::EI>,
@@ -21,14 +24,25 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
 
-        let lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
+        let mut lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
+        if TRANSPOSE_LHS {
+            let len = lhs.shape.len();
+            lhs.shape.swap(len - 2, len - 1);
+            lhs.strides.swap(len - 2, len - 1);
+        }
         random_uniform::<R, MP::EI>(
             &client,
             MP::EI::from_int(0),
             MP::EI::from_int(1),
             lhs.as_ref(),
         );
-        let rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+
+        let mut rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+        if TRANSPOSE_RHS {
+            let len = rhs.shape.len();
+            rhs.shape.swap(len - 2, len - 1);
+            rhs.strides.swap(len - 2, len - 1);
+        }
         random_uniform::<R, MP::EI>(
             &client,
             MP::EI::from_int(0),
@@ -98,11 +112,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     let client = R::client(&device);
 
     for (b, m, n, k) in [
-        (1, 8192, 8192, 8192),
+        // (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
-        (1, 5000, 5000, 5000),
-        (2, 4096, 4096, 4096),
-        (32, 1024, 1024, 1024),
+        // (1, 5000, 5000, 5000),
+        // (2, 4096, 4096, 4096),
+        // (32, 1024, 1024, 1024),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
@@ -124,19 +138,19 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
-    );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
-    );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
-    );
+    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    // run::<R, MP>(
+    // Default::default(),
+    // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
+    // );
+    // run::<R, MP>(
+    // Default::default(),
+    // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
@@ -145,10 +159,10 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
     // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
@@ -166,7 +180,11 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 }
 
 fn main() {
-    #[cfg(feature = "wgpu")]
+    #[cfg(all(
+        feature = "wgpu",
+        not(feature = "wgpu-spirv"),
+        not(feature = "wgpu-msl")
+    ))]
     {
         run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
@@ -196,6 +214,6 @@ fn main() {
     }
     #[cfg(feature = "wgpu-msl")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
     }
 }

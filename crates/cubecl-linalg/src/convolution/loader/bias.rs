@@ -62,7 +62,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                 let slice = stage
                     .as_slice_mut(line_size)
                     .slice(start, start + tile_elems);
-                let tile = Tile::new_strided(slice, 0);
+                let tile = Tile::new_strided(slice, 0, config.matrix_layout(Ident::Out));
                 TMM::fill_accumulator(&tile, acc, config);
             }
             BiasLoader::None => {

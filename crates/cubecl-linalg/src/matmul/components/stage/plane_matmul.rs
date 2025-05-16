@@ -1,19 +1,21 @@
-use crate::matmul::components::global::AccumulatorLoader;
+use crate::matmul::components::global::GlobalWriter;
+use crate::matmul::components::global::{AccumulatorLoader, TilewiseWriter};
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
-use crate::matmul::components::stage::{Reader, ReaderFamily};
+use crate::matmul::components::stage::{ReaderFamily, StageToTileReader};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
-use crate::matmul::components::{Ident, MatmulProblem, global, stage::StageWriter, tile};
+use crate::matmul::components::{Ident, MatmulProblem, global, tile};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::shared::{Accumulators, StageVectorization};
 
@@ -54,10 +56,15 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        check_num_planes(
-            config.tiling_dimensions(Ident::Lhs).tile_count_row(),
-            config.num_planes(),
-        )?;
+        let num_rows = config.tiling_dimensions(Ident::Lhs).tile_count_row();
+        let num_planes = config.num_planes();
+
+        if num_rows % num_planes != 0 {
+            return Err(Box::new(format!(
+                "Error: Number of planes {num_planes} should divide number of rows {num_rows}."
+            )));
+        }
+
         TMM::check_config(&config.to_tmm_config())
     }
 
@@ -104,8 +111,8 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
 pub struct PlaneMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: Reader<MP::ES>,
-    RR: Reader<MP::ES>,
+    RL: StageToTileReader<MP::ES>,
+    RR: StageToTileReader<MP::ES>,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR)>,
 }
@@ -115,8 +122,8 @@ impl<MP, TMM, RL, RR> StageMatmul<MP> for PlaneMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: Reader<MP::ES>,
-    RR: Reader<MP::ES>,
+    RL: StageToTileReader<MP::ES>,
+    RR: StageToTileReader<MP::ES>,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -125,6 +132,7 @@ where
     type Accumulator = Accumulators<MP, TMM>;
     type LhsTile = Sequence<TMM::Lhs>;
     type RhsTile = RhsTile<TMM::Rhs>;
+    type Writer = TilewiseWriter<MP::EO>;
 
     fn execute(
         lhs_reader: &RL,
@@ -200,9 +208,9 @@ where
         (lhs, rhs)
     }
 
-    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
+    fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
-        out: &mut SW,
+        out: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -230,8 +238,8 @@ where
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
                 let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
-                TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-                SW::write::<MP::EO, G>(
+                TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
+                Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),
                     m_offset + m_iter,
@@ -264,16 +272,15 @@ where
     ) {
         acc.fill::<L>(loader, config);
     }
-}
 
-fn check_num_planes(num_rows: u32, num_planes: u32) -> Result<(), InvalidConfigError> {
-    if num_rows % num_planes != 0 {
-        return Err(Box::new(format!(
-            "Error: Number of planes {num_planes} should divide number of rows {num_rows}."
-        )));
+    fn init_writer(
+        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Writer {
+        Self::Writer::new(tensor, x_offset, y_offset, batch_offset)
     }
-
-    Ok(())
 }
 
 type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
@@ -283,8 +290,8 @@ impl<MP, TMM, RL, RR> PlaneMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: TileMatmul<MP>,
-    RL: Reader<MP::ES>,
-    RR: Reader<MP::ES>,
+    RL: StageToTileReader<MP::ES>,
+    RR: StageToTileReader<MP::ES>,
 {
     // Execute stage matmul with a single buffer for rhs.
     fn execute_single_buffer<SEL: StageEventListener>(

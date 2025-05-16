@@ -741,6 +741,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     Variable::LocalArray(_, _, length) => {
                         writeln!(f, "{out} = {length}u;")
                     }
+                    Variable::SharedMemory(_, _, length) => {
+                        writeln!(f, "{out} = {length}u;")
+                    }
                     _ => {
                         writeln!(f, "{out} = arrayLength({var});")
                     }

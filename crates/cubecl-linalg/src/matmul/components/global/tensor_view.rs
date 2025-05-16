@@ -392,12 +392,12 @@ impl<EG: Numeric> TensorWriter<EG> {
     /// Writes data into the tensor view at the specified coordinates (tile_x, tile_y).
     ///
     /// Each unit writes one line in a coalesced manner for improved efficiency, assuming row-major layout.
-    pub fn write_coalesced<ES: Numeric, G: global::GlobalConfig>(
+    pub fn write_coalesced<G: global::GlobalConfig>(
         &mut self,
         tile_x: u32,
         tile_y: u32,
         unit_id: u32,
-        value: Line<ES>,
+        value: Line<EG>,
         #[comptime] config: G,
     ) {
         let tiling = config.tiling_dimensions(Ident::Out);

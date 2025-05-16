@@ -6,7 +6,6 @@ use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::MatmulSelection;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::kernels::matmul::Algorithm;
@@ -29,7 +28,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     mut problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: MatmulSelection,
+    selection: A::MatmulSelection,
 ) where
     A: Algorithm,
     P: TestPrecision,

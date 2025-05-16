@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use cubecl_core::ir::Elem;
 use cubecl_core::{
     CubeCount, CubeDim, Runtime,
     client::ComputeClient,
@@ -7,12 +8,18 @@ use cubecl_core::{
 };
 
 use crate::{
-    convolution::{base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily},
-    matmul::components::{
-        InputIdent, MatmulSelection,
-        global::args::TensorArgs,
-        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
-        tile::TileMatmulFamily,
+    convolution::{
+        base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily,
+        selection::convolution_matmul_selection,
+    },
+    matmul::{
+        components::{
+            InputIdent,
+            global::args::TensorArgs,
+            stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+            tile::TileMatmulFamily,
+        },
+        kernels::matmul::PlaneMatmulSelection,
     },
     tensor::{TensorHandle, into_contiguous},
 };
@@ -28,14 +35,15 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
+    type MatmulSelection = PlaneMatmulSelection;
 
     type Args = TensorArgs;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
+    fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
         let m_stage = selection.tile_count.m * selection.tile_shape.m;
         let n_stage = selection.tile_count.n * selection.tile_shape.n;
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
@@ -70,6 +78,16 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
     fn num_stages() -> (u32, u32) {
         (1, 1)
+    }
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &ConvolutionProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection {
+        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
     }
 }
 

@@ -4,7 +4,23 @@ use cubecl_core::{CubeType, prelude::*};
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::tile;
 
-use super::{AccumulatorLoader, GlobalConfig};
+use super::GlobalConfig;
+
+#[cube]
+/// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
+/// for it.
+pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sync {
+    fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G);
+
+    /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
+    /// for the underlying tile.
+    fn load<Tile: tile::TileMatmul<MP>>(
+        this: &mut Self,
+        acc: &mut Tile::Accumulator,
+        nth_tile: u32,
+        #[comptime] config: Tile::Config,
+    );
+}
 
 /// Accumulator loader that zeros the accumulator
 #[derive(CubeType)]

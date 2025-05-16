@@ -53,7 +53,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
             quantization,
             config,
         ),
-        GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
+        GMM::init_writer(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,
         config,

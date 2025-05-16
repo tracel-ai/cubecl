@@ -9,7 +9,7 @@ use crate::matmul::{
 };
 use crate::{
     convolution::base::ConvolutionLaunch,
-    matmul::components::{self, InputIdent, MatmulPrecision, MatmulSelection},
+    matmul::components::{self, InputIdent, MatmulPrecision},
 };
 
 use super::{
@@ -189,7 +189,7 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     bias: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: ConvolutionProblem,
-    selection: MatmulSelection,
+    selection: Alg::MatmulSelection,
     config_input: StageInput,
 ) -> Result<(), ConvLaunchError>
 where

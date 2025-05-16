@@ -2,10 +2,10 @@ use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 
+use crate::convolution::algorithm::Algorithm;
 use crate::convolution::base::ConvolutionProblem;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
-use crate::{convolution::algorithm::Algorithm, matmul::components::MatmulSelection};
 use crate::{convolution::base::ConvolutionLaunch, matmul::components::InputIdent};
 use crate::{
     convolution::{args::ConvInputsLaunch, base::ConvolutionConfigFactory},
@@ -23,7 +23,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     mut problem: ConvolutionProblem,
     input: <A::GlobalConvolution as ConvolutionConfigFactory>::Input,
-    selection: MatmulSelection,
+    selection: A::MatmulSelection,
 ) where
     A: Algorithm,
     Args: MatmulArgs,

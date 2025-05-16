@@ -1,4 +1,4 @@
-use super::{MultiRowStrategy, PlaneMatmulSelection, base, plane_matmul_selection};
+use super::{UnitMatmulSelection, base, unit_matmul_selection};
 use cubecl_core::{ir::Elem, prelude::*};
 use std::marker::PhantomData;
 
@@ -13,39 +13,33 @@ use crate::matmul::components::{
     tile,
 };
 
-pub struct SimpleAlgorithm<
-    TMM,
+pub struct SimpleUnitAlgorithm<
     LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
     RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
 > {
-    pub _tmm: PhantomData<TMM>,
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, LL, RL, Dispatch> base::Algorithm for SimpleAlgorithm<TMM, LL, RL, Dispatch>
+impl<LL, RL, Dispatch> base::Algorithm for SimpleUnitAlgorithm<LL, RL, Dispatch>
 where
-    TMM: tile::TileMatmulFamily,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
-    type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        FullReaderFamily,
-        FullReaderFamily,
-    >;
+    type TileMatmul = tile::register_matmul::RegisterMatmul;
+    type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
-
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
-    type MatmulSelection = PlaneMatmulSelection;
+    type MatmulSelection = UnitMatmulSelection;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
-        CubeDim::new(selection.plane_dim, num_planes, 1)
+        let num_tile_matmuls = selection.tile_count.m * selection.tile_count.n;
+        let plane_dim = selection.plane_dim;
+        let num_planes = num_tile_matmuls.div_ceil(plane_dim);
+        CubeDim::new(plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
@@ -64,13 +58,8 @@ where
         elem_stage: Elem,
         elem_acc: Elem,
     ) -> Self::MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Never,
-            elem_stage,
-            elem_acc,
+        unit_matmul_selection::<Self::TileMatmul, R>(
+            client, problem, plane_dim, elem_stage, elem_acc,
         )
     }
 }

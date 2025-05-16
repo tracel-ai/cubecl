@@ -15,12 +15,11 @@ use crate::{
             global::{
                 AccumulatorLoader, GlobalConfig,
                 load::{SyncFullLoader, sync_full_cyclic},
-                output_loader::Unloader,
                 single_stage,
             },
             stage::{
-                ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder,
-                StageMatmul, StageMatmulFamily,
+                ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader,
+                RowMajorTilingOrder, StageMatmul, StageMatmulFamily,
             },
         },
         kernels::matmul::LoadingPrecomputeStrategy,
@@ -51,8 +50,8 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for SimpleConvolution<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, ConvTilingLayout>,
-            RhsReader = FullReader<MP::ES, ConvTilingLayout>,
+            LhsReader = FullStageToTileReader<MP::ES, ConvTilingLayout>,
+            RhsReader = FullStageToTileReader<MP::ES, ConvTilingLayout>,
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
@@ -61,14 +60,14 @@ where
         SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
-    type Out = Unloader<MP::EO>;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut acc_loader: Self::AccumulatorLoader,
-        mut out_unloader: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -116,12 +115,7 @@ where
 
         sync_cube();
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -160,12 +154,12 @@ where
         Self::AccumulatorLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
-    ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, 0)
+    ) -> Self::Writer {
+        SMM::init_writer(out, x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
