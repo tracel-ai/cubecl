@@ -34,28 +34,28 @@ pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 ) -> UnitMatmulSelection {
     let selection = match Into::<MatmulKind>::into(problem) {
         MatmulKind::General => {
-            general_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            general_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::MatVec => {
-            matvec_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            matvec_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::VecMat => {
-            vecmat_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            vecmat_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::ScalarVec => {
-            scalarvec_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            scalarvec_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::VecScalar => {
-            vecscalar_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            vecscalar_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::InnerProduct => {
-            inner_product_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            inner_product_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::OuterProduct => {
-            outer_product_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            outer_product_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
         MatmulKind::ScalarProduct => {
-            scalar_product_unit_selector::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+            scalar_product_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
         }
     };
 
@@ -65,7 +65,7 @@ pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
-fn general_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn general_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -91,7 +91,7 @@ fn general_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (M, K) @ (K, 1) → (M, 1)
-fn matvec_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn matvec_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -116,7 +116,7 @@ fn matvec_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (1, K) @ (K, N) → (1, N)
-fn vecmat_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn vecmat_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -141,7 +141,7 @@ fn vecmat_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (1, 1) @ (1, N) → (1, N)
-fn scalarvec_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn scalarvec_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -166,7 +166,7 @@ fn scalarvec_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (M, 1) @ (1, 1) → (M, 1)
-fn vecscalar_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn vecscalar_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -191,7 +191,7 @@ fn vecscalar_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (1, K) @ (K, 1) → (1, 1)
-fn inner_product_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn inner_product_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     _problem: &MatmulProblem,
     plane_dim: u32,
@@ -214,7 +214,7 @@ fn inner_product_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (M, 1) @ (1, N) → (M, N)
-fn outer_product_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn outer_product_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -240,7 +240,7 @@ fn outer_product_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
 }
 
 /// (1, 1) @ (1, 1) → (1, 1)
-fn scalar_product_unit_selector<TMM: TileMatmulFamily, R: Runtime>(
+fn scalar_product_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
     _problem: &MatmulProblem,
     plane_dim: u32,
