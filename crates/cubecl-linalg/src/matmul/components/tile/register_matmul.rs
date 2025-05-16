@@ -110,28 +110,32 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
-        match (config.product_type(), config.lhs_layout) {
-            (ProductType::Inner, MatrixLayout::RowMajor)
-            | (ProductType::Outer, MatrixLayout::ColMajor) => {
-                TileInput::new_OnTheFly(ComptimeCell::new(CubeOption::new_None()))
-            }
-            (ProductType::Inner, MatrixLayout::ColMajor)
-            | (ProductType::Outer, MatrixLayout::RowMajor) => {
-                TileInput::new_Register(Array::new(config.size.m * config.size.k))
-            }
+        let use_registers = config.always_use_registers()
+            || comptime!(matches!(
+                (config.product_type(), config.lhs_layout),
+                (ProductType::Inner, MatrixLayout::ColMajor)
+                    | (ProductType::Outer, MatrixLayout::RowMajor)
+            ));
+
+        if use_registers {
+            TileInput::new_Register(Array::new(config.size.m * config.size.k))
+        } else {
+            TileInput::new_OnTheFly(ComptimeCell::new(CubeOption::new_None()))
         }
     }
 
     fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
-        match (config.product_type(), config.rhs_layout) {
-            (ProductType::Inner, MatrixLayout::ColMajor)
-            | (ProductType::Outer, MatrixLayout::RowMajor) => {
-                TileInput::new_OnTheFly(ComptimeCell::new(CubeOption::new_None()))
-            }
-            (ProductType::Inner, MatrixLayout::RowMajor)
-            | (ProductType::Outer, MatrixLayout::ColMajor) => {
-                TileInput::new_Register(Array::new(config.size.k * config.size.n))
-            }
+        let use_registers = config.always_use_registers()
+            || comptime!(matches!(
+                (config.product_type(), config.rhs_layout),
+                (ProductType::Inner, MatrixLayout::RowMajor)
+                    | (ProductType::Outer, MatrixLayout::ColMajor)
+            ));
+
+        if use_registers {
+            TileInput::new_Register(Array::new(config.size.k * config.size.n))
+        } else {
+            TileInput::new_OnTheFly(ComptimeCell::new(CubeOption::new_None()))
         }
     }
 
@@ -143,11 +147,25 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
             TileInput::Register(array) => match config.lhs_layout {
                 MatrixLayout::RowMajor => {
                     assert!(config.lhs_line_size == config.size.k);
-                    Self::fill_transposed(tile, array, config.size.m, config.size.k);
+                    match config.product_type() {
+                        ProductType::Inner => {
+                            Self::fill_plain(tile, array, config.size.m, config.size.k);
+                        }
+                        ProductType::Outer => {
+                            Self::fill_transposed(tile, array, config.size.m, config.size.k);
+                        }
+                    }
                 }
                 MatrixLayout::ColMajor => {
                     assert!(config.lhs_line_size == config.size.m);
-                    Self::fill_transposed(tile, array, config.size.k, config.size.m);
+                    match config.product_type() {
+                        ProductType::Inner => {
+                            Self::fill_transposed(tile, array, config.size.k, config.size.m);
+                        }
+                        ProductType::Outer => {
+                            Self::fill_plain(tile, array, config.size.k, config.size.m);
+                        }
+                    }
                 }
             },
         }
@@ -161,11 +179,25 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
             TileInput::Register(array) => match config.rhs_layout {
                 MatrixLayout::RowMajor => {
                     assert!(config.rhs_line_size == config.size.n);
-                    Self::fill_transposed(tile, array, config.size.k, config.size.n);
+                    match config.product_type() {
+                        ProductType::Inner => {
+                            Self::fill_transposed(tile, array, config.size.k, config.size.n);
+                        }
+                        ProductType::Outer => {
+                            Self::fill_plain(tile, array, config.size.k, config.size.n);
+                        }
+                    }
                 }
                 MatrixLayout::ColMajor => {
                     assert!(config.rhs_line_size == config.size.k);
-                    Self::fill_transposed(tile, array, config.size.n, config.size.k);
+                    match config.product_type() {
+                        ProductType::Inner => {
+                            Self::fill_plain(tile, array, config.size.n, config.size.k);
+                        }
+                        ProductType::Outer => {
+                            Self::fill_transposed(tile, array, config.size.n, config.size.k);
+                        }
+                    }
                 }
             },
         }
@@ -268,6 +300,22 @@ impl RegisterMatmul {
                     let rhs_elem = EA::cast_from(rhs.get_elem_in_segment(rhs_segment, n_));
                     acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
                 }
+            }
+        }
+    }
+
+    fn fill_plain<ES: Numeric>(
+        tile: &Tile<ES>,
+        array: &mut Array<ES>,
+        num_lines: u32,
+        line_length: u32,
+    ) {
+        #[unroll]
+        for line_index in 0..num_lines {
+            let line = tile.get_segment_as_one_line(line_index);
+            #[unroll]
+            for pos_within_line in 0..line_length {
+                array[line_index * line_length + pos_within_line] = line[pos_within_line];
             }
         }
     }
@@ -489,5 +537,9 @@ impl Config {
             (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
             (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Inner,
         }
+    }
+
+    fn always_use_registers(&self) -> bool {
+        true
     }
 }
