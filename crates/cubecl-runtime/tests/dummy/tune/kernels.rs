@@ -1,6 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
-use cubecl_common::{Kernel, id::KernelId};
+use cubecl_common::id::KernelId;
 use cubecl_runtime::storage::BytesResource;
 
 use crate::dummy::DummyKernel;
@@ -34,8 +34,7 @@ impl DummyKernel for DummyElementwiseAdditionSlowWrong {
             out[i] = lhs[i]
         }
     }
-}
-impl Kernel for DummyElementwiseAdditionSlowWrong {
+
     fn id(&self) -> cubecl_common::id::KernelId {
         KernelId::new::<Self>()
     }
@@ -53,8 +52,7 @@ impl DummyKernel for DummyElementwiseMultiplication {
             out[i] = lhs[i] * rhs[i];
         }
     }
-}
-impl Kernel for DummyElementwiseMultiplication {
+
     fn id(&self) -> cubecl_common::id::KernelId {
         KernelId::new::<Self>()
     }
@@ -73,8 +71,7 @@ impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
             out[i] = lhs[i];
         }
     }
-}
-impl Kernel for DummyElementwiseMultiplicationSlowWrong {
+
     fn id(&self) -> cubecl_common::id::KernelId {
         KernelId::new::<Self>()
     }
@@ -96,8 +93,7 @@ impl DummyKernel for CacheTestFastOn3 {
             }
         }
     }
-}
-impl Kernel for CacheTestFastOn3 {
+
     fn id(&self) -> cubecl_common::id::KernelId {
         KernelId::new::<Self>()
     }
@@ -120,8 +116,7 @@ impl DummyKernel for CacheTestSlowOn3 {
             out[..size].copy_from_slice(&rhs[..size]);
         }
     }
-}
-impl Kernel for CacheTestSlowOn3 {
+
     fn id(&self) -> cubecl_common::id::KernelId {
         KernelId::new::<Self>()
     }
@@ -139,9 +134,6 @@ impl DummyKernel for ParameteredKernel {
             out[i] = lhs[i] + rhs[i] + info[0];
         }
     }
-}
-
-impl Kernel for ParameteredKernel {
     fn id(&self) -> cubecl_common::id::KernelId {
         KernelId::new::<Self>()
     }

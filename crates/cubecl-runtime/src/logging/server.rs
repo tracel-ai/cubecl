@@ -6,11 +6,9 @@ use alloc::string::String;
 use alloc::string::ToString;
 use async_channel::{Receiver, Sender};
 use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::future::spawn_detached_fut;
 
 use super::{ProfileLevel, Profiled};
-
-#[cfg(multi_threading)]
-use std::thread::{self, JoinHandle};
 
 enum LogMessage {
     Execution(String),
@@ -24,19 +22,7 @@ enum LogMessage {
 pub struct ServerLogger {
     profile_level: Option<ProfileLevel>,
     log_compile_info: bool,
-    log_channel: Sender<LogMessage>,
-    #[cfg(multi_threading)]
-    handle: Option<JoinHandle<()>>,
-}
-
-// Make sure we wait for the async logger to be done before exiting.
-#[cfg(multi_threading)]
-impl Drop for ServerLogger {
-    fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.join().unwrap();
-        }
-    }
+    log_channel: Option<Sender<LogMessage>>,
 }
 
 impl Default for ServerLogger {
@@ -51,6 +37,13 @@ impl Default for ServerLogger {
             ProfilingLogLevel::Disabled
         );
 
+        if disabled {
+            return Self {
+                profile_level: None,
+                log_compile_info: false,
+                log_channel: None,
+            };
+        }
         let profile_level = match logger.config.profiling.logger.level {
             ProfilingLogLevel::Disabled => None,
             ProfilingLogLevel::Minimal => Some(ProfileLevel::ExecutionOnly),
@@ -67,34 +60,20 @@ impl Default for ServerLogger {
 
         let (send, rec) = async_channel::unbounded();
 
-        let handle = if !disabled {
-            // Spawn a background thread that processes log messages / durations.
-            // TODO: On Wasm, this should instead spawn a future.
-            #[cfg(not(multi_threading))]
-            {
-                panic!("Logging compilation/profiling is currently not supported on no_std");
-                Some(())
-            }
-
-            #[cfg(multi_threading)]
-            Some(thread::spawn(|| {
-                let as_logger = AsyncLogger {
-                    message: rec,
-                    logger,
-                    profiled: Default::default(),
-                };
-                cubecl_common::future::block_on(as_logger.process());
-            }))
-        } else {
-            None
+        // Spawn the logger as a detached task.
+        let async_logger = AsyncLogger {
+            message: rec,
+            logger,
+            profiled: Default::default(),
         };
+        spawn_detached_fut(async_logger.process());
 
+        // Spawn a background thread that processes log messages / durations.
+        // TODO: On Wasm, this should instead spawn a future.
         Self {
             profile_level,
             log_compile_info,
-            log_channel: send,
-            #[cfg(multi_threading)]
-            handle,
+            log_channel: Some(send),
         }
     }
 }
@@ -110,47 +89,46 @@ impl ServerLogger {
         self.log_compile_info
     }
 
-    /// Register a profiled task without timing.
-    pub fn register_execution(&self, name: &str) {
-        if matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly)) {
-            // Channel will never be full, don't care if it's closed.
-            let _ = self
-                .log_channel
-                .try_send(LogMessage::Execution(name.to_string()));
-        }
-    }
-
     /// Log the argument to a file when the compilation logger is activated.
     pub fn log_compilation<I>(&self, arg: &I)
     where
         I: Display,
     {
-        if self.log_compile_info {
-            // Channel will never be full, don't care if it's closed.
-            let _ = self
-                .log_channel
-                .try_send(LogMessage::Compilation(arg.to_string()));
+        if let Some(channel) = &self.log_channel {
+            if self.log_compile_info {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::Compilation(arg.to_string()));
+            }
+        }
+    }
+
+    /// Register a profiled task without timing.
+    pub fn register_execution(&self, name: impl Display) {
+        if let Some(channel) = &self.log_channel {
+            if matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly)) {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::Execution(name.to_string()));
+            }
         }
     }
 
     /// Register a profiled task.
-    pub fn register_profiled<Name>(&self, name: Name, duration: ProfileDuration)
-    where
-        Name: Display,
-    {
-        if self.profile_level.is_some() {
-            // Channel will never be full, don't care if it's closed.
-            let _ = self
-                .log_channel
-                .try_send(LogMessage::Profile(name.to_string(), duration));
+    pub fn register_profiled(&self, name: impl Display, duration: ProfileDuration) {
+        if let Some(channel) = &self.log_channel {
+            if self.profile_level.is_some() {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::Profile(name.to_string(), duration));
+            }
         }
     }
 
     /// Show the profiling summary if activated and reset its state.
     pub fn profile_summary(&self) {
-        if self.profile_level.is_some() {
-            // Channel will never be full, don't care if it's closed.
-            let _ = self.log_channel.try_send(LogMessage::ProfileSummary);
+        if let Some(channel) = &self.log_channel {
+            if self.profile_level.is_some() {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::ProfileSummary);
+            }
         }
     }
 }

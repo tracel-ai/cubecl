@@ -11,7 +11,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, Kernel, benchmark::ProfileDuration};
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
@@ -242,43 +242,45 @@ where
         bindings: Bindings,
         mode: ExecutionMode,
     ) {
-        if let Some(level) = self.state.logger.profile_level() {
-            let name = ""; // TODO:
-            let kernel_id = 0; // TODO:
+        let level = self.state.logger.profile_level();
 
-            let profile = self.profile(|| unsafe {
-                self.channel.execute(
-                    kernel,
-                    count.clone(),
-                    bindings,
-                    mode,
-                    self.state.logger.clone(),
-                )
-            });
+        match level {
+            None | Some(ProfileLevel::ExecutionOnly) => {
+                self.profile_guard();
 
-            match level {
-                ProfileLevel::ExecutionOnly => {
-                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
-                    self.state.logger.register_execution(&name);
-                }
-                _ => {
-                    let info = match level {
-                        ProfileLevel::Full => {
-                            format!("{name}: {kernel_id} CubeCount {count:?}")
-                        }
-                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
-                    };
-                    self.state.logger.register_profiled(info, profile);
+                let name = kernel.name();
+
+                unsafe {
+                    self.channel
+                        .execute(kernel, count, bindings, mode, self.state.logger.clone())
+                };
+
+                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                    let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                    self.state.logger.register_execution(info);
                 }
             }
-        } else {
-            self.profile_guard();
-
-            unsafe {
-                self.channel
-                    .execute(kernel, count, bindings, mode, self.state.logger.clone())
-            };
-        };
+            Some(level) => {
+                let name = kernel.name();
+                let kernel_id = kernel.id();
+                let profile = self.profile(|| unsafe {
+                    self.channel.execute(
+                        kernel,
+                        count.clone(),
+                        bindings,
+                        mode,
+                        self.state.logger.clone(),
+                    )
+                });
+                let info = match level {
+                    ProfileLevel::Full => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                    }
+                    _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                };
+                self.state.logger.register_profiled(info, profile);
+            }
+        }
     }
 
     /// Executes the `kernel` over the given `bindings`.
@@ -302,6 +304,7 @@ where
         count: CubeCount,
         bindings: Bindings,
     ) {
+        // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
             self.execute_inner(kernel, count, bindings, ExecutionMode::Unchecked);
         }
