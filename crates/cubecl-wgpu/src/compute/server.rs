@@ -59,6 +59,57 @@ impl WgpuServer {
             backend,
         }
     }
+
+    fn pipeline(
+        &mut self,
+        kernel: <Self as ComputeServer>::Kernel,
+        mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
+    ) -> Arc<ComputePipeline> {
+        let mut kernel_id = kernel.id();
+        kernel_id.mode(mode);
+
+        if let Some(pipeline) = self.pipelines.get(&kernel_id) {
+            return pipeline.clone();
+        }
+
+        let mut compiler = compiler(self.backend);
+        let mut compile = compiler.compile(self, kernel, mode);
+
+        if logger.compilation_activated() {
+            compile.debug_info = Some(DebugInformation::new(
+                compiler.lang_tag(),
+                kernel_id.clone(),
+            ));
+        }
+        logger.log_compilation(&compile);
+        // /!\ Do not delete the following commented code.
+        // This is useful while working on the metal compiler.
+        // Also the errors are printed nicely which is not the case when this is the runtime
+        // that does it.
+        // println!("SOURCE:\n{}", compile.source);
+        // {
+        //     // Write shader in metal file then compile it for error
+        //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
+        //     let _status = std::process::Command::new("xcrun")
+        //         .args(vec![
+        //             "-sdk",
+        //             "macosx",
+        //             "metal",
+        //             "-o",
+        //             "shader.ir",
+        //             "-c",
+        //             "shader.metal",
+        //         ])
+        //         .status()
+        //         .expect("should launch the command");
+        //     // std::process::exit(status.code().unwrap());
+        // }
+        let pipeline = self.create_pipeline(compile, mode);
+        self.pipelines.insert(kernel_id.clone(), pipeline.clone());
+
+        pipeline
+    }
 }
 
 impl ComputeServer for WgpuServer {
@@ -97,47 +148,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) {
-        // Start execution.
-        let mut kernel_id = kernel.id();
-        kernel_id.mode(mode);
-
-        let pipeline = if let Some(pipeline) = self.pipelines.get(&kernel_id) {
-            pipeline.clone()
-        } else {
-            let mut compiler = compiler(self.backend);
-            let mut compile = compiler.compile(self, kernel, mode);
-            compile.debug_info = Some(DebugInformation::new(
-                compiler.lang_tag(),
-                kernel_id.clone(),
-            ));
-            logger.log_compilation(&compile);
-
-            // /!\ Do not delete the following commented code.
-            // This is useful while working on the metal compiler.
-            // Also the errors are printed nicely which is not the case when this is the runtime
-            // that does it.
-            // println!("SOURCE:\n{}", compile.source);
-            // {
-            //     // Write shader in metal file then compile it for error
-            //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
-            //     let _status = std::process::Command::new("xcrun")
-            //         .args(vec![
-            //             "-sdk",
-            //             "macosx",
-            //             "metal",
-            //             "-o",
-            //             "shader.ir",
-            //             "-c",
-            //             "shader.metal",
-            //         ])
-            //         .status()
-            //         .expect("should launch the command");
-            //     // std::process::exit(status.code().unwrap());
-            // }
-            let pipeline = self.create_pipeline(compile, mode);
-            self.pipelines.insert(kernel_id.clone(), pipeline.clone());
-            pipeline
-        };
+        let pipeline = self.pipeline(kernel, mode, logger);
         self.stream.register(pipeline, bindings, &count);
     }
 

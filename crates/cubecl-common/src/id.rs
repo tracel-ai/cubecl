@@ -35,7 +35,7 @@ impl PartialEq for KernelId {
 
 impl Eq for KernelId {}
 
-/// TODO: Add docs.
+/// Format strings for use in identifiers and types.
 pub fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) -> String {
     let kernel_id = kernel_id.to_string();
     let mut result = String::new();
