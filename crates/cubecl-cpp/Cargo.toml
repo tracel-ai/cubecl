@@ -12,10 +12,10 @@ version.workspace = true
 
 [features]
 default = [
-  "cubecl-runtime/default",
-  "cubecl-common/default",
-  "cubecl-core/default",
-  "metal",
+    "cubecl-runtime/default",
+    "cubecl-common/default",
+    "cubecl-core/default",
+    "metal",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 cuda = []
@@ -26,7 +26,7 @@ metal = []
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
-  "channel-mutex",
+    "channel-mutex",
 ] }
 
 bytemuck = { workspace = true }

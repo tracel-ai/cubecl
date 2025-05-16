@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use cubecl_runtime::{
     client::ComputeClient,
     server::{Binding, Bindings, CubeCount},
@@ -7,13 +5,13 @@ use cubecl_runtime::{
 };
 use derive_new::new;
 
-use crate::dummy::{DummyChannel, DummyKernel, DummyServer};
+use crate::dummy::{DummyChannel, DummyServer, KernelTask};
 
 #[derive(new, Debug, Clone)]
 /// Extended kernel that accounts for additional parameters, i.e. needed
 /// information that does not count as an input/output.
 pub struct OneKernelAutotuneOperation {
-    kernel: Arc<dyn DummyKernel>,
+    kernel: KernelTask,
     client: ComputeClient<DummyServer, DummyChannel>,
 }
 

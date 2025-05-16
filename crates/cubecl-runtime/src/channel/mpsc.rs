@@ -4,6 +4,7 @@ use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 
 use super::ComputeChannel;
 use crate::{
+    logging::ServerLogger,
     memory_management::MemoryUsage,
     server::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
@@ -55,7 +56,11 @@ where
         Vec<usize>,
         Callback<Vec<(Handle, Vec<usize>)>>,
     ),
-    ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Bindings),
+    ExecuteKernel(
+        (Server::Kernel, CubeCount, ExecutionMode),
+        Bindings,
+        Arc<ServerLogger>,
+    ),
     Flush,
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
@@ -109,8 +114,8 @@ where
                             let handle = server.empty_tensors(shape, elem_size);
                             callback.send(handle).await.unwrap();
                         }
-                        Message::ExecuteKernel(kernel, bindings) => unsafe {
-                            server.execute(kernel.0, kernel.1, bindings, kernel.2);
+                        Message::ExecuteKernel(kernel, bindings, logger) => unsafe {
+                            server.execute(kernel.0, kernel.1, bindings, kernel.2, logger);
                         },
                         Message::Sync(callback) => {
                             server.sync().await;
@@ -260,10 +265,15 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         self.state
             .sender
-            .send_blocking(Message::ExecuteKernel((kernel, count, kind), bindings))
+            .send_blocking(Message::ExecuteKernel(
+                (kernel, count, kind),
+                bindings,
+                logger,
+            ))
             .unwrap();
     }
 

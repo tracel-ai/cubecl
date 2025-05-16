@@ -1,13 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::MetadataBuilder;
+use crate::Runtime;
 use crate::compute::KernelTask;
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
-use crate::{Kernel, Runtime};
 use crate::{KernelSettings, prelude::CubePrimitive};
 use bytemuck::{AnyBitPattern, NoUninit};
 use cubecl_runtime::server::{Binding, CubeCount, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{client::ComputeClient, server::Bindings};
+
+use super::CubeKernel;
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
@@ -105,16 +107,15 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Launch the kernel.
-    pub fn launch<K: Kernel>(
+    pub fn launch<K: CubeKernel>(
         self,
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R::Server, R::Channel>,
     ) {
         let bindings = self.into_bindings();
-        let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
-
-        client.execute(kernel, cube_count, bindings);
+        let kernel = KernelTask::<R::Compiler, _>::new(kernel);
+        client.execute(Box::new(kernel), cube_count, bindings);
     }
 
     /// Launch the kernel without check bounds.
@@ -125,7 +126,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// - Contain any out of bounds reads or writes. Doing so is immediate UB.
     /// - Contain any loops that never terminate. These may be optimized away entirely or cause
     ///   other unpredictable behaviour.
-    pub unsafe fn launch_unchecked<K: Kernel>(
+    pub unsafe fn launch_unchecked<K: CubeKernel>(
         self,
         cube_count: CubeCount,
         kernel: K,
@@ -133,9 +134,8 @@ impl<R: Runtime> KernelLauncher<R> {
     ) {
         unsafe {
             let bindings = self.into_bindings();
-            let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
-
-            client.execute_unchecked(kernel, cube_count, bindings);
+            let kernel = KernelTask::<R::Compiler, _>::new(kernel);
+            client.execute_unchecked(Box::new(kernel), cube_count, bindings);
         }
     }
 

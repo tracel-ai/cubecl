@@ -1,7 +1,5 @@
 mod dummy;
 
-use std::sync::Arc;
-
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, client};
 
 use cubecl_runtime::server::CubeCount;
@@ -42,7 +40,7 @@ fn execute_elementwise_addition() {
     let out = client.empty(3);
 
     client.execute(
-        Arc::new(DummyElementwiseAddition),
+        KernelTask::new(DummyElementwiseAddition),
         CubeCount::Static(1, 1, 1),
         Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
     );

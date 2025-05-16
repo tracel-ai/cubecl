@@ -16,6 +16,15 @@ pub enum ProfileDuration {
     DeviceDuration(Pin<Box<dyn Future<Output = Duration> + Send + 'static>>),
 }
 
+impl core::fmt::Debug for ProfileDuration {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ProfileDuration::Full(duration) => write!(f, "Full({:?})", duration),
+            ProfileDuration::DeviceDuration(_) => write!(f, "DeviceDuration"),
+        }
+    }
+}
+
 impl ProfileDuration {
     /// Create a new `ProfileDuration` straight from a duration.
     pub fn from_duration(duration: Duration) -> Self {
