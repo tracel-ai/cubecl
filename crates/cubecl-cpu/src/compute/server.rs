@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cubecl_core::{
-    Feature, MemoryUsage,
+    ExecutionMode, Feature, MemoryUsage,
     benchmark::ProfileDuration,
     compute::CubeTask,
     future::DynFut,
