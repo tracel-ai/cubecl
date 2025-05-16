@@ -13,7 +13,6 @@ use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ProfileLevel;
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -137,7 +136,7 @@ impl HipServer {
 }
 
 impl ComputeServer for HipServer {
-    type Kernel = KernelTask<HipCompiler>;
+    type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = HipStorage;
     type Feature = Feature;
     type Info = ();
