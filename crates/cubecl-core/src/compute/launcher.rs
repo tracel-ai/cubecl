@@ -114,8 +114,9 @@ impl<R: Runtime> KernelLauncher<R> {
         client: &ComputeClient<R::Server, R::Channel>,
     ) {
         let bindings = self.into_bindings();
-        let kernel = KernelTask::<R::Compiler, _>::new(kernel);
-        client.execute(Box::new(kernel), cube_count, bindings);
+        let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
+
+        client.execute(kernel, cube_count, bindings);
     }
 
     /// Launch the kernel without check bounds.
@@ -134,8 +135,9 @@ impl<R: Runtime> KernelLauncher<R> {
     ) {
         unsafe {
             let bindings = self.into_bindings();
-            let kernel = KernelTask::<R::Compiler, _>::new(kernel);
-            client.execute_unchecked(Box::new(kernel), cube_count, bindings);
+            let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
+
+            client.execute_unchecked(kernel, cube_count, bindings);
         }
     }
 
