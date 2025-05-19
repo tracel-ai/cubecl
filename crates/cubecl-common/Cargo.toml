@@ -63,5 +63,8 @@ spin = { workspace = true, features = [
     "portable_atomic",
 ] }
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
+
 [dev-dependencies]
 dashmap = { workspace = true }
