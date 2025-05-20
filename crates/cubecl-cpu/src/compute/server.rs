@@ -1,5 +1,5 @@
 use cubecl_core::{
-    ExecutionMode, Feature, MemoryUsage,
+    Feature, MemoryUsage,
     benchmark::ProfileDuration,
     future::DynFut,
     prelude::CubeTask,
@@ -121,8 +121,8 @@ impl ComputeServer for CpuServer {
 
     fn empty_tensors(
         &mut self,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
+        _shapes: Vec<&[usize]>,
+        _elem_sizes: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
         todo!("Check how strides should be done on CPU")
     }
@@ -130,16 +130,17 @@ impl ComputeServer for CpuServer {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        count: cubecl_core::CubeCount,
-        bindings: Bindings,
+        _count: cubecl_core::CubeCount,
+        _bindings: Bindings,
         kind: cubecl_core::ExecutionMode,
     ) {
         // TODO implement the runtime
-        kernel.compile(
+        let execution_engine = kernel.compile(
             &mut Default::default(),
             &MLIRCompilerOptions::default(),
             kind,
         );
+        execution_engine.repr.unwrap().run_kernel();
     }
 
     fn flush(&mut self) {}
