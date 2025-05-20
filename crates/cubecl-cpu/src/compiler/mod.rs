@@ -1,31 +1,27 @@
-pub mod kernel;
-pub mod mlir_converter;
-pub mod scope;
+pub mod mlir;
 pub mod supported_types;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
-use kernel::MLIRKernel;
+use mlir::MlirEngine;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MLIRCompiler {}
 
 #[derive(Default, Debug)]
 pub struct MLIRCompilerOptions {}
 
 impl Compiler for MLIRCompiler {
-    type Representation = MLIRKernel;
+    type Representation = MlirEngine;
 
     type CompilationOptions = MLIRCompilerOptions;
 
     fn compile(
         &mut self,
         kernel: KernelDefinition,
-        compilation_options: &Self::CompilationOptions,
-        mode: ExecutionMode,
+        _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
+        _mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
-        println!("{}", kernel.body);
-        self.visit(&kernel.body);
-        MLIRKernel
+        MlirEngine::from_cubecl_ir(kernel)
     }
 
     fn elem_size(&self, elem: ir::Elem) -> usize {
