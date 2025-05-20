@@ -9,7 +9,7 @@ use cubecl_std::{
 
 use super::Quantization;
 use crate::matmul::{
-    components::{self, MatmulPrecision, MatmulProblem},
+    components::{self, MatmulPrecision, MatmulProblem, problem::MatmulLineSizes},
     kernels::matmul::MatmulSelection,
 };
 
@@ -23,6 +23,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         selection: &M,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -33,6 +34,7 @@ pub trait ConcreteOutputFactory: LaunchArg {
         out: &'a TensorHandleRef<'a, R>,
         selection: &M,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -459,12 +461,13 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
         rhs: &'a TensorHandleRef<'a, R>,
         rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         _selection: &M,
-        problem: &MatmulProblem,
+        _problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
-            lhs.as_tensor_arg(problem.lhs_line_size),
+            lhs.as_tensor_arg(line_sizes.lhs),
             lhs_scale.as_ref().map(|it| it.as_tensor_arg(1)).into(),
-            rhs.as_tensor_arg(problem.rhs_line_size),
+            rhs.as_tensor_arg(line_sizes.rhs),
             rhs_scale.as_ref().map(|it| it.as_tensor_arg(1)).into(),
         )
     }
@@ -474,9 +477,10 @@ impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
     fn create<'a, M: MatmulSelection, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
         _selection: &M,
-        problem: &MatmulProblem,
+        _problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
-        out.as_tensor_arg(problem.out_line_size)
+        out.as_tensor_arg(line_sizes.out)
     }
 }
 
@@ -656,6 +660,7 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
         _rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         selection: &M,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         let stage_m = selection.tile_count().m * selection.tile_shape().m;
         let stage_n = selection.tile_count().n * selection.tile_shape().n;
@@ -757,11 +762,11 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
         };
 
         let lhs = TensorMapArg {
-            tensor: lhs.as_tensor_arg(problem.lhs_line_size),
+            tensor: lhs.as_tensor_arg(line_sizes.lhs),
             metadata: meta_lhs,
         };
         let rhs = TensorMapArg {
-            tensor: rhs.as_tensor_arg(problem.rhs_line_size),
+            tensor: rhs.as_tensor_arg(line_sizes.rhs),
             metadata: meta_rhs,
         };
 

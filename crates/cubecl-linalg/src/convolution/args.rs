@@ -6,8 +6,11 @@ use cubecl_core as cubecl;
 use crate::{
     convolution::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner},
     matmul::{
-        components::global::args::{
-            TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
+        components::{
+            MatmulLineSizes,
+            global::args::{
+                TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
+            },
         },
         kernels::matmul::MatmulSelection,
     },
@@ -21,6 +24,7 @@ pub trait ConvInputsLaunch: LaunchArg {
         rhs: &'a TensorHandleRef<'a, R>,
         selection: &M,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -29,12 +33,13 @@ impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
         _selection: &M,
-        problem: &ConvolutionProblem,
+        _problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
-            lhs.as_tensor_arg(problem.lhs_line_size),
+            lhs.as_tensor_arg(line_sizes.lhs),
             None.into(),
-            rhs.as_tensor_arg(problem.rhs_line_size),
+            rhs.as_tensor_arg(line_sizes.rhs),
             None.into(),
         )
     }
@@ -46,6 +51,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         rhs: &'a TensorHandleRef<'a, R>,
         selection: &M,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         let stage_m = selection.tile_count().m * selection.tile_shape().m;
         let stage_n = selection.tile_count().n * selection.tile_shape().n;
@@ -90,7 +96,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
                 channels_per_pixel: selection.tile_shape().k,
                 pixels_per_column: stage_m,
             },
-            lhs.as_tensor_arg(problem.lhs_line_size),
+            lhs.as_tensor_arg(line_sizes.lhs),
             elem,
         )
         .with_elem_stride(elem_stride)

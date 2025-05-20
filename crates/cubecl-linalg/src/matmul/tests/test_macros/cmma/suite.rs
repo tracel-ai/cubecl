@@ -34,9 +34,6 @@ pub fn test_algo<
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
     let selection = PlaneMatmulSelection {
@@ -93,9 +90,6 @@ pub fn test_algo_unit<
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
     let selection = UnitMatmulSelection {
@@ -151,9 +145,6 @@ pub fn test_algo_tma<
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
     let selection = PlaneMatmulSelection {

@@ -1,7 +1,7 @@
 use crate::matmul::{
     components::{
-        InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-        MatrixLayout, OutputRuntimeArg,
+        InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
     kernels::MatmulAvailabilityError,
@@ -100,6 +100,7 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config;
@@ -138,9 +139,6 @@ pub struct ConvolutionProblem {
     pub k: usize,
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u8,
-    pub rhs_line_size: u8,
-    pub out_line_size: u8,
 
     pub kernel_size: Vec<u32>,
     pub stride: Vec<u32>,
@@ -164,9 +162,6 @@ impl ConvolutionProblem {
             batches: (vec![], vec![]),
             lhs_layout: self.lhs_layout,
             rhs_layout: self.rhs_layout,
-            lhs_line_size: self.lhs_line_size,
-            rhs_line_size: self.rhs_line_size,
-            out_line_size: self.out_line_size,
         }
     }
 }

@@ -2,7 +2,9 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{InputRuntimeArg, MatmulPrecision, MatmulSize, OutputRuntimeArg};
+use crate::matmul::components::{
+    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSize, OutputRuntimeArg,
+};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::{
     components::{
@@ -30,6 +32,7 @@ pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
+    line_sizes: &MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError>
 where
@@ -56,10 +59,17 @@ where
     matmul_cube_preparation::<MS, R, A>(
         client,
         <InputArg<MS> as ConcreteInputsFactory>::create(
-            lhs, lhs_scale, rhs, rhs_scale, &selection, &problem,
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            &selection,
+            &problem,
+            &line_sizes,
         ),
-        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
+        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, line_sizes),
         problem,
+        &line_sizes,
         (
             (
                 config_input,
@@ -79,6 +89,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
+    line_sizes: &MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     let selection = A::selection::<R>(
@@ -102,6 +113,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
+        line_sizes,
         (
             (
                 config_input,

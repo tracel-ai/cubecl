@@ -15,7 +15,7 @@ use crate::{
     matmul::{
         components::{
             EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
-            MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
+            MatmulLineSizes, MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
             stage::{
                 FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
@@ -270,19 +270,21 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config {
-        let mut problem = problem.clone();
+        let mut line_sizes = line_sizes.clone();
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        problem.lhs_line_size = 1;
-        problem.rhs_line_size = 1;
+        line_sizes.lhs = 1;
+        line_sizes.rhs = 1;
 
         let smm_config = SMM::make_config(
             input.0,
             &problem.as_matmul_problem(),
+            &line_sizes,
             cube_dim,
             cube_count,
             false,
@@ -302,9 +304,9 @@ where
                 true,
                 problem.lhs_layout,
                 problem.rhs_layout,
-                problem.lhs_line_size as u32,
-                problem.rhs_line_size as u32,
-                problem.out_line_size as u32,
+                line_sizes.lhs as u32,
+                line_sizes.rhs as u32,
+                line_sizes.out as u32,
                 size.k,
                 input.1,
             ),

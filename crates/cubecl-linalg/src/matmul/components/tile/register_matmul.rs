@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::problem::MatmulLineSizes;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
@@ -427,17 +428,14 @@ impl MatmulConfigFactory for RegisterMatmul {
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         _cube_count: &CubeCount,
         _quantized: bool,
     ) -> Self::Config {
         let (lhs_line_size, rhs_line_size, stage_line_size_update) =
             if input.vectorization.stage_line_size == 0 {
-                (
-                    problem.lhs_line_size as u32,
-                    problem.rhs_line_size as u32,
-                    false,
-                )
+                (line_sizes.lhs as u32, line_sizes.rhs as u32, false)
             } else {
                 (
                     input.vectorization.stage_line_size as u32,
@@ -453,7 +451,7 @@ impl MatmulConfigFactory for RegisterMatmul {
             stage_line_size_update,
             lhs_line_size,
             rhs_line_size,
-            problem.out_line_size as u32,
+            line_sizes.out as u32,
         )
     }
 }

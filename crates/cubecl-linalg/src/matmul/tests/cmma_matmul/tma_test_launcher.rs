@@ -5,6 +5,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 
 use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulLineSizes;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
@@ -22,7 +23,7 @@ use super::matmul_test_launcher::{TensorRawParts, shape, tensor_size, transpose}
 /// against a naive CPU implementation over the given problem
 pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
-    mut problem: MatmulProblem,
+    problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: A::MatmulSelection,
 ) where
@@ -44,20 +45,28 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    // No point vectorizing when we never deal with individual values anyways
-    problem.lhs_line_size = 1;
-    problem.rhs_line_size = 1;
-    problem.out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &out.shape,
-        &out.strides,
-        out.strides.len() - 1,
-    );
+    let line_sizes = MatmulLineSizes {
+        lhs: 1,
+        rhs: 1,
+        out: tensor_line_size_parallel(
+            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+            &out.shape,
+            &out.strides,
+            out.strides.len() - 1,
+        ),
+    };
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
 
-    let config = match A::make_config(input, &problem, &cube_dim, &cube_count, P::QUANTIZED) {
+    let config = match A::make_config(
+        input,
+        &problem,
+        &line_sizes,
+        &cube_dim,
+        &cube_count,
+        P::QUANTIZED,
+    ) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err:?}");
@@ -97,14 +106,21 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         runtime: PhantomData,
     };
 
-    let inputs =
-        TensorMapInputs::create(&lhs_handle, &None, &rhs_handle, &None, &selection, &problem);
+    let inputs = TensorMapInputs::create(
+        &lhs_handle,
+        &None,
+        &rhs_handle,
+        &None,
+        &selection,
+        &problem,
+        &line_sizes,
+    );
     let output = unsafe {
         TensorArg::<R>::from_raw_parts::<P::EG>(
             &out.handle,
             &out.strides,
             &out.shape,
-            problem.out_line_size,
+            line_sizes.out,
         )
     };
 

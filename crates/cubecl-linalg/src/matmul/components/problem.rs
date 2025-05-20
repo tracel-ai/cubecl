@@ -13,9 +13,6 @@ pub struct MatmulProblem {
     pub batches: (Vec<usize>, Vec<usize>),
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u8,
-    pub rhs_line_size: u8,
-    pub out_line_size: u8,
 }
 
 impl MatmulProblem {
@@ -65,20 +62,27 @@ impl MatmulProblem {
             });
         }
 
+        Ok(())
+    }
+
+    pub fn check_line_sizes(
+        &self,
+        line_sizes: &MatmulLineSizes,
+    ) -> Result<(), MatmulInvalidProblem> {
         match self.lhs_layout {
             MatrixLayout::RowMajor => {
-                if self.k % self.lhs_line_size as usize != 0 {
+                if self.k % line_sizes.lhs as usize != 0 {
                     return Err(MatmulInvalidProblem::InvalidLineSizeLhs {
                         size: self.k as u32,
-                        line_size: self.lhs_line_size,
+                        line_size: line_sizes.lhs,
                     });
                 }
             }
             MatrixLayout::ColMajor => {
-                if self.m % self.lhs_line_size as usize != 0 {
+                if self.m % line_sizes.lhs as usize != 0 {
                     return Err(MatmulInvalidProblem::InvalidLineSizeLhs {
                         size: self.m as u32,
-                        line_size: self.lhs_line_size,
+                        line_size: line_sizes.lhs,
                     });
                 }
             }
@@ -86,27 +90,27 @@ impl MatmulProblem {
 
         match self.rhs_layout {
             MatrixLayout::RowMajor => {
-                if self.n % self.rhs_line_size as usize != 0 {
+                if self.n % line_sizes.rhs as usize != 0 {
                     return Err(MatmulInvalidProblem::InvalidLineSizeRhs {
                         size: self.n as u32,
-                        line_size: self.rhs_line_size,
+                        line_size: line_sizes.rhs,
                     });
                 }
             }
             MatrixLayout::ColMajor => {
-                if self.k % self.rhs_line_size as usize != 0 {
+                if self.k % line_sizes.rhs as usize != 0 {
                     return Err(MatmulInvalidProblem::InvalidLineSizeRhs {
                         size: self.k as u32,
-                        line_size: self.lhs_line_size,
+                        line_size: line_sizes.rhs,
                     });
                 }
             }
         }
 
-        if self.n % self.out_line_size as usize != 0 {
+        if self.n % line_sizes.out as usize != 0 {
             return Err(MatmulInvalidProblem::InvalidLineSizeOut {
                 size: self.n as u32,
-                line_size: self.out_line_size,
+                line_size: line_sizes.out,
             });
         }
 
@@ -206,4 +210,11 @@ impl From<&MatmulProblem> for MatmulKind {
         }
         .into()
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct MatmulLineSizes {
+    pub lhs: u8,
+    pub rhs: u8,
+    pub out: u8,
 }

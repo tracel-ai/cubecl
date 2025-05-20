@@ -4,6 +4,7 @@ use cubecl_core::tensor_line_size_parallel;
 
 use crate::convolution::algorithm::Algorithm;
 use crate::convolution::base::ConvolutionProblem;
+use crate::matmul::components::MatmulLineSizes;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
 use crate::{convolution::base::ConvolutionLaunch, matmul::components::InputIdent};
@@ -21,7 +22,7 @@ type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 /// against a naive CPU implementation over the given problem
 pub fn test_convolution_algorithm<A, Args, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
-    mut problem: ConvolutionProblem,
+    problem: ConvolutionProblem,
     input: <A::GlobalConvolution as ConvolutionConfigFactory>::Input,
     selection: A::MatmulSelection,
 ) where
@@ -46,15 +47,16 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    // No point vectorizing when we never deal with individual values anyways
-    problem.lhs_line_size = 1;
-    problem.rhs_line_size = 1;
-    problem.out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &out.shape,
-        &out.strides,
-        out.strides.len() - 1,
-    );
+    let line_sizes = MatmulLineSizes {
+        lhs: 1,
+        rhs: 1,
+        out: tensor_line_size_parallel(
+            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+            &out.shape,
+            &out.strides,
+            out.strides.len() - 1,
+        ),
+    };
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
@@ -63,6 +65,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &client,
         input,
         &problem,
+        &line_sizes,
         &cube_dim,
         &cube_count,
     ) {
@@ -111,11 +114,13 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &rhs_handle,
         &selection,
         &problem,
+        &line_sizes,
     );
     let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
         &out_handle,
         &selection,
         &problem.as_matmul_problem(),
+        &line_sizes,
     );
 
     unsafe {

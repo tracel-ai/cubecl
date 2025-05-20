@@ -10,8 +10,8 @@ use crate::{
     },
     matmul::{
         components::{
-            EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
-            MatmulSpec, OutputRuntimeArg,
+            EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
+            MatmulPrecision, MatmulSpec, OutputRuntimeArg,
             global::{
                 AccumulatorLoader, GlobalConfig,
                 load::{SyncFullLoader, sync_full_cyclic},
@@ -196,12 +196,14 @@ where
         _client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
             input.0,
             &problem.as_matmul_problem(),
+            line_sizes,
             cube_dim,
             cube_count,
             false,
@@ -217,9 +219,9 @@ where
                 true,
                 problem.lhs_layout,
                 problem.rhs_layout,
-                problem.lhs_line_size as u32,
-                problem.rhs_line_size as u32,
-                problem.out_line_size as u32,
+                line_sizes.lhs as u32,
+                line_sizes.rhs as u32,
+                line_sizes.out as u32,
                 size.k,
                 input.1,
             ),

@@ -73,9 +73,9 @@ fn general_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
-            n: problem.rhs_line_size as u32,
-            k: problem.lhs_line_size as u32,
+            m: todo!(),
+            n: todo!(),
+            k: todo!(),
         },
         tile_count: MatmulSize {
             m: stage_m,
@@ -98,7 +98,7 @@ fn matvec_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
+            m: todo!(),
             n: 1,
             k: ARBITRARY_K_SHAPE,
         },
@@ -124,7 +124,7 @@ fn vecmat_unit_selector<R: Runtime>(
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
-            n: problem.rhs_line_size as u32,
+            n: todo!(),
             k: ARBITRARY_K_SHAPE,
         },
         tile_count: MatmulSize {
@@ -149,7 +149,7 @@ fn scalarvec_unit_selector<R: Runtime>(
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
-            n: problem.rhs_line_size as u32,
+            n: todo!(),
             k: 1,
         },
         tile_count: MatmulSize {
@@ -173,7 +173,7 @@ fn vecscalar_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
+            m: todo!(),
             n: 1,
             k: 1,
         },
@@ -222,8 +222,8 @@ fn outer_product_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
-            n: problem.rhs_line_size as u32,
+            m: todo!(),
+            n: todo!(),
             k: 1,
         },
         tile_count: MatmulSize {

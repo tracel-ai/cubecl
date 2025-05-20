@@ -1,6 +1,6 @@
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem, MatmulSpec,
-    MatrixLayout, OutputRuntimeArg, ReplaceES,
+    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
@@ -158,31 +158,6 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         false => MatrixLayout::RowMajor,
     };
 
-    let lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&ei_elem),
-        lhs.shape,
-        lhs.strides,
-        match lhs_layout {
-            MatrixLayout::RowMajor => rank - 1,
-            MatrixLayout::ColMajor => rank - 2,
-        },
-    );
-    let rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&ei_elem),
-        rhs.shape,
-        rhs.strides,
-        match rhs_layout {
-            MatrixLayout::RowMajor => rank - 1,
-            MatrixLayout::ColMajor => rank - 2,
-        },
-    );
-    let out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eo_elem),
-        out.shape,
-        out.strides,
-        rank - 1,
-    );
-
     let problem = MatmulProblem {
         m: m as usize,
         n: n as usize,
@@ -193,9 +168,33 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         ),
         lhs_layout,
         rhs_layout,
-        lhs_line_size,
-        rhs_line_size,
-        out_line_size,
+    };
+
+    let line_sizes = MatmulLineSizes {
+        lhs: tensor_line_size_parallel(
+            R::line_size_elem(&ei_elem),
+            lhs.shape,
+            lhs.strides,
+            match lhs_layout {
+                MatrixLayout::RowMajor => rank - 1,
+                MatrixLayout::ColMajor => rank - 2,
+            },
+        ),
+        rhs: tensor_line_size_parallel(
+            R::line_size_elem(&ei_elem),
+            rhs.shape,
+            rhs.strides,
+            match rhs_layout {
+                MatrixLayout::RowMajor => rank - 1,
+                MatrixLayout::ColMajor => rank - 2,
+            },
+        ),
+        out: tensor_line_size_parallel(
+            R::line_size_elem(&eo_elem),
+            out.shape,
+            out.strides,
+            rank - 1,
+        ),
     };
 
     let plane_size = client.properties().hardware.defined_plane_size();
@@ -215,7 +214,15 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     };
 
     matmul_launch_kernel::<R, MP, A>(
-        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+        client,
+        lhs,
+        lhs_scale,
+        rhs,
+        rhs_scale,
+        out,
+        problem,
+        &line_sizes,
+        plane_dim,
     )
 }
 
@@ -228,6 +235,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
+    line_sizes: &MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
@@ -235,11 +243,11 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
         )
     } else {
         select_kernel_concrete::<MP, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
         )
     }
 }
@@ -270,13 +278,6 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         false => matmul::components::MatrixLayout::RowMajor,
     };
 
-    let out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eo_elem),
-        out.shape,
-        out.strides,
-        rank - 1,
-    );
-
     let batch_lhs: usize = lhs.shape[..lhs.shape.len() - 2].iter().product();
     let batch_rhs: usize = rhs.shape[..rhs.shape.len() - 2].iter().product();
 
@@ -287,10 +288,17 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         batches: ([batch_lhs].to_vec(), [batch_rhs].to_vec()),
         lhs_layout,
         rhs_layout,
-        // No point vectorizing, since we never deal with individual values when using TMA
-        lhs_line_size: 1,
-        rhs_line_size: 1,
-        out_line_size,
+    };
+
+    let line_sizes = MatmulLineSizes {
+        lhs: 1,
+        rhs: 1,
+        out: tensor_line_size_parallel(
+            R::line_size_elem(&eo_elem),
+            out.shape,
+            out.strides,
+            rank - 1,
+        ),
     };
 
     let plane_size = client.properties().hardware.defined_plane_size();
@@ -311,11 +319,27 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client,
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            out,
+            problem,
+            &line_sizes,
+            plane_dim,
         )
     } else {
         select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client,
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            out,
+            problem,
+            &line_sizes,
+            plane_dim,
         )
     }
 }
@@ -326,6 +350,7 @@ pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
+    line_sizes: &MatmulLineSizes,
     config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: A::MatmulSelection,
 ) -> Result<(), MatmulLaunchError> {
@@ -337,6 +362,7 @@ pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
+        line_sizes,
         cube_dim,
         cube_count,
         config_input,
@@ -349,6 +375,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
+    line_sizes: &MatmulLineSizes,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
@@ -356,6 +383,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     let config = D::make_config(
         config_input,
         &problem,
+        line_sizes,
         &cube_dim,
         &cube_count,
         MS::Precision::QUANTIZED,

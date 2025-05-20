@@ -5,6 +5,7 @@ use cubecl_core::{CubeElement, server};
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
+use crate::matmul::components::MatmulLineSizes;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::global::args::TensorInputsLaunch;
@@ -26,7 +27,7 @@ pub(crate) struct TensorRawParts<N: Numeric + CubeElement> {
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
-    mut problem: MatmulProblem,
+    problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: A::MatmulSelection,
 ) where
@@ -48,35 +49,47 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    problem.lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &lhs.shape,
-        &lhs.strides,
-        match problem.lhs_layout {
-            MatrixLayout::RowMajor => lhs.strides.len() - 1,
-            MatrixLayout::ColMajor => lhs.strides.len() - 2,
-        },
-    );
-    problem.rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &rhs.shape,
-        &rhs.strides,
-        match problem.rhs_layout {
-            MatrixLayout::RowMajor => lhs.strides.len() - 1,
-            MatrixLayout::ColMajor => lhs.strides.len() - 2,
-        },
-    );
-    problem.out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &out.shape,
-        &out.strides,
-        out.strides.len() - 1,
-    );
+    let line_sizes = MatmulLineSizes {
+        lhs: tensor_line_size_parallel(
+            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+            &lhs.shape,
+            &lhs.strides,
+            match problem.lhs_layout {
+                MatrixLayout::RowMajor => lhs.strides.len() - 1,
+                MatrixLayout::ColMajor => lhs.strides.len() - 2,
+            },
+        ),
+        rhs: tensor_line_size_parallel(
+            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+            &rhs.shape,
+            &rhs.strides,
+            match problem.rhs_layout {
+                MatrixLayout::RowMajor => lhs.strides.len() - 1,
+                MatrixLayout::ColMajor => lhs.strides.len() - 2,
+            },
+        ),
+        out: tensor_line_size_parallel(
+            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+            &rhs.shape,
+            &rhs.strides,
+            match problem.rhs_layout {
+                MatrixLayout::RowMajor => lhs.strides.len() - 1,
+                MatrixLayout::ColMajor => lhs.strides.len() - 2,
+            },
+        ),
+    };
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
 
-    let config = match A::make_config(input, &problem, &cube_dim, &cube_count, P::QUANTIZED) {
+    let config = match A::make_config(
+        input,
+        &problem,
+        &line_sizes,
+        &cube_dim,
+        &cube_count,
+        P::QUANTIZED,
+    ) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err:?}");
@@ -110,7 +123,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                     &lhs.handle,
                     &lhs.strides,
                     &lhs.shape,
-                    problem.lhs_line_size,
+                    line_sizes.lhs,
                 ),
                 lhs.scale
                     .as_ref()
@@ -120,7 +133,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                     &rhs.handle,
                     &rhs.strides,
                     &rhs.shape,
-                    problem.rhs_line_size,
+                    line_sizes.rhs,
                 ),
                 rhs.scale
                     .as_ref()
@@ -131,7 +144,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &out.handle,
                 &out.strides,
                 &out.shape,
-                problem.out_line_size,
+                line_sizes.out,
             ),
             ScalarArg::new(problem.k as u32),
             config,

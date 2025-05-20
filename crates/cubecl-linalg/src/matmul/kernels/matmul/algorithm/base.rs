@@ -1,7 +1,7 @@
 use crate::matmul::components::stage::{StageBuffering, StageVectorization};
 use crate::matmul::components::{
-    CompleteStageTiling, MatmulConfigFactory, MatmulPrecision, MatmulProblem, batch, global, stage,
-    tile,
+    CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    batch, global, stage, tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
@@ -70,13 +70,16 @@ pub trait Algorithm {
     fn make_config(
         input: <Self::BatchMatmul as MatmulConfigFactory>::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
-        let config =
-            Self::BatchMatmul::make_config(input, problem, cube_dim, cube_count, quantized);
+        let config = Self::BatchMatmul::make_config(
+            input, problem, line_sizes, cube_dim, cube_count, quantized,
+        );
         problem.check_config(&config)?;
+        problem.check_line_sizes(line_sizes)?;
         Self::BatchMatmul::check_config(&config)?;
         Ok(config)
     }
