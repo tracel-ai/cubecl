@@ -491,6 +491,26 @@ macro_rules! matmul_standard_tests {
                 MatmulSize { m: 1, n: 1, k: 1 }
             );
         }
+
+        mod t4x4x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 4, n: 4, k: 4 }
+            );
+        }
+
+        mod t8x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 8, k: 8 }
+            );
+        }
     };
 
     // Select tile size (t)
