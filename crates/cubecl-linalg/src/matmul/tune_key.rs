@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::tensor::{MatrixBatchLayout, matrix_batch_layout};
 
+use super::components::{MatmulKind, MatmulSize};
+
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
 pub struct MatmulAutotuneKey {
@@ -26,6 +28,27 @@ struct MatmulProblemDefinition {
     elem_out: Elem,
     matrix_layout_lhs: MatrixBatchLayout,
     matrix_layout_rhs: MatrixBatchLayout,
+}
+
+impl From<MatmulProblemDefinition> for MatmulSize {
+    fn from(problem_definition: MatmulProblemDefinition) -> Self {
+        MatmulSize {
+            m: problem_definition.m as u32,
+            n: problem_definition.n as u32,
+            k: problem_definition.k as u32,
+        }
+    }
+}
+
+impl From<&MatmulProblemDefinition> for MatmulKind {
+    fn from(problem_definition: &MatmulProblemDefinition) -> Self {
+        let matmul_size = MatmulSize {
+            m: problem_definition.m as u32,
+            n: problem_definition.n as u32,
+            k: problem_definition.k as u32,
+        };
+        matmul_size.into()
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -57,58 +80,6 @@ pub struct MatmulAutotuneAnalysis {
     pub stage_stage: MatmulStageScale,
     pub may_use_tensor_cores: bool,
     pub kind: MatmulKind,
-}
-
-/// Interpretation of matrix multiplication based on input shapes.
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub enum MatmulKind {
-    /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
-    General,
-
-    /// (M, K) @ (K, 1) → (M, 1)
-    MatVec,
-
-    /// (1, 1) @ (1, N) → (1, N)
-    ScalarVec,
-
-    /// (M, 1) @ (1, 1) → (M, 1)
-    VecScalar,
-
-    /// (1, K) @ (K, N) → (1, N)
-    VecMat,
-
-    /// (1, K) @ (K, 1) → (1, 1)
-    InnerProduct,
-
-    /// (M, 1) @ (1, N) → (M, N)
-    OuterProduct,
-
-    /// (1, 1) @ (1, 1) → (1, 1)
-    ScalarProduct,
-}
-
-impl MatmulKind {
-    pub fn from_size(m: usize, n: usize, k: usize) -> Self {
-        enum Axis {
-            One,
-            Many,
-        }
-
-        let m = if m == 1 { Axis::One } else { Axis::Many };
-        let n = if n == 1 { Axis::One } else { Axis::Many };
-        let k = if k == 1 { Axis::One } else { Axis::Many };
-
-        match (m, n, k) {
-            (Axis::One, Axis::One, Axis::One) => MatmulKind::ScalarProduct,
-            (Axis::One, Axis::One, Axis::Many) => MatmulKind::InnerProduct,
-            (Axis::One, Axis::Many, Axis::One) => MatmulKind::ScalarVec,
-            (Axis::One, Axis::Many, Axis::Many) => MatmulKind::VecMat,
-            (Axis::Many, Axis::One, Axis::One) => MatmulKind::VecScalar,
-            (Axis::Many, Axis::One, Axis::Many) => MatmulKind::MatVec,
-            (Axis::Many, Axis::Many, Axis::One) => MatmulKind::OuterProduct,
-            (Axis::Many, Axis::Many, Axis::Many) => MatmulKind::General,
-        }
-    }
 }
 
 impl MatmulGlobalScale {
@@ -206,7 +177,7 @@ impl MatmulAutotuneKey {
                 Some(tc) => m > tc && n > tc && k > tc,
                 None => false,
             },
-            kind: MatmulKind::from_size(m, n, k),
+            kind: (&definition).into(),
         };
 
         Self::new(definition, analysis)

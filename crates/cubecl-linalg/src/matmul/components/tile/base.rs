@@ -24,13 +24,11 @@ pub trait TileMatmulFamily:
 /// Provides matrix multiplication operations at the tile level.
 ///
 /// At the tile level,
-///  - Inputs are raw slices of data, called tiles.
-///  - units within one plane can collaborate to solve the problem
-///  - dimensions M, N and K are fixed to an integer, and the
+///  - Dimensions M, N and K are fixed to an integer, and the
 ///    matrix multiplication works only for size (M, K) · (K, N) = (M, N).
 ///
 /// Assumptions:
-///  - Slices given as inputs must always be valid. If the actual matrix multiplication
+///  - Inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 #[cube]
@@ -41,7 +39,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units
-    type Accumulator: CubeType + Copy + Clone;
+    type Accumulator: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(
@@ -59,6 +57,9 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Make sure to call [fill_lhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
+    /// Fill the container of LHS with data
+    fn fill_lhs(slice: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+
     /// Create the container for RHS data
     ///
     /// # Safety
@@ -67,26 +68,8 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Make sure to call [fill_rhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
-    /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
-
     /// Fill the container of RHS with data
     fn fill_rhs(slice: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
-
-    /// Fill the accumulator with data
-    fn fill_accumulator(
-        tile: &Tile<MP::EA>,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    );
-
-    /// Write the content of the output container to the given slice
-    fn read_accumulator<C: Numeric>(
-        // TODO is this always MP::EG?
-        out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<C>>,
-        #[comptime] config: Self::Config,
-    );
 
     /// Allocate the container to receive the execution output.
     ///
@@ -98,8 +81,22 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// or [zero_accumulator](TileMatmul::zero_accumulator).
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
+    /// Fill the accumulator with data
+    fn fill_accumulator(
+        tile: &Tile<MP::EA>,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
+
     /// Fill the accumulator with zeros.
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
+    /// Write the content of the output container to the given slice
+    fn write_results(
+        out: &Self::Accumulator,
+        slice: &mut SliceMut<Line<MP::EO>>,
+        #[comptime] config: Self::Config,
+    );
 }
 
 /// Configuration for the Tile matmul (TMM) level
@@ -117,13 +114,15 @@ pub trait TileConfig: MatmulConfig {
     fn tile_shape(&self) -> &MatmulSize;
 }
 
-#[derive(CubeType)]
+#[derive(CubeType, Clone)]
 /// Data to be handed to the tile matmul
 pub struct Tile<ES: Numeric> {
     /// Slice containing all data
     pub slice: Slice<Line<ES>>,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
     pub stride: u32,
+    #[cube(comptime)]
+    pub layout: MatrixLayout,
 }
 
 #[cube]
@@ -133,23 +132,36 @@ impl<ES: Numeric> Tile<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: T,
     ) -> Tile<ES> {
+        let layout = config.matrix_layout(ident);
         let stride = comptime! {
             (match ident.as_input_ident() {
-            InputIdent::Lhs => match config.matrix_layout(ident) {
+            InputIdent::Lhs => match layout {
                 MatrixLayout::RowMajor => config.tile_shape().k,
                 MatrixLayout::ColMajor => config.tile_shape().m,
             },
-            InputIdent::Rhs => match config.matrix_layout(ident) {
+            InputIdent::Rhs => match layout {
                 MatrixLayout::RowMajor => config.tile_shape().n,
                 MatrixLayout::ColMajor => config.tile_shape().k,
             },
         }) / config.stage_line_size(ident)};
 
-        Tile::<ES> { slice, stride }
+        Tile::<ES> {
+            slice,
+            stride,
+            layout,
+        }
     }
 
-    pub fn new_strided(slice: Slice<Line<ES>>, stride: u32) -> Tile<ES> {
-        Tile::<ES> { slice, stride }
+    pub fn new_strided(
+        slice: Slice<Line<ES>>,
+        stride: u32,
+        #[comptime] layout: MatrixLayout,
+    ) -> Tile<ES> {
+        Tile::<ES> {
+            slice,
+            stride,
+            layout,
+        }
     }
 
     pub fn as_unlined<T: TileConfig>(
@@ -161,5 +173,18 @@ impl<ES: Numeric> Tile<ES> {
             self.slice.try_cast_unchecked(),
             self.stride * config.stage_line_size(ident),
         )
+    }
+
+    pub fn get_line(&self, row: u32, col: u32) -> Line<ES> {
+        let index = match comptime!(self.layout) {
+            MatrixLayout::RowMajor => row * self.stride + col,
+            MatrixLayout::ColMajor => col * self.stride + row,
+        };
+        self.slice[index]
+    }
+
+    pub fn get_segment_as_one_line(&self, index: u32) -> Line<ES> {
+        // Assumes one line per segment
+        self.slice[index * self.stride]
     }
 }

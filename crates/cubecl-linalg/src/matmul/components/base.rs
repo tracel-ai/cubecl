@@ -10,12 +10,10 @@ pub struct MatmulSize {
     pub k: u32,
 }
 
-#[derive(Debug)]
-pub struct MatmulSelection {
-    pub tile_shape: MatmulSize,
-    pub tile_count: MatmulSize,
-    pub plane_dim: u32,
-    pub rows_per_plane: u32,
+impl From<MatmulSize> for (u32, u32, u32) {
+    fn from(matmul_size: MatmulSize) -> Self {
+        (matmul_size.m, matmul_size.n, matmul_size.k)
+    }
 }
 
 /// Provides launch entry point to solve a matmul

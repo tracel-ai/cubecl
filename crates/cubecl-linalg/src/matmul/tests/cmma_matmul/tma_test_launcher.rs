@@ -6,7 +6,6 @@ use cubecl_core::tensor_line_size_parallel;
 
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::MatmulSelection;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
 use crate::matmul::components::{
@@ -25,7 +24,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     mut problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: MatmulSelection,
+    selection: A::MatmulSelection,
 ) where
     A: Algorithm,
     P: TestPrecision,

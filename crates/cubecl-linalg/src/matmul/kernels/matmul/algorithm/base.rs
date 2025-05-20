@@ -1,10 +1,13 @@
 use crate::matmul::components::stage::{StageBuffering, StageVectorization};
 use crate::matmul::components::{
-    CompleteStageTiling, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSelection,
-    batch, global, stage, tile,
+    CompleteStageTiling, MatmulConfigFactory, MatmulPrecision, MatmulProblem, batch, global, stage,
+    tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
+
+use super::MatmulSelection;
 
 type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
 
@@ -47,15 +50,12 @@ pub trait Algorithm {
     type StageMatmul: stage::StageMatmulFamily<Input = StageInput>;
     type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput>;
     type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput>;
+    type MatmulSelection: MatmulSelection;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount;
     fn num_stages() -> (u32, u32) {
         (1, 1)
-    }
-
-    fn multi_row_strategy() -> MultiRowStrategy {
-        MultiRowStrategy::Never
     }
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
@@ -88,4 +88,12 @@ pub trait Algorithm {
     ) -> Result<(), MatmulAvailabilityError> {
         Self::BatchMatmul::check_availability::<R, MP>(client, config)
     }
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection;
 }

@@ -5,7 +5,9 @@ use cubecl::prelude::*;
 use cubecl_ir::{Branch, Elem, ExpandElement, FloatKind, Item, RangeLoop, Variable};
 use cubecl_macros::intrinsic;
 
+#[derive(Clone)]
 pub struct ReadOnly;
+#[derive(Clone)]
 pub struct ReadWrite;
 
 /// A read-only contiguous list of elements

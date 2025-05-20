@@ -135,7 +135,9 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
         // account for lower precision at higher values
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
-        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
+        if f32::is_nan(a.to_f32().unwrap())
+            || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
+        {
             return Err(format!(
                 "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
                 i,
@@ -146,8 +148,6 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
             ));
         }
     }
-
-    // return Err("".to_string());
 
     Ok(())
 }

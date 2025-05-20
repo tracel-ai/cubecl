@@ -1,19 +1,19 @@
 use crate::{
     matmul::{
         components::{
-            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulPrecision, MatmulSelection,
+            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulPrecision,
             global::args::MatmulArgs,
             stage::{StageBuffering, StageMatmulFamily, StageVectorization},
             tile::TileMatmulFamily,
         },
         kernels::{
             MatmulAvailabilityError,
-            matmul::{LoadingPrecomputeStrategy, MultiRowStrategy},
+            matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
         },
     },
     tensor::TensorHandle,
 };
-use cubecl_core::prelude::*;
+use cubecl_core::{ir::Elem, prelude::*};
 
 use super::base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProblem};
 
@@ -34,11 +34,12 @@ pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
     type GlobalConvolution: ConvolutionFamily<Input = GlobalInput>;
+    type MatmulSelection: MatmulSelection;
 
     type Args: MatmulArgs;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
-    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
     fn num_stages() -> (u32, u32);
 
     fn multi_row_strategy() -> MultiRowStrategy {
@@ -83,4 +84,12 @@ pub trait Algorithm {
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
     ) -> TensorHandle<R, E>;
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &ConvolutionProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection;
 }

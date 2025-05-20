@@ -1,10 +1,10 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
-use crate::matmul::components::global::load::AsyncLoadingJob;
+use crate::matmul::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, LoadingValidation, Quantization};
-use crate::matmul::components::stage::BufferReader;
+use crate::matmul::components::global::{CopyMechanism, Quantization};
+use crate::matmul::components::stage::BufferStageToTileReader;
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::{self, StageMemory};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
@@ -98,8 +98,8 @@ impl<
     pub fn reader(
         this: &Self,
         #[comptime] buffer_id: BufferId,
-    ) -> BufferReader<MP::ES, L::TilingLayout> {
-        BufferReader::new(this.stage_memory, buffer_id, this.input_ident)
+    ) -> BufferStageToTileReader<MP::ES, L::TilingLayout> {
+        BufferStageToTileReader::new(this.stage_memory, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {

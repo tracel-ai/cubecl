@@ -4,12 +4,14 @@ use super::{
     algorithm::{Algorithm, StageInput},
     base::ConvolutionProblem,
 };
+use crate::matmul::kernels::matmul::MatmulSelection;
 use crate::matmul::{
     components::{
-        CompleteStageTiling, MatmulProblem, MatmulSelection, MatmulSize, stage::StageVectorization,
-        tile::TileMatmulFamily,
+        CompleteStageTiling, MatmulSize, stage::StageVectorization, tile::TileMatmulFamily,
     },
-    kernels::matmul::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_shape},
+    kernels::matmul::{
+        NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, PlaneMatmulSelection, find_instruction_shape,
+    },
 };
 
 pub fn select_matmul<A: Algorithm, R: Runtime>(
@@ -18,13 +20,11 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
     plane_dim: u32,
     elem_stage: Elem,
     elem_acc: Elem,
-) -> (MatmulSelection, StageInput) {
-    let mm_problem = problem.as_matmul_problem();
-    let selection =
-        matmul_selection::<A::TileMatmul, R>(client, &mm_problem, plane_dim, elem_stage, elem_acc);
+) -> (A::MatmulSelection, StageInput) {
+    let selection = A::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc);
     let config_input = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count,
+        tile_shape: selection.tile_shape(),
+        tile_count: selection.tile_count(),
     };
     let vectorization = StageVectorization {
         stage_line_size: 0,
@@ -106,13 +106,13 @@ pub(crate) fn find_stage_size_m_n(
     }
 }
 
-pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
+pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    problem: &ConvolutionProblem,
     plane_dim: u32,
     elem_stage: Elem,
     elem_acc: Elem,
-) -> MatmulSelection {
+) -> PlaneMatmulSelection {
     // rough heuristic based on previous bench results where 512 channels with a 3x3 kernel seemed
     // to be the rough cutoff for the k=4 size.
     let stage_size_k = if problem.k >= 4096 { 4 } else { 2 };
@@ -143,7 +143,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         stage_size_k,
     );
 
-    MatmulSelection {
+    PlaneMatmulSelection {
         tile_shape: MatmulSize {
             m: instruction_m as u32,
             n: instruction_n as u32,

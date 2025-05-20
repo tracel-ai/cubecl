@@ -1,18 +1,19 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::matmul::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
-    global::{self, AccumulatorLoader},
+    global::{self, AccumulatorLoader, GlobalWriter},
     tile::TileConfig,
 };
 
-use super::{Reader, StageEventListener, TilingLayout};
+use super::{StageEventListener, StageToTileReader, TilingLayout};
 
 pub trait ReaderFamily: Send + Sync + 'static {
-    type Reader<ES: Numeric, T: TilingLayout>: Reader<ES>;
+    type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
 }
 
 pub trait StageMatmulFamily:
@@ -66,6 +67,8 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsTile: CubeType;
     type RhsTile: CubeType;
 
+    type Writer: GlobalWriter<MP::EO>;
+
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     ///
     /// Equivalent to execute_with_listener with SEL:=NoEvent
@@ -97,20 +100,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
-    /// Reads the result of the accumulator and hands it to the stage writer
-    ///
-    /// # Quantization
-    ///
-    /// If some `quantization` is provided, the read will also requantize the stage in the output
-    /// and update the scaling of the output tensor. This assumes that [execute] is called
-    /// with some `scaling` provided.
-    fn read_accumulator<Out: StageWriter<MP::EO>, G: global::GlobalConfig>(
-        acc: &Self::Accumulator,
-        out: &mut Out,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    );
-
     /// Create an instance of the accumulator, without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
@@ -123,20 +112,26 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
-}
 
-#[cube]
-/// Responsible of writing the accumulated stage matmul output
-/// to global memory
-pub trait StageWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
-    /// Writes the given slice to global memory, at a position that depends on
-    /// plane and accumulator indexes.
-    fn write<ES: Numeric, G: global::GlobalConfig>(
-        this: &mut Self,
-        slice: Slice<Line<ES>>,
-        tile_m: u32,
-        tile_n: u32,
-        #[comptime] config: G,
+    fn init_writer(
+        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Writer;
+
+    /// Reads the result of the accumulator and hands it to the stage writer
+    ///
+    /// # Quantization
+    ///
+    /// If some `quantization` is provided, the read will also requantize the stage in the output
+    /// and update the scaling of the output tensor. This assumes that [execute] is called
+    /// with some `scaling` provided.
+    fn write_results<G: global::GlobalConfig>(
+        acc: &Self::Accumulator,
+        out: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
     );
 }
 

@@ -1,4 +1,5 @@
-pub mod accelerated;
+pub mod accelerated_matmul;
+pub mod register_matmul;
 
 mod base;
 
