@@ -1,4 +1,4 @@
-use cubecl_common::Kernel;
+use cubecl_common::KernelMetadata;
 use cubecl_common::future::DynFut;
 use cubecl_common::id::KernelId;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
@@ -30,7 +30,7 @@ pub struct KernelTask {
     kernel: Arc<dyn DummyKernel>,
 }
 
-impl Kernel for KernelTask {
+impl KernelMetadata for KernelTask {
     fn id(&self) -> KernelId {
         self.kernel.id()
     }

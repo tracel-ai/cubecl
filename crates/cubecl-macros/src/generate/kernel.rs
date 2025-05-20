@@ -331,7 +331,7 @@ impl Launch {
 
     pub fn kernel_definition(&self) -> TokenStream {
         if self.args.is_launch() {
-            let kernel = prelude_type("Kernel");
+            let kernel_metadata = prelude_type("KernelMetadata");
             let cube_kernel = prelude_type("CubeKernel");
             let kernel_settings = prelude_type("KernelSettings");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
@@ -387,7 +387,7 @@ impl Launch {
                     }
                 }
 
-                impl #generics #kernel for #kernel_name #generic_names #where_clause {
+                impl #generics #kernel_metadata for #kernel_name #generic_names #where_clause {
                     fn id(&self) -> #kernel_id {
                         // We don't use any other kernel settings with the macro.
                         let cube_dim = self.settings.cube_dim.clone();

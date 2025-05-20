@@ -11,7 +11,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, Kernel, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, KernelMetadata, benchmark::ProfileDuration};
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
@@ -321,8 +321,8 @@ where
     pub async fn sync(&self) {
         self.profile_guard();
 
+        self.channel.sync().await;
         self.state.logger.profile_summary();
-        self.channel.sync().await
     }
 
     /// Get the features supported by the compute server.

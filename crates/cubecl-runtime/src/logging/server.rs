@@ -66,10 +66,9 @@ impl Default for ServerLogger {
             logger,
             profiled: Default::default(),
         };
+        // Spawn the future in the background to logs messages / durations.
         spawn_detached_fut(async_logger.process());
 
-        // Spawn a background thread that processes log messages / durations.
-        // TODO: On Wasm, this should instead spawn a future.
         Self {
             profile_level,
             log_compile_info,

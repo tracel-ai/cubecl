@@ -11,7 +11,8 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, Kernel, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::KernelMetadata;
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -23,7 +24,7 @@ where
     Self: Sized,
 {
     /// The kernel type defines the computation algorithms.
-    type Kernel: Kernel;
+    type Kernel: KernelMetadata;
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.

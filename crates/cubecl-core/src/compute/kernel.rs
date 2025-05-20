@@ -6,7 +6,7 @@ use std::{
 
 use crate::{Compiler, KernelOptions};
 use cubecl_common::{
-    CubeDim, ExecutionMode, Kernel,
+    CubeDim, ExecutionMode, KernelMetadata,
     id::{KernelId, format_str},
 };
 use cubecl_ir::{Elem, Id, Item, Scope};
@@ -194,13 +194,13 @@ pub enum Visibility {
     ReadWrite,
 }
 
-pub trait CubeKernel: Kernel {
+pub trait CubeKernel: KernelMetadata {
     fn define(&self) -> KernelDefinition;
 }
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
-pub trait CubeTask<C: Compiler>: Kernel + Send + Sync {
+pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
     fn compile(
         &self,
         compiler: &mut C,
@@ -251,14 +251,14 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
     }
 }
 
-impl<C: Compiler, K: CubeKernel> Kernel for KernelTask<C, K> {
+impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
     // Forward ID to underlying kernel definition.
     fn id(&self) -> KernelId {
         self.kernel_definition.id()
     }
 }
 
-impl<C: Compiler> Kernel for Box<dyn CubeTask<C>> {
+impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
     // Deref and use existing ID.
     fn id(&self) -> KernelId {
         self.as_ref().id()

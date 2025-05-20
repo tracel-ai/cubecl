@@ -22,5 +22,5 @@ pub use cubecl_runtime::server::CubeCount;
 
 pub use crate::frontend::*;
 pub use crate::{comment, comptime, comptime_type, derive_cube_comptime, terminate};
-pub use cubecl_common::{CubeDim, ExecutionMode, Kernel, flex32, tf32};
+pub use cubecl_common::{CubeDim, ExecutionMode, KernelMetadata, flex32, tf32};
 pub use cubecl_ir::Scope;

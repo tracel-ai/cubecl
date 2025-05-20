@@ -68,8 +68,8 @@ pub enum TimingMethod {
 impl Display for TimingMethod {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            TimingMethod::System => f.write_str("full"),
-            TimingMethod::Device => f.write_str("device_only"),
+            TimingMethod::System => f.write_str("system"),
+            TimingMethod::Device => f.write_str("device"),
         }
     }
 }
