@@ -1,4 +1,4 @@
-use cubecl_core::{Runtime, tensor_line_size_parallel};
+use cubecl_core::tensor_line_size_parallel;
 use serde::{Deserialize, Serialize};
 
 use crate::matmul::kernels::MatmulInvalidProblem;
@@ -247,14 +247,14 @@ pub struct MatmulLineSizes {
 }
 
 impl MatmulLineSizes {
-    pub fn maximize<R: Runtime>(
-        problem: MatmulProblem,
+    pub fn maximize(
+        problem: &MatmulProblem,
         in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
     ) -> MatmulLineSizes {
         MatmulLineSizes {
             lhs: {
-                let line_size = tensor_line_size_parallel(
+                tensor_line_size_parallel(
                     in_available.clone(),
                     &[problem.m, problem.k],
                     &match problem.lhs_layout {
@@ -262,11 +262,10 @@ impl MatmulLineSizes {
                         MatrixLayout::ColMajor => [1, problem.m],
                     },
                     match problem.lhs_layout {
-                        MatrixLayout::RowMajor => 0,
-                        MatrixLayout::ColMajor => 1,
+                        MatrixLayout::RowMajor => 1,
+                        MatrixLayout::ColMajor => 0,
                     },
-                );
-                line_size
+                )
             },
             rhs: {
                 tensor_line_size_parallel(
@@ -277,8 +276,8 @@ impl MatmulLineSizes {
                         MatrixLayout::ColMajor => [1, problem.k],
                     },
                     match problem.rhs_layout {
-                        MatrixLayout::RowMajor => 0,
-                        MatrixLayout::ColMajor => 1,
+                        MatrixLayout::RowMajor => 1,
+                        MatrixLayout::ColMajor => 0,
                     },
                 )
             },
@@ -286,7 +285,7 @@ impl MatmulLineSizes {
                 out_available,
                 &[problem.k, problem.n],
                 &[problem.n, 1],
-                0,
+                1,
             ),
         }
     }

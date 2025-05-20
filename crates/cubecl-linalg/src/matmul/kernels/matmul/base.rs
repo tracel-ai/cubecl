@@ -170,32 +170,11 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = MatmulLineSizes {
-        lhs: tensor_line_size_parallel(
-            R::line_size_elem(&ei_elem),
-            lhs.shape,
-            lhs.strides,
-            match lhs_layout {
-                MatrixLayout::RowMajor => rank - 1,
-                MatrixLayout::ColMajor => rank - 2,
-            },
-        ),
-        rhs: tensor_line_size_parallel(
-            R::line_size_elem(&ei_elem),
-            rhs.shape,
-            rhs.strides,
-            match rhs_layout {
-                MatrixLayout::RowMajor => rank - 1,
-                MatrixLayout::ColMajor => rank - 2,
-            },
-        ),
-        out: tensor_line_size_parallel(
-            R::line_size_elem(&eo_elem),
-            out.shape,
-            out.strides,
-            rank - 1,
-        ),
-    };
+    let line_sizes = A::line_sizes(
+        &problem,
+        R::line_size_elem(&ei_elem),
+        R::line_size_elem(&eo_elem),
+    );
 
     let plane_size = client.properties().hardware.defined_plane_size();
 

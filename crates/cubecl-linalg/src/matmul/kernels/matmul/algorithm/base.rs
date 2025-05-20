@@ -55,12 +55,12 @@ pub trait Algorithm {
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount;
 
-    fn line_sizes<R: Runtime>(
-        problem: MatmulProblem,
+    fn line_sizes(
+        problem: &MatmulProblem,
         in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
     ) -> MatmulLineSizes {
-        MatmulLineSizes::maximize::<R>(problem, in_available, out_available)
+        MatmulLineSizes::maximize(problem, in_available, out_available)
     }
 
     fn num_stages() -> (u32, u32) {
