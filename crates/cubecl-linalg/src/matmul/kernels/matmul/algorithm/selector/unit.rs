@@ -32,10 +32,6 @@ pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     elem_stage: Elem,
     elem_acc: Elem,
 ) -> UnitMatmulSelection {
-    
-
-    // println!("{:?}", selection);
-
     match Into::<MatmulKind>::into(problem) {
         MatmulKind::General => {
             general_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)

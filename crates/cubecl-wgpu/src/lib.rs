@@ -40,7 +40,7 @@ mod tests {
     cubecl_reduce::testgen_shared_sum!([f32]);
 
     // Activating these tests cause a recursion problem on the CI
-    cubecl_linalg::testgen_matmul_unit!([f32]);
+    // cubecl_linalg::testgen_matmul_unit!([f32]);
 }
 
 #[cfg(all(test, feature = "spirv"))]
