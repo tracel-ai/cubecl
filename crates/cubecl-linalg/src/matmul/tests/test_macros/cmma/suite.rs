@@ -187,6 +187,7 @@ pub fn test_algo_tma<
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! matmul_standard_tests {
+    // Select variant of cmma accelerated algorithm
     (standard; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::components::global::load::{
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
@@ -418,6 +419,7 @@ macro_rules! matmul_standard_tests {
 
     };
 
+    // Select variant of unit matmul
     (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
 
@@ -436,6 +438,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select variant of tma matmul
     (tma; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::simple_tma::SimpleTmaAlgorithm;
 
@@ -454,6 +457,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select lhs and rhs layouts
     ($kind: ident) => {
         use $crate::matmul::components::{MatmulSize, MatrixLayout};
 
@@ -486,6 +490,21 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+
+    // Select tile size (t), only available for unit matmul
+    (unit; $lhs_layout:ident, $rhs_layout:ident) => {
+        mod t1x1x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 1, n: 1, k: 1 }
+            );
+        }
+    };
+
+    // Select tile size (t)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident) => {
         mod t8x8x8 {
             use super::*;
@@ -540,8 +559,12 @@ macro_rules! matmul_standard_tests {
                 MatmulSize { m: 16, n: 16, k: 8 }
             );
         }
+
+
     };
 
+
+    // Select stage size (s)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr) => {
         mod s1x1x1 {
             use super::*;
@@ -649,6 +672,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select problem size (p)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
         mod p8x8x8 {
             use super::*;
