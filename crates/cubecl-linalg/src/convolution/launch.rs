@@ -1,6 +1,6 @@
 use std::any::TypeId;
 
-use cubecl_core::{Runtime, client::ComputeClient, prelude::*, tensor_line_size_parallel};
+use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use half::f16;
 
 use crate::matmul::{
@@ -107,25 +107,6 @@ where
     let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
     let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
 
-    let ei_elem = MP::EI::as_elem_native_unchecked();
-    let eo_elem = MP::EO::as_elem_native_unchecked();
-
-    let line_sizes = MatmulLineSizes {
-        lhs: tensor_line_size_parallel(
-            R::line_size_elem(&ei_elem),
-            &input.shape,
-            &input.strides,
-            dim_c,
-        ),
-        rhs: tensor_line_size_parallel(
-            R::line_size_elem(&ei_elem),
-            &weight.shape,
-            &weight.strides,
-            dim_c,
-        ),
-        out: tensor_line_size_parallel(R::line_size_elem(&eo_elem), out.shape, out.strides, dim_c),
-    };
-
     let plane_dim = client
         .properties()
         .hardware
@@ -150,6 +131,12 @@ where
 
         dimensionality,
     };
+
+    let line_sizes = Alg::line_sizes(
+        &problem,
+        R::line_size_elem(&MP::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&MP::EO::as_elem_native_unchecked()),
+    );
 
     let (selection, config_input) = select_matmul::<Alg, R>(
         client,

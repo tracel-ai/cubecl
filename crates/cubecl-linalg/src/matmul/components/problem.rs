@@ -247,46 +247,58 @@ pub struct MatmulLineSizes {
 }
 
 impl MatmulLineSizes {
-    pub fn maximize(
+    pub fn new_maximized(
         problem: &MatmulProblem,
         in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
     ) -> MatmulLineSizes {
         MatmulLineSizes {
-            lhs: {
-                tensor_line_size_parallel(
-                    in_available.clone(),
-                    &[problem.m, problem.k],
-                    &match problem.lhs_layout {
-                        MatrixLayout::RowMajor => [problem.k, 1],
-                        MatrixLayout::ColMajor => [1, problem.m],
-                    },
-                    match problem.lhs_layout {
-                        MatrixLayout::RowMajor => 1,
-                        MatrixLayout::ColMajor => 0,
-                    },
-                )
-            },
-            rhs: {
-                tensor_line_size_parallel(
-                    in_available,
-                    &[problem.k, problem.n],
-                    &match problem.rhs_layout {
-                        MatrixLayout::RowMajor => [problem.n, 1],
-                        MatrixLayout::ColMajor => [1, problem.k],
-                    },
-                    match problem.rhs_layout {
-                        MatrixLayout::RowMajor => 1,
-                        MatrixLayout::ColMajor => 0,
-                    },
-                )
-            },
-            out: tensor_line_size_parallel(
-                out_available,
-                &[problem.k, problem.n],
-                &[problem.n, 1],
-                1,
-            ),
+            lhs: Self::maximize_lhs(problem, in_available.clone()),
+            rhs: Self::maximize_rhs(problem, in_available),
+            out: Self::maximize_out(problem, out_available),
         }
+    }
+
+    pub fn maximize_lhs(
+        problem: &MatmulProblem,
+        in_available: impl Iterator<Item = u8> + Clone,
+    ) -> u8 {
+        tensor_line_size_parallel(
+            in_available.clone(),
+            &[problem.m, problem.k],
+            &match problem.lhs_layout {
+                MatrixLayout::RowMajor => [problem.k, 1],
+                MatrixLayout::ColMajor => [1, problem.m],
+            },
+            match problem.lhs_layout {
+                MatrixLayout::RowMajor => 1,
+                MatrixLayout::ColMajor => 0,
+            },
+        )
+    }
+
+    pub fn maximize_rhs(
+        problem: &MatmulProblem,
+        in_available: impl Iterator<Item = u8> + Clone,
+    ) -> u8 {
+        tensor_line_size_parallel(
+            in_available,
+            &[problem.k, problem.n],
+            &match problem.rhs_layout {
+                MatrixLayout::RowMajor => [problem.n, 1],
+                MatrixLayout::ColMajor => [1, problem.k],
+            },
+            match problem.rhs_layout {
+                MatrixLayout::RowMajor => 1,
+                MatrixLayout::ColMajor => 0,
+            },
+        )
+    }
+
+    pub fn maximize_out(
+        problem: &MatmulProblem,
+        out_available: impl Iterator<Item = u8> + Clone,
+    ) -> u8 {
+        tensor_line_size_parallel(out_available, &[problem.k, problem.n], &[problem.n, 1], 1)
     }
 }

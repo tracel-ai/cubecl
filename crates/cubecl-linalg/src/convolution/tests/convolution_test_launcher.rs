@@ -1,6 +1,5 @@
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
-use cubecl_core::tensor_line_size_parallel;
 
 use crate::convolution::algorithm::Algorithm;
 use crate::convolution::base::ConvolutionProblem;
@@ -50,11 +49,9 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let line_sizes = MatmulLineSizes {
         lhs: 1,
         rhs: 1,
-        out: tensor_line_size_parallel(
+        out: MatmulLineSizes::maximize_out(
+            &problem.as_matmul_problem(),
             R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-            &out.shape,
-            &out.strides,
-            out.strides.len() - 1,
         ),
     };
 

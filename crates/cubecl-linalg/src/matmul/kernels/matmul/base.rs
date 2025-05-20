@@ -1,17 +1,15 @@
+use crate::matmul;
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
-use crate::matmul::{self};
 use crate::tensor::into_contiguous_pitched;
 use crate::tensor::{MatrixBatchLayout, TensorHandle, matrix_batch_layout};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*};
-use cubecl_core::{
-    Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
-};
+use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
 
 use super::{Algorithm, select_kernel_concrete};
 
@@ -269,16 +267,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         rhs_layout,
     };
 
-    let line_sizes = MatmulLineSizes {
-        lhs: 1,
-        rhs: 1,
-        out: tensor_line_size_parallel(
-            R::line_size_elem(&eo_elem),
-            out.shape,
-            out.strides,
-            rank - 1,
-        ),
-    };
+    let line_sizes = A::line_sizes(
+        &problem,
+        R::line_size_elem(&MP::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&eo_elem),
+    );
 
     let plane_size = client.properties().hardware.defined_plane_size();
 

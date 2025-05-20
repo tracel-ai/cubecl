@@ -2,10 +2,8 @@ use std::marker::PhantomData;
 
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
-use cubecl_core::tensor_line_size_parallel;
 
 use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulLineSizes;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
@@ -45,16 +43,11 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let line_sizes = MatmulLineSizes {
-        lhs: 1,
-        rhs: 1,
-        out: tensor_line_size_parallel(
-            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-            &out.shape,
-            &out.strides,
-            out.strides.len() - 1,
-        ),
-    };
+    let line_sizes = A::line_sizes(
+        &problem,
+        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+    );
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);

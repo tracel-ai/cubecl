@@ -60,7 +60,7 @@ pub trait Algorithm {
         in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
     ) -> MatmulLineSizes {
-        MatmulLineSizes::maximize(problem, in_available, out_available)
+        MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }
 
     fn num_stages() -> (u32, u32) {
