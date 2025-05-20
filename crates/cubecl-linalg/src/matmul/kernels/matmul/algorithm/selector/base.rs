@@ -2,9 +2,7 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSize, OutputRuntimeArg,
-};
+use crate::matmul::components::{InputRuntimeArg, MatmulPrecision, MatmulSize, OutputRuntimeArg};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::{
     components::{
@@ -32,7 +30,6 @@ pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError>
 where
@@ -45,6 +42,13 @@ where
         plane_dim,
         <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
         <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
+    );
+
+    let line_sizes = A::line_sizes(
+        &problem,
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
+        &selection,
     );
 
     let config_input = CompleteStageTiling {
@@ -67,7 +71,7 @@ where
             &problem,
             &line_sizes,
         ),
-        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, line_sizes),
+        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
         problem,
         &line_sizes,
         (
@@ -89,7 +93,6 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     let selection = A::selection::<R>(
@@ -98,6 +101,13 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         plane_dim,
         <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
         <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
+    );
+
+    let line_sizes = A::line_sizes(
+        &problem,
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
+        &selection,
     );
 
     let config_input = CompleteStageTiling {
@@ -113,7 +123,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
-        line_sizes,
+        &line_sizes,
         (
             (
                 config_input,

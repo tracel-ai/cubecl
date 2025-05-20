@@ -51,6 +51,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         &problem,
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),
+        &selection,
     );
 
     let cube_dim = A::cube_dim(&selection);

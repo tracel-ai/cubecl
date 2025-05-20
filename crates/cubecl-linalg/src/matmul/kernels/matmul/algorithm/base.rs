@@ -59,6 +59,7 @@ pub trait Algorithm {
         problem: &MatmulProblem,
         in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
+        _selection: &Self::MatmulSelection,
     ) -> MatmulLineSizes {
         MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }

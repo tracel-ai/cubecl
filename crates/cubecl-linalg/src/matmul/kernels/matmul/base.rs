@@ -168,12 +168,6 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = A::line_sizes(
-        &problem,
-        R::line_size_elem(&ei_elem),
-        R::line_size_elem(&eo_elem),
-    );
-
     let plane_size = client.properties().hardware.defined_plane_size();
 
     let plane_dim = match plane_size {
@@ -191,15 +185,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     };
 
     matmul_launch_kernel::<R, MP, A>(
-        client,
-        lhs,
-        lhs_scale,
-        rhs,
-        rhs_scale,
-        out,
-        problem,
-        &line_sizes,
-        plane_dim,
+        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
     )
 }
 
@@ -212,7 +198,6 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
@@ -220,11 +205,11 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     } else {
         select_kernel_concrete::<MP, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     }
 }
@@ -240,7 +225,6 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
-    let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
@@ -267,12 +251,6 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         rhs_layout,
     };
 
-    let line_sizes = A::line_sizes(
-        &problem,
-        R::line_size_elem(&MP::EI::as_elem_native_unchecked()),
-        R::line_size_elem(&eo_elem),
-    );
-
     let plane_size = client.properties().hardware.defined_plane_size();
 
     let plane_dim = match plane_size {
@@ -291,27 +269,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client,
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-            problem,
-            &line_sizes,
-            plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     } else {
         select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client,
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-            problem,
-            &line_sizes,
-            plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
         )
     }
 }

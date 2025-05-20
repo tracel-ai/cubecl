@@ -35,6 +35,7 @@ where
         problem: &MatmulProblem,
         _in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
+        _selection: &Self::MatmulSelection,
     ) -> MatmulLineSizes {
         MatmulLineSizes {
             lhs: 1,

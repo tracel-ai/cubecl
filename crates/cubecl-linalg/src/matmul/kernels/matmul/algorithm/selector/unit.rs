@@ -5,6 +5,8 @@ use crate::matmul::components::{MatmulKind, MatmulProblem, MatmulSize, tile::Til
 use super::MatmulSelection;
 
 const NUM_PLANES_APPROX: u32 = 2;
+const ARBITRARY_M_SHAPE: u32 = 4;
+const ARBITRARY_N_SHAPE: u32 = 4;
 const ARBITRARY_K_SHAPE: u32 = 4;
 const ARBITRARY_K_COUNT: u32 = 8;
 
@@ -63,7 +65,7 @@ pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
 fn general_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _elem_stage: Elem,
     _elem_acc: Elem,
@@ -73,9 +75,9 @@ fn general_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: todo!(),
-            n: todo!(),
-            k: todo!(),
+            m: ARBITRARY_M_SHAPE,
+            n: ARBITRARY_N_SHAPE,
+            k: ARBITRARY_K_SHAPE,
         },
         tile_count: MatmulSize {
             m: stage_m,
@@ -89,7 +91,7 @@ fn general_unit_selector<R: Runtime>(
 /// (M, K) @ (K, 1) → (M, 1)
 fn matvec_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _elem_stage: Elem,
     _elem_acc: Elem,
@@ -98,7 +100,7 @@ fn matvec_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: todo!(),
+            m: ARBITRARY_M_SHAPE,
             n: 1,
             k: ARBITRARY_K_SHAPE,
         },
@@ -114,7 +116,7 @@ fn matvec_unit_selector<R: Runtime>(
 /// (1, K) @ (K, N) → (1, N)
 fn vecmat_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _elem_stage: Elem,
     _elem_acc: Elem,
@@ -124,7 +126,7 @@ fn vecmat_unit_selector<R: Runtime>(
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
-            n: todo!(),
+            n: ARBITRARY_N_SHAPE,
             k: ARBITRARY_K_SHAPE,
         },
         tile_count: MatmulSize {
@@ -139,7 +141,7 @@ fn vecmat_unit_selector<R: Runtime>(
 /// (1, 1) @ (1, N) → (1, N)
 fn scalarvec_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _elem_stage: Elem,
     _elem_acc: Elem,
@@ -149,7 +151,7 @@ fn scalarvec_unit_selector<R: Runtime>(
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
-            n: todo!(),
+            n: ARBITRARY_N_SHAPE,
             k: 1,
         },
         tile_count: MatmulSize {
@@ -164,7 +166,7 @@ fn scalarvec_unit_selector<R: Runtime>(
 /// (M, 1) @ (1, 1) → (M, 1)
 fn vecscalar_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _elem_stage: Elem,
     _elem_acc: Elem,
@@ -173,7 +175,7 @@ fn vecscalar_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: todo!(),
+            m: ARBITRARY_M_SHAPE,
             n: 1,
             k: 1,
         },
@@ -212,7 +214,7 @@ fn inner_product_unit_selector<R: Runtime>(
 /// (M, 1) @ (1, N) → (M, N)
 fn outer_product_unit_selector<R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _elem_stage: Elem,
     _elem_acc: Elem,
@@ -222,8 +224,8 @@ fn outer_product_unit_selector<R: Runtime>(
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: todo!(),
-            n: todo!(),
+            m: ARBITRARY_M_SHAPE,
+            n: ARBITRARY_N_SHAPE,
             k: 1,
         },
         tile_count: MatmulSize {
