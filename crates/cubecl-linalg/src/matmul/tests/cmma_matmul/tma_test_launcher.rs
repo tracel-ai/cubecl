@@ -17,7 +17,7 @@ use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::tests::test_utils::TestPrecision;
 
-use super::matmul_test_launcher::{TensorRawParts, shape, tensor_size, transpose};
+use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
@@ -157,7 +157,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let mut shape = shape(problem, ident);
+            let mut shape = problem.shape(ident);
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
@@ -193,7 +193,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let mut shape = shape(problem, ident);
+            let mut shape = problem.shape(ident);
 
             let handle = P::EG::sample::<R>(client, &shape, 5678);
 
@@ -233,7 +233,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let data = vec![zero; tensor_size(problem, Ident::Out)];
 
-            let shape = shape(problem, Ident::Out);
+            let shape = problem.shape(Ident::Out);
             let (handle, strides) =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {

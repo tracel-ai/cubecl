@@ -78,6 +78,11 @@ pub fn test_matmul_algorithm<A, P, R>(
             },
         ),
     };
+    // let line_sizes = A::line_sizes::<R>(
+    //     &problem,
+    //     P::EG::as_elem_native_unchecked(),
+    //     P::EG::as_elem_native_unchecked(),
+    // );
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
@@ -172,7 +177,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let mut tensor_shape = shape(problem, Ident::Lhs);
+            let mut tensor_shape = problem.shape(Ident::Lhs);
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 1234);
 
@@ -234,7 +239,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let mut tensor_shape = shape(problem, Ident::Rhs);
+            let mut tensor_shape = problem.shape(Ident::Rhs);
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 5678);
 
@@ -301,7 +306,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = vec![zero; tensor_size(problem, Ident::Out)];
             let mut quant_params = None;
 
-            let tensor_shape = shape(problem, Ident::Out);
+            let tensor_shape = problem.shape(Ident::Out);
 
             if let Some(params) = P::quantization_params(Ident::Out) {
                 let scaling = P::EG::as_bytes(&params.scaling);
@@ -363,35 +368,9 @@ pub(crate) fn tensor_size(problem: &MatmulProblem, ident: Ident) -> usize {
     }
 }
 
-/// Returns the shape of the identified tensor, inferred by the problem definition
-pub(crate) fn shape(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
-    match ident {
-        Ident::Lhs => problem
-            .batches
-            .0
-            .iter()
-            .cloned()
-            .chain(vec![problem.m, problem.k])
-            .collect(),
-        Ident::Rhs => problem
-            .batches
-            .1
-            .iter()
-            .cloned()
-            .chain(vec![problem.k, problem.n])
-            .collect(),
-        Ident::Out => problem
-            .batch_dims()
-            .iter()
-            .cloned()
-            .chain(vec![problem.m, problem.n])
-            .collect(),
-    }
-}
-
 /// Returns the stride of the identified tensor, inferred by the problem definition
 pub(crate) fn strides(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
-    let shape = shape(problem, ident);
+    let shape = problem.shape(ident);
     let rank = shape.len();
     let mut strides = Vec::with_capacity(rank);
 

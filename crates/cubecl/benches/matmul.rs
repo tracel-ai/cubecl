@@ -138,11 +138,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
-    // run::<R, MP>(
-    // Default::default(),
-    // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
-    // );
+    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
+    );
     // run::<R, MP>(
     // Default::default(),
     // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
@@ -159,10 +159,10 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
     // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Tiling2D(Default::default()),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
@@ -214,6 +214,6 @@ fn main() {
     }
     #[cfg(feature = "wgpu-msl")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 }

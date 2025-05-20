@@ -1,8 +1,9 @@
+use cubecl_core::{Runtime, tensor_line_size_parallel};
 use serde::{Deserialize, Serialize};
 
 use crate::matmul::kernels::MatmulInvalidProblem;
 
-use super::{MatmulSize, MatrixLayout, batch};
+use super::{Ident, MatmulSize, MatrixLayout, batch};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
@@ -29,6 +30,32 @@ impl MatmulProblem {
     /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
         self.batch_dims().iter().product()
+    }
+
+    /// Returns the shape of the identified tensor, inferred by the problem definition
+    pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
+        match ident {
+            Ident::Lhs => self
+                .batches
+                .0
+                .iter()
+                .cloned()
+                .chain(vec![self.m, self.k])
+                .collect(),
+            Ident::Rhs => self
+                .batches
+                .1
+                .iter()
+                .cloned()
+                .chain(vec![self.k, self.n])
+                .collect(),
+            Ident::Out => self
+                .batch_dims()
+                .iter()
+                .cloned()
+                .chain(vec![self.m, self.n])
+                .collect(),
+        }
     }
 
     /// Asserts that the problem can be solved with the given batch matmul configs
@@ -217,4 +244,50 @@ pub struct MatmulLineSizes {
     pub lhs: u8,
     pub rhs: u8,
     pub out: u8,
+}
+
+impl MatmulLineSizes {
+    pub fn maximize<R: Runtime>(
+        problem: MatmulProblem,
+        in_available: impl Iterator<Item = u8> + Clone,
+        out_available: impl Iterator<Item = u8> + Clone,
+    ) -> MatmulLineSizes {
+        MatmulLineSizes {
+            lhs: {
+                let line_size = tensor_line_size_parallel(
+                    in_available.clone(),
+                    &[problem.m, problem.k],
+                    &match problem.lhs_layout {
+                        MatrixLayout::RowMajor => [problem.k, 1],
+                        MatrixLayout::ColMajor => [1, problem.m],
+                    },
+                    match problem.lhs_layout {
+                        MatrixLayout::RowMajor => 0,
+                        MatrixLayout::ColMajor => 1,
+                    },
+                );
+                line_size
+            },
+            rhs: {
+                tensor_line_size_parallel(
+                    in_available,
+                    &[problem.k, problem.n],
+                    &match problem.rhs_layout {
+                        MatrixLayout::RowMajor => [problem.n, 1],
+                        MatrixLayout::ColMajor => [1, problem.k],
+                    },
+                    match problem.rhs_layout {
+                        MatrixLayout::RowMajor => 0,
+                        MatrixLayout::ColMajor => 1,
+                    },
+                )
+            },
+            out: tensor_line_size_parallel(
+                out_available,
+                &[problem.k, problem.n],
+                &[problem.n, 1],
+                0,
+            ),
+        }
+    }
 }
