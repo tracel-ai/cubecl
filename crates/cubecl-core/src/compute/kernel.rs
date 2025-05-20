@@ -1,9 +1,14 @@
-use std::{fmt::Display, marker::PhantomData};
+use std::{
+    fmt::Display,
+    marker::PhantomData,
+    sync::atomic::{AtomicI8, Ordering},
+};
 
 use crate::{Compiler, Kernel, KernelId, KernelOptions};
 use alloc::sync::Arc;
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{Elem, Id, Item, Scope};
+use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language
@@ -73,9 +78,49 @@ impl Display for KernelId {
     }
 }
 
+static COMPILATION_LEVEL: AtomicI8 = AtomicI8::new(-1);
+
+fn compilation_level() -> u8 {
+    let compilation_level = COMPILATION_LEVEL.load(Ordering::Relaxed);
+    if compilation_level == -1 {
+        let val = match GlobalConfig::get().compilation.logger.level {
+            CompilationLogLevel::Full => 2,
+            CompilationLogLevel::Disabled => 0,
+            CompilationLogLevel::Basic => 1,
+        };
+
+        COMPILATION_LEVEL.store(val, Ordering::Relaxed);
+        val as u8
+    } else {
+        compilation_level as u8
+    }
+}
+
 impl<C: Compiler> Display for CompiledKernel<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("\n[START_KERNEL_COMPILATION]")?;
+        match compilation_level() {
+            2 => self.format_full(f),
+            _ => self.format_basic(f),
+        }
+    }
+}
+
+impl<C: Compiler> CompiledKernel<C> {
+    fn format_basic(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[Compiling kernel]")?;
+        if let Some(name) = self.debug_name {
+            if name.len() <= 32 {
+                f.write_fmt(format_args!(" {name}"))?;
+            } else {
+                f.write_fmt(format_args!(" {}", name.split('<').next().unwrap_or("")))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn format_full(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[START_KERNEL_COMPILATION]")?;
 
         if let Some(name) = self.debug_name {
             if name.len() <= 32 {

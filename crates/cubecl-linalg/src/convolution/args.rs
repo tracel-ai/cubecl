@@ -5,15 +5,11 @@ use cubecl_core as cubecl;
 
 use crate::{
     convolution::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner},
-    matmul::{
-        components::{
-            MatmulLineSizes,
-            global::args::{
-                TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
-            },
-        },
-        kernels::matmul::MatmulSelection,
+    matmul::components::{
+        MatmulLineSizes,
+        global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
     },
+    matmul::kernels::matmul::MatmulSelection,
 };
 
 use super::base::ConvolutionProblem;

@@ -13,6 +13,7 @@ use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -269,27 +270,31 @@ impl ComputeServer for HipServer {
         resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
 
         if let Some(level) = profile_level {
-            ctx.sync();
-            let start = std::time::SystemTime::now();
-            ctx.execute_task(kernel_id, count, resources);
-            ctx.sync();
+            match level {
+                ProfileLevel::ExecutionOnly => {
+                    let (name, _kernel_id) = profile_info.unwrap();
+                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
+                    logger.register_profiled_no_timing(&name);
 
-            let (name, kernel_id) = profile_info.unwrap();
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
-                    }
+                    ctx.execute_task(kernel_id, count, resources);
                 }
-                cubecl_runtime::logging::ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
-            };
+                _ => {
+                    ctx.sync();
+                    let start = std::time::SystemTime::now();
+                    ctx.execute_task(kernel_id, count, resources);
+                    ctx.sync();
 
-            self.logger
-                .register_profiled(info, start.elapsed().unwrap());
+                    let (name, kernel_id) = profile_info.unwrap();
+                    let info = match level {
+                        ProfileLevel::Full => {
+                            format!("{name}: {kernel_id} CubeCount {count:?}")
+                        }
+                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                    };
+
+                    logger.register_profiled(info, start.elapsed().unwrap());
+                }
+            }
         } else {
             ctx.execute_task(kernel_id, count, resources);
         }

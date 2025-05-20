@@ -3,6 +3,7 @@ use cubecl_core::future::{self, DynFut};
 use cubecl_core::server::ProfilingToken;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions};
 
+use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
 use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
 use serde::{Deserialize, Serialize};
 
@@ -506,27 +507,36 @@ impl ComputeServer for CudaServer {
         );
 
         if let Some(level) = profile_level {
-            ctx.sync();
-            let start = std::time::SystemTime::now();
-            ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
-            ctx.sync();
+            match level {
+                ProfileLevel::ExecutionOnly => {
+                    let (name, _kernel_id) = profile_info.unwrap();
+                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
 
-            let (name, kernel_id) = profile_info.unwrap();
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
-                    }
+                    logger.register_profiled_no_timing(&name);
+                    ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
                 }
-                ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
-            };
+                _ => {
+                    ctx.sync();
+                    let start = std::time::SystemTime::now();
+                    ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
+                    ctx.sync();
 
-            self.logger
-                .register_profiled(info, start.elapsed().unwrap());
+                    let (name, kernel_id) = profile_info.unwrap();
+                    let info = match level {
+                        ProfileLevel::Full => {
+                            format!("{name}: {kernel_id} CubeCount {count:?}")
+                        }
+                        ProfileLevel::Basic => type_name_format(name, TypeNameFormatLevel::Short),
+                        _ => {
+                            let name = type_name_format(name, TypeNameFormatLevel::Balanced);
+                            format!("{name} {count:?}")
+                        }
+                    };
+
+                    self.logger
+                        .register_profiled(info, start.elapsed().unwrap());
+                }
+            }
         } else {
             ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
         }

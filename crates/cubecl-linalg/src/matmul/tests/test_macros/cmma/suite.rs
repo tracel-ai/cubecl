@@ -406,8 +406,6 @@ macro_rules! matmul_standard_tests {
                 2,
             );
         }
-
-
     };
 
     // Select variant of unit matmul
