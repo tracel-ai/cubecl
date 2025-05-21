@@ -2,7 +2,9 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{InputRuntimeArg, MatmulPrecision, MatmulSize, OutputRuntimeArg};
+use crate::matmul::components::{
+    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSize, OutputRuntimeArg,
+};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::{
     components::{
@@ -30,6 +32,7 @@ pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
+    line_sizes: Option<MatmulLineSizes>,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError>
 where
@@ -44,12 +47,12 @@ where
         <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
     );
 
-    let line_sizes = A::line_sizes(
+    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
         &problem,
         R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
         R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
         &selection,
-    );
+    ));
 
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape(),
@@ -93,6 +96,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
+    line_sizes: Option<MatmulLineSizes>,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     let selection = A::selection::<R>(
@@ -103,12 +107,12 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
     );
 
-    let line_sizes = A::line_sizes(
+    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
         &problem,
         R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
         R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
         &selection,
-    );
+    ));
 
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape(),

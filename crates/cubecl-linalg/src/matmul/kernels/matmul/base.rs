@@ -205,11 +205,11 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
         )
     } else {
         select_kernel_concrete::<MP, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
         )
     }
 }
@@ -269,11 +269,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
         )
     } else {
         select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
         )
     }
 }
