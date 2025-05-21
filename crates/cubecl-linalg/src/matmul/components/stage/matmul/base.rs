@@ -17,6 +17,8 @@ pub(crate) fn execute_single_buffer<
     RR: StageToTileReader<MP::ES>,
     SEL: StageEventListener,
 >(
+    start_m: u32,
+    start_n: u32,
     lhs_reader: &RL,
     rhs_reader: &RR,
     lhs_fragment: &mut Sequence<TMM::Lhs>,
@@ -31,9 +33,6 @@ pub(crate) fn execute_single_buffer<
     let k_iterations = config.tiling.tile_count.k;
 
     let mut k_iter = comptime![0u32];
-
-    let m_offset = UNIT_POS_Y * m_iterations;
-
     let mut lhs_load_counter = comptime![0];
     let mut rhs_load_counter = comptime![0];
     let mut execute_counter = comptime![0];
@@ -50,7 +49,7 @@ pub(crate) fn execute_single_buffer<
         #[unroll]
         for _ in 0..m_iterations {
             let tile_lhs =
-                RL::read_tile::<TMM::Config>(lhs_reader, m_offset + m_iter, k_iter, config);
+                RL::read_tile::<TMM::Config>(lhs_reader, start_m + m_iter, k_iter, config);
             TMM::fill_lhs(
                 &tile_lhs,
                 lhs_fragment.index_mut(m_iter),
@@ -73,7 +72,8 @@ pub(crate) fn execute_single_buffer<
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..n_iterations {
-            let rhs_tile_next = RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_iter, config);
+            let rhs_tile_next =
+                RR::read_tile::<TMM::Config>(rhs_reader, k_iter, start_n + n_iter, config);
             TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.to_tmm_config());
             SEL::on_event(
                 &mut listener,

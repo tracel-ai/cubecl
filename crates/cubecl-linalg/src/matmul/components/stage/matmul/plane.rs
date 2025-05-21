@@ -172,6 +172,8 @@ where
     ) {
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => execute_single_buffer::<MP, TMM, RL, RR, SEL>(
+                UNIT_POS_Y * acc.shape.0,
+                0,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,

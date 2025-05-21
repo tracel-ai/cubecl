@@ -112,12 +112,6 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     }
 }
 
-/// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
-/// - One plane per tile in m dimension,
-/// - One accumulator per tile in n dimension
-///
-/// # Assumptions
-/// - There are as many planes as the stage size in m
 pub struct UnitMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
@@ -172,8 +166,13 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
+        // TODO support double buffer
+
+        let stage_n = config.tiling.tile_count.n;
+        let (start_m, start_n) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
+
         execute_single_buffer::<MP, TMM, RL, RR, SEL>(
-            lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, config, listener,
+            start_m, start_n, lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, config, listener,
         )
     }
 
@@ -244,84 +243,3 @@ where
         Self::Writer::new(tensor, x_offset, y_offset, batch_offset)
     }
 }
-
-// type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
-
-// #[cube]
-// impl<MP, TMM, RL, RR> UnitMatmul<MP, TMM, RL, RR>
-// where
-//     MP: MatmulPrecision,
-//     TMM: TileMatmul<MP>,
-//     RL: StageToTileReader<MP::ES>,
-//     RR: StageToTileReader<MP::ES>,
-// {
-//     // Execute stage matmul with a single buffer for rhs.
-//     fn execute_single_buffer<SEL: StageEventListener>(
-//         lhs_reader: &RL,
-//         rhs_reader: &RR,
-//         lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
-//         rhs_fragment: &mut <Self as StageMatmul<MP>>::RhsTile,
-//         acc: &mut Acc<MP, Self>,
-//         #[comptime] config: <Self as StageMatmul<MP>>::Config,
-//         mut listener: SEL,
-//     ) {
-//         SEL::on_event(&mut listener, StageEvent::Begin);
-
-//         let k_iterations = config.tiling.tile_count.k;
-//         let stage_n = config.tiling.tile_count.n;
-
-//         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
-
-//         let mut k_iter = comptime![0u32];
-
-//         let mut lhs_load_counter = comptime![0];
-//         let mut rhs_load_counter = comptime![0];
-//         let mut execute_counter = comptime![0];
-//         let lhs_load_total = comptime!(k_iterations);
-//         let rhs_load_total = comptime!(k_iterations);
-//         let execute_total = comptime!(k_iterations);
-
-//         #[allow(clippy::explicit_counter_loop)]
-//         #[unroll]
-//         for _ in 0..k_iterations {
-//             let tile_lhs = RL::read_tile::<TMM::Config>(lhs_reader, m_index, k_iter, config);
-//             TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
-//             SEL::on_event(
-//                 &mut listener,
-//                 comptime![StageEvent::LhsLoaded {
-//                     current: lhs_load_counter,
-//                     total: lhs_load_total
-//                 }],
-//             );
-//             comptime!(lhs_load_counter += 1);
-
-//             let tile_rhs = RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_index, config);
-//             TMM::fill_rhs(&tile_rhs, rhs_fragment, config.to_tmm_config());
-//             SEL::on_event(
-//                 &mut listener,
-//                 comptime![StageEvent::RhsLoaded {
-//                     current: rhs_load_counter,
-//                     total: rhs_load_total
-//                 }],
-//             );
-//             comptime!(rhs_load_counter += 1);
-
-//             TMM::execute(lhs_fragment, rhs_fragment, acc, config.to_tmm_config());
-//             SEL::on_event(
-//                 &mut listener,
-//                 comptime![StageEvent::TmmCompleted {
-//                     current: execute_counter,
-//                     total: execute_total
-//                 }],
-//             );
-//             comptime!(execute_counter += 1);
-
-//             comptime![k_iter += 1];
-//         }
-
-//         assert!(lhs_load_counter == lhs_load_total);
-//         assert!(rhs_load_counter == rhs_load_total);
-//         assert!(execute_counter == execute_total);
-//         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
-//     }
-// }
