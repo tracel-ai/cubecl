@@ -70,10 +70,11 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_tile_matmuls = selection.tile_count.m * selection.tile_count.n;
-        let plane_dim = selection.plane_dim;
-        let num_planes = num_tile_matmuls.div_ceil(plane_dim);
-        CubeDim::new(plane_dim, num_planes, 1)
+        let num_tmm = selection.tile_count.m * selection.tile_count.n;
+        let tmm_per_unit = selection.tmm_per_unit.0 * selection.tmm_per_unit.1;
+
+        let num_planes = num_tmm.div_ceil(tmm_per_unit * selection.plane_dim);
+        CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {

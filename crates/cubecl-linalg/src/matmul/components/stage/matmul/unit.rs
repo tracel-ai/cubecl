@@ -1,7 +1,7 @@
 use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
 use crate::matmul::components::stage::matmul::base::execute_single_buffer;
-use crate::matmul::components::stage::shared::CommonStageConfig;
+use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
     NoEvent, StageBuffering, StageEventListener, StageVectorization,
 };
@@ -61,15 +61,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
         if num_tmm % num_units != 0 {
             return Err(Box::new(format!(
-                "Error: at the moment, unit matmul must have num tile matmuls {:?} = num_units {:?}.",
-                num_tmm, num_units
+                "Error: for unit matmul, number of units {:?} must divide number of tile matmuls {:?}",
+                num_units, num_tmm
             )));
-        }
-
-        if num_tmm > 64 {
-            return Err(Box::new(
-                "Error: Too many unit matmuls, will probably bust shared memory".to_string(),
-            ));
         }
 
         TMM::check_config(&config.to_tmm_config())
@@ -135,7 +129,7 @@ where
     type RhsReader = RR;
     type Accumulator = Accumulators<MP, TMM>;
     type LhsTile = Sequence<TMM::Lhs>;
-    type RhsTile = TMM::Rhs;
+    type RhsTile = RhsTile<TMM::Rhs>;
     type Writer = UnitWriter<MP::EO>;
 
     fn execute(
@@ -160,8 +154,8 @@ where
     fn execute_with_listener<SEL: StageEventListener>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_tile: &mut Self::LhsTile,
-        rhs_tile: &mut Self::RhsTile,
+        lhs_tiles: &mut Self::LhsTile,
+        rhs_tiles: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
         listener: SEL,
@@ -171,9 +165,15 @@ where
         let stage_n = config.tiling.tile_count.n;
         let (start_m, start_n) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
-        execute_single_buffer::<MP, TMM, RL, RR, SEL>(
-            start_m, start_n, lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, config, listener,
-        )
+        match rhs_tiles {
+            RhsTile::Single(rhs_tile) => execute_single_buffer::<MP, TMM, RL, RR, SEL>(
+                start_m, start_n, lhs_reader, rhs_reader, lhs_tiles, rhs_tile, acc, config,
+                listener,
+            ),
+            RhsTile::Double(_) => {
+                panic!("Stage double buffering not yet supported for unit matmul")
+            }
+        }
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
@@ -186,7 +186,12 @@ where
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
-        let rhs = TMM::allocate_rhs(tmm_config);
+        let rhs = match config.buffering() {
+            StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
+            StageBuffering::Double => {
+                RhsTile::new_Double((TMM::allocate_rhs(tmm_config), TMM::allocate_rhs(tmm_config)))
+            }
+        };
 
         (lhs, rhs)
     }

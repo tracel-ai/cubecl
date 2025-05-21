@@ -73,6 +73,7 @@ pub fn test_algo_unit<
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
+    tmm_per_unit: (u32, u32),
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -96,6 +97,7 @@ pub fn test_algo_unit<
         tile_shape,
         tile_count,
         plane_dim,
+        tmm_per_unit,
     };
     let config_input = (&selection).into();
     let vectorization = StageVectorization {
@@ -413,7 +415,7 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
 
         #[test]
-        pub fn simple_unit() {
+        pub fn simple_unit_1_1() {
             cubecl_linalg::matmul::tests::test_algo_unit::<
                 SimpleUnitAlgorithm,
                 Precision,
@@ -423,6 +425,52 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                (1, 1)
+            );
+        }
+
+        #[test]
+        pub fn simple_unit_2_1() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                SimpleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                (2, 1)
+            );
+        }
+
+        #[test]
+        pub fn simple_unit_1_2() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                SimpleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                (1, 2)
+            );
+        }
+
+        #[test]
+        pub fn simple_unit_2_2() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                SimpleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                (2, 2)
             );
         }
     };
