@@ -502,6 +502,26 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        mod t2x4x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 2, n: 4, k: 1 }
+            );
+        }
+
+        mod t1x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 1, n: 8, k: 8 }
+            );
+        }
+
         mod t4x4x4 {
             use super::*;
             $crate::matmul_standard_tests!(

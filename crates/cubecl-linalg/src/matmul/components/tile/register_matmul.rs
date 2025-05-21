@@ -76,9 +76,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        match config.lhs_layout {
-            MatrixLayout::RowMajor => match config.product_type() {
-                ProductType::Inner => {
+        match config.product_type() {
+            ProductType::Inner => match config.lhs_layout {
+                MatrixLayout::RowMajor => {
                     Self::fill_plain(
                         tile,
                         lhs,
@@ -87,27 +87,27 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                         config.lhs_line_size,
                     );
                 }
-                ProductType::Outer => {
+                MatrixLayout::ColMajor => {
                     Self::fill_transposed(
                         tile,
                         lhs,
-                        config.size.m,
                         config.size.k,
+                        config.size.m,
                         config.lhs_line_size,
                     );
                 }
             },
-            MatrixLayout::ColMajor => match config.product_type() {
-                ProductType::Inner => {
+            ProductType::Outer => match config.lhs_layout {
+                MatrixLayout::RowMajor => {
                     Self::fill_transposed(
                         tile,
                         lhs,
-                        config.size.k,
                         config.size.m,
+                        config.size.k,
                         config.lhs_line_size,
                     );
                 }
-                ProductType::Outer => {
+                MatrixLayout::ColMajor => {
                     Self::fill_plain(
                         tile,
                         lhs,
@@ -121,9 +121,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-        match config.rhs_layout {
-            MatrixLayout::RowMajor => match config.product_type() {
-                ProductType::Inner => {
+        match config.product_type() {
+            ProductType::Inner => match config.rhs_layout {
+                MatrixLayout::RowMajor => {
                     Self::fill_transposed(
                         tile,
                         rhs,
@@ -132,27 +132,27 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                         config.rhs_line_size,
                     );
                 }
-                ProductType::Outer => {
+                MatrixLayout::ColMajor => {
                     Self::fill_plain(
                         tile,
                         rhs,
-                        config.size.k,
                         config.size.n,
+                        config.size.k,
                         config.rhs_line_size,
                     );
                 }
             },
-            MatrixLayout::ColMajor => match config.product_type() {
-                ProductType::Inner => {
+            ProductType::Outer => match config.rhs_layout {
+                MatrixLayout::RowMajor => {
                     Self::fill_plain(
                         tile,
                         rhs,
-                        config.size.n,
                         config.size.k,
+                        config.size.n,
                         config.rhs_line_size,
                     );
                 }
-                ProductType::Outer => {
+                MatrixLayout::ColMajor => {
                     Self::fill_transposed(
                         tile,
                         rhs,
@@ -302,7 +302,7 @@ impl RegisterMatmul {
                 let line = tile.get_line(segment, line_within_segment);
                 #[unroll]
                 for pos_within_line in 0..line_size {
-                    array[(line_within_segment * line_size + pos_within_line) * segment_size
+                    array[(line_within_segment * line_size + pos_within_line) * num_segments
                         + segment] = line[pos_within_line];
                 }
             }
@@ -350,6 +350,8 @@ impl MatmulConfigFactory for RegisterMatmul {
 
         let lhs = config.stage_line_size(Ident::Lhs);
         let rhs = config.stage_line_size(Ident::Rhs);
+        println!("{:?}", lhs);
+        println!("{:?}", rhs);
 
         match config.lhs_layout {
             MatrixLayout::RowMajor => {
