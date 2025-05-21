@@ -11,7 +11,6 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
-use cubecl_std::CubeOption;
 
 use super::{Tile, TileMatmulConfigInput};
 
@@ -20,10 +19,10 @@ pub struct RegisterMatmul;
 
 pub enum ProductType {
     /// Needs lhs to be row major and rhs to be col major
-    /// If not the case, tile will be preloaded and transposed
+    /// If not the case, tile will be transposed
     Inner,
     /// Needs lhs to be col major and rhs to be row major
-    /// If not the case, tile will be preloaded and transposed
+    /// If not the case, tile will be transposed
     Outer,
 }
 

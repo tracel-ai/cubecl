@@ -93,7 +93,7 @@ where
         elem_acc: Elem,
     ) -> Self::MatmulSelection {
         unit_matmul_selection::<Self::TileMatmul, R>(
-            client, problem, plane_dim, elem_stage, elem_acc,
+            client, problem, plane_dim, elem_stage, elem_acc
         )
     }
 }

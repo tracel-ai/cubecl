@@ -492,6 +492,16 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        mod t8x1x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 1, k: 4 }
+            );
+        }
+
         mod t4x4x4 {
             use super::*;
             $crate::matmul_standard_tests!(
