@@ -163,6 +163,10 @@ pub trait StageConfig: MatmulConfig {
     fn buffering(&self) -> StageBuffering;
 
     fn num_stages(&self, ident: InputIdent) -> u32;
+
+    /// Execution primitive = unit or plane, depending on the algorithm
+    /// Returns a pair stating the dimension in m and n respectfully
+    fn num_tmm_per_execution_primitive(&self) -> (u32, u32);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
