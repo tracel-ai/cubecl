@@ -293,7 +293,7 @@ where
         let shape = SMM::tile_shape(&smm_config);
 
         let num_stages =
-            num_stages::<R, MP>(client, &size, &shape, &problem, smm_config.num_planes());
+            num_stages::<R, MP>(client, &size, &shape, problem, smm_config.num_planes());
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(

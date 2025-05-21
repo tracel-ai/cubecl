@@ -86,14 +86,12 @@ where
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        _elem_stage: Elem,
+        _elem_acc: Elem,
     ) -> Self::MatmulSelection {
-        unit_matmul_selection::<Self::TileMatmul, R>(
-            client, problem, plane_dim, elem_stage, elem_acc,
-        )
+        unit_matmul_selection(problem, plane_dim)
     }
 }

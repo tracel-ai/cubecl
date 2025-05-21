@@ -33,6 +33,7 @@ impl MatmulProblem {
     }
 
     /// Returns the shape of the identified tensor, inferred by the problem definition
+    #[allow(unused)]
     pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
         match ident {
             Ident::Lhs => self

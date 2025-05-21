@@ -203,7 +203,7 @@ where
         client,
         (config_input, Alg::loading_precompute_strategy()),
         &problem,
-        &line_sizes,
+        line_sizes,
         &cube_dim,
         &cube_count,
     )
