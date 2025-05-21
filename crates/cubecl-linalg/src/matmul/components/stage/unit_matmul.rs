@@ -65,7 +65,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
         if num_tmm > 64 {
             return Err(Box::new(
-                "Error: will probably bust shared memory".to_string(),
+                "Error: Too many unit matmuls, will probably bust shared memory".to_string(),
             ));
         }
 
