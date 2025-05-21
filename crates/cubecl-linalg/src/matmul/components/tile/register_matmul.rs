@@ -350,8 +350,6 @@ impl MatmulConfigFactory for RegisterMatmul {
 
         let lhs = config.stage_line_size(Ident::Lhs);
         let rhs = config.stage_line_size(Ident::Rhs);
-        println!("{:?}", lhs);
-        println!("{:?}", rhs);
 
         match config.lhs_layout {
             MatrixLayout::RowMajor => {
