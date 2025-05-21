@@ -1,8 +1,8 @@
-use super::{StageBuffering, StageConfig};
 use crate::matmul::components::{
     CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulPrecision, MatmulSize,
     MatrixLayout, TilingDimensions,
     global::AccumulatorLoader,
+    stage::{StageBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
 };
 use cubecl::prelude::*;

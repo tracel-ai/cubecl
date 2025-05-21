@@ -1,11 +1,14 @@
 use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
+use crate::matmul::components::stage::matmul::base::execute_single_buffer;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEvent, StageEventListener};
+use crate::matmul::components::stage::{
+    NoEvent, StageBuffering, StageEventListener, StageVectorization,
+};
 use crate::matmul::components::stage::{ReaderFamily, StageToTileReader};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
+use crate::matmul::components::tile::TileMatmulConfigInput;
 use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
     MatmulSize,
@@ -17,7 +20,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::shared::StageVectorization;
+use super::shared::Accumulators;
 
 pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
@@ -136,8 +139,8 @@ where
 
     type LhsReader = RL;
     type RhsReader = RR;
-    type Accumulator = TMM::Accumulator;
-    type LhsTile = TMM::Lhs;
+    type Accumulator = Accumulators<MP, TMM>;
+    type LhsTile = Sequence<TMM::Lhs>;
     type RhsTile = TMM::Rhs;
     type Writer = UnitWriter<MP::EO>;
 
@@ -169,16 +172,24 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        Self::execute_single_buffer::<SEL>(
+        execute_single_buffer::<MP, TMM, RL, RR, SEL>(
             lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, config, listener,
         )
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
         let tmm_config = config.to_tmm_config();
-        let lhs = TMM::allocate_lhs(tmm_config);
+        let mut lhs = Sequence::new();
 
-        (lhs, TMM::allocate_rhs(tmm_config))
+        #[unroll]
+        // TODO generalize
+        for _ in 0..comptime!(1) {
+            lhs.push(TMM::allocate_lhs(tmm_config));
+        }
+
+        let rhs = TMM::allocate_rhs(tmm_config);
+
+        (lhs, rhs)
     }
 
     fn write_results<G: global::GlobalConfig>(
@@ -200,16 +211,20 @@ where
         let stage_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col();
         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
-        TMM::write_results(acc, &mut smem_slice, stage_config.to_tmm_config());
+        // TODO generalize
+        let accumulator = Self::Accumulator::get_at(acc, 0u32, 0u32);
+        TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
         Self::Writer::write::<G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        TMM::allocate_accumulator(config.to_tmm_config())
+        // TODO generalize
+        let shape = (1, 1);
+        Accumulators::<MP, TMM>::new(shape, config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        TMM::zero_accumulator(acc, config.to_tmm_config());
+        acc.zero(config);
     }
 
     fn fill_accumulator<L: AccumulatorLoader<MP>>(
@@ -217,7 +232,7 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        L::load::<TMM>(loader, acc, 0, config.to_tmm_config());
+        acc.fill::<L>(loader, config);
     }
 
     fn init_writer(
@@ -230,83 +245,83 @@ where
     }
 }
 
-type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
+// type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
 
-#[cube]
-impl<MP, TMM, RL, RR> UnitMatmul<MP, TMM, RL, RR>
-where
-    MP: MatmulPrecision,
-    TMM: TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
-{
-    // Execute stage matmul with a single buffer for rhs.
-    fn execute_single_buffer<SEL: StageEventListener>(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
-        lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
-        rhs_fragment: &mut TMM::Rhs,
-        acc: &mut Acc<MP, Self>,
-        #[comptime] config: <Self as StageMatmul<MP>>::Config,
-        mut listener: SEL,
-    ) {
-        SEL::on_event(&mut listener, StageEvent::Begin);
+// #[cube]
+// impl<MP, TMM, RL, RR> UnitMatmul<MP, TMM, RL, RR>
+// where
+//     MP: MatmulPrecision,
+//     TMM: TileMatmul<MP>,
+//     RL: StageToTileReader<MP::ES>,
+//     RR: StageToTileReader<MP::ES>,
+// {
+//     // Execute stage matmul with a single buffer for rhs.
+//     fn execute_single_buffer<SEL: StageEventListener>(
+//         lhs_reader: &RL,
+//         rhs_reader: &RR,
+//         lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
+//         rhs_fragment: &mut <Self as StageMatmul<MP>>::RhsTile,
+//         acc: &mut Acc<MP, Self>,
+//         #[comptime] config: <Self as StageMatmul<MP>>::Config,
+//         mut listener: SEL,
+//     ) {
+//         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let k_iterations = config.tiling.tile_count.k;
-        let stage_n = config.tiling.tile_count.n;
+//         let k_iterations = config.tiling.tile_count.k;
+//         let stage_n = config.tiling.tile_count.n;
 
-        let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
+//         let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
 
-        let mut k_iter = comptime![0u32];
+//         let mut k_iter = comptime![0u32];
 
-        let mut lhs_load_counter = comptime![0];
-        let mut rhs_load_counter = comptime![0];
-        let mut execute_counter = comptime![0];
-        let lhs_load_total = comptime!(k_iterations);
-        let rhs_load_total = comptime!(k_iterations);
-        let execute_total = comptime!(k_iterations);
+//         let mut lhs_load_counter = comptime![0];
+//         let mut rhs_load_counter = comptime![0];
+//         let mut execute_counter = comptime![0];
+//         let lhs_load_total = comptime!(k_iterations);
+//         let rhs_load_total = comptime!(k_iterations);
+//         let execute_total = comptime!(k_iterations);
 
-        #[allow(clippy::explicit_counter_loop)]
-        #[unroll]
-        for _ in 0..k_iterations {
-            let tile_lhs = RL::read_tile::<TMM::Config>(lhs_reader, m_index, k_iter, config);
-            TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
-            SEL::on_event(
-                &mut listener,
-                comptime![StageEvent::LhsLoaded {
-                    current: lhs_load_counter,
-                    total: lhs_load_total
-                }],
-            );
-            comptime!(lhs_load_counter += 1);
+//         #[allow(clippy::explicit_counter_loop)]
+//         #[unroll]
+//         for _ in 0..k_iterations {
+//             let tile_lhs = RL::read_tile::<TMM::Config>(lhs_reader, m_index, k_iter, config);
+//             TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
+//             SEL::on_event(
+//                 &mut listener,
+//                 comptime![StageEvent::LhsLoaded {
+//                     current: lhs_load_counter,
+//                     total: lhs_load_total
+//                 }],
+//             );
+//             comptime!(lhs_load_counter += 1);
 
-            let tile_rhs = RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_index, config);
-            TMM::fill_rhs(&tile_rhs, rhs_fragment, config.to_tmm_config());
-            SEL::on_event(
-                &mut listener,
-                comptime![StageEvent::RhsLoaded {
-                    current: rhs_load_counter,
-                    total: rhs_load_total
-                }],
-            );
-            comptime!(rhs_load_counter += 1);
+//             let tile_rhs = RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_index, config);
+//             TMM::fill_rhs(&tile_rhs, rhs_fragment, config.to_tmm_config());
+//             SEL::on_event(
+//                 &mut listener,
+//                 comptime![StageEvent::RhsLoaded {
+//                     current: rhs_load_counter,
+//                     total: rhs_load_total
+//                 }],
+//             );
+//             comptime!(rhs_load_counter += 1);
 
-            TMM::execute(lhs_fragment, rhs_fragment, acc, config.to_tmm_config());
-            SEL::on_event(
-                &mut listener,
-                comptime![StageEvent::TmmCompleted {
-                    current: execute_counter,
-                    total: execute_total
-                }],
-            );
-            comptime!(execute_counter += 1);
+//             TMM::execute(lhs_fragment, rhs_fragment, acc, config.to_tmm_config());
+//             SEL::on_event(
+//                 &mut listener,
+//                 comptime![StageEvent::TmmCompleted {
+//                     current: execute_counter,
+//                     total: execute_total
+//                 }],
+//             );
+//             comptime!(execute_counter += 1);
 
-            comptime![k_iter += 1];
-        }
+//             comptime![k_iter += 1];
+//         }
 
-        assert!(lhs_load_counter == lhs_load_total);
-        assert!(rhs_load_counter == rhs_load_total);
-        assert!(execute_counter == execute_total);
-        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
-    }
-}
+//         assert!(lhs_load_counter == lhs_load_total);
+//         assert!(rhs_load_counter == rhs_load_total);
+//         assert!(execute_counter == execute_total);
+//         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
+//     }
+// }
