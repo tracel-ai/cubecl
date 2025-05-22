@@ -131,16 +131,31 @@ impl ComputeServer for CpuServer {
         &mut self,
         kernel: Self::Kernel,
         _count: cubecl_core::CubeCount,
-        _bindings: Bindings,
+        bindings: Bindings,
         kind: cubecl_core::ExecutionMode,
     ) {
         // TODO implement the runtime
-        let execution_engine = kernel.compile(
+        let kernel = kernel.compile(
             &mut Default::default(),
             &MLIRCompilerOptions::default(),
             kind,
         );
-        execution_engine.repr.unwrap().run_kernel();
+        let mut execution_engine = kernel.repr.unwrap();
+        let buffers = bindings.buffers.clone();
+        for binding in buffers.into_iter() {
+            let handle = self
+                .ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
+            let ptr = handle.write();
+            unsafe {
+                execution_engine.push_buffer(ptr);
+            }
+        }
+        unsafe {
+            execution_engine.run_kernel();
+        }
     }
 
     fn flush(&mut self) {}

@@ -1,5 +1,4 @@
 pub mod mlir;
-pub mod supported_types;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
 use mlir::MlirEngine;
