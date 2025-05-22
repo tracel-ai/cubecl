@@ -128,6 +128,8 @@ pub(crate) fn execute_double_buffer<
     RR: StageToTileReader<MP::ES>,
     SEL: StageEventListener,
 >(
+    start_m: u32,
+    start_n: u32,
     lhs_reader: &RL,
     rhs_reader: &RR,
     lhs_fragment: &mut Sequence<TMM::Lhs>,
@@ -142,7 +144,6 @@ pub(crate) fn execute_double_buffer<
     let k_iterations = config.tiling.tile_count.k;
 
     let mut k_iter = comptime![0u32];
-    let m_offset = UNIT_POS_Y * m_iterations;
 
     let mut lhs_load_counter = comptime![0];
     let mut rhs_load_counter = comptime![0];
@@ -160,7 +161,7 @@ pub(crate) fn execute_double_buffer<
         #[unroll]
         for _ in 0..m_iterations {
             let tile_lhs =
-                RL::read_tile::<TMM::Config>(lhs_reader, m_offset + m_iter, k_iter, config);
+                RL::read_tile::<TMM::Config>(lhs_reader, start_m + m_iter, k_iter, config);
             TMM::fill_lhs(
                 &tile_lhs,
                 lhs_fragment.index_mut(m_iter),
@@ -180,7 +181,8 @@ pub(crate) fn execute_double_buffer<
 
         let mut n_iter = comptime![0u32];
 
-        let rhs_tile_first = RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_iter, config);
+        let rhs_tile_first =
+            RR::read_tile::<TMM::Config>(rhs_reader, k_iter, start_n + n_iter, config);
         TMM::fill_rhs(
             &rhs_tile_first,
             &mut rhs_fragments.0,
@@ -204,8 +206,12 @@ pub(crate) fn execute_double_buffer<
                 (&mut rhs_fragments.1, &mut rhs_fragments.0)
             };
 
-            let rhs_tile_next =
-                RR::read_tile::<TMM::Config>(rhs_reader, k_iter, comptime![n_iter + 1], config);
+            let rhs_tile_next = RR::read_tile::<TMM::Config>(
+                rhs_reader,
+                k_iter,
+                start_n + comptime![n_iter + 1],
+                config,
+            );
             TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
             SEL::on_event(
                 &mut listener,

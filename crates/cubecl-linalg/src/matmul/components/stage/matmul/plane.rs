@@ -80,6 +80,12 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             )));
         }
 
+        if config.buffering() == StageBuffering::Double && config.accumulator_shape().1 < 2 {
+            return Err(Box::new(format!(
+                "Error: Tried doing double buffering with only one tile to compute."
+            )));
+        }
+
         TMM::check_config(&config.to_tmm_config())
     }
 
@@ -113,28 +119,6 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             tile_shape,
             tile_count,
         };
-
-        // let num_accumulators = tile_count.m * tile_count.n;
-        // let num_planes = cube_dim.y;
-        // // TODO move panic in check_config
-        // let num_acc_per_primitive = if num_accumulators % num_planes != 0 {
-        //     panic!(
-        //         "For plane matmul, number of tile matmuls {} must be divisible by number of planes {}",
-        //         num_accumulators, num_planes
-        //     );
-        // } else {
-        //     num_accumulators / num_planes
-        // };
-        // let acc_n = tile_count.n;
-        // // TODO move panic in check_config
-        // let acc_m = if num_acc_per_primitive % acc_n != 0 {
-        //     panic!(
-        //         "For plane matmul, number of tile matmuls per primitive {} must be divisible by number of tiles in n {}",
-        //         num_acc_per_primitive, acc_n
-        //     );
-        // } else {
-        //     num_acc_per_primitive / acc_n
-        // };
 
         CommonStageConfig::new(
             tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_shape,
@@ -202,10 +186,14 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
+        // Assuming planes make whole rows
+        let start_m = UNIT_POS_Y * acc.shape.0;
+        let start_n = 0;
+
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => execute_single_buffer::<MP, TMM, RL, RR, SEL>(
-                UNIT_POS_Y * acc.shape.0,
-                0,
+                start_m,
+                start_n,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
@@ -215,6 +203,8 @@ where
                 listener,
             ),
             RhsTile::Double(rhs_fragments) => execute_double_buffer::<MP, TMM, RL, RR, SEL>(
+                start_m,
+                start_n,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,

@@ -83,8 +83,7 @@ pub trait Algorithm {
     }
 
     fn stage_buffering_strategy() -> StageBuffering {
-        // TODO put double back
-        StageBuffering::Single
+        StageBuffering::Double
     }
 
     #[allow(clippy::type_complexity, clippy::result_large_err)]

@@ -1,6 +1,8 @@
 use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
-use crate::matmul::components::stage::matmul::base::execute_single_buffer;
+use crate::matmul::components::stage::matmul::base::{
+    execute_double_buffer, execute_single_buffer,
+};
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
     NoEvent, StageBuffering, StageEventListener, StageVectorization,
@@ -72,6 +74,12 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         if num_units != num_units_needed {
             return Err(Box::new(format!(
                 "Error: Number of units {num_units} should be {num_units_needed}."
+            )));
+        }
+
+        if config.buffering() == StageBuffering::Double && config.accumulator_shape().1 < 2 {
+            return Err(Box::new(format!(
+                "Error: Tried doing double buffering with only one tile to compute."
             )));
         }
 
@@ -169,8 +177,6 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        // TODO support double buffer
-
         // TODO this is duplicated in write
         let (m_acc_shape, n_acc_shape) = config.accumulator_shape();
         let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
@@ -182,9 +188,10 @@ where
                 start_m, start_n, lhs_reader, rhs_reader, lhs_tiles, rhs_tile, acc, config,
                 listener,
             ),
-            RhsTile::Double(_) => {
-                panic!("Stage double buffering not yet supported for unit matmul")
-            }
+            RhsTile::Double(rhs_tiles) => execute_double_buffer::<MP, TMM, RL, RR, SEL>(
+                start_m, start_n, lhs_reader, rhs_reader, lhs_tiles, rhs_tiles, acc, config,
+                listener,
+            ),
         }
     }
 
