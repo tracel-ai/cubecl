@@ -7,6 +7,7 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 
+use crate::matmul::components::MatmulLineSizes;
 use crate::{
     convolution::{
         base::{ConvolutionConfigFactory, ConvolutionProblem, Dimensionality},
@@ -59,6 +60,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         client: &ComputeClient<R::Server, R::Channel>,
         input: <Self::GlobalConvolution as ConvolutionConfigFactory>::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, InvalidConfigError>
@@ -66,7 +68,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         check_problem_tma(problem)?;
 
         let config = Self::GlobalConvolution::make_config::<R, MP>(
-            client, input, problem, cube_dim, cube_count,
+            client, input, problem, line_sizes, cube_dim, cube_count,
         );
         Self::GlobalConvolution::check_config(&config)?;
         Ok(config)

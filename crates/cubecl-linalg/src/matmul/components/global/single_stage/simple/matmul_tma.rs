@@ -5,6 +5,7 @@ use crate::matmul::components::global::load::arrive_tma;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
 use crate::matmul::components::global::{Quantization, load::TmaReader};
+use crate::matmul::components::problem::MatmulLineSizes;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::{Ident, MatmulPrecision};
 use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
@@ -85,18 +86,26 @@ where
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let mut problem = problem.clone();
+        let mut line_sizes = line_sizes.clone();
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        problem.lhs_line_size = 1;
-        problem.rhs_line_size = 1;
+        line_sizes.lhs = 1;
+        line_sizes.rhs = 1;
 
-        let smm_config = SMM::make_config(input.0, &problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(
+            input.0,
+            problem,
+            &line_sizes,
+            cube_dim,
+            cube_count,
+            quantized,
+        );
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -106,9 +115,9 @@ where
             problem.k as u32 % stage_shape.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
+            line_sizes.lhs as u32,
+            line_sizes.rhs as u32,
+            line_sizes.out as u32,
             stage_shape.k,
             input.1,
         )

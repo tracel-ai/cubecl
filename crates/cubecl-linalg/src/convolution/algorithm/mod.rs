@@ -1,7 +1,7 @@
 use crate::{
     matmul::{
         components::{
-            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulPrecision,
+            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::args::MatmulArgs,
             stage::{StageBuffering, StageMatmulFamily, StageVectorization},
             tile::TileMatmulFamily,
@@ -59,12 +59,13 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         input: <Self::GlobalConvolution as ConvolutionConfigFactory>::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, InvalidConfigError>
     {
         let config = Self::GlobalConvolution::make_config::<R, MP>(
-            client, input, problem, cube_dim, cube_count,
+            client, input, problem, line_sizes, cube_dim, cube_count,
         );
         Self::GlobalConvolution::check_config(&config)?;
         Ok(config)
@@ -92,4 +93,12 @@ pub trait Algorithm {
         elem_stage: Elem,
         elem_acc: Elem,
     ) -> Self::MatmulSelection;
+
+    fn line_sizes(
+        problem: &ConvolutionProblem,
+        in_available: impl Iterator<Item = u8> + Clone,
+        out_available: impl Iterator<Item = u8> + Clone,
+    ) -> MatmulLineSizes {
+        MatmulLineSizes::new_maximized(&problem.as_matmul_problem(), in_available, out_available)
+    }
 }

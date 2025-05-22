@@ -140,8 +140,8 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 
     run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
     // run::<R, MP>(
-    // Default::default(),
-    // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
     // );
     // run::<R, MP>(
     // Default::default(),

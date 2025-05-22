@@ -34,9 +34,6 @@ pub fn test_algo<
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
     let selection = PlaneMatmulSelection {
@@ -93,9 +90,6 @@ pub fn test_algo_unit<
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
     let selection = UnitMatmulSelection {
@@ -151,9 +145,6 @@ pub fn test_algo_tma<
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
     let selection = PlaneMatmulSelection {
@@ -187,6 +178,7 @@ pub fn test_algo_tma<
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! matmul_standard_tests {
+    // Select variant of cmma accelerated algorithm
     (standard; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::components::global::load::{
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
@@ -414,10 +406,9 @@ macro_rules! matmul_standard_tests {
                 2,
             );
         }
-
-
     };
 
+    // Select variant of unit matmul
     (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
 
@@ -436,6 +427,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select variant of tma matmul
     (tma; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::simple_tma::SimpleTmaAlgorithm;
 
@@ -454,6 +446,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select lhs and rhs layouts
     ($kind: ident) => {
         use $crate::matmul::components::{MatmulSize, MatrixLayout};
 
@@ -486,6 +479,71 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+
+    // Select tile size (t), only available for unit matmul
+    (unit; $lhs_layout:ident, $rhs_layout:ident) => {
+        mod t1x1x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 1, n: 1, k: 1 }
+            );
+        }
+
+        mod t8x1x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 1, k: 4 }
+            );
+        }
+
+        mod t2x4x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 2, n: 4, k: 1 }
+            );
+        }
+
+        mod t1x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 1, n: 8, k: 8 }
+            );
+        }
+
+        mod t4x4x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 4, n: 4, k: 4 }
+            );
+        }
+
+        mod t8x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 8, k: 8 }
+            );
+        }
+    };
+
+    // Select tile size (t)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident) => {
         mod t8x8x8 {
             use super::*;
@@ -540,8 +598,12 @@ macro_rules! matmul_standard_tests {
                 MatmulSize { m: 16, n: 16, k: 8 }
             );
         }
+
+
     };
 
+
+    // Select stage size (s)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr) => {
         mod s1x1x1 {
             use super::*;
@@ -601,18 +663,6 @@ macro_rules! matmul_standard_tests {
         }
 
         #[cfg(target_os="macos")]
-        mod s8x8x8 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                MatmulSize { m: 8, n: 8, k: 8 }
-            );
-        }
-
-        #[cfg(target_os="macos")]
         mod s16x8x4 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -649,6 +699,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select problem size (p)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
         mod p8x8x8 {
             use super::*;

@@ -1,12 +1,10 @@
-use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
-
-use crate::matmul::components::{MatmulKind, MatmulProblem, MatmulSize, tile::TileMatmulFamily};
+use crate::matmul::components::{MatmulKind, MatmulProblem, MatmulSize};
 
 use super::MatmulSelection;
 
 const NUM_PLANES_APPROX: u32 = 2;
-const ARBITRARY_K_SHAPE: u32 = 4;
 const ARBITRARY_K_COUNT: u32 = 8;
+const TILE_DIM: u32 = 4;
 
 #[derive(Debug)]
 pub struct UnitMatmulSelection {
@@ -25,57 +23,29 @@ impl MatmulSelection for UnitMatmulSelection {
     }
 }
 
-pub fn unit_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    elem_stage: Elem,
-    elem_acc: Elem,
-) -> UnitMatmulSelection {
+pub fn unit_matmul_selection(problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     match Into::<MatmulKind>::into(problem) {
-        MatmulKind::General => {
-            general_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::MatVec => {
-            matvec_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::VecMat => {
-            vecmat_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::ScalarVec => {
-            scalarvec_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::VecScalar => {
-            vecscalar_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::InnerProduct => {
-            inner_product_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::OuterProduct => {
-            outer_product_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
-        MatmulKind::ScalarProduct => {
-            scalar_product_unit_selector::<R>(client, problem, plane_dim, elem_stage, elem_acc)
-        }
+        MatmulKind::General => general_unit_selector(problem, plane_dim),
+        MatmulKind::MatVec => matvec_unit_selector(problem, plane_dim),
+        MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim),
+        MatmulKind::ScalarVec => scalarvec_unit_selector(problem, plane_dim),
+        MatmulKind::VecScalar => vecscalar_unit_selector(problem, plane_dim),
+        MatmulKind::InnerProduct => inner_product_unit_selector(problem, plane_dim),
+        MatmulKind::OuterProduct => outer_product_unit_selector(problem, plane_dim),
+        MatmulKind::ScalarProduct => scalar_product_unit_selector(problem, plane_dim),
     }
 }
 
 /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
-fn general_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let (stage_m, stage_n) = closest_factor_pair(num_units);
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
-            n: problem.rhs_line_size as u32,
-            k: problem.lhs_line_size as u32,
+            m: TILE_DIM,
+            n: TILE_DIM,
+            k: TILE_DIM,
         },
         tile_count: MatmulSize {
             m: stage_m,
@@ -87,20 +57,14 @@ fn general_unit_selector<R: Runtime>(
 }
 
 /// (M, K) @ (K, 1) → (M, 1)
-fn matvec_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let num_units = NUM_PLANES_APPROX * plane_dim;
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
+            m: TILE_DIM,
             n: 1,
-            k: ARBITRARY_K_SHAPE,
+            k: TILE_DIM,
         },
         tile_count: MatmulSize {
             m: num_units,
@@ -112,20 +76,14 @@ fn matvec_unit_selector<R: Runtime>(
 }
 
 /// (1, K) @ (K, N) → (1, N)
-fn vecmat_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let num_units = NUM_PLANES_APPROX * plane_dim;
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
-            n: problem.rhs_line_size as u32,
-            k: ARBITRARY_K_SHAPE,
+            n: TILE_DIM,
+            k: TILE_DIM,
         },
         tile_count: MatmulSize {
             m: 1,
@@ -137,19 +95,13 @@ fn vecmat_unit_selector<R: Runtime>(
 }
 
 /// (1, 1) @ (1, N) → (1, N)
-fn scalarvec_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let num_units = NUM_PLANES_APPROX * plane_dim;
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
-            n: problem.rhs_line_size as u32,
+            n: TILE_DIM,
             k: 1,
         },
         tile_count: MatmulSize {
@@ -162,18 +114,12 @@ fn scalarvec_unit_selector<R: Runtime>(
 }
 
 /// (M, 1) @ (1, 1) → (M, 1)
-fn vecscalar_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let num_units = NUM_PLANES_APPROX * plane_dim;
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
+            m: TILE_DIM,
             n: 1,
             k: 1,
         },
@@ -187,18 +133,12 @@ fn vecscalar_unit_selector<R: Runtime>(
 }
 
 /// (1, K) @ (K, 1) → (1, 1)
-fn inner_product_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    _problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     UnitMatmulSelection {
         tile_shape: MatmulSize {
             m: 1,
             n: 1,
-            k: ARBITRARY_K_SHAPE,
+            k: TILE_DIM,
         },
         tile_count: MatmulSize {
             m: 1,
@@ -210,20 +150,14 @@ fn inner_product_unit_selector<R: Runtime>(
 }
 
 /// (M, 1) @ (1, N) → (M, N)
-fn outer_product_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let (stage_m, stage_n) = closest_factor_pair(num_units);
 
     UnitMatmulSelection {
         tile_shape: MatmulSize {
-            m: problem.lhs_line_size as u32,
-            n: problem.rhs_line_size as u32,
+            m: TILE_DIM,
+            n: TILE_DIM,
             k: 1,
         },
         tile_count: MatmulSize {
@@ -236,13 +170,7 @@ fn outer_product_unit_selector<R: Runtime>(
 }
 
 /// (1, 1) @ (1, 1) → (1, 1)
-fn scalar_product_unit_selector<R: Runtime>(
-    _client: &ComputeClient<R::Server, R::Channel>,
-    _problem: &MatmulProblem,
-    plane_dim: u32,
-    _elem_stage: Elem,
-    _elem_acc: Elem,
-) -> UnitMatmulSelection {
+fn scalar_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     UnitMatmulSelection {
         tile_shape: MatmulSize { m: 1, n: 1, k: 1 },
         tile_count: MatmulSize { m: 1, n: 1, k: 1 },

@@ -1,10 +1,13 @@
 use std::any::TypeId;
 
-use cubecl_core::{Runtime, client::ComputeClient, prelude::*, tensor_line_size_parallel};
+use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use half::f16;
 
 use crate::matmul::{
-    components::global::args::{ConcreteOutputFactory, MatmulArgs},
+    components::{
+        MatmulLineSizes,
+        global::args::{ConcreteOutputFactory, MatmulArgs},
+    },
     kernels::MatmulLaunchError,
 };
 use crate::{
@@ -104,25 +107,6 @@ where
     let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
     let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
 
-    let ei_elem = MP::EI::as_elem_native_unchecked();
-    let eo_elem = MP::EO::as_elem_native_unchecked();
-
-    let lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&ei_elem),
-        &input.shape,
-        &input.strides,
-        dim_c,
-    );
-    let rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&ei_elem),
-        &weight.shape,
-        &weight.strides,
-        dim_c,
-    );
-
-    let out_line_size =
-        tensor_line_size_parallel(R::line_size_elem(&eo_elem), out.shape, out.strides, dim_c);
-
     let plane_dim = client
         .properties()
         .hardware
@@ -135,9 +119,6 @@ where
         k: c * kernel_shape.iter().product::<usize>(),
         lhs_layout: components::MatrixLayout::RowMajor,
         rhs_layout: components::MatrixLayout::ColMajor,
-        lhs_line_size,
-        rhs_line_size,
-        out_line_size,
         kernel_size: kernel_shape.iter().map(|it| *it as u32).collect(),
         stride: stride.iter().map(|it| *it as u32).collect(),
         padding: padding.iter().map(|it| *it as i32).collect(),
@@ -150,6 +131,12 @@ where
 
         dimensionality,
     };
+
+    let line_sizes = Alg::line_sizes(
+        &problem,
+        R::line_size_elem(&MP::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&MP::EO::as_elem_native_unchecked()),
+    );
 
     let (selection, config_input) = select_matmul::<Alg, R>(
         client,
@@ -176,6 +163,7 @@ where
         bias,
         out,
         problem,
+        &line_sizes,
         selection,
         config_input,
     )
@@ -189,6 +177,7 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     bias: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: ConvolutionProblem,
+    line_sizes: &MatmulLineSizes,
     selection: Alg::MatmulSelection,
     config_input: StageInput,
 ) -> Result<(), ConvLaunchError>
@@ -214,6 +203,7 @@ where
         client,
         (config_input, Alg::loading_precompute_strategy()),
         &problem,
+        line_sizes,
         &cube_dim,
         &cube_count,
     )
@@ -221,15 +211,16 @@ where
 
     Alg::check_availability::<R, MP>(client, &config)?;
 
-    let input = <Input<Alg, MP> as ConvInputsLaunch>::create(input, weight, &selection, &problem);
+    let input = <Input<Alg, MP> as ConvInputsLaunch>::create(
+        input, weight, &selection, &problem, line_sizes,
+    );
     let output = <Output<Alg, MP> as ConcreteOutputFactory>::create(
         &out,
         &selection,
         &problem.as_matmul_problem(),
+        line_sizes,
     );
-    let bias = bias
-        .as_ref()
-        .map(|bias| bias.as_tensor_arg(problem.out_line_size));
+    let bias = bias.as_ref().map(|bias| bias.as_tensor_arg(line_sizes.out));
 
     unsafe {
         Alg::GlobalConvolution::launch_unchecked::<(MP, Alg::Args), R>(

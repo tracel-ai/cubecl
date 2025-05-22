@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use cubecl_core::{ir::Elem, prelude::*};
 
 use crate::matmul::components::{
-    MatmulProblem,
+    MatmulLineSizes, MatmulProblem,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{self},
     stage::{self, FullReaderFamily},
@@ -30,6 +30,19 @@ where
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type MatmulSelection = PlaneMatmulSelection;
+
+    fn line_sizes(
+        problem: &MatmulProblem,
+        _in_available: impl Iterator<Item = u8> + Clone,
+        out_available: impl Iterator<Item = u8> + Clone,
+        _selection: &Self::MatmulSelection,
+    ) -> MatmulLineSizes {
+        MatmulLineSizes {
+            lhs: 1,
+            rhs: 1,
+            out: MatmulLineSizes::maximize_out(problem, out_available),
+        }
+    }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);

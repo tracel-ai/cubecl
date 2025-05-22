@@ -7,7 +7,8 @@ use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFami
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulConfigInput};
 use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
+    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
+    MatmulSize,
 };
 use crate::matmul::components::{Ident, MatmulProblem, global, tile};
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -64,7 +65,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
         if num_tmm > 64 {
             return Err(Box::new(
-                "Error: will probably bust shared memory".to_string(),
+                "Error: Too many unit matmuls, will probably bust shared memory".to_string(),
             ));
         }
 
@@ -81,6 +82,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     fn make_config(
         (tiling, buffering, vectorization, num_stages): Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
@@ -92,7 +94,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             vectorization,
             size: tile_shape,
         };
-        let tmm_config = TMM::make_config(tile_input, problem, cube_dim, cube_count, quantized);
+        let tmm_config = TMM::make_config(
+            tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
+        );
 
         let tiling = CompleteStageTiling {
             tile_shape,

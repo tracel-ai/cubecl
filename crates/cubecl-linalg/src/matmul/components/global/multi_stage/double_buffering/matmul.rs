@@ -1,4 +1,3 @@
-use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
@@ -12,6 +11,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
 };
+use crate::matmul::components::{MatmulLineSizes, global};
 use crate::matmul::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
@@ -78,11 +78,14 @@ where
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(
+            input.0, problem, line_sizes, cube_dim, cube_count, quantized,
+        );
         let stage_shape = SMM::stage_shape(&smm_config);
 
         DoubleBufferingGlobalConfig::new(
@@ -92,9 +95,9 @@ where
             problem.k as u32 % (2 * stage_shape.k) != 0,
             problem.lhs_layout,
             problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
+            line_sizes.lhs as u32,
+            line_sizes.rhs as u32,
+            line_sizes.out as u32,
             cube_dim.y,
             input.1,
         )

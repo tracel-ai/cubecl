@@ -11,5 +11,5 @@ mod spec;
 pub use base::*;
 pub use config::*;
 pub use config::{Ident, MatmulConfig, MatrixLayout, TilingDimensions, as_cmma_layout};
-pub use problem::{MatmulKind, MatmulProblem};
+pub use problem::*;
 pub use spec::*;

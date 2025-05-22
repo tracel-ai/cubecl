@@ -175,16 +175,12 @@ impl<ES: Numeric> Tile<ES> {
         )
     }
 
-    pub fn get_line(&self, row: u32, col: u32) -> Line<ES> {
-        let index = match comptime!(self.layout) {
-            MatrixLayout::RowMajor => row * self.stride + col,
-            MatrixLayout::ColMajor => col * self.stride + row,
-        };
-        self.slice[index]
+    pub fn get_line(&self, strided: u32, contiguous: u32) -> Line<ES> {
+        self.slice[strided * self.stride + contiguous]
     }
 
-    pub fn get_segment_as_one_line(&self, index: u32) -> Line<ES> {
-        // Assumes one line per segment
-        self.slice[index * self.stride]
+    pub fn get_segment_as_slice(&self, index: u32, #[comptime] num_lines: u32) -> Slice<Line<ES>> {
+        let start = index * self.stride;
+        self.slice.slice(start, start + num_lines)
     }
 }
