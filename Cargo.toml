@@ -86,7 +86,7 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.35.1"
-melior = { git = "https://github.com/marcantoinem/melior" }
+melior = { git = "https://github.com/marcantoinem/melior", features = ["ods-dialects"] }
 
 [profile.dev]
 debug = 0     # Speed up compilation time and not necessary.
