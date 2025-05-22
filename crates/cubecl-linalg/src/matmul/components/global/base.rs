@@ -2,18 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TilingDimensions,
-    config::MatmulConfig,
-    stage::{self, StageWriter},
-    tile,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
+    config::MatmulConfig, stage,
 };
 use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use super::Quantization;
+use super::{GlobalWriter, Quantization};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -39,26 +36,26 @@ pub trait GlobalMatmulFamily:
 /// # Safety
 ///
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
-/// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
+/// It is therefore important that Loaders and Writers perform checks to avoid out-of-bounds
 /// before loading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type AccumulatorLoader: CubeType;
-    type Out: OutputLoader<MP::EO>;
+    type Writer: GlobalWriter<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
-    /// using the output unloader.
+    /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
-        unloader: Self::Out,
+        writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -86,53 +83,20 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
-    /// Initialize the unloader at row m and column n
-    fn init_unloader(
-        out: VirtualTensor<MP::EO, ReadWrite>,
-        m_offset: u32,
-        n_offset: u32,
-        nth_batch: u32,
-        batch_offset: u32,
-    ) -> Self::Out;
-
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
-}
 
-#[cube]
-/// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
-/// for it.
-pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sync {
-    fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G);
-
-    /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
-    /// for the underlying tile.
-    fn load<Tile: tile::TileMatmul<MP>>(
-        this: &mut Self,
-        acc: &mut Tile::Accumulator,
-        nth_tile: u32,
-        #[comptime] config: Tile::Config,
-    );
-}
-
-#[cube]
-/// Output to the global matmul
-///
-/// # Note
-///
-/// It is only a wrapper over the stage writer because there is no K for the output.
-/// Could be deleted in favor of having only the StageWriter
-pub trait OutputLoader<EO: Numeric>: CubeType + 'static + Send + Sync {
-    type StageWriter: StageWriter<EO>;
-
-    fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
-}
-
-pub trait LoadingValidation {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
+    /// Initialize the writer at row m and column n
+    fn init_writer(
+        out: VirtualTensor<MP::EO, ReadWrite>,
+        m_offset: u32,
+        n_offset: u32,
+        nth_batch: u32,
+        batch_offset: u32,
+    ) -> Self::Writer;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.

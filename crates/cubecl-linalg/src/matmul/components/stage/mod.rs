@@ -1,4 +1,5 @@
 pub mod plane_matmul;
+pub mod unit_matmul;
 
 mod base;
 mod event_listener;

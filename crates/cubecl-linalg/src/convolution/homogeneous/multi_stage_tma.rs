@@ -15,12 +15,12 @@ use crate::{
     matmul::{
         components::{
             EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
-            MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
-            global::{
-                AccumulatorLoader, GlobalConfig, load::arrive_tma, output_loader::Unloader,
-                single_stage,
+            MatmulLineSizes, MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
+            global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
+            stage::{
+                FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
+                StageMatmulFamily,
             },
-            stage::{FullReader, FullReaderFamily, StageConfig, StageMatmul, StageMatmulFamily},
         },
         kernels::{MatmulAvailabilityError, matmul::LoadingPrecomputeStrategy},
     },
@@ -66,8 +66,8 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for MultiStageTmaConvolution<MP, 
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, TmaIm2colTiling>,
-            RhsReader = FullReader<MP::ES, TmaWeightTiling>,
+            LhsReader = FullStageToTileReader<MP::ES, TmaIm2colTiling>,
+            RhsReader = FullStageToTileReader<MP::ES, TmaWeightTiling>,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
@@ -75,14 +75,14 @@ where
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
-    type Out = Unloader<MP::EO>;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut acc_loader: Self::AccumulatorLoader,
-        mut out_unloader: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -184,12 +184,7 @@ where
 
         sync_cube();
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -235,12 +230,12 @@ where
         Self::AccumulatorLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
-    ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, 0)
+    ) -> Self::Writer {
+        SMM::init_writer(out, x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -275,19 +270,21 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config {
-        let mut problem = problem.clone();
+        let mut line_sizes = line_sizes.clone();
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        problem.lhs_line_size = 1;
-        problem.rhs_line_size = 1;
+        line_sizes.lhs = 1;
+        line_sizes.rhs = 1;
 
         let smm_config = SMM::make_config(
             input.0,
             &problem.as_matmul_problem(),
+            &line_sizes,
             cube_dim,
             cube_count,
             false,
@@ -296,7 +293,7 @@ where
         let shape = SMM::tile_shape(&smm_config);
 
         let num_stages =
-            num_stages::<R, MP>(client, &size, &shape, &problem, smm_config.num_planes());
+            num_stages::<R, MP>(client, &size, &shape, problem, smm_config.num_planes());
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
@@ -307,9 +304,9 @@ where
                 true,
                 problem.lhs_layout,
                 problem.rhs_layout,
-                problem.lhs_line_size as u32,
-                problem.rhs_line_size as u32,
-                problem.out_line_size as u32,
+                line_sizes.lhs as u32,
+                line_sizes.rhs as u32,
+                line_sizes.out as u32,
                 size.k,
                 input.1,
             ),
@@ -413,10 +410,6 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;
     }
-
-    // println!(
-    //     "max_stages: {max_stages}, num_stages: {num_stages}, max_smem: {max_smem}, stage_in: {inputs_stage_size_bytes}, stage_out: {output_stage_size_bytes}"
-    // );
 
     num_stages
 }

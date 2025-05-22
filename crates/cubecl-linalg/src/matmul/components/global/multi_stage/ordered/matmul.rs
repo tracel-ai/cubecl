@@ -1,14 +1,13 @@
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
-    BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy, SyncFullLoader,
-    SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
+    BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
+    SyncFullLoader, SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, LoadingValidation};
-use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::{BufferReader, StageConfig};
-use crate::matmul::components::stage::{FullReader, StageEvent};
+use crate::matmul::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::problem::MatmulLineSizes;
+use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
+use crate::matmul::components::stage::{FullStageToTileReader, StageEvent};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -85,11 +84,14 @@ where
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(
+            input.0, problem, line_sizes, cube_dim, cube_count, quantized,
+        );
         let stage_shape = SMM::stage_shape(&smm_config);
 
         OrderedDoubleBufferingGlobalConfig::new(
@@ -99,9 +101,9 @@ where
             problem.k as u32 % (2 * stage_shape.k) != 0,
             problem.lhs_layout,
             problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
+            line_sizes.lhs as u32,
+            line_sizes.rhs as u32,
+            line_sizes.out as u32,
             cube_dim.y,
             input.1,
         )
@@ -130,8 +132,11 @@ impl<MP: MatmulPrecision, SMM, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, <LL as SyncFullLoadingStrategy>::TilingLayout>,
-            RhsReader = BufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullStageToTileReader<
+                MP::ES,
+                <LL as SyncFullLoadingStrategy>::TilingLayout,
+            >,
+            RhsReader = BufferStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     RL: SyncBufferLoadingStrategy,
 {
@@ -139,13 +144,13 @@ where
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut out_unloader: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -233,12 +238,7 @@ where
             config.to_smm_config(),
         );
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -281,14 +281,14 @@ where
         )
     }
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-    ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, batch_offset)
+    ) -> Self::Writer {
+        SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

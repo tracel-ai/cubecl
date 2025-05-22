@@ -657,7 +657,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::SpecialCast(UnaryInstruction { input, out }) => {
                 // Only supported in CUDA so I'm putting it here. Move to dialect if necessary.
                 #[cfg(not(feature = "cuda"))]
-                unimplemented!("FP8/FP6/FP4 casting isn't supported outside of CUDA");
+                {
+                    let _ = (input, out);
+                    unimplemented!("FP8/FP6/FP4 casting isn't supported outside of CUDA");
+                }
                 #[cfg(feature = "cuda")]
                 crate::cuda::convert::special_cast::<D>(f, input, out)
             }

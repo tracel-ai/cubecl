@@ -1,0 +1,56 @@
+use crate::matmul::components::Ident;
+use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::tensor_view::TensorWriter;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+
+use super::GlobalWriter;
+
+#[derive(CubeType)]
+pub struct UnitWriter<EG: Numeric> {
+    pub tensor_view: TensorWriter<EG>,
+}
+
+#[cube]
+impl<EG: Numeric> UnitWriter<EG> {
+    pub fn new(
+        tensor: VirtualTensor<EG, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self {
+        UnitWriter::<EG> {
+            tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
+        }
+    }
+}
+
+#[cube]
+impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
+    fn write<G: GlobalConfig>(
+        this: &mut Self,
+        out_smem_slice: Slice<Line<EG>>,
+        tile_row: u32,
+        tile_col: u32,
+        #[comptime] config: G,
+    ) {
+        let tiling = config.tiling_dimensions(Ident::Out);
+        let tile_size = tiling.tile_size();
+        let output_line_size = config.global_line_size(Ident::Out);
+        let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
+
+        let num_lines = tile_size / output_line_size;
+
+        for i in 0..num_lines {
+            let value = out_smem_slice[i];
+            this.tensor_view.write_coalesced::<G>(
+                tile_row,
+                tile_col,
+                i * output_line_size,
+                value,
+                config,
+            );
+        }
+    }
+}

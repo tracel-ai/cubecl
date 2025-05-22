@@ -71,7 +71,7 @@ pub(crate) fn implicit_conv<
             config,
         ),
         GMM::Convolution::<(EI, ES, EA, EO)>::init_bias_loader(bias, y_offset, config),
-        GMM::Convolution::<(EI, ES, EA, EO)>::init_unloader(out, x_offset, y_offset),
+        GMM::Convolution::<(EI, ES, EA, EO)>::init_writer(out, x_offset, y_offset),
         &mut GMM::Convolution::<(EI, ES, EA, EO)>::init_accumulator(config),
         k_range,
         config,

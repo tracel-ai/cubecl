@@ -1,8 +1,8 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
-    MatrixLayout, as_cmma_layout,
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSize, MatrixLayout, as_cmma_layout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -11,10 +11,10 @@ use cubecl_core::{cmma, prelude::*};
 
 use super::{Tile, TileMatmulConfigInput};
 
-pub struct Accelerated;
+pub struct AcceleratedMatmul;
 
-impl TileMatmulFamily for Accelerated {
-    type Matmul<MP: MatmulPrecision> = Accelerated;
+impl TileMatmulFamily for AcceleratedMatmul {
+    type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
 
     fn tile_shape(config: &Self::Config) -> MatmulSize {
         config.size
@@ -26,7 +26,7 @@ impl TileMatmulFamily for Accelerated {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> TileMatmul<MP> for Accelerated {
+impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
     type Config = Config;
     type Lhs = cmma::Matrix<MP::ES>;
     type Rhs = cmma::Matrix<MP::ES>;
@@ -46,7 +46,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for Accelerated {
         let layout = config.matrix_layout(Ident::Lhs);
         unsafe {
             cmma::Matrix::<MP::ES>::uninitialized(
-                cmma::MatrixIdent::A, // Check versus Ident
+                cmma::MatrixIdent::A,
                 size.m,
                 size.n,
                 size.k,
@@ -89,12 +89,12 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for Accelerated {
         cmma::load_with_layout(acc, &slice, stride, layout);
     }
 
-    fn read_accumulator<C: Numeric>(
+    fn write_results(
         out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<C>>,
+        slice: &mut SliceMut<Line<MP::EO>>,
         #[comptime] config: Config,
     ) {
-        let acc = cmma::cast::<MP::EA, C>(out);
+        let acc = cmma::cast::<MP::EA, MP::EO>(out);
         cmma::store(slice, &acc, config.size.n, cmma::MatrixLayout::RowMajor);
     }
 
@@ -116,7 +116,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for Accelerated {
     }
 }
 
-impl MatmulConfigFactory for Accelerated {
+impl MatmulConfigFactory for AcceleratedMatmul {
     type Input = TileMatmulConfigInput;
     type Config = Config;
 
@@ -187,17 +187,14 @@ impl MatmulConfigFactory for Accelerated {
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         _cube_count: &CubeCount,
         _quantized: bool,
     ) -> Self::Config {
         let (lhs_line_size, rhs_line_size, stage_line_size_update) =
             if input.vectorization.stage_line_size == 0 {
-                (
-                    problem.lhs_line_size as u32,
-                    problem.rhs_line_size as u32,
-                    false,
-                )
+                (line_sizes.lhs as u32, line_sizes.rhs as u32, false)
             } else {
                 (
                     input.vectorization.stage_line_size as u32,
@@ -213,7 +210,7 @@ impl MatmulConfigFactory for Accelerated {
             stage_line_size_update,
             lhs_line_size,
             rhs_line_size,
-            problem.out_line_size as u32,
+            line_sizes.out as u32,
         )
     }
 }

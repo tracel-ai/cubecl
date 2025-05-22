@@ -4,8 +4,8 @@ use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem,
-    MatmulSpec, OutputRuntimeArg,
+    Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSpec, OutputRuntimeArg,
 };
 use crate::matmul::components::{
     Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
@@ -50,11 +50,13 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let gmm_config = GMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let gmm_config =
+            GMM::make_config(input, problem, line_sizes, cube_dim, cube_count, quantized);
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
         } else {

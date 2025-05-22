@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Args, EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory,
-    MatmulLaunch, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingDimensions,
+    MatmulLaunch, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
+    TilingDimensions,
     batch::{self, shared::gmm_execute},
     config::MatmulConfig,
     global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
@@ -45,11 +46,13 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let gmm_config = GMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let gmm_config =
+            GMM::make_config(input, problem, line_sizes, cube_dim, cube_count, quantized);
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
         } else {

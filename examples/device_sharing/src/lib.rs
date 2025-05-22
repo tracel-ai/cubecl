@@ -15,7 +15,9 @@ mod device_sharing_wgpu {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Raw"),
-                required_features: adapter.features(),
+                required_features: adapter
+                    .features()
+                    .difference(Features::MAPPABLE_PRIMARY_BUFFERS),
                 required_limits: adapter.limits(),
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
                 trace: wgpu::Trace::Off,

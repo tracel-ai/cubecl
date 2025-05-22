@@ -4,7 +4,9 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::matmul::kernels::matmul::MatmulSelection;
 
+use super::problem::MatmulLineSizes;
 use super::{MatmulPrecision, MatmulProblem, MatmulSize};
 
 pub type InvalidConfigError = Box<dyn Display>;
@@ -49,6 +51,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
@@ -129,6 +132,15 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
 pub struct CompleteStageTiling {
     pub tile_shape: MatmulSize,
     pub tile_count: MatmulSize,
+}
+
+impl<M: MatmulSelection> From<&M> for CompleteStageTiling {
+    fn from(matmul_selection: &M) -> Self {
+        CompleteStageTiling {
+            tile_shape: matmul_selection.tile_shape(),
+            tile_count: matmul_selection.tile_count(),
+        }
+    }
 }
 
 impl CompleteStageTiling {

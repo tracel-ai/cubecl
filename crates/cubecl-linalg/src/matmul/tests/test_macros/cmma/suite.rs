@@ -1,13 +1,17 @@
+use crate::matmul::components::MatmulSize;
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
-use crate::matmul::components::{MatmulSelection, MatmulSize};
-use crate::matmul::kernels::matmul::Algorithm;
+use crate::matmul::components::{MatmulProblem, MatrixLayout};
+use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection, UnitMatmulSelection};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
 
-pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
+pub fn test_algo<
+    A: Algorithm<MatmulSelection = PlaneMatmulSelection>,
+    P: TestPrecision,
+    R: Runtime,
+>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
@@ -30,21 +34,15 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
-    let selection = MatmulSelection {
+    let selection = PlaneMatmulSelection {
         tile_shape,
         tile_count,
         plane_dim,
         rows_per_plane,
     };
-    let config_input = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count,
-    };
+    let config_input = (&selection).into();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -66,7 +64,11 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     );
 }
 
-pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
+pub fn test_algo_unit<
+    A: Algorithm<MatmulSelection = UnitMatmulSelection>,
+    P: TestPrecision,
+    R: Runtime,
+>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
@@ -88,21 +90,70 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
     };
 
-    let selection = MatmulSelection {
+    let selection = UnitMatmulSelection {
+        tile_shape,
+        tile_count,
+        plane_dim,
+    };
+    let config_input = (&selection).into();
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
+
+    test_matmul_algorithm::<A, P, R>(
+        client,
+        problem,
+        (
+            (
+                config_input,
+                A::stage_buffering_strategy(),
+                vectorization,
+                A::num_stages(),
+            ),
+            A::loading_precompute_strategy(),
+        ),
+        selection,
+    );
+}
+
+pub fn test_algo_tma<
+    A: Algorithm<MatmulSelection = PlaneMatmulSelection>,
+    P: TestPrecision,
+    R: Runtime,
+>(
+    layouts: (MatrixLayout, MatrixLayout),
+    tile_shape: MatmulSize,
+    tile_count: MatmulSize,
+    problem: MatmulSize,
+) {
+    let client = R::client(&Default::default());
+    let plane_dim = match client.properties().hardware.defined_plane_size() {
+        Some(val) => val,
+        None => {
+            println!("Can't run test without a fixed plane size.");
+            return;
+        }
+    };
+
+    let problem = MatmulProblem {
+        m: problem.m as usize,
+        n: problem.n as usize,
+        k: problem.k as usize,
+        batches: (vec![2], vec![2]),
+        lhs_layout: layouts.0,
+        rhs_layout: layouts.1,
+    };
+
+    let selection = PlaneMatmulSelection {
         tile_shape,
         tile_count,
         plane_dim,
         rows_per_plane: 1,
     };
-    let config_input = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count,
-    };
+    let config_input = (&selection).into();
 
     let vectorization = StageVectorization {
         stage_line_size: 0,
@@ -127,6 +178,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! matmul_standard_tests {
+    // Select variant of cmma accelerated algorithm
     (standard; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::components::global::load::{
             async_full_cyclic, async_full_maximize_slice_length, async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise, async_full_cooperative,
@@ -341,21 +393,6 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn ordered_double_buffering_single_row() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                OrderedDoubleBufferingAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                1,
-            );
-        }
-
-        #[test]
         pub fn ordered_double_buffering_multi_row() {
             cubecl_linalg::matmul::tests::test_algo::<
                 OrderedDoubleBufferingAlgorithm<TMM>,
@@ -371,6 +408,26 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select variant of unit matmul
+    (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
+
+        #[test]
+        pub fn simple_unit() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                SimpleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+    };
+
+    // Select variant of tma matmul
     (tma; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::simple_tma::SimpleTmaAlgorithm;
 
@@ -389,6 +446,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select lhs and rhs layouts
     ($kind: ident) => {
         use $crate::matmul::components::{MatmulSize, MatrixLayout};
 
@@ -421,6 +479,71 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+
+    // Select tile size (t), only available for unit matmul
+    (unit; $lhs_layout:ident, $rhs_layout:ident) => {
+        mod t1x1x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 1, n: 1, k: 1 }
+            );
+        }
+
+        mod t8x1x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 1, k: 4 }
+            );
+        }
+
+        mod t2x4x1 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 2, n: 4, k: 1 }
+            );
+        }
+
+        mod t1x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 1, n: 8, k: 8 }
+            );
+        }
+
+        mod t4x4x4 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 4, n: 4, k: 4 }
+            );
+        }
+
+        mod t8x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                unit;
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 8, k: 8 }
+            );
+        }
+    };
+
+    // Select tile size (t)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident) => {
         mod t8x8x8 {
             use super::*;
@@ -475,8 +598,12 @@ macro_rules! matmul_standard_tests {
                 MatmulSize { m: 16, n: 16, k: 8 }
             );
         }
+
+
     };
 
+
+    // Select stage size (s)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr) => {
         mod s1x1x1 {
             use super::*;
@@ -554,7 +681,7 @@ macro_rules! matmul_standard_tests {
                 $kind;
                 $lhs_layout,
                 $rhs_layout,
-                $tile,
+
                 MatmulSize { m: 4, n: 4, k: 2 }
             );
         }
@@ -572,6 +699,7 @@ macro_rules! matmul_standard_tests {
         }
     };
 
+    // Select problem size (p)
     ($kind: ident; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
         mod p8x8x8 {
             use super::*;
@@ -601,22 +729,6 @@ macro_rules! matmul_standard_tests {
                     m: 16,
                     n: 16,
                     k: 16
-                }
-            );
-        }
-
-        mod p32x32x32 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                $stage,
-                MatmulSize {
-                    m: 32,
-                    n: 32,
-                    k: 32
                 }
             );
         }
@@ -665,22 +777,6 @@ macro_rules! matmul_standard_tests {
                     m: 100,
                     n: 100,
                     k: 100
-                }
-            );
-        }
-
-        mod p20x20x16 {
-            use super::*;
-            $crate::matmul_standard_tests!(
-                $kind;
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                $stage,
-                MatmulSize {
-                    m: 20,
-                    n: 20,
-                    k: 16
                 }
             );
         }

@@ -6,48 +6,52 @@ use cubecl_core as cubecl;
 use crate::{
     convolution::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner},
     matmul::components::{
-        MatmulSelection,
+        MatmulLineSizes,
         global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
     },
+    matmul::kernels::matmul::MatmulSelection,
 };
 
 use super::base::ConvolutionProblem;
 
 pub trait ConvInputsLaunch: LaunchArg {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
-        selection: &MatmulSelection,
+        selection: &M,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
 impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
-        _selection: &MatmulSelection,
-        problem: &ConvolutionProblem,
+        _selection: &M,
+        _problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
-            lhs.as_tensor_arg(problem.lhs_line_size),
+            lhs.as_tensor_arg(line_sizes.lhs),
             None.into(),
-            rhs.as_tensor_arg(problem.rhs_line_size),
+            rhs.as_tensor_arg(line_sizes.rhs),
             None.into(),
         )
     }
 }
 
 impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
-    fn create<'a, R: Runtime>(
+    fn create<'a, M: MatmulSelection, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
-        selection: &MatmulSelection,
+        selection: &M,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
-        let stage_m = selection.tile_count.m * selection.tile_shape.m;
-        let stage_n = selection.tile_count.n * selection.tile_shape.n;
-        let stage_size_rhs = vec![stage_n, 1, selection.tile_shape.k];
+        let stage_m = selection.tile_count().m * selection.tile_shape().m;
+        let stage_n = selection.tile_count().n * selection.tile_shape().n;
+        let stage_size_rhs = vec![stage_n, 1, selection.tile_shape().k];
 
         let elem_size = size_of::<EI>();
 
@@ -60,7 +64,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             }
         }
 
-        let prefetch_lhs = prefetch(selection.tile_shape.k as usize * elem_size);
+        let prefetch_lhs = prefetch(selection.tile_shape().k as usize * elem_size);
         let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * elem_size);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
@@ -85,10 +89,10 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
                     &problem.kernel_size,
                     &problem.dilation,
                 ),
-                channels_per_pixel: selection.tile_shape.k,
+                channels_per_pixel: selection.tile_shape().k,
                 pixels_per_column: stage_m,
             },
-            lhs.as_tensor_arg(problem.lhs_line_size),
+            lhs.as_tensor_arg(line_sizes.lhs),
             elem,
         )
         .with_elem_stride(elem_stride)

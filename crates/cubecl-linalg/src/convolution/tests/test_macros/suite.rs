@@ -4,12 +4,13 @@ use crate::convolution::{
 };
 use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{CompleteStageTiling, MatrixLayout};
+use crate::matmul::kernels::matmul::PlaneMatmulSelection;
 use crate::{
     convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
 };
 use crate::{
     convolution::tests::convolution_test_launcher::test_convolution_algorithm,
-    matmul::components::{MatmulSelection, MatmulSize, global::args::MatmulArgs},
+    matmul::components::{MatmulSize, global::args::MatmulArgs},
 };
 use cubecl_core::Runtime;
 
@@ -22,7 +23,12 @@ pub struct ConvolutionSize {
     pub out_c: usize,
 }
 
-pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
+pub fn test_algo<
+    A: Algorithm<MatmulSelection = PlaneMatmulSelection>,
+    Args: MatmulArgs,
+    P: TestPrecision,
+    R: Runtime,
+>(
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: ConvolutionSize,
@@ -67,9 +73,6 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         k: kernel_size.iter().product::<u32>() as usize * problem.c,
         lhs_layout: MatrixLayout::RowMajor,
         rhs_layout: MatrixLayout::ColMajor,
-        lhs_line_size: 1,
-        rhs_line_size: 1,
-        out_line_size: 1,
         kernel_size,
         stride,
         padding,
@@ -81,7 +84,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         dimensionality: Dimensionality::Dim2,
     };
 
-    let selection = MatmulSelection {
+    let selection = PlaneMatmulSelection {
         tile_shape,
         tile_count,
         plane_dim,

@@ -6,14 +6,14 @@ use crate::matmul::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
 use crate::matmul::components::{
-    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    global::{GlobalConfig, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
 /// Each tile is guaranteed to be loaded entirely by the same plane.

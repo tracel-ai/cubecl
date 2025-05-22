@@ -1,8 +1,8 @@
 use crate::matmul::{
     components::{
-        InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-        MatrixLayout, OutputRuntimeArg,
-        global::{AccumulatorLoader, OutputLoader},
+        InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, MatrixLayout, OutputRuntimeArg,
+        global::{AccumulatorLoader, GlobalWriter},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -37,12 +37,12 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
     type AccumulatorLoader: AccumulatorLoader<MP>;
 
-    type Out: OutputLoader<MP::EO>;
+    type Writer: GlobalWriter<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
-    /// using the output unloader.
+    /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
@@ -50,7 +50,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
         acc_loader: Self::AccumulatorLoader,
-        unloader: Self::Out,
+        writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -78,11 +78,11 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::AccumulatorLoader;
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
-    ) -> Self::Out;
+    ) -> Self::Writer;
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 }
@@ -100,6 +100,7 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config;
@@ -138,9 +139,6 @@ pub struct ConvolutionProblem {
     pub k: usize,
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u8,
-    pub rhs_line_size: u8,
-    pub out_line_size: u8,
 
     pub kernel_size: Vec<u32>,
     pub stride: Vec<u32>,
@@ -164,9 +162,6 @@ impl ConvolutionProblem {
             batches: (vec![], vec![]),
             lhs_layout: self.lhs_layout,
             rhs_layout: self.rhs_layout,
-            lhs_line_size: self.lhs_line_size,
-            rhs_line_size: self.rhs_line_size,
-            out_line_size: self.out_line_size,
         }
     }
 }

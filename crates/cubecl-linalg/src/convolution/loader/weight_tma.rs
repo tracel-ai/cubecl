@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{CubeOption, FastDivmod};
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulPrecision, global::Quantization, stage::FullReader,
+    Ident, InputIdent, MatmulPrecision, global::Quantization, stage::FullStageToTileReader,
 };
 use crate::matmul::components::{
     global::{self, tensor_view::MappedTensorReader},
@@ -14,7 +14,7 @@ use crate::matmul::components::{
 use crate::{convolution::base::RuntimeArgs, matmul::components::stage::RowMajorTilingOrder};
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaWeightTiling>;
+pub type TmaWeightReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaWeightTiling>;
 
 #[derive(CubeType)]
 pub struct TmaWeightLoader<MP: MatmulPrecision, S: StageConfig> {

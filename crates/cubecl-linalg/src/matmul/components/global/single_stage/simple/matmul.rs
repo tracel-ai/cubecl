@@ -4,10 +4,10 @@ use crate::matmul::{
         global::{
             GlobalMatmul, Quantization, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
-            output_loader::Unloader,
             single_stage::Config,
         },
-        stage::{FullReader, StageMatmul},
+        problem::MatmulLineSizes,
+        stage::{FullStageToTileReader, StageMatmul},
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
@@ -71,11 +71,14 @@ where
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input.0, problem, cube_dim, cube_count, quantized);
+        let smm_config = SMM::make_config(
+            input.0, problem, line_sizes, cube_dim, cube_count, quantized,
+        );
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -85,9 +88,9 @@ where
             problem.k as u32 % stage_shape.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
+            line_sizes.lhs as u32,
+            line_sizes.rhs as u32,
+            line_sizes.out as u32,
             stage_shape.k,
             input.1,
         )
@@ -114,8 +117,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
-            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullStageToTileReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
@@ -124,13 +127,13 @@ where
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EO>;
+    type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut out_unloader: Self::Out,
+        mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -166,12 +169,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
     }
 
     fn init_lhs_loader(
@@ -214,14 +212,14 @@ where
         )
     }
 
-    fn init_unloader(
+    fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-    ) -> Self::Out {
-        Self::Out::new(out, x_offset, y_offset, batch_offset)
+    ) -> Self::Writer {
+        SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
