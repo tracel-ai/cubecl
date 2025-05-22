@@ -60,19 +60,7 @@ impl<'a> Module<'a> {
                 let region = Region::new();
                 let block = Block::new(&block_input);
 
-                let f32_type = Type::float32(self.context);
-                let constant = block.append_operation(arith::constant(
-                    self.context,
-                    FloatAttribute::new(self.context, f32_type, 69.0).into(),
-                    self.location,
-                ));
-                block.append_operation(llvm::store(
-                    self.context,
-                    constant.result(0).unwrap().into(),
-                    block.argument(2).unwrap().into(),
-                    self.location,
-                    LoadStoreOptions::new(),
-                ));
+                kernel.body.visit(&block, self.context, self.location);
 
                 block.append_operation(func::r#return(&[], self.location));
 
@@ -106,7 +94,6 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn into_execution_engine(&self) -> ExecutionEngine {
-        let ob = ExecutionEngine::new(&self.module, 0, &[], true);
-        ob
+        ExecutionEngine::new(&self.module, 3, &[], false)
     }
 }
