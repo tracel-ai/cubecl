@@ -17,6 +17,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub buffering: StageBuffering,
     pub num_stages: (u32, u32),
+    pub tmm_per_primitive: (u32, u32),
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -68,6 +69,10 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
             InputIdent::Rhs => self.num_stages.1,
         }
     }
+
+    fn accumulator_shape(&self) -> (u32, u32) {
+        self.tmm_per_primitive
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
@@ -81,6 +86,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         quantized: bool,
         buffering: StageBuffering,
         num_stages: (u32, u32),
+        tmm_per_primitive: (u32, u32),
     ) -> Self {
         Self {
             tmm_config,
@@ -89,6 +95,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
             num_stages,
+            tmm_per_primitive,
         }
     }
 }

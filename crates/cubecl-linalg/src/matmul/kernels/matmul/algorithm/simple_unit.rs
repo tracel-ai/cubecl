@@ -70,10 +70,11 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_tmm = selection.tile_count.m * selection.tile_count.n;
-        let tmm_per_unit = selection.tmm_per_unit.0 * selection.tmm_per_unit.1;
+        let num_acc = selection.tile_count.m * selection.tile_count.n;
+        let acc_per_unit = selection.acc_per_unit.0 * selection.acc_per_unit.1;
+        let num_units_needed = num_acc.div_ceil(acc_per_unit);
+        let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
-        let num_planes = num_tmm.div_ceil(tmm_per_unit * selection.plane_dim);
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
@@ -94,5 +95,9 @@ where
         _elem_acc: Elem,
     ) -> Self::MatmulSelection {
         unit_matmul_selection(problem, plane_dim)
+    }
+
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
+        selection.acc_per_unit
     }
 }

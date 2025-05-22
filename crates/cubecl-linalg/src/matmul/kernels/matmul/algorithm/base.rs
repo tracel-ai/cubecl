@@ -15,6 +15,8 @@ type StageInput = (
     CompleteStageTiling,
     stage::StageBuffering,
     StageVectorization,
+    // TODO make structs
+    (u32, u32),
     (u32, u32),
 );
 
@@ -66,6 +68,14 @@ pub trait Algorithm {
 
     fn num_stages() -> (u32, u32) {
         (1, 1)
+    }
+
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
+        // Default behaviour for algorithms using PlaneMatmul
+        (
+            selection.tile_count().m / Self::cube_dim(selection).y,
+            selection.tile_count().n,
+        )
     }
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {

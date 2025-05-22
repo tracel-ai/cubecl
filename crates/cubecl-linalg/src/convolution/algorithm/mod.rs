@@ -27,6 +27,7 @@ pub type StageInput = (
     StageBuffering,
     StageVectorization,
     (u32, u32),
+    (u32, u32),
 );
 
 /// Specifications for a convolution algorithm
@@ -41,6 +42,14 @@ pub trait Algorithm {
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
     fn num_stages() -> (u32, u32);
+
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
+        // Default behaviour for algorithms using PlaneMatmul
+        (
+            selection.tile_count().m / Self::cube_dim(selection).y,
+            selection.tile_count().n,
+        )
+    }
 
     fn multi_row_strategy() -> MultiRowStrategy {
         MultiRowStrategy::Never

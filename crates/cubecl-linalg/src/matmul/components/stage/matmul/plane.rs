@@ -57,6 +57,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         StageBuffering,
         StageVectorization,
         (u32, u32),
+        (u32, u32),
     );
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -81,7 +82,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     }
 
     fn make_config(
-        (tiling, buffering, vectorization, num_stages): Self::Input,
+        (tiling, buffering, vectorization, num_stages, acc_shape): Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
@@ -104,8 +105,30 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             tile_count,
         };
 
+        // let num_accumulators = tile_count.m * tile_count.n;
+        // let num_planes = cube_dim.y;
+        // // TODO move panic in check_config
+        // let num_acc_per_primitive = if num_accumulators % num_planes != 0 {
+        //     panic!(
+        //         "For plane matmul, number of tile matmuls {} must be divisible by number of planes {}",
+        //         num_accumulators, num_planes
+        //     );
+        // } else {
+        //     num_accumulators / num_planes
+        // };
+        // let acc_n = tile_count.n;
+        // // TODO move panic in check_config
+        // let acc_m = if num_acc_per_primitive % acc_n != 0 {
+        //     panic!(
+        //         "For plane matmul, number of tile matmuls per primitive {} must be divisible by number of tiles in n {}",
+        //         num_acc_per_primitive, acc_n
+        //     );
+        // } else {
+        //     num_acc_per_primitive / acc_n
+        // };
+
         CommonStageConfig::new(
-            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages,
+            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_shape,
         )
     }
 }
@@ -195,10 +218,7 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        let shape = (
-            config.tile_count().m / config.num_planes(),
-            config.tile_count().n,
-        );
+        let shape = config.accumulator_shape();
 
         let tmm_config = config.to_tmm_config();
         let mut lhs = Sequence::new();
@@ -264,11 +284,7 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let shape = (
-            config.tile_count().m / config.num_planes(),
-            config.tile_count().n,
-        );
-        Accumulators::<MP, TMM>::new(shape, config)
+        Accumulators::<MP, TMM>::new(config.accumulator_shape(), config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {

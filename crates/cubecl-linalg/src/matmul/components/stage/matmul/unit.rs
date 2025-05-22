@@ -51,6 +51,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         StageBuffering,
         StageVectorization,
         (u32, u32),
+        (u32, u32),
     );
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -77,7 +78,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     }
 
     fn make_config(
-        (tiling, buffering, vectorization, num_stages): Self::Input,
+        (tiling, buffering, vectorization, num_stages, acc_shape): Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
@@ -101,7 +102,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         };
 
         CommonStageConfig::new(
-            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages,
+            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_shape,
         )
     }
 }
