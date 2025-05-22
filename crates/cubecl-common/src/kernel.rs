@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::id::KernelId;
-
 /// An approximation of the plane dimension.
 pub const PLANE_DIM_APPROX: usize = 16;
 
@@ -60,15 +58,4 @@ pub enum ExecutionMode {
     Checked,
     /// Unchecked kernels are unsafe.
     Unchecked,
-}
-
-/// Implement this trait to create a [kernel definition](KernelDefinition).
-pub trait KernelMetadata: Send + Sync + 'static {
-    /// Name of the kernel for debugging.
-    fn name(&self) -> &'static str {
-        core::any::type_name::<Self>()
-    }
-
-    /// Identifier for the kernel, used for caching kernel compilation.
-    fn id(&self) -> KernelId;
 }

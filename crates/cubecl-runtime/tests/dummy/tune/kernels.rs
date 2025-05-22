@@ -1,7 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
-use cubecl_common::id::KernelId;
-use cubecl_runtime::storage::BytesResource;
+use cubecl_runtime::{id::KernelId, storage::BytesResource};
 
 use crate::dummy::DummyKernel;
 
@@ -35,7 +34,7 @@ impl DummyKernel for DummyElementwiseAdditionSlowWrong {
         }
     }
 
-    fn id(&self) -> cubecl_common::id::KernelId {
+    fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 }
@@ -53,7 +52,7 @@ impl DummyKernel for DummyElementwiseMultiplication {
         }
     }
 
-    fn id(&self) -> cubecl_common::id::KernelId {
+    fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 }
@@ -72,7 +71,7 @@ impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
         }
     }
 
-    fn id(&self) -> cubecl_common::id::KernelId {
+    fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 }
@@ -94,7 +93,7 @@ impl DummyKernel for CacheTestFastOn3 {
         }
     }
 
-    fn id(&self) -> cubecl_common::id::KernelId {
+    fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 }
@@ -117,7 +116,7 @@ impl DummyKernel for CacheTestSlowOn3 {
         }
     }
 
-    fn id(&self) -> cubecl_common::id::KernelId {
+    fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 }
@@ -134,7 +133,7 @@ impl DummyKernel for ParameteredKernel {
             out[i] = lhs[i] + rhs[i] + info[0];
         }
     }
-    fn id(&self) -> cubecl_common::id::KernelId {
+    fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 }

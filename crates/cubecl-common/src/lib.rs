@@ -36,8 +36,6 @@ pub mod reader;
 pub mod future;
 
 /// Various utilities to create ID's.
-pub mod id;
-
 extern crate alloc;
 
 /// Custom float implementations

@@ -7,7 +7,7 @@ use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::ProfilingToken;
 use cubecl_core::{
-    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
+    Feature, MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };

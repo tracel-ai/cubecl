@@ -1,5 +1,4 @@
-use cubecl_common::id::DeviceId;
-use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::{client::ComputeClient, id::DeviceId};
 
 /// ID used to identify a Just-in-Time environment.
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]

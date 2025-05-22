@@ -3,7 +3,6 @@ use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
-use cubecl_common::id::DeviceId;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
     ir::{Elem, FloatKind},
@@ -18,6 +17,7 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
+    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };

@@ -2,6 +2,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
+    kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryUsage,
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
@@ -11,7 +12,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, KernelMetadata, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
@@ -362,8 +363,6 @@ where
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);
-
-        self.state.logger.profile_summary();
 
         result
     }

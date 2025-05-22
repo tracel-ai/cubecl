@@ -1,4 +1,3 @@
-use cubecl_common::id::KernelId;
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::{self, DynFut};

@@ -8,7 +8,6 @@ pub mod frontend;
 /// Input Output utilities.
 pub mod io;
 
-pub use cubecl_common::id::KernelId;
 /// Some future utilities that work across environments.
 pub use cubecl_common::{PLANE_DIM_APPROX, future};
 

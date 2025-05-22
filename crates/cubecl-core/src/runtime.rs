@@ -1,6 +1,6 @@
 use crate::compute::CubeTask;
 use crate::{codegen::Compiler, ir::Elem};
-use cubecl_common::id::DeviceId;
+use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
 pub use cubecl_runtime::channel;

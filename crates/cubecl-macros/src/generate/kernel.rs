@@ -7,7 +7,7 @@ use crate::{
     parse::kernel::{
         KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch, strip_ref,
     },
-    paths::{core_type, frontend_type, prelude_path, prelude_type},
+    paths::{frontend_type, prelude_path, prelude_type},
 };
 
 impl KernelFn {
@@ -335,7 +335,7 @@ impl Launch {
             let cube_kernel = prelude_type("CubeKernel");
             let kernel_settings = prelude_type("KernelSettings");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
-            let kernel_id = core_type("KernelId");
+            let kernel_id = prelude_type("KernelId");
 
             let kernel_name = self.kernel_name();
             let define = self.define_body();

@@ -1,7 +1,7 @@
-use cubecl_common::KernelMetadata;
 use cubecl_common::future::DynFut;
-use cubecl_common::id::KernelId;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_runtime::id::KernelId;
+use cubecl_runtime::kernel::KernelMetadata;
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfilingToken};

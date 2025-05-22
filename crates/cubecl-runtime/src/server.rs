@@ -1,4 +1,5 @@
 use crate::{
+    kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
         MemoryHandle, MemoryUsage,
@@ -11,7 +12,6 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::KernelMetadata;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use cubecl_ir::Elem;
 

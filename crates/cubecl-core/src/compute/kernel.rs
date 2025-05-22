@@ -5,12 +5,13 @@ use std::{
 };
 
 use crate::{Compiler, KernelOptions};
-use cubecl_common::{
-    CubeDim, ExecutionMode, KernelMetadata,
-    id::{KernelId, format_str},
-};
+use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{Elem, Id, Item, Scope};
-use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
+use cubecl_runtime::{
+    config::{GlobalConfig, compilation::CompilationLogLevel},
+    id::{KernelId, format_str},
+    kernel::KernelMetadata,
+};
 use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language

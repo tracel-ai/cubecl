@@ -3,17 +3,14 @@ use crate::{
     compute::{WgpuServer, WgpuStorage},
     contiguous_strides,
 };
-use cubecl_common::{future, id::DeviceId};
+use cubecl_common::future;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, Runtime,
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
-    ComputeRuntime,
-    channel::MutexComputeChannel,
-    client::ComputeClient,
-    logging::{ProfileLevel, ServerLogger},
+    channel::MutexComputeChannel, client::ComputeClient, id::DeviceId, logging::{ProfileLevel, ServerLogger}, ComputeRuntime
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
@@ -82,7 +79,7 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn device_id(device: &Self::Device) -> cubecl_common::id::DeviceId {
+    fn device_id(device: &Self::Device) -> DeviceId {
         #[allow(deprecated)]
         match device {
             WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
