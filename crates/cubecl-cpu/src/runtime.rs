@@ -10,7 +10,7 @@ use cubecl_runtime::{
 use sysinfo::System;
 
 use crate::{
-    compiler::{MLIRCompiler, mlir::types::register_supported_types},
+    compiler::{MLIRCompiler, mlir::register_supported_types},
     compute::server::{CpuContext, CpuServer},
     device::CpuDevice,
 };
