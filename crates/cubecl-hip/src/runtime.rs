@@ -8,12 +8,12 @@ use cubecl_cpp::{
     },
 };
 
-use cubecl_common::id::DeviceId;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime,
     ir::{Elem, FloatKind},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,

@@ -10,7 +10,11 @@ use cubecl_core::{
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
-    channel::MutexComputeChannel, client::ComputeClient, id::DeviceId, logging::{ProfileLevel, ServerLogger}, ComputeRuntime
+    ComputeRuntime,
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    id::DeviceId,
+    logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
