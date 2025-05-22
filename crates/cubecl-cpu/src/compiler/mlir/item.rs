@@ -1,18 +1,27 @@
 use cubecl_core::ir::Item;
-use melior::ir::r#type::MemRefType;
+use melior::ir::Type;
 
 use super::prelude::*;
 
-pub(super) trait TransformItem {
-    fn visit_type<'a>(&self, context: &'a Context) -> MemRefType<'a>;
+pub(super) trait VisitItem {
+    fn visit<'a>(&self, context: &'a Context) -> Type<'a>;
+    fn size(&self) -> usize;
 }
 
-impl TransformItem for Item {
-    fn visit_type<'a>(&self, context: &'a Context) -> MemRefType<'a> {
-        let inner_type = self.elem.visit_type(context);
+impl VisitItem for Item {
+    fn visit<'a>(&self, context: &'a Context) -> Type<'a> {
+        let inner_type = self.elem.visit(context);
         match self.vectorization {
-            Some(size) => MemRefType::new(inner_type, &[i64::MIN, size.get() as i64], None, None),
-            None => MemRefType::new(inner_type, &[i64::MIN], None, None),
+            Some(size) => Type::vector(&[size.get() as u64], inner_type),
+            None => inner_type,
+        }
+    }
+    // Get the sizes in bytes
+    fn size(&self) -> usize {
+        let inner_size = self.elem.size();
+        match self.vectorization {
+            Some(size) => size.get() as usize * inner_size,
+            None => inner_size,
         }
     }
 }
