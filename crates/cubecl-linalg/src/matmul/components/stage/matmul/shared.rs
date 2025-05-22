@@ -17,7 +17,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub buffering: StageBuffering,
     pub num_stages: (u32, u32),
-    pub tmm_per_primitive: (u32, u32),
+    pub acc_per_primitive: (u32, u32),
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -71,7 +71,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     }
 
     fn accumulator_shape(&self) -> (u32, u32) {
-        self.tmm_per_primitive
+        self.acc_per_primitive
     }
 }
 
@@ -95,7 +95,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
             num_stages,
-            tmm_per_primitive,
+            acc_per_primitive: tmm_per_primitive,
         }
     }
 }
@@ -111,10 +111,8 @@ pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
 
 #[cube]
 impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
-    pub fn new(
-        #[comptime] shape: (u32, u32),
-        #[comptime] config: CommonStageConfig<TMM::Config>,
-    ) -> Accumulators<MP, TMM> {
+    pub fn new(#[comptime] config: CommonStageConfig<TMM::Config>) -> Accumulators<MP, TMM> {
+        let shape = config.accumulator_shape();
         let mut accumulators = Sequence::new();
 
         #[unroll]

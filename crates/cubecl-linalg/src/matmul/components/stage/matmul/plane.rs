@@ -62,12 +62,14 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_rows = config.tiling_dimensions(Ident::Lhs).tile_count_row();
+        let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
+        let acc_per_plane = config.accumulator_shape().0 * config.accumulator_shape().1;
+        let num_planes_needed = num_acc / acc_per_plane;
         let num_planes = config.num_planes();
 
-        if num_rows % num_planes != 0 {
+        if num_planes != num_planes_needed {
             return Err(Box::new(format!(
-                "Error: Number of planes {num_planes} should divide number of rows {num_rows}."
+                "Error: Number of planes {num_planes} should be {num_planes_needed}."
             )));
         }
 
@@ -219,6 +221,10 @@ where
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
         let shape = config.accumulator_shape();
+        assert!(
+            shape.1 == config.tiling.tile_count.n,
+            "For now, Plane Matmul assumes a plane performs whole rows."
+        );
 
         let tmm_config = config.to_tmm_config();
         let mut lhs = Sequence::new();
@@ -284,7 +290,7 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        Accumulators::<MP, TMM>::new(config.accumulator_shape(), config)
+        Accumulators::<MP, TMM>::new(config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {

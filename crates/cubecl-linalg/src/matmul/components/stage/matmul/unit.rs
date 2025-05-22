@@ -56,14 +56,15 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_tmm = config.tiling_dimensions(Ident::Out).tile_count_row()
-            * config.tiling_dimensions(Ident::Out).tile_count_col();
-        let num_units = config.num_planes() * config.plane_dim();
+        let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
+        // TODO when accumulator shape is a struct, implement a num_elems
+        let acc_per_unit = config.accumulator_shape().0 * config.accumulator_shape().1;
+        let num_units_needed = num_acc / acc_per_unit;
+        let num_units = config.plane_dim() * config.num_planes();
 
-        if num_tmm % num_units != 0 {
+        if num_units != num_units_needed {
             return Err(Box::new(format!(
-                "Error: for unit matmul, number of units {:?} must divide number of tile matmuls {:?}",
-                num_units, num_tmm
+                "Error: Number of units {num_units} should be {num_units_needed}."
             )));
         }
 
@@ -163,8 +164,11 @@ where
     ) {
         // TODO support double buffer
 
-        let stage_n = config.tiling.tile_count.n;
-        let (start_m, start_n) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
+        // TODO this is duplicated in write
+        let (m_acc_shape, n_acc_shape) = config.accumulator_shape();
+        let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
+        let start_m = m_acc_shape * (UNIT_POS / num_acc_n);
+        let start_n = n_acc_shape * (UNIT_POS % num_acc_n);
 
         match rhs_tiles {
             RhsTile::Single(rhs_tile) => execute_single_buffer::<MP, TMM, RL, RR, SEL>(
@@ -178,12 +182,12 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
+        let shape = config.accumulator_shape();
         let tmm_config = config.to_tmm_config();
         let mut lhs = Sequence::new();
 
         #[unroll]
-        // TODO generalize
-        for _ in 0..comptime!(1) {
+        for _ in 0..comptime!(shape.0) {
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
@@ -213,19 +217,39 @@ where
         let slice_start = num_tile_lines * UNIT_POS;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let stage_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col();
-        let (m_index, n_index) = (UNIT_POS / stage_n, UNIT_POS % stage_n);
+        let (m_acc_shape, n_acc_shape) = stage_config.accumulator_shape();
+        let num_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
+        let m_unit_offset = m_acc_shape * (UNIT_POS / num_acc_n);
+        let n_unit_offset = n_acc_shape * (UNIT_POS % num_acc_n);
 
-        // TODO generalize
-        let accumulator = Self::Accumulator::get_at(acc, 0u32, 0u32);
-        TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-        Self::Writer::write::<G>(out, smem_slice.to_slice(), m_index, n_index, global_config);
+        let mut m_iter = comptime![0u32];
+
+        #[unroll]
+        #[allow(clippy::explicit_counter_loop)]
+        for _ in 0..comptime![m_acc_shape] {
+            let mut n_iter = comptime![0u32];
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..comptime![n_acc_shape] {
+                let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
+                TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
+                Self::Writer::write::<G>(
+                    out,
+                    smem_slice.to_slice(),
+                    m_unit_offset + m_iter,
+                    n_unit_offset + n_iter,
+                    global_config,
+                );
+
+                comptime![n_iter += 1];
+            }
+            comptime![m_iter += 1];
+        }
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        // TODO generalize
-        let shape = (1, 1);
-        Accumulators::<MP, TMM>::new(shape, config)
+        Accumulators::<MP, TMM>::new(config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {

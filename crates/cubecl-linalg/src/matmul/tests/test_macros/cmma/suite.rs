@@ -74,7 +74,7 @@ pub fn test_algo_unit<
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
-    tmm_per_unit: (u32, u32),
+    acc_per_unit: (u32, u32),
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -98,7 +98,7 @@ pub fn test_algo_unit<
         tile_shape,
         tile_count,
         plane_dim,
-        acc_per_unit: tmm_per_unit,
+        acc_per_unit,
     };
     let config_input = (&selection).into();
     let vectorization = StageVectorization {
