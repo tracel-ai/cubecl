@@ -59,6 +59,13 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
         // TODO when accumulator shape is a struct, implement a num_elems
         let acc_per_unit = config.accumulator_shape().0 * config.accumulator_shape().1;
+
+        if num_acc % acc_per_unit != 0 {
+            return Err(Box::new(format!(
+                "Error: Number of accumulators {num_acc} should be divisible by number of accumulators per unit {acc_per_unit}."
+            )));
+        }
+
         let num_units_needed = num_acc / acc_per_unit;
         let num_units = config.plane_dim() * config.num_planes();
 

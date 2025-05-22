@@ -64,6 +64,13 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
         let acc_per_plane = config.accumulator_shape().0 * config.accumulator_shape().1;
+
+        if num_acc % acc_per_plane != 0 {
+            return Err(Box::new(format!(
+                "Error: Number of accumulators {num_acc} should be divisible by number of accumulators per plane {acc_per_plane}."
+            )));
+        }
+
         let num_planes_needed = num_acc / acc_per_plane;
         let num_planes = config.num_planes();
 
@@ -223,7 +230,7 @@ where
         let shape = config.accumulator_shape();
         assert!(
             shape.1 == config.tiling.tile_count.n,
-            "For now, Plane Matmul assumes a plane performs whole rows."
+            "For now, Plane Matmul assumes planes perform whole rows."
         );
 
         let tmm_config = config.to_tmm_config();

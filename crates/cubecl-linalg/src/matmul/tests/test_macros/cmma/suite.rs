@@ -417,20 +417,20 @@ macro_rules! matmul_standard_tests {
     (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
 
-        #[test]
-        pub fn simple_unit_1_1() {
-            cubecl_linalg::matmul::tests::test_algo_unit::<
-                SimpleUnitAlgorithm,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-                (1, 1)
-            );
-        }
+        // #[test]
+        // pub fn simple_unit_1_1() {
+        //     cubecl_linalg::matmul::tests::test_algo_unit::<
+        //         SimpleUnitAlgorithm,
+        //         Precision,
+        //         TestRuntime,
+        //     >(
+        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+        //         $tile,
+        //         $stage,
+        //         $problem,
+        //         (1, 1)
+        //     );
+        // }
 
         // #[test]
         // pub fn simple_unit_2_1() {
@@ -462,20 +462,20 @@ macro_rules! matmul_standard_tests {
         //     );
         // }
 
-        // #[test]
-        // pub fn simple_unit_2_2() {
-        //     cubecl_linalg::matmul::tests::test_algo_unit::<
-        //         SimpleUnitAlgorithm,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //         (2, 2)
-        //     );
-        // }
+        #[test]
+        pub fn simple_unit_2_2() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                SimpleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                (2, 2)
+            );
+        }
     };
 
     // Select variant of tma matmul
