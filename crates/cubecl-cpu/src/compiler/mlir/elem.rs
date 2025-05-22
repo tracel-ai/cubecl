@@ -6,12 +6,12 @@ use cubecl_runtime::DeviceProperties;
 use melior::Context;
 use melior::ir::Type;
 
-pub(super) trait TransformType {
-    fn visit_type<'a>(&self, context: &'a Context) -> Type<'a>;
+pub(super) trait VisitType {
+    fn visit<'a>(&self, context: &'a Context) -> Type<'a>;
 }
 
-impl TransformType for Elem {
-    fn visit_type<'a>(&self, context: &'a Context) -> Type<'a> {
+impl VisitType for Elem {
+    fn visit<'a>(&self, context: &'a Context) -> Type<'a> {
         match self {
             Elem::Float(FloatKind::F32) => Type::float32(context),
             _ => todo!("This type is not implemented yet."),
@@ -33,6 +33,7 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         // ir::Elem::AtomicInt(ir::IntKind::I64),
         // ir::Elem::AtomicUInt(ir::UIntKind::U32),
         // ir::Elem::AtomicUInt(ir::UIntKind::U64),
+        // ir::Elem::Float(ir::FloatKind::BF16),
         // ir::Elem::Float(ir::FloatKind::F16),
         ir::Elem::Float(ir::FloatKind::F32),
         // ir::Elem::Float(ir::FloatKind::F64),

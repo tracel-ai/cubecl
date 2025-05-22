@@ -1,7 +1,12 @@
+pub(super) mod elem;
 pub(super) mod item;
 pub mod module;
+pub(super) mod operation;
+pub(super) mod operator;
 pub(super) mod prelude;
-pub mod types;
+pub(super) mod scope;
+
+pub use elem::register_supported_types;
 
 use std::fmt::{Debug, Display};
 
@@ -12,8 +17,8 @@ use module::Module;
 const MAX_BUFFER_SIZE: usize = 16;
 
 pub struct MlirEngine {
+    // This field must never be reallocated, because a double indirection is necessary for Orca JIT
     args: Vec<*mut u8>,
-    // These fields must never be reallocated, because a double indirection is necessary for Orca JIT
     args_indirected: Vec<*mut ()>,
     execution_engine: ExecutionEngine,
 }
