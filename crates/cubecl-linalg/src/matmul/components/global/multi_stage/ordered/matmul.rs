@@ -5,7 +5,7 @@ use crate::matmul::components::global::load::{
 };
 use crate::matmul::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::problem::MatmulLineSizes;
-use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
+use crate::matmul::components::stage::BufferStageToTileReader;
 use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
 use crate::matmul::components::stage::{FullStageToTileReader, StageEvent};
 use crate::matmul::components::{
@@ -59,18 +59,6 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         <LL as LoadingValidation>::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
-
-        // Check necessary for multi row.
-        let stage_n = config
-            .to_smm_config()
-            .tiling_dimensions(Ident::Rhs)
-            .tile_count_col();
-        if stage_n != config.num_planes() {
-            return Err(Box::new(
-                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row.",
-            ));
-        }
-
         SMM::check_config(&config.to_smm_config())
     }
 

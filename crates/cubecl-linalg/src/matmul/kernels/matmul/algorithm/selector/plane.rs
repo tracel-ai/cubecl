@@ -175,36 +175,21 @@ pub(crate) fn find_instruction_shape(
     m: usize,
     n: usize,
 ) -> (usize, usize, usize) {
-    match properties {
-        Some(properties) => {
-            let supported = |m: u8, n: u8, k: u8| {
-                let (p, (a, b, c)) = properties;
-                p.feature_enabled(Feature::Cmma { a, b, c, m, n, k })
-            };
+    let supported = |m: u8, n: u8, k: u8| {
+        properties
+            .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
+            .unwrap_or(true)
+    };
 
-            if m >= 4 * n && supported(32, 8, 16) {
-                (32, 8, 16)
-            } else if n >= 4 * n && supported(8, 32, 16) {
-                (8, 32, 16)
-            } else if supported(16, 16, 16) {
-                (16, 16, 16)
-            } else if supported(8, 8, 8) {
-                (8, 8, 8)
-            } else {
-                (16, 16, 8)
-            }
-        } // TODO: instead, make another selector for non-cmma
-        // -> Better: every Algorithm implements its selector
-        // Though most will call the same function
-        // In refactoring selector, never be generic over element type, only use DTYPE
-        // Also, never use TensorHandleRef
-        //
-        // For unit selector,
-        // We first want to choose the stage size, to have a good unit count
-        // Then, we want a small tile size
-        // Depends on problem, like if it's mat@vec
-        //
-        // None => (8, 8, 8),
-        None => (4, 4, 4),
+    if m >= 4 * n && supported(32, 8, 16) {
+        (32, 8, 16)
+    } else if n >= 4 * n && supported(8, 32, 16) {
+        (8, 32, 16)
+    } else if supported(16, 16, 16) {
+        (16, 16, 16)
+    } else if supported(8, 8, 8) {
+        (8, 8, 8)
+    } else {
+        (16, 16, 8)
     }
 }

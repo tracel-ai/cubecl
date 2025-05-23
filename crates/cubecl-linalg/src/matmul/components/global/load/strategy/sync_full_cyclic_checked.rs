@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::load::{SyncFullLoadingStrategy, sync_full_cyclic};
+use crate::matmul::components::global::load::{
+    LoaderCheckLevel, SyncFullLoadingStrategy, sync_full_cyclic,
+};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
@@ -46,6 +48,17 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
+
+        comptime!(
+            println!("---");
+            println!("input_ident: {:?}", input_ident);
+            println!("num_tasks_per_unit: {:?}", num_tasks_per_unit);
+            println!("tile_num_elements: {:?}", tile_num_elements);
+            println!("jump_length: {:?}", jump_length);
+            println!("line_size: {:?}", line_size);
+            println!("balanced_workload: {:?}", balanced_workload);
+            println!("num_stage_elements: {:?}", num_stage_elements);
+        );
 
         Job {
             unit_position_base,
@@ -99,6 +112,9 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             jump_length: comptime!(this.jump_length),
             line_size: comptime!(this.line_size),
             input_ident: comptime!(this.input_ident),
+            balanced_workload: comptime!(this.balanced_workload),
+            num_stage_elements: comptime!(this.num_stage_elements),
+            loader_check_level: comptime!(LoaderCheckLevel::Runtime),
         };
 
         #[allow(clippy::collapsible_else_if)]

@@ -1,4 +1,4 @@
-use cubecl_core::{CubeCount, ir::Elem};
+use cubecl_core::{CubeCount, CubeDim, ir::Elem};
 use std::fmt::Debug;
 
 use crate::matmul::components::{InvalidConfigError, MatmulSize};
@@ -13,6 +13,7 @@ pub enum MatmulLaunchError {
 pub enum MatmulAvailabilityError {
     PlaneDimUnknown,
     CubeCountTooBig(CubeCount),
+    CubeDimTooBig(CubeDim),
     PlaneDimUnsupported {
         plane_dim: u32,
     },
@@ -136,6 +137,9 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::CubeCountTooBig(count) => {
                 writeln!(f, "Cube count too big {count:?}")
+            }
+            MatmulAvailabilityError::CubeDimTooBig(dim) => {
+                writeln!(f, "Cube dim too big {dim:?}")
             }
             MatmulAvailabilityError::PlaneDimUnknown => {
                 writeln!(f, "Plane dimension unknown.")

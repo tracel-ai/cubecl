@@ -1,5 +1,5 @@
 use crate::matmul::components::MatmulSize;
-use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::stage::{AccumulatorShape, StageVectorization};
 use crate::matmul::components::{MatmulProblem, MatrixLayout};
 use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection, UnitMatmulSelection};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -57,6 +57,7 @@ pub fn test_algo<
                 A::stage_buffering_strategy(),
                 vectorization,
                 A::num_stages(),
+                A::accumulator_shape(&selection),
             ),
             A::loading_precompute_strategy(),
         ),
@@ -73,6 +74,7 @@ pub fn test_algo_unit<
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
+    accumulator_shape: AccumulatorShape,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -96,6 +98,7 @@ pub fn test_algo_unit<
         tile_shape,
         tile_count,
         plane_dim,
+        accumulator_shape,
     };
     let config_input = (&selection).into();
     let vectorization = StageVectorization {
@@ -112,6 +115,7 @@ pub fn test_algo_unit<
                 A::stage_buffering_strategy(),
                 vectorization,
                 A::num_stages(),
+                A::accumulator_shape(&selection),
             ),
             A::loading_precompute_strategy(),
         ),
@@ -168,6 +172,7 @@ pub fn test_algo_tma<
                 A::stage_buffering_strategy(),
                 vectorization,
                 A::num_stages(),
+                A::accumulator_shape(&selection),
             ),
             A::loading_precompute_strategy(),
         ),
@@ -410,10 +415,10 @@ macro_rules! matmul_standard_tests {
 
     // Select variant of unit matmul
     (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
+        use $crate::matmul::kernels::matmul::{simple_unit::SimpleUnitAlgorithm, double_unit::DoubleUnitAlgorithm};
 
         #[test]
-        pub fn simple_unit() {
+        pub fn simple_unit_2_2() {
             cubecl_linalg::matmul::tests::test_algo_unit::<
                 SimpleUnitAlgorithm,
                 Precision,
@@ -423,6 +428,22 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                (2, 2).into()
+            );
+        }
+
+        #[test]
+        pub fn double_unit_2_2() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                DoubleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                (2, 2).into()
             );
         }
     };
@@ -663,14 +684,14 @@ macro_rules! matmul_standard_tests {
         }
 
         #[cfg(target_os="macos")]
-        mod s16x8x4 {
+        mod s8x4x4 {
             use super::*;
             $crate::matmul_standard_tests!(
                 $kind;
                 $lhs_layout,
                 $rhs_layout,
                 $tile,
-                MatmulSize { m: 16, n: 8, k: 4 }
+                MatmulSize { m: 8, n: 4, k: 4 }
             );
         }
 

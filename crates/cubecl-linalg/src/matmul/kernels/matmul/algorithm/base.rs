@@ -1,4 +1,6 @@
-use crate::matmul::components::stage::{StageBuffering, StageVectorization};
+use crate::matmul::components::stage::{
+    AccumulatorShape, NumStages, StageBuffering, StageVectorization,
+};
 use crate::matmul::components::{
     CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
     batch, global, stage, tile,
@@ -15,7 +17,8 @@ type StageInput = (
     CompleteStageTiling,
     stage::StageBuffering,
     StageVectorization,
-    (u32, u32),
+    NumStages,
+    AccumulatorShape,
 );
 
 pub enum MultiRowStrategy {
@@ -64,8 +67,17 @@ pub trait Algorithm {
         MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (1, 1)
+    fn num_stages() -> NumStages {
+        (1, 1).into()
+    }
+
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> AccumulatorShape {
+        // Default behaviour for algorithms using PlaneMatmul
+        (
+            selection.tile_count().m / Self::cube_dim(selection).y,
+            selection.tile_count().n,
+        )
+            .into()
     }
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
@@ -85,6 +97,13 @@ pub trait Algorithm {
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
+        #[cfg(target_os = "macos")]
+        if cube_dim.num_elems() >= 512 {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::CubeDimTooBig(*cube_dim),
+            ));
+        }
+
         let config = Self::BatchMatmul::make_config(
             input, problem, line_sizes, cube_dim, cube_count, quantized,
         );

@@ -7,36 +7,34 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{RuntimeCheck, SyncFullLoadingStrategy, sync_full_cyclic},
+        load::{ComptimeCheck, sync_buffer_cyclic},
     },
-    stage::{
-        self, AccumulatorShape, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder,
-        StageBuffering,
-    },
+    stage::{self, AccumulatorShape, BufferReaderFamily, NumStages, RowMajorTilingOrder},
     tile,
 };
 
-pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder, RuntimeCheck>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder, RuntimeCheck>,
-    Dispatch = batch::TransposedDispatch,
-> {
-    pub _ll: PhantomData<LL>,
-    pub _rl: PhantomData<RL>,
+pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedDispatch> {
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<LL, RL, Dispatch> base::Algorithm for SimpleUnitAlgorithm<LL, RL, Dispatch>
+impl<Dispatch> base::Algorithm for DoubleUnitAlgorithm<Dispatch>
 where
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = tile::register_matmul::RegisterMatmul;
-    type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
-    type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+        Self::StageMatmul,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
+    >;
+
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type MatmulSelection = UnitMatmulSelection;
+
+    fn num_stages() -> NumStages {
+        (2, 2).into()
+    }
 
     fn line_sizes(
         problem: &MatmulProblem,
@@ -102,9 +100,5 @@ where
 
     fn accumulator_shape(selection: &Self::MatmulSelection) -> AccumulatorShape {
         selection.accumulator_shape
-    }
-
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Single
     }
 }

@@ -4,9 +4,11 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
+use crate::matmul::components::global::load::{
+    ComptimeCheck, sync_buffer_cyclic, sync_buffer_tilewise,
+};
 use crate::matmul::components::stage::{
-    self, BufferReaderFamily, ColMajorTilingOrder, RowMajorTilingOrder,
+    self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
 };
 use crate::matmul::components::tile;
 use crate::matmul::components::{batch, global};
@@ -39,8 +41,8 @@ where
     >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
@@ -60,8 +62,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (2, 2)
+    fn num_stages() -> NumStages {
+        (2, 2).into()
     }
 
     fn selection<R: Runtime>(
@@ -119,8 +121,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (2, 2)
+    fn num_stages() -> NumStages {
+        (2, 2).into()
     }
 
     fn selection<R: Runtime>(
@@ -157,7 +159,7 @@ where
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
@@ -177,8 +179,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (2, 2)
+    fn num_stages() -> NumStages {
+        (2, 2).into()
     }
 
     fn selection<R: Runtime>(
