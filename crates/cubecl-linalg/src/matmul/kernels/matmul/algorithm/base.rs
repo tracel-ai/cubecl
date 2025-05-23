@@ -95,6 +95,13 @@ pub trait Algorithm {
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
+        #[cfg(target_os = "macos")]
+        if cube_dim.num_elems() >= 512 {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::CubeDimTooBig(*cube_dim),
+            ));
+        }
+
         let config = Self::BatchMatmul::make_config(
             input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
