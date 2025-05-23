@@ -1,29 +1,47 @@
-use crate::matmul::components::global::GlobalWriter;
-use crate::matmul::components::global::{AccumulatorLoader, UnitWriter};
-use crate::matmul::components::stage::matmul::base::{
-    execute_double_buffer, execute_single_buffer,
-};
-use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
-use crate::matmul::components::stage::{
-    NoEvent, StageBuffering, StageEventListener, StageVectorization,
-};
-use crate::matmul::components::stage::{ReaderFamily, StageToTileReader};
-use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
+use crate::matmul::components::global::UnitWriter;
+use crate::matmul::components::stage::ReaderFamily;
+use crate::matmul::components::stage::shared::CommonStageConfig;
+use crate::matmul::components::stage::{StageBuffering, StageVectorization};
+use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
     MatmulSize,
 };
-use crate::matmul::components::{Ident, MatmulProblem, global, tile};
+use crate::matmul::components::{Ident, MatmulProblem};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::shared::Accumulators;
+use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
 use super::{AccumulatorShape, NumStages};
+
+pub struct UnitExecutionPrimitive {}
+
+#[cube]
+impl ExecutePrimitive for UnitExecutionPrimitive {
+    type Writer<EO: Numeric> = UnitWriter<EO>;
+
+    fn init_writer<EO: Numeric>(
+        tensor: VirtualTensor<EO, ReadWrite>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Writer<EO> {
+        UnitWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
+    }
+
+    fn id() -> u32 {
+        UNIT_POS
+    }
+
+    fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
+        config.num_planes() * config.plane_dim()
+    }
+}
 
 pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
@@ -123,169 +141,4 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     }
 }
 
-pub struct UnitMatmul<
-    MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
-> {
-    _phantom: PhantomData<(MP, TMM, RL, RR)>,
-}
-
-#[cube]
-impl<MP, TMM, RL, RR> StageMatmul<MP> for UnitMatmul<MP, TMM, RL, RR>
-where
-    MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
-{
-    type Config = CommonStageConfig<TMM::Config>;
-
-    type LhsReader = RL;
-    type RhsReader = RR;
-    type Accumulator = Accumulators<MP, TMM>;
-    type LhsTile = Sequence<TMM::Lhs>;
-    type RhsTile = RhsTile<TMM::Rhs>;
-    type Writer = UnitWriter<MP::EO>;
-
-    fn execute(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
-        lhs_tile: &mut Self::LhsTile,
-        rhs_tiles: &mut Self::RhsTile,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    ) {
-        Self::execute_with_listener::<NoEvent>(
-            lhs_reader,
-            rhs_reader,
-            lhs_tile,
-            rhs_tiles,
-            acc,
-            config,
-            NoEvent::new(),
-        )
-    }
-
-    fn execute_with_listener<SEL: StageEventListener>(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
-        lhs_tiles: &mut Self::LhsTile,
-        rhs_tiles: &mut Self::RhsTile,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-        listener: SEL,
-    ) {
-        // TODO this is duplicated in write
-        let m_acc_shape = config.accumulator_shape().m;
-        let n_acc_shape = config.accumulator_shape().n;
-        let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
-        let start_m = m_acc_shape * (UNIT_POS / num_acc_n);
-        let start_n = n_acc_shape * (UNIT_POS % num_acc_n);
-
-        match rhs_tiles {
-            RhsTile::Single(rhs_tile) => execute_single_buffer::<MP, TMM, RL, RR, SEL>(
-                start_m, start_n, lhs_reader, rhs_reader, lhs_tiles, rhs_tile, acc, config,
-                listener,
-            ),
-            RhsTile::Double(rhs_tiles) => execute_double_buffer::<MP, TMM, RL, RR, SEL>(
-                start_m, start_n, lhs_reader, rhs_reader, lhs_tiles, rhs_tiles, acc, config,
-                listener,
-            ),
-        }
-    }
-
-    fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        let shape = config.accumulator_shape();
-        let tmm_config = config.to_tmm_config();
-        let mut lhs = Sequence::new();
-
-        #[unroll]
-        for _ in 0..comptime!(shape.m) {
-            lhs.push(TMM::allocate_lhs(tmm_config));
-        }
-
-        let rhs = match config.buffering() {
-            StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
-            StageBuffering::Double => {
-                RhsTile::new_Double((TMM::allocate_rhs(tmm_config), TMM::allocate_rhs(tmm_config)))
-            }
-        };
-
-        (lhs, rhs)
-    }
-
-    fn write_results<G: global::GlobalConfig>(
-        acc: &Self::Accumulator,
-        out: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let out_smem_line_size = global_config.to_smm_config().stage_line_size(Ident::Out);
-        let num_tile_lines =
-            stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
-        let num_units = stage_config.num_planes() * stage_config.plane_dim();
-
-        let mut out_smem =
-            SharedMemory::<MP::EO>::new_lined(num_tile_lines * num_units, out_smem_line_size);
-        let slice_start = num_tile_lines * UNIT_POS;
-        let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
-
-        let m_acc_shape = stage_config.accumulator_shape().m;
-        let n_acc_shape = stage_config.accumulator_shape().n;
-        let num_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
-        let m_unit_offset = m_acc_shape * (UNIT_POS / num_acc_n);
-        let n_unit_offset = n_acc_shape * (UNIT_POS % num_acc_n);
-
-        let mut m_iter = comptime![0u32];
-
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime![m_acc_shape] {
-            let mut n_iter = comptime![0u32];
-
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime![n_acc_shape] {
-                let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
-                TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-                Self::Writer::write::<G>(
-                    out,
-                    smem_slice.to_slice(),
-                    m_unit_offset + m_iter,
-                    n_unit_offset + n_iter,
-                    global_config,
-                );
-
-                comptime![n_iter += 1];
-            }
-            comptime![m_iter += 1];
-        }
-    }
-
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        Accumulators::<MP, TMM>::new(config)
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        acc.zero(config);
-    }
-
-    fn fill_accumulator<L: AccumulatorLoader<MP>>(
-        loader: &mut L,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    ) {
-        acc.fill::<L>(loader, config);
-    }
-
-    fn init_writer(
-        tensor: VirtualTensor<MP::EO, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self::Writer {
-        Self::Writer::new(tensor, x_offset, y_offset, batch_offset)
-    }
-}
+type UnitMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, UnitExecutionPrimitive>;
