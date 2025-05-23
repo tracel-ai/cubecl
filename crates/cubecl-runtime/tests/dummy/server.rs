@@ -1,6 +1,9 @@
 use cubecl_common::future::DynFut;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_runtime::id::KernelId;
+use cubecl_runtime::kernel::KernelMetadata;
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfilingToken};
 use std::sync::Arc;
 
@@ -22,8 +25,31 @@ pub struct DummyServer {
     timestamps: KernelTimestamps,
 }
 
+#[derive(Debug, Clone)]
+pub struct KernelTask {
+    kernel: Arc<dyn DummyKernel>,
+}
+
+impl KernelMetadata for KernelTask {
+    fn id(&self) -> KernelId {
+        self.kernel.id()
+    }
+}
+
+impl KernelTask {
+    pub fn new(kernel: impl DummyKernel) -> Self {
+        Self {
+            kernel: Arc::new(kernel),
+        }
+    }
+
+    pub fn compute(&self, resources: &mut [&BytesResource]) {
+        self.kernel.compute(resources);
+    }
+}
+
 impl ComputeServer for DummyServer {
-    type Kernel = Arc<dyn DummyKernel>;
+    type Kernel = KernelTask;
     type Storage = BytesStorage;
     type Info = ();
     type Feature = ();
@@ -123,6 +149,7 @@ impl ComputeServer for DummyServer {
         _count: CubeCount,
         bindings: Bindings,
         _mode: ExecutionMode,
+        _logger: Arc<ServerLogger>,
     ) {
         let mut resources: Vec<_> = bindings
             .buffers

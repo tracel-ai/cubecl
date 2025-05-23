@@ -96,7 +96,7 @@ fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::DeviceOnly));
+    println!("{}", bench.run(TimingMethod::Device));
 }
 
 fn main() {

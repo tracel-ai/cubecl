@@ -1,9 +1,11 @@
 use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::{self, DynFut};
 use cubecl_core::server::ProfilingToken;
-use cubecl_cpp::{cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions};
+use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
-use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
 use serde::{Deserialize, Serialize};
 
@@ -12,22 +14,16 @@ use crate::{CudaCompiler, WmmaCompiler};
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{CudaResource, uninit_vec};
+use cubecl_core::ir::{Elem, IntKind, UIntKind};
+use cubecl_core::prelude::*;
 use cubecl_core::{
     Feature,
     ir::FloatKind,
     server::{BindingWithMeta, Bindings, Handle, TensorMapBinding},
 };
-use cubecl_core::{KernelId, prelude::*};
-use cubecl_core::{
-    compute::DebugInformation,
-    ir::{Elem, IntKind, UIntKind},
-};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{
-    logging::{ProfileLevel, ServerLogger},
-    storage::ComputeStorage,
-};
+use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -41,6 +37,7 @@ use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
@@ -50,7 +47,6 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    logger: ServerLogger,
 }
 
 #[derive(Debug)]
@@ -321,16 +317,10 @@ impl ComputeServer for CudaServer {
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
-
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel_id.clone()))
-        } else {
-            None
-        };
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -391,10 +381,10 @@ impl ComputeServer for CudaServer {
             (Vec::new(), handles)
         };
 
-        let (ctx, logger) = self.get_context_with_logger();
+        let ctx = self.get_context();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, logger, mode);
+            ctx.compile_kernel(&kernel_id, kernel, mode, logger);
         }
 
         let tensor_maps: Vec<_> = bindings
@@ -506,46 +496,12 @@ impl ComputeServer for CudaServer {
                 .map(|s| find_resource(ctx, s.binding())),
         );
 
-        if let Some(level) = profile_level {
-            match level {
-                ProfileLevel::ExecutionOnly => {
-                    let (name, _kernel_id) = profile_info.unwrap();
-                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
-
-                    logger.register_profiled_no_timing(&name);
-                    ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
-                }
-                _ => {
-                    ctx.sync();
-                    let start = std::time::SystemTime::now();
-                    ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
-                    ctx.sync();
-
-                    let (name, kernel_id) = profile_info.unwrap();
-                    let info = match level {
-                        ProfileLevel::Full => {
-                            format!("{name}: {kernel_id} CubeCount {count:?}")
-                        }
-                        ProfileLevel::Basic => type_name_format(name, TypeNameFormatLevel::Short),
-                        _ => {
-                            let name = type_name_format(name, TypeNameFormatLevel::Balanced);
-                            format!("{name} {count:?}")
-                        }
-                    };
-
-                    self.logger
-                        .register_profiled(info, start.elapsed().unwrap());
-                }
-            }
-        } else {
-            ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
-        }
+        ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
     }
 
     fn flush(&mut self) {}
 
     fn sync(&mut self) -> DynFut<()> {
-        self.logger.profile_summary();
         Box::pin(self.sync_stream_async())
     }
 
@@ -556,7 +512,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        self.logger.profile_summary();
         self.ctx.sync();
         self.ctx.timestamps.stop(token)
     }
@@ -636,8 +591,8 @@ impl CudaContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        logger: &mut ServerLogger,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         #[cfg(feature = "compilation-cache")]
         let name = if let Some(cache) = &self.ptx_cache {
@@ -695,7 +650,7 @@ impl CudaContext {
         #[cfg(feature = "compilation-cache")]
         let cluster_dim = compute_kernel.cluster_dim;
 
-        let kernel_compiled = logger.log_compilation(kernel_compiled);
+        logger.log_compilation(&kernel_compiled);
 
         let ptx = unsafe {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
@@ -815,19 +770,14 @@ impl CudaContext {
 impl CudaServer {
     /// Create a new cuda server.
     pub(crate) fn new(ctx: CudaContext) -> Self {
-        let logger = ServerLogger::default();
-        Self { ctx, logger }
+        Self { ctx }
     }
 
     fn get_context(&mut self) -> &mut CudaContext {
-        self.get_context_with_logger().0
-    }
-
-    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut ServerLogger) {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };
-        (&mut self.ctx, &mut self.logger)
+        &mut self.ctx
     }
 }
 

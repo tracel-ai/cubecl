@@ -16,6 +16,15 @@ pub enum ProfileDuration {
     DeviceDuration(Pin<Box<dyn Future<Output = Duration> + Send + 'static>>),
 }
 
+impl core::fmt::Debug for ProfileDuration {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ProfileDuration::Full(duration) => write!(f, "Full({:?})", duration),
+            ProfileDuration::DeviceDuration(_) => write!(f, "DeviceDuration"),
+        }
+    }
+}
+
 impl ProfileDuration {
     /// Create a new `ProfileDuration` straight from a duration.
     pub fn from_duration(duration: Duration) -> Self {
@@ -30,8 +39,8 @@ impl ProfileDuration {
     /// The method used to measure the execution time.
     pub fn timing_method(&self) -> TimingMethod {
         match self {
-            ProfileDuration::Full(_) => TimingMethod::Full,
-            ProfileDuration::DeviceDuration(_) => TimingMethod::DeviceOnly,
+            ProfileDuration::Full(_) => TimingMethod::System,
+            ProfileDuration::DeviceDuration(_) => TimingMethod::Device,
         }
     }
 
@@ -50,17 +59,17 @@ impl ProfileDuration {
 pub enum TimingMethod {
     /// Time measurements come from full timing of execution + sync
     /// calls.
-    Full,
+    System,
     /// Time measurements come from hardware reported timestamps
     /// coming from a sync call.
-    DeviceOnly,
+    Device,
 }
 
 impl Display for TimingMethod {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            TimingMethod::Full => f.write_str("full"),
-            TimingMethod::DeviceOnly => f.write_str("device_only"),
+            TimingMethod::System => f.write_str("system"),
+            TimingMethod::Device => f.write_str("device"),
         }
     }
 }
@@ -280,8 +289,8 @@ pub trait Benchmark {
 
             for _ in 0..self.num_samples() {
                 let profile = match timing_method {
-                    TimingMethod::Full => self.profile_full(args.clone()),
-                    TimingMethod::DeviceOnly => self.profile(args.clone()),
+                    TimingMethod::System => self.profile_full(args.clone()),
+                    TimingMethod::Device => self.profile(args.clone()),
                 };
                 let duration = crate::future::block_on(profile.resolve());
                 durations.push(duration);
@@ -345,7 +354,7 @@ where
         .output()
         .unwrap();
     let git_hash = String::from_utf8(output.stdout).unwrap().trim().to_string();
-    let durations = benchmark.run(TimingMethod::Full);
+    let durations = benchmark.run(TimingMethod::System);
 
     BenchmarkResult {
         raw: durations.clone(),
@@ -366,7 +375,7 @@ mod tests {
     #[test]
     fn test_min_max_median_durations_even_number_of_samples() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::Full,
+            timing_method: TimingMethod::System,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),
@@ -384,7 +393,7 @@ mod tests {
     #[test]
     fn test_min_max_median_durations_odd_number_of_samples() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::Full,
+            timing_method: TimingMethod::System,
             durations: vec![
                 Duration::new(18, 5),
                 Duration::new(20, 0),
@@ -401,7 +410,7 @@ mod tests {
     #[test]
     fn test_mean_duration() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::Full,
+            timing_method: TimingMethod::System,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),
@@ -416,7 +425,7 @@ mod tests {
     #[test]
     fn test_variance_duration() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::Full,
+            timing_method: TimingMethod::System,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),

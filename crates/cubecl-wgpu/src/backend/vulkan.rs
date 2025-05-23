@@ -330,7 +330,11 @@ fn is_robust(device: &wgpu::Device) -> bool {
 }
 
 #[cfg(feature = "spirv-dump")]
-fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_core::KernelId) {
+fn dump_spirv(
+    compiled: &CompiledKernel<AutoCompiler>,
+    name: &str,
+    id: cubecl_common::id::KernelId,
+) {
     use std::{
         fs,
         hash::{DefaultHasher, Hash, Hasher},

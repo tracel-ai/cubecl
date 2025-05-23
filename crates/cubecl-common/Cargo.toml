@@ -17,7 +17,7 @@ version.workspace = true
 default = ["std"]
 serde = []
 std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
-cache = ["std", "serde_json", "hashbrown", "dirs", "sanitize-filename"]
+cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -38,8 +38,10 @@ rand = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true } # using in place of use std::sync::Mutex;
 
+cfg-if = { workspace = true }
+
 # Cache
-hashbrown = { workspace = true, optional = true }
+hashbrown = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"], optional = true }
 dirs = { workspace = true, optional = true }
 sanitize-filename = { workspace = true, optional = true }
@@ -60,6 +62,9 @@ spin = { workspace = true, features = [
     "spin_mutex",
     "portable_atomic",
 ] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
 dashmap = { workspace = true }

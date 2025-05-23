@@ -4,11 +4,14 @@ use std::{
     sync::atomic::{AtomicI8, Ordering},
 };
 
-use crate::{Compiler, Kernel, KernelId, KernelOptions};
-use alloc::sync::Arc;
+use crate::{Compiler, KernelOptions};
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{Elem, Id, Item, Scope};
-use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
+use cubecl_runtime::{
+    config::{GlobalConfig, compilation::CompilationLogLevel},
+    id::{KernelId, format_str},
+    kernel::KernelMetadata,
+};
 use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language
@@ -60,22 +63,6 @@ pub struct DebugInformation {
     pub lang_tag: &'static str,
     /// The compilation id.
     pub id: KernelId,
-}
-
-impl Display for KernelId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.info {
-            Some(info) => f.write_str(
-                format_str(
-                    format!("{info:?}").as_str(),
-                    &[('(', ')'), ('[', ']'), ('{', '}')],
-                    true,
-                )
-                .as_str(),
-            ),
-            None => f.write_str("No info"),
-        }
-    }
 }
 
 static COMPILATION_LEVEL: AtomicI8 = AtomicI8::new(-1);
@@ -165,80 +152,6 @@ source:
     }
 }
 
-fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) -> String {
-    let kernel_id = kernel_id.to_string();
-    let mut result = String::new();
-    let mut depth = 0;
-    let indentation = 4;
-
-    let mut prev = ' ';
-
-    for c in kernel_id.chars() {
-        if c == ' ' {
-            continue;
-        }
-
-        let mut found_marker = false;
-
-        for (start, end) in markers {
-            let (start, end) = (*start, *end);
-
-            if c == start {
-                depth += 1;
-                if prev != ' ' && include_space {
-                    result.push(' ');
-                }
-                result.push(start);
-                result.push('\n');
-                result.push_str(&" ".repeat(indentation * depth));
-                found_marker = true;
-            } else if c == end {
-                depth -= 1;
-                if prev != start {
-                    if prev == ' ' {
-                        result.pop();
-                    }
-                    result.push_str(",\n");
-                    result.push_str(&" ".repeat(indentation * depth));
-                    result.push(end);
-                } else {
-                    for _ in 0..(&" ".repeat(indentation * depth).len()) + 1 + indentation {
-                        result.pop();
-                    }
-                    result.push(end);
-                }
-                found_marker = true;
-            }
-        }
-
-        if found_marker {
-            prev = c;
-            continue;
-        }
-
-        if c == ',' && depth > 0 {
-            if prev == ' ' {
-                result.pop();
-            }
-
-            result.push_str(",\n");
-            result.push_str(&" ".repeat(indentation * depth));
-            continue;
-        }
-
-        if c == ':' && include_space {
-            result.push(c);
-            result.push(' ');
-            prev = ' ';
-        } else {
-            result.push(c);
-            prev = c;
-        }
-    }
-
-    result
-}
-
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
@@ -282,31 +195,41 @@ pub enum Visibility {
     ReadWrite,
 }
 
+pub trait CubeKernel: KernelMetadata {
+    fn define(&self) -> KernelDefinition;
+}
+
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
-pub trait CubeTask<C: Compiler>: Send + Sync {
-    /// Identifier for the kernel, used for caching kernel compilation.
-    fn id(&self) -> KernelId;
-    /// Compile the kernel into source
+pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
     fn compile(
         &self,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
     ) -> CompiledKernel<C>;
-    fn name(&self) -> &'static str {
-        core::any::type_name::<Self>()
-    }
 }
 
-/// Wraps a [kernel](Kernel) to create a [cube task](CubeTask).
-#[derive(new)]
-pub struct KernelTask<C: Compiler, K: Kernel> {
+/// Wraps a [kernel](Kernel) to allow it be compiled.
+pub struct KernelTask<C: Compiler, K: CubeKernel> {
     kernel_definition: K,
     _compiler: PhantomData<C>,
 }
 
-impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
+pub struct CubeTaskKernel<C: Compiler> {
+    pub task: Box<dyn CubeTask<C>>,
+}
+
+impl<C: Compiler, K: CubeKernel> KernelTask<C, K> {
+    pub fn new(kernel_definition: K) -> Self {
+        Self {
+            kernel_definition,
+            _compiler: PhantomData,
+        }
+    }
+}
+
+impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
     fn compile(
         &self,
         compiler: &mut C,
@@ -327,49 +250,18 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
             debug_info: None,
         }
     }
+}
 
+impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
+    // Forward ID to underlying kernel definition.
     fn id(&self) -> KernelId {
-        self.kernel_definition.id().clone()
-    }
-
-    fn name(&self) -> &'static str {
-        core::any::type_name::<K>()
+        self.kernel_definition.id()
     }
 }
 
-impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
-    fn compile(
-        &self,
-        compiler: &mut C,
-        compilation_options: &C::CompilationOptions,
-        mode: ExecutionMode,
-    ) -> CompiledKernel<C> {
-        self.as_ref().compile(compiler, compilation_options, mode)
-    }
-
+impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
+    // Deref and use existing ID.
     fn id(&self) -> KernelId {
         self.as_ref().id()
-    }
-    fn name(&self) -> &'static str {
-        self.as_ref().name()
-    }
-}
-
-impl<C: Compiler> CubeTask<C> for Box<dyn CubeTask<C>> {
-    fn compile(
-        &self,
-        compiler: &mut C,
-        compilation_options: &C::CompilationOptions,
-        mode: ExecutionMode,
-    ) -> CompiledKernel<C> {
-        self.as_ref().compile(compiler, compilation_options, mode)
-    }
-
-    fn id(&self) -> KernelId {
-        self.as_ref().id()
-    }
-
-    fn name(&self) -> &'static str {
-        self.as_ref().name()
     }
 }

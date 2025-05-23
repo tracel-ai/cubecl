@@ -8,7 +8,11 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
-mod id;
+/// Various identifier types used in CubeCL.
+pub mod id;
+
+/// Kernel related traits.
+pub mod kernel;
 
 /// Compute channel module.
 pub mod channel;

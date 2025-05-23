@@ -148,7 +148,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
             bench.input_shape, bench.weight_shape
         );
         println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::Full));
+        println!("{}", bench.run(TimingMethod::System));
     }
 }
 

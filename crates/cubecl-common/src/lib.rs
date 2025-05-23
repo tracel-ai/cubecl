@@ -35,6 +35,7 @@ pub mod reader;
 /// Future utils with a compatible API for native, non-std and wasm environments.
 pub mod future;
 
+/// Various utilities to create ID's.
 extern crate alloc;
 
 /// Custom float implementations

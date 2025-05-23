@@ -1,9 +1,14 @@
-use std::{sync::Arc, thread};
+use std::sync::Arc;
 
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{
+    ExecutionMode,
+    benchmark::ProfileDuration,
+    future::{DynFut, spawn_detached_fut},
+};
 
 use super::ComputeChannel;
 use crate::{
+    logging::ServerLogger,
     memory_management::MemoryUsage,
     server::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
@@ -26,7 +31,6 @@ struct MpscComputeChannelState<Server>
 where
     Server: ComputeServer,
 {
-    _handle: thread::JoinHandle<()>,
     sender: async_channel::Sender<Message<Server>>,
 }
 
@@ -55,7 +59,11 @@ where
         Vec<usize>,
         Callback<Vec<(Handle, Vec<usize>)>>,
     ),
-    ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Bindings),
+    ExecuteKernel(
+        (Server::Kernel, CubeCount, ExecutionMode),
+        Bindings,
+        Arc<ServerLogger>,
+    ),
     Flush,
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
@@ -72,74 +80,70 @@ where
     pub fn new(mut server: Server) -> Self {
         let (sender, receiver) = async_channel::unbounded();
 
-        let _handle = thread::spawn(move || {
-            // Run the whole procedure as one blocking future. This is much simpler than trying
-            // to use some multithreaded executor.
-            cubecl_common::future::block_on(async {
-                while let Ok(message) = receiver.recv().await {
-                    match message {
-                        Message::Read(bindings, callback) => {
-                            let data = server.read(bindings).await;
-                            callback.send(data).await.unwrap();
-                        }
-                        Message::ReadTensor(bindings, callback) => {
-                            let data = server.read_tensor(bindings).await;
-                            callback.send(data).await.unwrap();
-                        }
-                        Message::GetResource(binding, callback) => {
-                            let data = server.get_resource(binding);
-                            callback.send(data).await.unwrap();
-                        }
-                        Message::Create(data, callback) => {
-                            let handle = server.create(&data);
-                            callback.send(handle).await.unwrap();
-                        }
-                        Message::CreateTensor(data, shape, elem_size, callback) => {
-                            let data = data.iter().map(|it| it.as_slice()).collect();
-                            let shape = shape.iter().map(|it| it.as_slice()).collect();
-                            let handle = server.create_tensors(data, shape, elem_size);
-                            callback.send(handle).await.unwrap();
-                        }
-                        Message::Empty(size, callback) => {
-                            let handle = server.empty(size);
-                            callback.send(handle).await.unwrap();
-                        }
-                        Message::EmptyTensor(shape, elem_size, callback) => {
-                            let shape = shape.iter().map(|it| it.as_slice()).collect();
-                            let handle = server.empty_tensors(shape, elem_size);
-                            callback.send(handle).await.unwrap();
-                        }
-                        Message::ExecuteKernel(kernel, bindings) => unsafe {
-                            server.execute(kernel.0, kernel.1, bindings, kernel.2);
-                        },
-                        Message::Sync(callback) => {
-                            server.sync().await;
-                            callback.send(()).await.unwrap();
-                        }
-                        Message::Flush => {
-                            server.flush();
-                        }
-                        Message::MemoryUsage(callback) => {
-                            callback.send(server.memory_usage()).await.unwrap();
-                        }
-                        Message::MemoryCleanup => {
-                            server.memory_cleanup();
-                        }
-                        Message::StartProfile(callback) => {
-                            let token = server.start_profile();
-                            callback.send(token).await.unwrap();
-                        }
-                        Message::StopMeasure(callback, token) => {
-                            callback.send(server.end_profile(token)).await.unwrap();
-                        }
-                    };
-                }
-            });
+        spawn_detached_fut(async move {
+            while let Ok(message) = receiver.recv().await {
+                match message {
+                    Message::Read(bindings, callback) => {
+                        let data = server.read(bindings).await;
+                        callback.send(data).await.unwrap();
+                    }
+                    Message::ReadTensor(bindings, callback) => {
+                        let data = server.read_tensor(bindings).await;
+                        callback.send(data).await.unwrap();
+                    }
+                    Message::GetResource(binding, callback) => {
+                        let data = server.get_resource(binding);
+                        callback.send(data).await.unwrap();
+                    }
+                    Message::Create(data, callback) => {
+                        let handle = server.create(&data);
+                        callback.send(handle).await.unwrap();
+                    }
+                    Message::CreateTensor(data, shape, elem_size, callback) => {
+                        let data = data.iter().map(|it| it.as_slice()).collect();
+                        let shape = shape.iter().map(|it| it.as_slice()).collect();
+                        let handle = server.create_tensors(data, shape, elem_size);
+                        callback.send(handle).await.unwrap();
+                    }
+                    Message::Empty(size, callback) => {
+                        let handle = server.empty(size);
+                        callback.send(handle).await.unwrap();
+                    }
+                    Message::EmptyTensor(shape, elem_size, callback) => {
+                        let shape = shape.iter().map(|it| it.as_slice()).collect();
+                        let handle = server.empty_tensors(shape, elem_size);
+                        callback.send(handle).await.unwrap();
+                    }
+                    Message::ExecuteKernel(kernel, bindings, logger) => unsafe {
+                        server.execute(kernel.0, kernel.1, bindings, kernel.2, logger);
+                    },
+                    Message::Sync(callback) => {
+                        server.sync().await;
+                        callback.send(()).await.unwrap();
+                    }
+                    Message::Flush => {
+                        server.flush();
+                    }
+                    Message::MemoryUsage(callback) => {
+                        callback.send(server.memory_usage()).await.unwrap();
+                    }
+                    Message::MemoryCleanup => {
+                        server.memory_cleanup();
+                    }
+                    Message::StartProfile(callback) => {
+                        let token = server.start_profile();
+                        callback.send(token).await.unwrap();
+                    }
+                    Message::StopMeasure(callback, token) => {
+                        callback.send(server.end_profile(token)).await.unwrap();
+                    }
+                };
+            }
         });
 
-        let state = Arc::new(MpscComputeChannelState { sender, _handle });
-
-        Self { state }
+        Self {
+            state: Arc::new(MpscComputeChannelState { sender }),
+        }
     }
 }
 
@@ -260,10 +264,15 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         self.state
             .sender
-            .send_blocking(Message::ExecuteKernel((kernel, count, kind), bindings))
+            .send_blocking(Message::ExecuteKernel(
+                (kernel, count, kind),
+                bindings,
+                logger,
+            ))
             .unwrap();
     }
 

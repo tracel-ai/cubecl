@@ -5,14 +5,15 @@ use crate::{
 };
 use cubecl_common::future;
 use cubecl_core::{
-    AtomicFeature, CubeDim, DeviceId, Feature, Runtime,
+    AtomicFeature, CubeDim, Feature, Runtime,
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
-    ComputeRuntime, TimeMeasurement,
+    ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
+    id::DeviceId,
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
@@ -82,7 +83,7 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
+    fn device_id(device: &Self::Device) -> DeviceId {
         #[allow(deprecated)]
         match device {
             WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
@@ -239,17 +240,8 @@ pub(crate) fn create_client_on_setup(
     let mut compilation_options = Default::default();
 
     let features = setup.adapter.features();
-    let time_measurement = match setup
-        .device
-        .features()
-        .contains(wgpu::Features::TIMESTAMP_QUERY)
-    {
-        true => TimeMeasurement::Device,
-        false => TimeMeasurement::System,
-    };
 
-    let mut device_props =
-        DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
+    let mut device_props = DeviceProperties::new(&[], mem_props.clone(), hardware_props);
 
     // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
     // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
@@ -273,7 +265,6 @@ pub(crate) fn create_client_on_setup(
         setup.queue,
         options.tasks_max,
         setup.backend,
-        time_measurement,
     );
     let channel = MutexComputeChannel::new(server);
 
