@@ -1,21 +1,19 @@
 use std::path::PathBuf;
 
-use super::prelude::*;
 use cubecl_core::prelude::KernelDefinition;
 use melior::{
-    ExecutionEngine,
-    dialect::{
-        arith, func,
-        llvm::{self, LoadStoreOptions},
-    },
+    Context, ExecutionEngine,
+    dialect::{func, llvm},
     ir::{
-        Attribute, Block, BlockLike, Identifier, Location, Region, RegionLike, Type,
-        attribute::{FloatAttribute, StringAttribute, TypeAttribute},
+        Attribute, Block, BlockLike, Identifier, Location, Region, RegionLike,
+        attribute::{StringAttribute, TypeAttribute},
         operation::{OperationLike, OperationPrintingFlags},
         r#type::FunctionType,
     },
     pass::{self, PassIrPrintingOptions, PassManager},
 };
+
+use super::visitor::Visitor;
 
 pub(super) struct Module<'a> {
     module: melior::ir::Module<'a>,
@@ -60,7 +58,8 @@ impl<'a> Module<'a> {
                 let region = Region::new();
                 let block = Block::new(&block_input);
 
-                kernel.body.visit(&block, self.context, self.location);
+                let visitor = Visitor::new(&block, self.context, self.location);
+                visitor.visit_scope(&kernel.body);
 
                 block.append_operation(func::r#return(&[], self.location));
 

@@ -1,31 +1,19 @@
 use cubecl_core::ir::Operator;
-use melior::ir::{Block, Location, Value};
+use melior::ir::Value;
 
-use super::prelude::*;
+use super::visitor::Visitor;
 
-pub(super) trait VisitOperator {
-    fn visit_with_out<'a, 'b, 'c>(
-        &self,
-        block: &Block,
-        context: &'a Context,
-        location: Location,
-        out: Value<'b, 'c>,
-    );
-}
-
-impl VisitOperator for Operator {
-    fn visit_with_out<'a, 'b, 'c>(
-        &self,
-        block: &Block,
-        context: &'a Context,
-        location: Location,
-        out: Value<'b, 'c>,
-    ) {
-        match self {
-            Operator::Index(index_operator) => {
-                // todo!("Do a vector load");
+impl<'a> Visitor<'a> {
+    pub fn visit_operator_with_out(&self, operator: &Operator, _out: Value<'a, 'a>) {
+        match operator {
+            Operator::Index(_index_operator) => {
+                // let vector_type = self.item_to_type(index_operator.list.item);
+                // self.block.append_operation(
+                //     *vector::load(self.context, vector_type, base, indices, location)
+                //         .as_operation(),
+                // );
             }
-            _ => todo!("{} is not yet implemented", self),
+            _ => todo!("{} is not yet implemented", operator),
         }
     }
 }
