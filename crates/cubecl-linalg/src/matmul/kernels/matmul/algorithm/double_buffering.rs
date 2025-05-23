@@ -4,7 +4,9 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
+use crate::matmul::components::global::load::{
+    sync_buffer_cyclic, sync_buffer_cyclic_checked, sync_buffer_tilewise,
+};
 use crate::matmul::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, RowMajorTilingOrder,
 };
@@ -48,7 +50,9 @@ where
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
-        CubeDim::new(selection.plane_dim, num_planes, 1)
+        let cd  = CubeDim::new(selection.plane_dim, num_planes, 1);
+        println!("{:?}", cd);
+        cd
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {

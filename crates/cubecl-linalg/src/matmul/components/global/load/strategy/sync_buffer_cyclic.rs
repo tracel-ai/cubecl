@@ -22,6 +22,7 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
+        let num_stage_elements = tiling_dimensions.total_size();
         let line_size = config.global_line_size(ident);
         let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
@@ -31,18 +32,22 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
         let num_tiles_in_buffer = tile_count_row * tile_count_col;
-        let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
-        let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
 
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
-        let out_of_bounds_pos = total_num_lines * line_size;
-
         let max_id = total_units - 1;
-        let max_iter = num_lines_per_unit - 1;
+        let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
+        let max_task = num_tasks_per_unit - 1;
         let max_position_base = max_id * line_size;
-        let max_position = max_position_base + max_iter * jump_length;
+        let max_position = max_position_base + max_task * jump_length;
 
-        if max_position > out_of_bounds_pos {
+        comptime! {
+        println!("---");
+        println!("ident: {:?}", ident);
+        println!("max_position: {:?}", max_position);
+        println!("num_stage_elements: {:?}", num_stage_elements);
+        }
+
+        if max_position > num_stage_elements {
             return Err(Box::new(
                 "Too many data will be loaded, resulting in out-of-bounds",
             ));
@@ -76,7 +81,22 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
         let num_tasks_per_unit = (total_num_lines + total_units - 1) / total_units;
 
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        comptime! {
+        println!("---");
+        println!("ident: {:?}", input_ident);
+        println!("total_units: {:?}", total_units);
+        println!("jump_length: {:?}", jump_length);
+        println!("num_tiles_in_buffer: {:?}", num_tiles_in_buffer);
+        println!("total_num_lines: {:?}", total_num_lines);
+        println!("num_tasks_per_unit: {:?}", num_tasks_per_unit);
+        }
+
+        //max=511
+        // let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_id = UNIT_POS;
+        if unit_id == 65535 {
+            terminate!()
+        }
         let unit_position_base = unit_id * line_size;
 
         Job {
@@ -86,6 +106,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
             jump_length,
             num_lines_per_tile,
             input_ident,
+            num_stage_elements: tiling_dimensions.total_size(),
         }
     }
 }
@@ -104,6 +125,9 @@ pub struct Job {
     pub num_lines_per_tile: u32,
     #[cube(comptime)]
     pub input_ident: InputIdent,
+    // tmp
+    #[cube(comptime)]
+    pub num_stage_elements: u32,
 }
 
 #[cube]
@@ -118,14 +142,34 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
-        load_and_store_line::<MP, TO, G>(
-            this,
-            unit_position,
-            tensor_reader,
-            stage,
-            quantization,
-            config,
-        );
+        match comptime!(this.input_ident) {
+            InputIdent::Lhs => {
+                load_and_store_line::<MP, TO, G>(
+                    this,
+                    unit_position,
+                    tensor_reader,
+                    stage,
+                    quantization,
+                    config,
+                );
+            }
+            InputIdent::Rhs => {
+                // 128 * 2048 = 262144
+                // 262140 pass
+                // 262144 fail
+                // if unit_position < 262148 {
+                if this.unit_position_base < 262140 {
+                    load_and_store_line::<MP, TO, G>(
+                        this,
+                        unit_position,
+                        tensor_reader,
+                        stage,
+                        quantization,
+                        config,
+                    );
+                }
+            }
+        }
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

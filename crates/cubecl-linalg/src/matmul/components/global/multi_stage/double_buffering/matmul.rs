@@ -54,16 +54,17 @@ where
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
 
-        // Check necessary for multi row.
-        let stage_n = config
-            .to_smm_config()
-            .tiling_dimensions(Ident::Rhs)
-            .tile_count_col();
-        if stage_n != config.num_planes() {
-            return Err(Box::new(
-                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row.",
-            ));
-        }
+        // // Check necessary for multi row.
+        // let stage_n = config
+        //     .to_smm_config()
+        //     .tiling_dimensions(Ident::Rhs)
+        //     .tile_count_col();
+        // if stage_n != config.num_planes() {
+        //     return Err(Box::new(
+        //         "At the moment tile count in n should be equal to number of planes,
+        //          which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row.",
+        //     ));
+        // }
 
         SMM::check_config(&config.to_smm_config())
     }

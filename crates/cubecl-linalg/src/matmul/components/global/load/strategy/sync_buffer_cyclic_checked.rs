@@ -106,6 +106,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             jump_length: comptime!(this.jump_length),
             num_lines_per_tile: comptime!(this.num_lines_per_tile),
             input_ident: comptime!(this.input_ident),
+            num_stage_elements: comptime! {this.num_stage_elements},
         };
 
         #[allow(clippy::collapsible_else_if)]
