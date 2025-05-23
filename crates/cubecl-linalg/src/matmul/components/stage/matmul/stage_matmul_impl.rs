@@ -231,6 +231,7 @@ where
     EP: ExecutePrimitive,
 {
     /// Execute stage matmul with a single buffer for rhs.
+    #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener>(
         start_m: u32,
         start_n: u32,
@@ -336,6 +337,7 @@ where
         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_double_buffer<SEL: StageEventListener>(
         start_m: u32,
         start_n: u32,

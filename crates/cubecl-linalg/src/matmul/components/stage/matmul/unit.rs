@@ -19,6 +19,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
 use super::{AccumulatorShape, NumStages};
 
+type UnitMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, UnitExecutionPrimitive>;
+
 pub struct UnitExecutionPrimitive {}
 
 #[cube]
@@ -140,5 +142,3 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         )
     }
 }
-
-type UnitMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, UnitExecutionPrimitive>;

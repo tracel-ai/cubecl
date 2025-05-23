@@ -19,6 +19,14 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
 use super::{AccumulatorShape, NumStages, StageVectorization};
 
+/// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
+/// - One plane per tile in m dimension,
+/// - One accumulator per tile in n dimension
+///
+/// # Assumptions
+/// - There are as many planes as the stage size in m
+type PlaneMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, PlaneExecutionPrimitive>;
+
 pub struct PlaneExecutionPrimitive {}
 
 #[cube]
@@ -94,15 +102,15 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         let num_planes = config.num_planes();
 
         if num_planes != num_planes_needed {
-            return Err(Box::new(format!(
-                "Error: Number of planes {num_planes} should be {num_planes_needed}."
-            )));
+            return Err(Box::new(
+                "Error: Number of planes {num_planes} should be {num_planes_needed}.".to_string(),
+            ));
         }
 
         if config.buffering() == StageBuffering::Double && config.accumulator_shape().n < 2 {
-            return Err(Box::new(format!(
-                "Error: Tried doing double buffering with only one tile to compute."
-            )));
+            return Err(Box::new(
+                "Error: Tried doing double buffering with only one tile to compute.".to_string()
+            ));
         }
 
         TMM::check_config(&config.to_tmm_config())
@@ -144,11 +152,3 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         )
     }
 }
-
-/// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
-/// - One plane per tile in m dimension,
-/// - One accumulator per tile in n dimension
-///
-/// # Assumptions
-/// - There are as many planes as the stage size in m
-type PlaneMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, PlaneExecutionPrimitive>;
