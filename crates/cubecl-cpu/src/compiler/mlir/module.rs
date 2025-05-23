@@ -58,7 +58,7 @@ impl<'a> Module<'a> {
                 let region = Region::new();
                 let block = Block::new(&block_input);
 
-                let visitor = Visitor::new(&block, self.context, self.location);
+                let mut visitor = Visitor::new(&block, self.context, self.location);
                 visitor.visit_scope(&kernel.body);
 
                 block.append_operation(func::r#return(&[], self.location));
