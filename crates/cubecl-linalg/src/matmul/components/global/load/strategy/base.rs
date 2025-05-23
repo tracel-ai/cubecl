@@ -42,3 +42,40 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
 pub trait LoadingValidation {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
+
+/// Trait for selecting loader bounds check strategy.
+pub trait LoaderCheck: Clone + Copy + Sync + Send + 'static {
+    fn to_level() -> LoaderCheckLevel;
+}
+
+/// Marker type for strict compile-time enforcement (no runtime check).
+#[derive(Clone, Copy, Debug)]
+pub struct ComptimeCheck;
+impl LoaderCheck for ComptimeCheck {
+    fn to_level() -> LoaderCheckLevel {
+        LoaderCheckLevel::Comptime
+    }
+}
+
+/// Marker type for fallback to runtime check if needed.
+#[derive(Clone, Copy, Debug)]
+pub struct RuntimeCheck;
+impl LoaderCheck for RuntimeCheck {
+    fn to_level() -> LoaderCheckLevel {
+        LoaderCheckLevel::Runtime
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Copy)]
+/// Controls bounds checking for loader operations.
+///
+/// This **does not** disable tensor read bounds checks.
+/// It only affects checks for whether the loader loads more data than allowed
+/// at each global matmul iteration.
+pub enum LoaderCheckLevel {
+    /// Panics at compile time if an out-of-bounds access will occur.
+    /// No runtime checks are added.
+    Comptime,
+    /// Adds a runtime check if and only if an out-of-bounds access will occur.
+    Runtime,
+}

@@ -7,15 +7,15 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{SyncFullLoadingStrategy, sync_full_cyclic_checked},
+        load::{RuntimeCheck, SyncFullLoadingStrategy, sync_full_cyclic},
     },
-    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder},
+    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, StageBuffering},
     tile,
 };
 
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic_checked::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic_checked::LoadingStrategy<RowMajorTilingOrder>,
+    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder, RuntimeCheck>,
+    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder, RuntimeCheck>,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _ll: PhantomData<LL>,
@@ -99,5 +99,9 @@ where
 
     fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
         selection.acc_per_unit
+    }
+
+    fn stage_buffering_strategy() -> StageBuffering {
+        StageBuffering::Single
     }
 }

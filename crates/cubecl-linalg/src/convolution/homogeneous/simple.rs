@@ -14,7 +14,7 @@ use crate::{
             MatmulPrecision, MatmulSpec, OutputRuntimeArg,
             global::{
                 AccumulatorLoader, GlobalConfig,
-                load::{SyncFullLoader, sync_full_cyclic},
+                load::{ComptimeCheck, SyncFullLoader, sync_full_cyclic},
                 single_stage,
             },
             stage::{
@@ -56,8 +56,11 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader =
-        SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<
+        MP,
+        Self::Config,
+        sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
+    >;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Writer = SMM::Writer;

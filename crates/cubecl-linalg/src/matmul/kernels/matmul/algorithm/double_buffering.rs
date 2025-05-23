@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
+use crate::matmul::components::global::load::{ComptimeCheck, sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::matmul::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, RowMajorTilingOrder,
 };
@@ -39,8 +39,8 @@ where
     >;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
@@ -157,7 +157,7 @@ where
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
