@@ -1,10 +1,14 @@
 use crate::{
-    DeviceProperties, TimeMeasurement,
+    DeviceProperties,
     channel::ComputeChannel,
+    config::{TypeNameFormatLevel, type_name_format},
+    kernel::KernelMetadata,
+    logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryUsage,
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
 };
+use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -25,6 +29,7 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
     info: Server::Info,
+    logger: Arc<ServerLogger>,
     #[cfg(multi_threading)]
     current_profiling: spin::RwLock<Option<StreamId>>,
 }
@@ -58,10 +63,15 @@ where
         properties: DeviceProperties<Server::Feature>,
         info: Server::Info,
     ) -> Self {
-        #[cfg(multi_threading)]
-        let state = ComputeClientState::new(properties, info, spin::RwLock::new(None));
-        #[cfg(not(multi_threading))]
-        let state = ComputeClientState::new(properties, info);
+        let logger = ServerLogger::default();
+
+        let state = ComputeClientState::new(
+            properties,
+            info,
+            Arc::new(logger),
+            #[cfg(multi_threading)]
+            spin::RwLock::new(None),
+        );
 
         Self {
             channel,
@@ -226,13 +236,59 @@ where
         self.channel.empty_tensors(shapes, elem_size)
     }
 
+    unsafe fn execute_inner(
+        &self,
+        kernel: Server::Kernel,
+        count: CubeCount,
+        bindings: Bindings,
+        mode: ExecutionMode,
+    ) {
+        let level = self.state.logger.profile_level();
+
+        match level {
+            None | Some(ProfileLevel::ExecutionOnly) => {
+                self.profile_guard();
+
+                let name = kernel.name();
+
+                unsafe {
+                    self.channel
+                        .execute(kernel, count, bindings, mode, self.state.logger.clone())
+                };
+
+                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                    let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                    self.state.logger.register_execution(info);
+                }
+            }
+            Some(level) => {
+                let name = kernel.name();
+                let kernel_id = kernel.id();
+                let profile = self.profile(|| unsafe {
+                    self.channel.execute(
+                        kernel,
+                        count.clone(),
+                        bindings,
+                        mode,
+                        self.state.logger.clone(),
+                    )
+                });
+                let info = match level {
+                    ProfileLevel::Full => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                    }
+                    _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                };
+                self.state.logger.register_profiled(info, profile);
+            }
+        }
+    }
+
     /// Executes the `kernel` over the given `bindings`.
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
-        self.profile_guard();
-
+        // SAFETY: Using checked execution mode.
         unsafe {
-            self.channel
-                .execute(kernel, count, bindings, ExecutionMode::Checked)
+            self.execute_inner(kernel, count, bindings, ExecutionMode::Checked);
         }
     }
 
@@ -240,18 +296,18 @@ where
     ///
     /// # Safety
     ///
-    /// Without checks, the out-of-bound reads and writes can happen.
+    /// To ensure this is safe, you must verify your kernel:
+    /// - Has no out-of-bound reads and writes that can happen.
+    /// - Has no infinite loops that might never terminate.
     pub unsafe fn execute_unchecked(
         &self,
         kernel: Server::Kernel,
         count: CubeCount,
         bindings: Bindings,
     ) {
-        self.profile_guard();
-
+        // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
-            self.channel
-                .execute(kernel, count, bindings, ExecutionMode::Unchecked)
+            self.execute_inner(kernel, count, bindings, ExecutionMode::Unchecked);
         }
     }
 
@@ -266,7 +322,8 @@ where
     pub async fn sync(&self) {
         self.profile_guard();
 
-        self.channel.sync().await
+        self.channel.sync().await;
+        self.state.logger.profile_summary();
     }
 
     /// Get the features supported by the compute server.
@@ -298,28 +355,11 @@ where
     pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
         #[cfg(multi_threading)]
         let stream_id = self.profile_aquire();
-
         let token = self.channel.start_profile();
 
         func();
 
         let result = self.channel.end_profile(token);
-
-        let result = match self.properties().time_measurement {
-            TimeMeasurement::Device => result,
-            TimeMeasurement::System => {
-                #[cfg(target_family = "wasm")]
-                panic!("Can't use system timing mode on wasm");
-
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    // It is important to wait for the profiling to be done, since we're actually
-                    // measuring its execution timing using 'real' time.
-                    let duration = cubecl_common::future::block_on(result.resolve());
-                    ProfileDuration::from_duration(duration)
-                }
-            }
-        };
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);

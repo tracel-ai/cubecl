@@ -5,11 +5,11 @@ use super::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    benchmark::ProfileDuration,
+    benchmark::{ProfileDuration, TimingMethod},
     future::{self, DynFut},
     server::{Binding, Bindings, Handle, ProfilingToken},
 };
-use cubecl_runtime::{TimeMeasurement, memory_management::MemoryDeviceProperties};
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use web_time::Duration;
 use wgpu::ComputePipeline;
@@ -27,7 +27,7 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
-    time_measurement: TimeMeasurement,
+    time_measurement: TimingMethod,
 }
 
 impl WgpuStream {
@@ -37,7 +37,6 @@ impl WgpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         tasks_max: usize,
-        time_measurement: TimeMeasurement,
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
@@ -50,6 +49,12 @@ impl WgpuStream {
 
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
+
+        let time_measurement = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            TimingMethod::Device
+        } else {
+            TimingMethod::System
+        };
 
         Self {
             mem_manage,
@@ -239,7 +244,7 @@ impl WgpuStream {
     pub fn start_profile(&mut self) -> ProfilingToken {
         let token = self.timings.start_profile_prepare();
 
-        if matches!(self.time_measurement, TimeMeasurement::Device) {
+        if self.time_measurement == TimingMethod::Device {
             // Flush all commands to the queue. This isn't really needed, but this should mean
             // new work after this will be run with less overlap.
             self.flush();

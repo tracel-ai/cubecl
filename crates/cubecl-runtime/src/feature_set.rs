@@ -10,21 +10,6 @@ pub struct DeviceProperties<Feature: Ord + Copy> {
     pub memory: MemoryDeviceProperties,
     /// The topology properties of this client.
     pub hardware: HardwareProperties,
-    /// The [time measurement](TimeMeasurement) of the current device.
-    pub time_measurement: TimeMeasurement,
-}
-
-#[derive(Debug, Clone, Copy)]
-/// How times are measured on a device.
-pub enum TimeMeasurement {
-    /// Using the device own measuting capability.
-    ///
-    /// Normally compatible with async.
-    Device,
-    /// Using [std::time::Instant] to measure kernel execution.
-    ///
-    /// When this version is activated, we must await on async tasks.
-    System,
 }
 
 impl<Feature: Ord + Copy> DeviceProperties<Feature> {
@@ -33,7 +18,6 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
         features: &[Feature],
         memory_props: MemoryDeviceProperties,
         hardware: HardwareProperties,
-        time_measurement: TimeMeasurement,
     ) -> Self {
         let mut set = BTreeSet::new();
         for feature in features {
@@ -44,7 +28,6 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
             set,
             memory: memory_props,
             hardware,
-            time_measurement,
         }
     }
 

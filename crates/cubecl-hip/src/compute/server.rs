@@ -2,20 +2,19 @@ use cubecl_core::server::ProfilingToken;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 
-use crate::runtime::HipCompiler;
-
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
+use crate::runtime::HipCompiler;
 use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::DynFut;
+use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
+use cubecl_core::prelude::*;
 use cubecl_core::{Feature, server::Bindings};
-use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::config::{TypeNameFormatLevel, type_name_format};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
-use cubecl_runtime::logging::{ProfileLevel, ServerLogger};
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
@@ -29,6 +28,7 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
@@ -36,7 +36,6 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
-    logger: ServerLogger,
 }
 
 #[derive(Debug)]
@@ -221,16 +220,10 @@ impl ComputeServer for HipServer {
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
-
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel_id.clone()))
-        } else {
-            None
-        };
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -259,51 +252,22 @@ impl ComputeServer for HipServer {
         let info = self.create(bytemuck::cast_slice(&metadata.data));
         let scalars: Vec<_> = scalars.values().map(|s| self.create(s.data())).collect();
 
-        let (ctx, logger) = self.get_context_with_logger();
+        let ctx = self.get_context();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, logger, mode);
+            ctx.compile_kernel(&kernel_id, kernel, mode, logger);
         }
 
         let mut resources: Vec<_> = buffers.into_iter().map(|b| find_resource(ctx, b)).collect();
         resources.push(find_resource(ctx, info.clone().binding()));
         resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
 
-        if let Some(level) = profile_level {
-            match level {
-                ProfileLevel::ExecutionOnly => {
-                    let (name, _kernel_id) = profile_info.unwrap();
-                    let name = type_name_format(name, TypeNameFormatLevel::Balanced);
-                    logger.register_profiled_no_timing(&name);
-
-                    ctx.execute_task(kernel_id, count, resources);
-                }
-                _ => {
-                    ctx.sync();
-                    let start = std::time::SystemTime::now();
-                    ctx.execute_task(kernel_id, count, resources);
-                    ctx.sync();
-
-                    let (name, kernel_id) = profile_info.unwrap();
-                    let info = match level {
-                        ProfileLevel::Full => {
-                            format!("{name}: {kernel_id} CubeCount {count:?}")
-                        }
-                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
-                    };
-
-                    logger.register_profiled(info, start.elapsed().unwrap());
-                }
-            }
-        } else {
-            ctx.execute_task(kernel_id, count, resources);
-        }
+        ctx.execute_task(kernel_id, count, resources);
     }
 
     fn flush(&mut self) {}
 
     fn sync(&mut self) -> DynFut<()> {
-        self.logger.profile_summary();
         Box::pin(self.sync_stream_async())
     }
 
@@ -313,7 +277,6 @@ impl ComputeServer for HipServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        self.logger.profile_summary();
         cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.stop(token)
     }
@@ -379,8 +342,8 @@ impl HipContext {
         &mut self,
         kernel_id: &KernelId,
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
-        logger: &mut ServerLogger,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
         #[cfg(feature = "compilation-cache")]
         let name = kernel_id.stable_format();
@@ -412,7 +375,7 @@ impl HipContext {
                 jitc_kernel.source = formatted;
             }
         }
-        let jitc_kernel = logger.log_compilation(jitc_kernel);
+        logger.log_compilation(&jitc_kernel);
 
         // Create HIP Program
         let program = unsafe {
@@ -595,16 +558,11 @@ impl HipContext {
 impl HipServer {
     /// Create a new hip server.
     pub(crate) fn new(ctx: HipContext) -> Self {
-        let logger = ServerLogger::default();
-        Self { ctx, logger }
+        Self { ctx }
     }
 
     fn get_context(&mut self) -> &mut HipContext {
-        self.get_context_with_logger().0
-    }
-
-    fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut ServerLogger) {
-        (&mut self.ctx, &mut self.logger)
+        &mut self.ctx
     }
 
     fn copy_to_binding(&mut self, binding: server::Binding, data: &[u8]) {

@@ -1,21 +1,11 @@
-use cubecl_core::{
-    AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime, TmaFeature,
-    ir::{Elem, FloatKind},
-};
-use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
-    channel::MutexComputeChannel,
-    client::ComputeClient,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
-    storage::ComputeStorage,
-};
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
-use std::mem::MaybeUninit;
-
 use crate::{
     WmmaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
+};
+use cubecl_core::{
+    AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
+    ir::{Elem, FloatKind},
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
@@ -23,6 +13,16 @@ use cubecl_cpp::{
     register_supported_types,
     shared::{CompilationOptions, CppCompiler, register_wmma_features},
 };
+use cubecl_runtime::{
+    ComputeRuntime, DeviceProperties,
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    id::DeviceId,
+    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    storage::ComputeStorage,
+};
+use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use std::mem::MaybeUninit;
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -142,12 +142,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
-    let mut device_props = DeviceProperties::new(
-        &[Feature::Plane],
-        mem_properties,
-        hardware_props,
-        cubecl_runtime::TimeMeasurement::System,
-    );
+    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     if arch_version >= 60 {
@@ -224,7 +219,7 @@ impl Runtime for CudaRuntime {
         })
     }
 
-    fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
+    fn device_id(device: &Self::Device) -> DeviceId {
         DeviceId::new(0, device.index as u32)
     }
 

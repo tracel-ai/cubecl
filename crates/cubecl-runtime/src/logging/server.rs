@@ -1,186 +1,167 @@
 use core::fmt::Display;
 
-use crate::config::Logger;
+use crate::config::{Logger, compilation::CompilationLogLevel, profiling::ProfilingLogLevel};
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
+use alloc::string::ToString;
+use async_channel::{Receiver, Sender};
+use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::future::spawn_detached_fut;
 
 use super::{ProfileLevel, Profiled};
 
+enum LogMessage {
+    Execution(String),
+    Compilation(String),
+    Profile(String, ProfileDuration),
+    ProfileSummary,
+}
+
 /// Server logger.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ServerLogger {
-    kind: DebugLoggerKind,
-    profiled: Profiled,
+    profile_level: Option<ProfileLevel>,
+    log_compile_info: bool,
+    log_channel: Option<Sender<LogMessage>>,
 }
 
-#[derive(Debug)]
-/// The various logging options available.
-enum ServerLoggerOptions {
-    /// Debug only the compilation.
-    CompilationOnly,
-    /// Profile each kernel executed.
-    ProfileOnly(ProfileLevel),
-    /// Enable all options.
-    All(ProfileLevel),
-}
-
-/// Debugging logger.
-#[derive(Debug)]
-enum DebugLoggerKind {
-    /// Activated logger.
-    Activated(Logger, ServerLoggerOptions),
-    /// Don't log information.
-    None,
-}
-
-impl Default for DebugLoggerKind {
+impl Default for ServerLogger {
     fn default() -> Self {
-        Self::new()
+        let logger = Logger::new();
+
+        let disabled = matches!(
+            logger.config.compilation.logger.level,
+            CompilationLogLevel::Disabled
+        ) && matches!(
+            logger.config.profiling.logger.level,
+            ProfilingLogLevel::Disabled
+        );
+
+        if disabled {
+            return Self {
+                profile_level: None,
+                log_compile_info: false,
+                log_channel: None,
+            };
+        }
+        let profile_level = match logger.config.profiling.logger.level {
+            ProfilingLogLevel::Disabled => None,
+            ProfilingLogLevel::Minimal => Some(ProfileLevel::ExecutionOnly),
+            ProfilingLogLevel::Basic => Some(ProfileLevel::Basic),
+            ProfilingLogLevel::Medium => Some(ProfileLevel::Medium),
+            ProfilingLogLevel::Full => Some(ProfileLevel::Full),
+        };
+
+        let log_compile_info = match logger.config.compilation.logger.level {
+            CompilationLogLevel::Disabled => false,
+            CompilationLogLevel::Basic => true,
+            CompilationLogLevel::Full => true,
+        };
+
+        let (send, rec) = async_channel::unbounded();
+
+        // Spawn the logger as a detached task.
+        let async_logger = AsyncLogger {
+            message: rec,
+            logger,
+            profiled: Default::default(),
+        };
+        // Spawn the future in the background to logs messages / durations.
+        spawn_detached_fut(async_logger.process());
+
+        Self {
+            profile_level,
+            log_compile_info,
+            log_channel: Some(send),
+        }
     }
 }
 
 impl ServerLogger {
     /// Returns the profile level, none if profiling is deactivated.
     pub fn profile_level(&self) -> Option<ProfileLevel> {
-        self.kind.profile_level()
+        self.profile_level
     }
 
     /// Returns true if compilation info should be logged.
     pub fn compilation_activated(&self) -> bool {
-        match &self.kind {
-            DebugLoggerKind::Activated(_, options) => match options {
-                ServerLoggerOptions::CompilationOnly => true,
-                ServerLoggerOptions::All(..) => true,
-                ServerLoggerOptions::ProfileOnly(..) => false,
-            },
-            DebugLoggerKind::None => false,
+        self.log_compile_info
+    }
+
+    /// Log the argument to a file when the compilation logger is activated.
+    pub fn log_compilation<I>(&self, arg: &I)
+    where
+        I: Display,
+    {
+        if let Some(channel) = &self.log_channel {
+            if self.log_compile_info {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::Compilation(arg.to_string()));
+            }
         }
     }
 
     /// Register a profiled task without timing.
-    pub fn register_profiled_no_timing(&mut self, name: &str) {
-        if let DebugLoggerKind::Activated(logger, ..) = &mut self.kind {
-            logger.log_profiling(&format!("Executing {name}"));
+    pub fn register_execution(&self, name: impl Display) {
+        if let Some(channel) = &self.log_channel {
+            if matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly)) {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::Execution(name.to_string()));
+            }
         }
     }
 
     /// Register a profiled task.
-    pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
-    where
-        Name: Display,
-    {
-        let name = name.to_string();
-        self.profiled.update(&name, duration);
-
-        match self.kind.profile_level().unwrap_or(ProfileLevel::Basic) {
-            ProfileLevel::Basic => {}
-            _ => self.kind.register_profiled(name, duration),
+    pub fn register_profiled(&self, name: impl Display, duration: ProfileDuration) {
+        if let Some(channel) = &self.log_channel {
+            if self.profile_level.is_some() {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::Profile(name.to_string(), duration));
+            }
         }
     }
 
-    /// Log the argument to a file when the compilation logger is activated.
-    pub fn log_compilation<I>(&mut self, arg: I) -> I
-    where
-        I: Display,
-    {
-        self.kind.log_compilation(arg)
-    }
-
     /// Show the profiling summary if activated and reset its state.
-    pub fn profile_summary(&mut self) {
-        if self.profile_level().is_some() {
-            let mut profiled = Default::default();
-            core::mem::swap(&mut self.profiled, &mut profiled);
-
-            if let DebugLoggerKind::Activated(logger, _) = &mut self.kind {
-                if !profiled.is_empty() {
-                    logger.log_profiling(&profiled);
-                }
+    pub fn profile_summary(&self) {
+        if let Some(channel) = &self.log_channel {
+            if self.profile_level.is_some() {
+                // Channel will never be full, don't care if it's closed.
+                let _ = channel.try_send(LogMessage::ProfileSummary);
             }
         }
     }
 }
 
-impl DebugLoggerKind {
-    /// Create a new server logger.
-    pub fn new() -> Self {
-        use crate::config::{compilation::CompilationLogLevel, profiling::ProfilingLogLevel};
+#[derive(Debug)]
+struct AsyncLogger {
+    message: Receiver<LogMessage>,
+    logger: Logger,
+    profiled: Profiled,
+}
 
-        let logger = Logger::new();
-
-        let mut profile = None;
-
-        match logger.config.profiling.logger.level {
-            ProfilingLogLevel::Disabled => {}
-            ProfilingLogLevel::Minimal => {
-                profile = Some(ProfileLevel::ExecutionOnly);
-            }
-            ProfilingLogLevel::Basic => {
-                profile = Some(ProfileLevel::Basic);
-            }
-            ProfilingLogLevel::Medium => {
-                profile = Some(ProfileLevel::Medium);
-            }
-            ProfilingLogLevel::Full => {
-                profile = Some(ProfileLevel::Full);
-            }
-        };
-
-        let option = if let Some(level) = profile {
-            if let CompilationLogLevel::Full | CompilationLogLevel::Basic =
-                logger.config.compilation.logger.level
-            {
-                ServerLoggerOptions::All(level)
-            } else {
-                ServerLoggerOptions::ProfileOnly(level)
-            }
-        } else {
-            if let CompilationLogLevel::Disabled = logger.config.compilation.logger.level {
-                return Self::None;
-            }
-
-            ServerLoggerOptions::CompilationOnly
-        };
-
-        Self::Activated(logger, option)
-    }
-
-    /// Returns the profile level, none if profiling is deactivated.
-    fn profile_level(&self) -> Option<ProfileLevel> {
-        let option = match self {
-            DebugLoggerKind::Activated(_, option) => option,
-            DebugLoggerKind::None => {
-                return None;
-            }
-        };
-        match option {
-            ServerLoggerOptions::CompilationOnly => None,
-            ServerLoggerOptions::ProfileOnly(level) => Some(*level),
-            ServerLoggerOptions::All(level) => Some(*level),
-        }
-    }
-
-    fn register_profiled(&mut self, name: String, duration: core::time::Duration) {
-        if let DebugLoggerKind::Activated(logger, _) = self {
-            logger.log_profiling(&format!("| {duration:<10?} | {name}"));
-        }
-    }
-
-    fn log_compilation<I>(&mut self, arg: I) -> I
-    where
-        I: Display,
-    {
-        match self {
-            DebugLoggerKind::Activated(logger, option) => {
-                match option {
-                    ServerLoggerOptions::CompilationOnly | ServerLoggerOptions::All(_) => {
-                        logger.log_compilation(&arg);
+impl AsyncLogger {
+    async fn process(mut self) {
+        while let Ok(msg) = self.message.recv().await {
+            match msg {
+                LogMessage::Compilation(msg) => {
+                    self.logger.log_compilation(&msg);
+                }
+                LogMessage::Profile(name, duration) => {
+                    let duration = duration.resolve().await;
+                    self.profiled.update(&name, duration);
+                    self.logger
+                        .log_profiling(&format!("| {duration:<10?} | {name}"));
+                }
+                LogMessage::Execution(name) => {
+                    self.logger.log_profiling(&format!("Executing {name}"));
+                }
+                LogMessage::ProfileSummary => {
+                    if !self.profiled.is_empty() {
+                        self.logger.log_profiling(&self.profiled);
+                        self.profiled = Profiled::default();
                     }
-                    ServerLoggerOptions::ProfileOnly(_) => (),
-                };
-                arg
+                }
             }
-            DebugLoggerKind::None => arg,
         }
     }
 }
