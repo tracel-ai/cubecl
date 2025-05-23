@@ -1,48 +1,34 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::load::SyncFullLoadingStrategy;
+use crate::matmul::components::global::load::{
+    LoaderCheckLevel, SyncFullLoadingStrategy, sync_full_cyclic,
+};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_std::CubeOption;
 
-use super::{LoaderCheck, LoaderCheckLevel, LoadingJob, LoadingValidation};
+use super::{LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes.
-/// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct LoadingStrategy<T: TilingOrder, LC: LoaderCheck> {
+/// Same as sync_full_cyclic but the guard is runtime
+pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
-    _phantom: PhantomData<(T, LC)>,
+    tiling_order: PhantomData<T>,
 }
 
-impl<TO: TilingOrder, LC: LoaderCheck> LoadingValidation for LoadingStrategy<TO, LC> {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if let LoaderCheckLevel::Comptime = LC::to_level() {
-            let tiling = config.tiling_dimensions(ident);
-            let line_size = config.global_line_size(ident);
-
-            let num_stage_lines = tiling.total_size() / line_size;
-            let total_units = config.num_planes() * config.plane_dim();
-
-            if num_stage_lines % total_units != 0 {
-                return Err(Box::new(
-                "Too many data will be loaded, resulting in out of bounds.
-        Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
-            ));
-            }
-        }
-
+impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
+    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl<TO: TilingOrder, LC: LoaderCheck> SyncFullLoadingStrategy for LoadingStrategy<TO, LC> {
+impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<MP: MatmulPrecision> = Job;
 
@@ -54,13 +40,25 @@ impl<TO: TilingOrder, LC: LoaderCheck> SyncFullLoadingStrategy for LoadingStrate
         let tile_num_elements = tiling.tile_size();
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = tiling.total_size();
+        let num_stage_lines = num_stage_elements / line_size;
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
-        let num_tasks_per_unit = comptime!(num_stage_elements.div_ceil(jump_length));
+        let num_tasks_per_unit = comptime!(num_stage_lines.div_ceil(total_units));
         let balanced_workload = num_tasks_per_unit % total_units == 0;
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
+
+        comptime!(
+            println!("---");
+            println!("input_ident: {:?}", input_ident);
+            println!("num_tasks_per_unit: {:?}", num_tasks_per_unit);
+            println!("tile_num_elements: {:?}", tile_num_elements);
+            println!("jump_length: {:?}", jump_length);
+            println!("line_size: {:?}", line_size);
+            println!("balanced_workload: {:?}", balanced_workload);
+            println!("num_stage_elements: {:?}", num_stage_elements);
+        );
 
         Job {
             unit_position_base,
@@ -71,7 +69,6 @@ impl<TO: TilingOrder, LC: LoaderCheck> SyncFullLoadingStrategy for LoadingStrate
             input_ident,
             balanced_workload,
             num_stage_elements,
-            loader_check_level: comptime!(LC::to_level()),
         }
     }
 }
@@ -94,8 +91,6 @@ pub struct Job {
     balanced_workload: bool,
     #[cube(comptime)]
     num_stage_elements: u32,
-    #[cube(comptime)]
-    loader_check_level: LoaderCheckLevel,
 }
 
 #[cube]
@@ -110,12 +105,22 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
+        let cyclic_job = sync_full_cyclic::Job {
+            unit_position_base: this.unit_position_base,
+            num_tasks_per_unit: comptime!(this.num_tasks_per_unit),
+            tile_num_elements: comptime!(this.tile_num_elements),
+            jump_length: comptime!(this.jump_length),
+            line_size: comptime!(this.line_size),
+            input_ident: comptime!(this.input_ident),
+            balanced_workload: comptime!(this.balanced_workload),
+            num_stage_elements: comptime!(this.num_stage_elements),
+            loader_check_level: comptime!(LoaderCheckLevel::Runtime),
+        };
+
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(
-            this.loader_check_level == LoaderCheckLevel::Comptime || this.balanced_workload
-        ) {
-            load_and_store_line::<MP, TO, G>(
-                this,
+        if this.balanced_workload {
+            sync_full_cyclic::load_and_store_line::<MP, TO, G>(
+                &cyclic_job,
                 unit_position,
                 tensor_reader,
                 stage,
@@ -124,8 +129,8 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             );
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<MP, TO, G>(
-                    this,
+                sync_full_cyclic::load_and_store_line::<MP, TO, G>(
+                    &cyclic_job,
                     unit_position,
                     tensor_reader,
                     stage,
@@ -139,36 +144,4 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
     fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_tasks_per_unit
     }
-}
-
-#[cube]
-pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
-    job: &Job,
-    unit_position: u32,
-    tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-    quantization: &CubeOption<Quantization<MP>>,
-    #[comptime] config: G,
-) {
-    let nth_tile = unit_position / job.tile_num_elements;
-    let pos_within_tile = unit_position % job.tile_num_elements;
-
-    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
-        nth_tile,
-        comptime!(job.input_ident.as_ident()),
-        comptime!(config.to_smm_config()),
-    );
-
-    let line_read = tensor_reader.load_coalesced_in_tile::<G>(
-        tile_x,
-        tile_y,
-        pos_within_tile,
-        job.input_ident,
-        config,
-    );
-
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
-        CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
-        CubeOption::None => Line::cast_from(line_read),
-    };
 }
