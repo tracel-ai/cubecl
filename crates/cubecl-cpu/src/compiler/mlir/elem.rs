@@ -3,17 +3,14 @@ use cubecl_core::ir;
 use cubecl_core::ir::Elem;
 use cubecl_core::ir::FloatKind;
 use cubecl_runtime::DeviceProperties;
-use melior::Context;
 use melior::ir::Type;
 
-pub(super) trait VisitType {
-    fn visit<'a>(&self, context: &'a Context) -> Type<'a>;
-}
+use super::visitor::Visitor;
 
-impl VisitType for Elem {
-    fn visit<'a>(&self, context: &'a Context) -> Type<'a> {
-        match self {
-            Elem::Float(FloatKind::F32) => Type::float32(context),
+impl<'a> Visitor<'a> {
+    pub fn elem_to_type(&self, elem: Elem) -> Type<'a> {
+        match elem {
+            Elem::Float(FloatKind::F32) => Type::float32(self.context),
             _ => todo!("This type is not implemented yet."),
         }
     }
