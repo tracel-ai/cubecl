@@ -1,5 +1,5 @@
 use cubecl_core::ir::Item;
-use melior::ir::Type;
+use melior::ir::{Type, r#type::MemRefType};
 
 use super::visitor::Visitor;
 
@@ -11,19 +11,11 @@ impl<'a> Visitor<'a> {
             None => inner_type,
         }
     }
-}
-
-pub(super) trait ElemSize {
-    fn size(self) -> usize;
-}
-
-impl ElemSize for Item {
-    /// Get the sizes in bytes
-    fn size(self) -> usize {
-        let inner_size = self.elem.size();
-        match self.vectorization {
-            Some(size) => size.get() as usize * inner_size,
-            None => inner_size,
+    pub fn item_to_memref_type(&self, item: Item) -> MemRefType<'a> {
+        let inner_type = self.elem_to_type(item.elem);
+        match item.vectorization {
+            Some(size) => MemRefType::new(inner_type, &[size.get() as i64], None, None),
+            None => MemRefType::new(inner_type, &[1], None, None),
         }
     }
 }

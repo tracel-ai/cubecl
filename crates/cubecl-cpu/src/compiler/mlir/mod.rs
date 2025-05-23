@@ -1,9 +1,11 @@
 pub(super) mod elem;
+pub(super) mod instruction;
 pub(super) mod item;
 pub mod module;
 pub(super) mod operation;
 pub(super) mod operator;
 pub(super) mod scope;
+pub(super) mod variable;
 pub(super) mod visitor;
 
 pub use elem::register_supported_types;
