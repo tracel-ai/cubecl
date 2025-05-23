@@ -24,6 +24,7 @@ pub mod tensormap;
 pub mod topology;
 pub mod traits;
 pub mod unary;
+pub mod unit_pos;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -124,6 +125,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_topology!();
 
         cubecl_core::testgen_constants!();
+        cubecl_core::testgen_unit_pos!();
         cubecl_core::testgen_sync_plane!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
