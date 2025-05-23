@@ -29,7 +29,8 @@ pub(crate) fn execute_single_buffer<
 ) {
     SEL::on_event(&mut listener, StageEvent::Begin);
 
-    let (m_iterations, n_iterations) = acc.shape;
+    let m_iterations = acc.shape.m;
+    let n_iterations = acc.shape.n;
     let k_iterations = config.tiling.tile_count.k;
 
     let mut k_iter = comptime![0u32];
@@ -140,7 +141,8 @@ pub(crate) fn execute_double_buffer<
 ) {
     SEL::on_event(&mut listener, StageEvent::Begin);
 
-    let (m_iterations, n_iterations) = acc.shape;
+    let m_iterations = acc.shape.m;
+    let n_iterations = acc.shape.n;
     let k_iterations = config.tiling.tile_count.k;
 
     let mut k_iter = comptime![0u32];

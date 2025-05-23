@@ -9,7 +9,10 @@ use crate::matmul::components::{
         self,
         load::{RuntimeCheck, SyncFullLoadingStrategy, sync_full_cyclic},
     },
-    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, StageBuffering},
+    stage::{
+        self, AccumulatorShape, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder,
+        StageBuffering,
+    },
     tile,
 };
 
@@ -71,7 +74,7 @@ where
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_acc = selection.tile_count.m * selection.tile_count.n;
-        let acc_per_unit = selection.acc_per_unit.0 * selection.acc_per_unit.1;
+        let acc_per_unit = selection.accumulator_shape.num_tiles();
         let num_units_needed = num_acc.div_ceil(acc_per_unit);
         let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
@@ -97,8 +100,8 @@ where
         unit_matmul_selection(problem, plane_dim)
     }
 
-    fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
-        selection.acc_per_unit
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> AccumulatorShape {
+        selection.accumulator_shape
     }
 
     fn stage_buffering_strategy() -> StageBuffering {

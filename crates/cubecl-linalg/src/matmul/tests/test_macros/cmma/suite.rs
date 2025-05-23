@@ -1,5 +1,5 @@
 use crate::matmul::components::MatmulSize;
-use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::stage::{AccumulatorShape, StageVectorization};
 use crate::matmul::components::{MatmulProblem, MatrixLayout};
 use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection, UnitMatmulSelection};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -74,7 +74,7 @@ pub fn test_algo_unit<
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
-    acc_per_unit: (u32, u32),
+    accumulator_shape: AccumulatorShape,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -98,7 +98,7 @@ pub fn test_algo_unit<
         tile_shape,
         tile_count,
         plane_dim,
-        acc_per_unit,
+        accumulator_shape,
     };
     let config_input = (&selection).into();
     let vectorization = StageVectorization {
@@ -428,7 +428,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
-                (2, 2)
+                (2, 2).into()
             );
         }
 
@@ -443,7 +443,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
-                (2, 2)
+                (2, 2).into()
             );
         }
     };

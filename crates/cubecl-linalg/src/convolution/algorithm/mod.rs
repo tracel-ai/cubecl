@@ -3,7 +3,9 @@ use crate::{
         components::{
             CompleteStageTiling, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::args::MatmulArgs,
-            stage::{StageBuffering, StageMatmulFamily, StageVectorization},
+            stage::{
+                AccumulatorShape, NumStages, StageBuffering, StageMatmulFamily, StageVectorization,
+            },
             tile::TileMatmulFamily,
         },
         kernels::{
@@ -26,8 +28,8 @@ pub type StageInput = (
     CompleteStageTiling,
     StageBuffering,
     StageVectorization,
-    (u32, u32),
-    (u32, u32),
+    NumStages,
+    AccumulatorShape,
 );
 
 /// Specifications for a convolution algorithm
@@ -41,14 +43,15 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
-    fn num_stages() -> (u32, u32);
+    fn num_stages() -> NumStages;
 
-    fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> AccumulatorShape {
         // Default behaviour for algorithms using PlaneMatmul
         (
             selection.tile_count().m / Self::cube_dim(selection).y,
             selection.tile_count().n,
         )
+            .into()
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {

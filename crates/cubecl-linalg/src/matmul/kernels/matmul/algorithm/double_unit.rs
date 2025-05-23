@@ -9,7 +9,7 @@ use crate::matmul::components::{
         self,
         load::{ComptimeCheck, sync_buffer_cyclic},
     },
-    stage::{self, BufferReaderFamily, RowMajorTilingOrder},
+    stage::{self, AccumulatorShape, BufferReaderFamily, NumStages, RowMajorTilingOrder},
     tile,
 };
 
@@ -32,8 +32,8 @@ where
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type MatmulSelection = UnitMatmulSelection;
 
-    fn num_stages() -> (u32, u32) {
-        (2, 2)
+    fn num_stages() -> NumStages {
+        (2, 2).into()
     }
 
     fn line_sizes(
@@ -72,7 +72,7 @@ where
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
         let num_acc = selection.tile_count.m * selection.tile_count.n;
-        let acc_per_unit = selection.acc_per_unit.0 * selection.acc_per_unit.1;
+        let acc_per_unit = selection.accumulator_shape.num_tiles();
         let num_units_needed = num_acc.div_ceil(acc_per_unit);
         let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
@@ -98,7 +98,7 @@ where
         unit_matmul_selection(problem, plane_dim)
     }
 
-    fn accumulator_shape(selection: &Self::MatmulSelection) -> (u32, u32) {
-        selection.acc_per_unit
+    fn accumulator_shape(selection: &Self::MatmulSelection) -> AccumulatorShape {
+        selection.accumulator_shape
     }
 }

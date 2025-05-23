@@ -23,6 +23,7 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::shared::Accumulators;
+use super::{AccumulatorShape, NumStages};
 
 pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
@@ -52,15 +53,14 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         CompleteStageTiling,
         StageBuffering,
         StageVectorization,
-        (u32, u32),
-        (u32, u32),
+        NumStages,
+        AccumulatorShape,
     );
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        // TODO when accumulator shape is a struct, implement a num_elems
-        let acc_per_unit = config.accumulator_shape().0 * config.accumulator_shape().1;
+        let acc_per_unit = config.accumulator_shape().num_tiles();
 
         if num_acc % acc_per_unit != 0 {
             return Err(Box::new(format!(
@@ -77,7 +77,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             )));
         }
 
-        if config.buffering() == StageBuffering::Double && config.accumulator_shape().1 < 2 {
+        if config.buffering() == StageBuffering::Double && config.accumulator_shape().n < 2 {
             return Err(Box::new(format!(
                 "Error: Tried doing double buffering with only one tile to compute."
             )));
@@ -178,7 +178,8 @@ where
         listener: SEL,
     ) {
         // TODO this is duplicated in write
-        let (m_acc_shape, n_acc_shape) = config.accumulator_shape();
+        let m_acc_shape = config.accumulator_shape().m;
+        let n_acc_shape = config.accumulator_shape().n;
         let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
         let start_m = m_acc_shape * (UNIT_POS / num_acc_n);
         let start_n = n_acc_shape * (UNIT_POS % num_acc_n);
@@ -201,7 +202,7 @@ where
         let mut lhs = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(shape.0) {
+        for _ in 0..comptime!(shape.m) {
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
@@ -231,7 +232,8 @@ where
         let slice_start = num_tile_lines * UNIT_POS;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let (m_acc_shape, n_acc_shape) = stage_config.accumulator_shape();
+        let m_acc_shape = stage_config.accumulator_shape().m;
+        let n_acc_shape = stage_config.accumulator_shape().n;
         let num_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
         let m_unit_offset = m_acc_shape * (UNIT_POS / num_acc_n);
         let n_unit_offset = n_acc_shape * (UNIT_POS % num_acc_n);

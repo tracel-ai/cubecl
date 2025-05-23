@@ -17,7 +17,7 @@ use crate::{
         components::{
             InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::args::TensorMapArgs,
-            stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+            stage::{FullReaderFamily, NumStages, plane_matmul::PlaneMatmulFamily},
             tile::TileMatmulFamily,
         },
         kernels::matmul::PlaneMatmulSelection,
@@ -103,8 +103,8 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
-    fn num_stages() -> (u32, u32) {
-        (1, 1)
+    fn num_stages() -> NumStages {
+        (1, 1).into()
     }
 
     fn selection<R: Runtime>(

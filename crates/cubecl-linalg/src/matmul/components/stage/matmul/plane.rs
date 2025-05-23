@@ -21,8 +21,8 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::StageVectorization;
 use super::shared::Accumulators;
+use super::{AccumulatorShape, NumStages, StageVectorization};
 
 pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
     _phantom: PhantomData<(TMM, LRF, RRF)>,
@@ -56,14 +56,14 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         CompleteStageTiling,
         StageBuffering,
         StageVectorization,
-        (u32, u32),
-        (u32, u32),
+        NumStages,
+        AccumulatorShape,
     );
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        let acc_per_plane = config.accumulator_shape().0 * config.accumulator_shape().1;
+        let acc_per_plane = config.accumulator_shape().num_tiles();
 
         if num_acc % acc_per_plane != 0 {
             return Err(Box::new(format!(
@@ -80,7 +80,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             )));
         }
 
-        if config.buffering() == StageBuffering::Double && config.accumulator_shape().1 < 2 {
+        if config.buffering() == StageBuffering::Double && config.accumulator_shape().n < 2 {
             return Err(Box::new(format!(
                 "Error: Tried doing double buffering with only one tile to compute."
             )));
@@ -187,7 +187,7 @@ where
         listener: SEL,
     ) {
         // Assuming planes make whole rows
-        let start_m = UNIT_POS_Y * acc.shape.0;
+        let start_m = UNIT_POS_Y * acc.shape.m;
         let start_n = 0;
 
         match rhs_fragments {
@@ -219,7 +219,7 @@ where
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
         let shape = config.accumulator_shape();
         assert!(
-            shape.1 == config.tiling.tile_count.n,
+            shape.n == config.tiling.tile_count.n,
             "For now, Plane Matmul assumes planes perform whole rows."
         );
 
@@ -227,7 +227,7 @@ where
         let mut lhs = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(shape.0) {
+        for _ in 0..comptime!(shape.m) {
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
@@ -250,7 +250,8 @@ where
         let out_smem_line_size = global_config.to_smm_config().stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
-        let (m_iterations, n_iterations) = acc.shape;
+        let m_iterations = acc.shape.m;
+        let n_iterations = acc.shape.n;
 
         let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * stage_config.num_planes(),

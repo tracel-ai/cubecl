@@ -10,7 +10,7 @@ use crate::matmul::components::{
     tile::TileConfig,
 };
 
-use super::{StageEventListener, StageToTileReader, TilingLayout};
+use super::{AccumulatorShape, StageEventListener, StageToTileReader, TilingLayout};
 
 pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
@@ -166,7 +166,7 @@ pub trait StageConfig: MatmulConfig {
 
     /// Returns a pair stating the number of tile matmuls for one
     /// execution primitive in m and n respectfully
-    fn accumulator_shape(&self) -> (u32, u32);
+    fn accumulator_shape(&self) -> AccumulatorShape;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
