@@ -2,7 +2,7 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::future;
+use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, Runtime,
     ir::{Elem, FloatKind},
@@ -245,8 +245,13 @@ pub(crate) fn create_client_on_setup(
     let mut compilation_options = Default::default();
 
     let features = setup.adapter.features();
-
-    let mut device_props = DeviceProperties::new(&[], mem_props.clone(), hardware_props);
+    let timing_method = if features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+        TimingMethod::Device
+    } else {
+        TimingMethod::System
+    };
+    let mut device_props =
+        DeviceProperties::new(&[], mem_props.clone(), hardware_props, timing_method);
 
     // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
     // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
@@ -266,6 +271,7 @@ pub(crate) fn create_client_on_setup(
         mem_props,
         options.memory_config,
         compilation_options,
+        timing_method,
         setup.device.clone(),
         setup.queue,
         options.tasks_max,

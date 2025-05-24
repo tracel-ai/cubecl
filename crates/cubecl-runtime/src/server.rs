@@ -12,7 +12,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
