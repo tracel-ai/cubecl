@@ -22,6 +22,7 @@ std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
 msl = ["cubecl-cpp/metal"]
 spirv = ["cubecl-spirv", "ash"]
+profile-tracy = ["tracy-client"]
 
 spirv-dump = ["sanitize-filename"]
 
@@ -76,6 +77,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-featur
 derive_more = { workspace = true }
 half = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
+tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { version = "0.38", optional = true }

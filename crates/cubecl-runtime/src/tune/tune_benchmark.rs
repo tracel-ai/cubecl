@@ -3,6 +3,7 @@ use core::time::Duration;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use cubecl_common::profile::ProfileDuration;
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;

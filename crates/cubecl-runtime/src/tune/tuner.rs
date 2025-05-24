@@ -271,11 +271,24 @@ impl<K: AutotuneKey> Tuner<K> {
                         Ok(result) => {
                             let (name, index, profiles) = result;
                             // Wait for the results to come in, and determine the outcome.
-                            let durations = BenchmarkDurations::from_profiles(profiles).await;
+                            let mut durations = Vec::new();
+                            let timing_method = profiles
+                                .first()
+                                .expect("need at least 1 profile")
+                                .timing_method();
+
+                            for profile in profiles {
+                                if profile.timing_method() != timing_method {
+                                    panic!("all profiles must use the same timing method");
+                                }
+                                durations.push(profile.resolve().await.duration());
+                            }
+                            let bench =
+                                BenchmarkDurations::from_durations(timing_method, durations);
                             let outcome = Ok(AutotuneOutcome::new(
                                 name,
                                 index,
-                                BenchmarkComputations::new(&durations),
+                                BenchmarkComputations::new(&bench),
                             ));
                             bench_results.push(outcome);
                         }

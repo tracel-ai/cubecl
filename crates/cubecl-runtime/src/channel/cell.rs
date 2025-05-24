@@ -8,8 +8,8 @@ use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
-use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::DynFut;
+use cubecl_common::profile::ProfileDuration;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///

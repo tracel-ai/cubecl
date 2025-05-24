@@ -6,8 +6,8 @@ use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
 use crate::runtime::HipCompiler;
-use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::DynFut;
+use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
@@ -18,6 +18,8 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::storage::ComputeStorage;
+use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -42,7 +44,7 @@ pub(crate) struct HipContext {
     stream: cubecl_hip_sys::hipStream_t,
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
-    timestamps: KernelTimestamps,
+    timestamps: TimestampProfiler,
     compilation_options: CompilationOptions,
     #[cfg(feature = "compilation-cache")]
     compilation_cache: Cache<String, CompilationCacheEntry>,
@@ -306,7 +308,7 @@ impl HipContext {
             memory_management,
             module_names: HashMap::new(),
             stream,
-            timestamps: KernelTimestamps::default(),
+            timestamps: TimestampProfiler::default(),
             compilation_options,
             #[cfg(feature = "compilation-cache")]
             compilation_cache: Cache::new("hip/compilation", CacheOption::default()),

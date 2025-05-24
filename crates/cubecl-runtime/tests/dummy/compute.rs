@@ -1,6 +1,6 @@
 use super::DummyServer;
 use cubecl_common::CubeDim;
-use cubecl_common::benchmark::TimingMethod;
+use cubecl_common::profile::TimingMethod;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::LocalTuner;
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};

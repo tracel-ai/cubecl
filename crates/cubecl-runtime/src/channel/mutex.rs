@@ -8,8 +8,8 @@ use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
-use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::DynFut;
+use cubecl_common::profile::ProfileDuration;
 use spin::Mutex;
 
 /// The MutexComputeChannel ensures thread-safety by locking the server

@@ -3,6 +3,7 @@ use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
+use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
     benchmark::TimingMethod,

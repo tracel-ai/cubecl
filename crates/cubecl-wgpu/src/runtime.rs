@@ -2,7 +2,7 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::future;
+use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, Runtime,
     benchmark::TimingMethod,
@@ -274,6 +274,7 @@ pub(crate) fn create_client_on_setup(
         mem_props,
         options.memory_config,
         compilation_options,
+        timing_method,
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
