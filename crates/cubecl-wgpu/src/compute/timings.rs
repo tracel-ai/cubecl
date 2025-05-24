@@ -1,13 +1,13 @@
-use cubecl_core::server::ProfilingToken;
+use cubecl_common::profile::{ProfileDuration, ProfileTicks};
+use cubecl_core::{future::DynFut, server::ProfilingToken};
 use hashbrown::HashMap;
-use web_time::Instant;
-use wgpu::{CommandEncoder, QuerySet, QueryType, wgt::QuerySetDescriptor};
+use wgpu::{QuerySet, QueryType, wgt::QuerySetDescriptor};
 
-use crate::WgpuResource;
+use super::WgpuResource;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 /// Struct encapsulating how timings are captured on wgpu.
-pub struct Timings {
+pub struct QueryProfiler {
     timestamps: HashMap<ProfilingToken, Timestamp>,
     init_tokens: Vec<ProfilingToken>,
     query_sets: HashMap<QuerySetId, QuerySetItem>,
@@ -15,17 +15,14 @@ pub struct Timings {
     counter_token: u64,
     counter_query_set: u64,
     cleanups: Vec<QuerySetId>,
+
+    queue_period: f64,
 }
 
 #[derive(Debug)]
-pub enum Timestamp {
-    Device {
-        start: Option<u64>,
-        end: Option<u64>,
-    },
-    Full {
-        start_time: Instant,
-    },
+pub struct Timestamp {
+    start: Option<u64>,
+    end: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -37,80 +34,91 @@ struct QuerySetItem {
 
 type QuerySetId = u64;
 
-impl Timings {
-    /// Prepare a new profiling creating a new [token](ProfilingToken).
-    pub fn start_profile_prepare(&mut self) -> ProfilingToken {
+impl QueryProfiler {
+    pub fn new(queue: &wgpu::Queue) -> Self {
+        Self {
+            cleanups: Vec::new(),
+            counter_query_set: 0,
+            counter_token: 0,
+            query_sets: HashMap::new(),
+            current: None,
+            timestamps: HashMap::new(),
+            init_tokens: Vec::new(),
+            queue_period: queue.get_timestamp_period() as f64,
+        }
+    }
+
+    /// Start a new profiling using [device measurement](TimeMeasurement::Device).
+    pub fn start_profile(&mut self) -> ProfilingToken {
         let token = ProfilingToken {
             id: self.counter_token,
         };
         self.counter_token += 1;
-        token
-    }
-
-    /// Start a new profiling using [device measurement](TimeMeasurement::Device).
-    pub fn start_profile_device(&mut self, token: ProfilingToken) {
         self.init_tokens.push(token);
         self.timestamps.insert(
             token,
-            Timestamp::Device {
+            Timestamp {
                 start: None,
                 end: None,
             },
         );
-    }
-
-    /// Start a new profiling using [system measurement](TimeMeasurement::System).
-    pub fn start_profile_system(&mut self, token: ProfilingToken) {
-        self.timestamps.insert(
-            token,
-            Timestamp::Full {
-                start_time: Instant::now(),
-            },
-        );
-    }
-
-    /// Prepare to stop a profiling using a [token](ProfilingToken).
-    pub fn stop_profile_prepare(&mut self, token: ProfilingToken) -> Timestamp {
-        let mut timestamps = self.timestamps.remove(&token).unwrap();
-
-        if let Timestamp::Device { end, .. } = &mut timestamps {
-            *end = self.current;
-        }
-
-        timestamps
+        token
     }
 
     /// Stop the profiling on a device.
-    pub fn stop_profile_device(
-        &mut self,
-        start: QuerySetId,
-        end: QuerySetId,
-        encoder: &mut CommandEncoder,
-        resource_start: WgpuResource,
-        resource_end: WgpuResource,
-    ) {
-        let query_set_start = self.query_sets.get_mut(&start).unwrap();
-        query_set_start.num_ref -= 1;
+    pub fn stop_profile(&mut self, token: ProfilingToken) -> Option<(u64, u64)> {
+        let mut timestamps = self.timestamps.remove(&token).unwrap();
+        let Timestamp { start, end } = &mut timestamps;
+        *end = self.current;
 
-        if query_set_start.num_ref == 0 {
-            self.cleanups.push(start);
+        if let (Some(start), Some(end)) = (start, end) {
+            let query_set_start = self.query_sets.get_mut(start).unwrap();
+            query_set_start.num_ref -= 1;
+            if query_set_start.num_ref == 0 {
+                self.cleanups.push(*start);
+            }
+            Some((*start, *end))
+        } else {
+            None
         }
+    }
 
+    pub fn resolve_profiles(
+        &self,
+        start: u64,
+        end: u64,
+        encoder: &mut wgpu::CommandEncoder,
+        resource_start: &WgpuResource,
+        resource_end: &WgpuResource,
+    ) {
+        let query_set_start = self.query_sets.get(&start).unwrap();
+        let query_set_end = self.query_sets.get(&end).unwrap();
         encoder.resolve_query_set(
             &query_set_start.query_set,
             0..1,
             resource_start.buffer(),
             resource_start.offset(),
         );
-
-        let query_set_end = self.query_sets.get_mut(&end).unwrap();
-
         encoder.resolve_query_set(
             &query_set_end.query_set,
             1..2,
             resource_end.buffer(),
             resource_end.offset(),
         );
+    }
+
+    pub fn duration_from_fut(&self, fut: DynFut<Vec<Vec<u8>>>) -> ProfileDuration {
+        let period = self.queue_period;
+
+        ProfileDuration::from_future(async move {
+            let result = fut.await;
+            let data_start: u64 = bytemuck::try_cast_slice(&result[0]).unwrap()[0];
+            let data_end: u64 = bytemuck::try_cast_slice(&result[1]).unwrap()[0];
+            // TODO: Offset by base tick.
+            let ns_start = (data_start as f64 * period) as u128;
+            let ns_end = (data_end as f64 * period) as u128;
+            ProfileTicks::from_start_end(ns_start, ns_end)
+        })
     }
 
     /// Returns the query set to be used by the [wgpu::ComputePass].
@@ -145,7 +153,7 @@ impl Timings {
         let mut count = 0;
 
         for token in self.init_tokens.drain(..) {
-            if let Some(Timestamp::Device { start, .. }) = &mut self.timestamps.get_mut(&token) {
+            if let Some(Timestamp { start, .. }) = &mut self.timestamps.get_mut(&token) {
                 count += 1;
                 let id = match query_set_id {
                     Some(id) => id,

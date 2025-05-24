@@ -1,4 +1,4 @@
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{future::DynFut, profile::ProfileDuration, ExecutionMode};
 
 use crate::{
     logging::ServerLogger,

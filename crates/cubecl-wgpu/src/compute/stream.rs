@@ -1,18 +1,21 @@
-use super::{
-    mem_manager::WgpuMemManager,
-    poll::WgpuPoll,
-    timings::{Timestamp, Timings},
-};
+use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
+use cubecl_common::profile::{ProfileDuration, ProfileTicks};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    benchmark::{ProfileDuration, TimingMethod},
     future::{self, DynFut},
     server::{Binding, Bindings, Handle, ProfilingToken},
 };
-use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use cubecl_runtime::{
+    memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
+};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
-use web_time::Duration;
 use wgpu::ComputePipeline;
+
+#[derive(Debug)]
+enum Timings {
+    Device(QueryProfiler),
+    System(TimestampProfiler),
+}
 
 #[derive(Debug)]
 pub struct WgpuStream {
@@ -27,7 +30,6 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
-    time_measurement: TimingMethod,
 }
 
 impl WgpuStream {
@@ -50,16 +52,23 @@ impl WgpuStream {
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
-        let time_measurement = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            TimingMethod::Device
+        let timings = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            Timings::Device(QueryProfiler::new(&queue))
         } else {
-            TimingMethod::System
+            if cfg!(target_family = "wasm") {
+                // On WASM, there's not much we can do here anymore. This should be very rare however,
+                // all modern GPU's support timestamp queries.
+                panic!(
+                    "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
+                );
+            }
+            Timings::System(TimestampProfiler::default())
         };
 
         Self {
             mem_manage,
             compute_pass: None,
-            timings: Timings::default(),
+            timings,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -72,7 +81,6 @@ impl WgpuStream {
             poll,
             sync_buffer,
             submission_load: SubmissionLoad::default(),
-            time_measurement,
         }
     }
 
@@ -117,15 +125,17 @@ impl WgpuStream {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.compute_pass.get_or_insert_with(|| {
-            let writes = self
-                .timings
-                .register_profile_device(&self.device)
-                .map(|query_set| wgpu::ComputePassTimestampWrites {
-                    query_set,
-                    beginning_of_pass_write_index: Some(0),
-                    end_of_pass_write_index: Some(1),
-                });
-
+            let writes = if let Timings::Device(query_time) = &mut self.timings {
+                query_time
+                    .register_profile_device(&self.device)
+                    .map(|query_set| wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(0),
+                        end_of_pass_write_index: Some(1),
+                    })
+            } else {
+                None
+            };
             self.encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
@@ -241,95 +251,77 @@ impl WgpuStream {
         })
     }
 
+    // Bit silly but needed to make the borrow checker happy.
+    fn system_profiler(&mut self) -> &mut TimestampProfiler {
+        let Timings::System(timing) = &mut self.timings else {
+            panic!("Unexpected timings type");
+        };
+        timing
+    }
+
+    fn device_profile(&mut self) -> &mut QueryProfiler {
+        let Timings::Device(timing) = &mut self.timings else {
+            panic!("Unexpected timings type");
+        };
+        timing
+    }
+
     pub fn start_profile(&mut self) -> ProfilingToken {
-        let token = self.timings.start_profile_prepare();
-
-        if self.time_measurement == TimingMethod::Device {
-            // Flush all commands to the queue. This isn't really needed, but this should mean
-            // new work after this will be run with less overlap.
-            self.flush();
-
-            self.timings.start_profile_device(token);
-        } else if !cfg!(target_family = "wasm") {
-            // On native platforms, fallback to measuring full time elapsed.
-            future::block_on(self.sync());
-            self.timings.start_profile_system(token);
-        } else {
-            // On WASM, there's not much we can do here anymore. This should be very rare however,
-            // all modern GPU's support timestamp queries.
-            panic!(
-                "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
-            );
+        match &self.timings {
+            Timings::System(..) => {
+                // Sync before profiling as well to get a cleaner measurement, we don't want to
+                // include any queued up work so far.
+                future::block_on(self.sync());
+                self.system_profiler().start()
+            }
+            Timings::Device(..) => {
+                // Flush all commands to the queue. This isn't really needed, but this should mean
+                // new work after this will be run with less overlap.
+                self.flush();
+                self.device_profile().start_profile()
+            }
         }
-
-        token
     }
 
     pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        self.compute_pass = None;
-
-        let timestamp = self.timings.stop_profile_prepare(token);
-
-        match timestamp {
-            Timestamp::Device { start, end } => {
-                let (start, end) = if let (Some(start), Some(end)) = (start, end) {
-                    (start, end)
-                } else {
-                    // If there was no work done between the start and stop of the profile, logically the
-                    // time should be 0. We could use a ProfileDuration::from_duration here,
-                    // but it seems better to always return things as 'device' timing method.
-                    return ProfileDuration::from_future(async move { Duration::from_secs(0) });
-                };
-
+        match &mut self.timings {
+            Timings::System(..) => {
+                // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
+                future::block_on(self.sync());
+                self.system_profiler().stop(token)
+            }
+            Timings::Device(..) => {
                 // TODO: We could optimize this by having a single handle for both `start` and `end`
                 // when a single query_set is used, but it probably doesn't impact much the real
                 // performance.
+                self.compute_pass = None;
+
+                let queries = self.device_profile().stop_profile(token);
+                let Some((start, end)) = queries else {
+                    // If there was no work done between the start and stop of the profile, logically the
+                    // time should be 0. We could use a ProfileDuration::from_duration here,
+                    // but it seems better to always return things as 'device' timing method.
+                    return ProfileDuration::from_future(async move {
+                        ProfileTicks::from_start_end(0, 0)
+                    });
+                };
+                // Resolve the query results & read the values
                 let (handle_start, resource_start) = self.mem_manage.query(1);
                 let (handle_end, resource_end) = self.mem_manage.query(1);
-
-                self.timings.stop_profile_device(
+                // Hack for borrow checker.
+                let Timings::Device(timing) = &self.timings else {
+                    panic!("Unexpected timings type");
+                };
+                timing.resolve_profiles(
                     start,
                     end,
                     &mut self.encoder,
-                    resource_start,
-                    resource_end,
+                    &resource_start,
+                    &resource_end,
                 );
-
-                let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffers(vec![handle_start.binding(), handle_end.binding()]);
-                let resolve_fut = async move {
-                    let mut result = fut.await;
-                    let data_end = u64::from_le_bytes(
-                        result
-                            .remove(1)
-                            .chunks_exact(8)
-                            .next()
-                            .unwrap()
-                            .try_into()
-                            .unwrap(),
-                    );
-                    let data_start = u64::from_le_bytes(
-                        result
-                            .remove(0)
-                            .chunks_exact(8)
-                            .next()
-                            .unwrap()
-                            .try_into()
-                            .unwrap(),
-                    );
-
-                    let delta = u64::checked_sub(data_end, data_start).unwrap_or(1);
-                    Duration::from_secs_f64(delta as f64 * period)
-                };
-                ProfileDuration::from_future(resolve_fut)
-            }
-            Timestamp::Full { start_time } => {
-                let fut = self.sync();
-                let duration_fut = async move {
-                    fut.await;
-                    start_time.elapsed()
-                };
-                ProfileDuration::from_future(duration_fut)
+                let read_fut =
+                    self.read_buffers(vec![handle_start.binding(), handle_end.binding()]);
+                self.device_profile().duration_from_fut(read_fut)
             }
         }
     }

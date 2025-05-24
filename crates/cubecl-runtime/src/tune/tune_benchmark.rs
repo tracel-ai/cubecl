@@ -1,10 +1,10 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use cubecl_common::profile::ProfileDuration;
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-use cubecl_common::benchmark::ProfileDuration;
 
 use super::{AutotuneError, Tunable};
 

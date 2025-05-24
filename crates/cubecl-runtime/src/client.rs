@@ -12,7 +12,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, profile::ProfileDuration};
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;

@@ -2,7 +2,7 @@ use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
-use cubecl_core::benchmark::ProfileDuration;
+use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::ProfilingToken;
@@ -167,9 +167,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        let profile = self.stream.stop_profile(token);
-
-        ProfileDuration::from_future(async move { profile.resolve().await })
+        self.stream.stop_profile(token)
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
