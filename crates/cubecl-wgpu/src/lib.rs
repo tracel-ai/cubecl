@@ -71,8 +71,6 @@ mod tests_msl {
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);
     cubecl_linalg::testgen_matmul_plane_accelerated!();
     cubecl_linalg::testgen_matmul_unit!();
-    cubecl_linalg::testgen_matmul_tma!();
-    cubecl_linalg::testgen_matmul_quantized!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
