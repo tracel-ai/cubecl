@@ -25,8 +25,8 @@ impl Processor for CheckedIoProcessor {
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
         for instruction in instructions {
-            match &instruction.operation {
-                Operation::Operator(operator) => match operator {
+            if let Operation::Operator(operator) = &instruction.operation {
+                match operator {
                     Operator::Index(op) => {
                         let has_length = instruction.out.map(|o| o.has_length()).unwrap_or(false);
                         let is_not_atomic = instruction
@@ -81,8 +81,7 @@ impl Processor for CheckedIoProcessor {
                         }
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
 
             // When we have nothing to do.
