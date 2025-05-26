@@ -37,11 +37,11 @@ impl<'a> Module<'a> {
         let pass_manager = PassManager::new(&self.context);
         pass_manager.enable_verifier(true);
         pass_manager.enable_ir_printing(&PassIrPrintingOptions {
-            before_all: false,
+            before_all: true,
             after_all: true,
             module_scope: true,
-            on_change: false,
-            on_failure: false,
+            on_change: true,
+            on_failure: true,
             flags: OperationPrintingFlags::new(),
             tree_printing_path: PathBuf::from("debug"),
         });
