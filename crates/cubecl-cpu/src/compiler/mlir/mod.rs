@@ -21,9 +21,8 @@ use module::Module;
 const MAX_BUFFER_SIZE: usize = 16;
 
 pub struct MlirEngine {
-    // This field must never be reallocated, because a double indirection is necessary for Orca JIT
-    args: Vec<LineMemRef>,
-    args_indirected: Vec<*mut ()>,
+    args: Vec<Box<LineMemRef>>,
+    args_undirected: Vec<*mut ()>,
     execution_engine: ExecutionEngine,
 }
 
@@ -57,11 +56,11 @@ impl MlirEngine {
 
         let execution_engine = module.into_execution_engine();
         let args = Vec::with_capacity(MAX_BUFFER_SIZE);
-        let args_indirected = Vec::with_capacity(MAX_BUFFER_SIZE);
+        let args_undirected = Vec::with_capacity(MAX_BUFFER_SIZE);
         Self {
             execution_engine,
             args,
-            args_indirected,
+            args_undirected,
         }
     }
 
@@ -71,16 +70,15 @@ impl MlirEngine {
 
     /// This function will make the program segfault if args is reallocated
     pub unsafe fn push_buffer(&mut self, pointer: &mut [u8]) {
-        self.args.push(LineMemRef::new(pointer));
-        let last_elem = unsafe { self.args.last_mut().unwrap_unchecked() };
-        self.args_indirected
-            .push(last_elem as *mut LineMemRef as *mut ());
+        self.args.push(Box::new(LineMemRef::new(pointer)));
+        let last_elem = self.args.last_mut().unwrap().as_mut() as *mut LineMemRef;
+        self.args_undirected.push(last_elem as *mut ());
     }
 
     pub unsafe fn run_kernel(&mut self) {
         unsafe {
             self.execution_engine
-                .invoke_packed("kernel", &mut self.args_indirected)
+                .invoke_packed("kernel", &mut self.args_undirected)
                 .unwrap()
         }
     }

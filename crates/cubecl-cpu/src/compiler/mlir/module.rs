@@ -47,9 +47,16 @@ impl<'a> Module<'a> {
         });
 
         pass_manager.add_pass(pass::transform::create_canonicalizer());
-        pass_manager.add_pass(pass::conversion::create_control_flow_to_llvm());
-        pass_manager.add_pass(pass::conversion::create_to_llvm());
-        pass_manager.add_pass(pass::conversion::create_to_llvm()); // This a feature not a bug it
+        pass_manager.add_pass(pass::conversion::create_finalize_mem_ref_to_llvm());
+        pass_manager.add_pass(pass::conversion::create_scf_to_control_flow());
+        pass_manager.add_pass(pass::conversion::create_vector_to_llvm());
+        pass_manager.add_pass(pass::conversion::create_arith_to_llvm());
+        pass_manager.add_pass(pass::conversion::create_func_to_llvm());
+        pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
+        pass_manager.add_pass(pass::transform::create_mem_2_reg());
+        pass_manager.add_pass(pass::transform::create_inliner());
+        pass_manager.add_pass(pass::transform::create_remove_dead_values());
+        pass_manager.add_pass(pass::transform::create_generate_runtime_verification());
         pass_manager.run(&mut self.module).unwrap();
         self.module.as_operation().verify();
     }
