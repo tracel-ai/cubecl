@@ -1,4 +1,4 @@
-use crate::matmul::components::{MatmulKind, MatmulProblem, MatmulSize, stage::AccumulatorShape};
+use crate::matmul::components::{MatmulKind, MatmulProblem, MatmulSize, stage::AccumulatorCount};
 
 use super::MatmulSelection;
 
@@ -12,7 +12,7 @@ pub struct UnitMatmulSelection {
     pub tile_shape: MatmulSize,
     pub tile_count: MatmulSize,
     pub plane_dim: u32,
-    pub accumulator_shape: AccumulatorShape,
+    pub accumulator_count: AccumulatorCount,
 }
 
 impl MatmulSelection for UnitMatmulSelection {
@@ -55,7 +55,7 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmul
             k: ARBITRARY_K_COUNT,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -75,7 +75,7 @@ fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
             k: ARBITRARY_K_COUNT,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -95,7 +95,7 @@ fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
             k: ARBITRARY_K_COUNT,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -115,7 +115,7 @@ fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
             k: 1,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -135,7 +135,7 @@ fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
             k: 1,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -153,7 +153,7 @@ fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Unit
             k: ARBITRARY_K_COUNT,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -174,7 +174,7 @@ fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Unit
             k: 1,
         },
         plane_dim,
-        accumulator_shape: TMM_PER_UNIT_APPROX.into(),
+        accumulator_count: TMM_PER_UNIT_APPROX.into(),
     }
 }
 
@@ -184,7 +184,7 @@ fn scalar_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Uni
         tile_shape: MatmulSize { m: 1, n: 1, k: 1 },
         tile_count: MatmulSize { m: 1, n: 1, k: 1 },
         plane_dim,
-        accumulator_shape: (1, 1).into(),
+        accumulator_count: (1, 1).into(),
     }
 }
 

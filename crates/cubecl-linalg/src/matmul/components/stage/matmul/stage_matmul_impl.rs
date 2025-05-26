@@ -87,11 +87,11 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        let m_acc_shape = config.accumulator_shape().m;
-        let n_acc_shape = config.accumulator_shape().n;
-        let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
-        let start_m = m_acc_shape * (EP::id() / num_acc_n);
-        let start_n = n_acc_shape * (EP::id() % num_acc_n);
+        let m_acc_count = config.accumulator_count().m;
+        let n_acc_count = config.accumulator_count().n;
+        let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
+        let start_m = m_acc_count * (EP::id() / num_acc_n);
+        let start_n = n_acc_count * (EP::id() % num_acc_n);
 
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
@@ -120,7 +120,7 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        let shape = config.accumulator_shape();
+        let shape = config.accumulator_count();
         // assert!(
         //     shape.n == config.tiling.tile_count.n,
         //     "For now, Plane Matmul assumes planes perform whole rows."
@@ -163,11 +163,11 @@ where
         let slice_start = num_tile_lines * EP::id();
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let m_acc_shape = stage_config.accumulator_shape().m;
-        let n_acc_shape = stage_config.accumulator_shape().n;
-        let num_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_shape;
-        let m_offset = m_acc_shape * (EP::id() / num_acc_n);
-        let n_offset = n_acc_shape * (EP::id() % num_acc_n);
+        let m_acc_count = stage_config.accumulator_count().m;
+        let n_acc_count = stage_config.accumulator_count().n;
+        let total_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
+        let m_offset = m_acc_count * (EP::id() / total_acc_n);
+        let n_offset = n_acc_count * (EP::id() % total_acc_n);
 
         let mut m_iter = comptime![0u32];
 

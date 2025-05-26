@@ -17,7 +17,7 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
-use super::{AccumulatorShape, NumStages};
+use super::{AccumulatorCount, NumStages};
 
 type UnitMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, UnitExecutionPrimitive>;
 
@@ -74,13 +74,13 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         StageBuffering,
         StageVectorization,
         NumStages,
-        AccumulatorShape,
+        AccumulatorCount,
     );
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        let acc_per_unit = config.accumulator_shape().num_tiles();
+        let acc_per_unit = config.accumulator_count().num_tiles();
 
         if num_acc % acc_per_unit != 0 {
             return Err(Box::new(format!(
@@ -97,7 +97,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             )));
         }
 
-        if config.buffering() == StageBuffering::Double && config.accumulator_shape().n < 2 {
+        if config.buffering() == StageBuffering::Double && config.accumulator_count().n < 2 {
             return Err(Box::new(format!(
                 "Error: Tried doing double buffering with only one tile to compute."
             )));
@@ -114,7 +114,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     }
 
     fn make_config(
-        (tiling, buffering, vectorization, num_stages, acc_shape): Self::Input,
+        (tiling, buffering, vectorization, num_stages, acc_count): Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
@@ -138,7 +138,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         };
 
         CommonStageConfig::new(
-            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_shape,
+            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_count,
         )
     }
 }

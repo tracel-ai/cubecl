@@ -1,5 +1,5 @@
 use crate::matmul::components::stage::{
-    AccumulatorShape, NumStages, StageBuffering, StageVectorization,
+    AccumulatorCount, NumStages, StageBuffering, StageVectorization,
 };
 use crate::matmul::components::{
     CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
@@ -18,7 +18,7 @@ type StageInput = (
     stage::StageBuffering,
     StageVectorization,
     NumStages,
-    AccumulatorShape,
+    AccumulatorCount,
 );
 
 pub enum MultiRowStrategy {
@@ -71,7 +71,7 @@ pub trait Algorithm {
         (1, 1).into()
     }
 
-    fn accumulator_shape(selection: &Self::MatmulSelection) -> AccumulatorShape {
+    fn accumulator_count(selection: &Self::MatmulSelection) -> AccumulatorCount {
         // Default behaviour for algorithms using PlaneMatmul
         (
             selection.tile_count().m / Self::cube_dim(selection).y,

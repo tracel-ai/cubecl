@@ -108,7 +108,7 @@ pub fn test_algo<
                 A::stage_buffering_strategy(),
                 vectorization,
                 A::num_stages(),
-                A::accumulator_shape(&selection),
+                A::accumulator_count(&selection),
             ),
             A::loading_precompute_strategy(),
         ),

@@ -17,7 +17,7 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
-use super::{AccumulatorShape, NumStages, StageVectorization};
+use super::{AccumulatorCount, NumStages, StageVectorization};
 
 /// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
 /// - One plane per tile in m dimension,
@@ -84,13 +84,13 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         StageBuffering,
         StageVectorization,
         NumStages,
-        AccumulatorShape,
+        AccumulatorCount,
     );
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        let acc_per_plane = config.accumulator_shape().num_tiles();
+        let acc_per_plane = config.accumulator_count().num_tiles();
 
         if num_acc % acc_per_plane != 0 {
             return Err(Box::new(format!(
@@ -107,9 +107,9 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             ));
         }
 
-        if config.buffering() == StageBuffering::Double && config.accumulator_shape().n < 2 {
+        if config.buffering() == StageBuffering::Double && config.accumulator_count().n < 2 {
             return Err(Box::new(
-                "Error: Tried doing double buffering with only one tile to compute.".to_string()
+                "Error: Tried doing double buffering with only one tile to compute.".to_string(),
             ));
         }
 
@@ -124,7 +124,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     }
 
     fn make_config(
-        (tiling, buffering, vectorization, num_stages, acc_shape): Self::Input,
+        (tiling, buffering, vectorization, num_stages, acc_count): Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
@@ -148,7 +148,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         };
 
         CommonStageConfig::new(
-            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_shape,
+            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_count,
         )
     }
 }

@@ -17,7 +17,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub buffering: StageBuffering,
     pub num_stages: NumStages,
-    pub accumulator_shape: AccumulatorShape,
+    pub accumulator_count: AccumulatorCount,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -70,8 +70,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         }
     }
 
-    fn accumulator_shape(&self) -> AccumulatorShape {
-        self.accumulator_shape
+    fn accumulator_count(&self) -> AccumulatorCount {
+        self.accumulator_count
     }
 }
 
@@ -86,7 +86,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         quantized: bool,
         buffering: StageBuffering,
         num_stages: NumStages,
-        accumulator_shape: AccumulatorShape,
+        accumulator_count: AccumulatorCount,
     ) -> Self {
         Self {
             tmm_config,
@@ -95,7 +95,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
             num_stages,
-            accumulator_shape,
+            accumulator_count,
         }
     }
 }
@@ -106,13 +106,13 @@ impl<T: TileConfig> CommonStageConfig<T> {
 pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
     sequence: Sequence<TMM::Accumulator>,
     #[cube(comptime)]
-    pub shape: AccumulatorShape,
+    pub shape: AccumulatorCount,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
     pub fn new(#[comptime] config: CommonStageConfig<TMM::Config>) -> Accumulators<MP, TMM> {
-        let shape = config.accumulator_shape();
+        let shape = config.accumulator_count();
         let mut accumulators = Sequence::new();
 
         #[unroll]
@@ -184,21 +184,21 @@ impl From<(u32, u32)> for NumStages {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AccumulatorShape {
+pub struct AccumulatorCount {
     pub m: u32,
     pub n: u32,
 }
 
-impl From<(u32, u32)> for AccumulatorShape {
+impl From<(u32, u32)> for AccumulatorCount {
     fn from(value: (u32, u32)) -> Self {
-        AccumulatorShape {
+        AccumulatorCount {
             m: value.0,
             n: value.1,
         }
     }
 }
 
-impl AccumulatorShape {
+impl AccumulatorCount {
     pub fn num_tiles(&self) -> u32 {
         self.m * self.n
     }

@@ -30,7 +30,7 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
         stage_line_size: 0,
         stage_elem_padding: 0,
     };
-    let accumulator_shape = A::accumulator_shape(&selection);
+    let accumulator_count = A::accumulator_count(&selection);
     (
         selection,
         (
@@ -38,7 +38,7 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
             A::stage_buffering_strategy(),
             vectorization,
             A::num_stages(),
-            accumulator_shape,
+            accumulator_count,
         ),
     )
 }
