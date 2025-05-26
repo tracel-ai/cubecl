@@ -5,15 +5,15 @@ use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
 use mlir::MlirEngine;
 
 #[derive(Clone, Debug, Default)]
-pub struct MLIRCompiler {}
+pub struct MlirCompiler {}
 
 #[derive(Default, Debug)]
-pub struct MLIRCompilerOptions {}
+pub struct MlirCompilerOptions {}
 
-impl Compiler for MLIRCompiler {
+impl Compiler for MlirCompiler {
     type Representation = MlirEngine;
 
-    type CompilationOptions = MLIRCompilerOptions;
+    type CompilationOptions = MlirCompilerOptions;
 
     fn compile(
         &mut self,
