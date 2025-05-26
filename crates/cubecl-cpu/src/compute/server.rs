@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use cubecl_core::{
     Feature, MemoryUsage,
     benchmark::ProfileDuration,
+    compute::CubeTask,
     future::DynFut,
-    prelude::CubeTask,
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, Handle, ProfilingToken},
 };
 use cubecl_runtime::{
@@ -133,6 +135,7 @@ impl ComputeServer for CpuServer {
         _count: cubecl_core::CubeCount,
         bindings: Bindings,
         kind: cubecl_core::ExecutionMode,
+        _logger: Arc<ServerLogger>,
     ) {
         // TODO implement the runtime
         let kernel = kernel.compile(
