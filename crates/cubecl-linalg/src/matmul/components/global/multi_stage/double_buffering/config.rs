@@ -108,7 +108,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
         out_line_size: u32,
         num_planes: u32,
         precompute_job: LoadingPrecomputeStrategy,
-        loader_mode: LoaderMode
+        loader_mode: LoaderMode,
     ) -> Self {
         Self {
             smm_config,

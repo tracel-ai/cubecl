@@ -127,9 +127,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(
-            this.loader_mode == LoaderMode::Strict || this.balanced_workload
-        ) {
+        if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
             load_and_store_line::<MP, TO, G>(
                 this,
                 unit_position,

@@ -36,7 +36,7 @@ impl StagePartitioner for UnitPartitioner {
         UnitWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
     }
 
-    fn id() -> u32 {
+    fn position() -> u32 {
         UNIT_POS
     }
 

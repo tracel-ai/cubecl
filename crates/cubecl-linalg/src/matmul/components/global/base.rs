@@ -10,7 +10,7 @@ use cubecl_std::{
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use super::{load::LoaderMode, GlobalWriter, Quantization};
+use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
