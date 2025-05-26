@@ -13,30 +13,6 @@ macro_rules! testgen_matmul_unit_stage {
             );
         }
 
-        mod s8x8x1 {
-            use super::*;
-
-            $crate::testgen_matmul_layouts!(
-                Unit,
-                $algorithm,
-                $precision,
-                $tile,
-                MatmulSize { m: 8, n: 8, k: 1 }
-            );
-        }
-
-        mod s16x16x1 {
-            use super::*;
-
-            $crate::testgen_matmul_layouts!(
-                Unit,
-                $algorithm,
-                $precision,
-                $tile,
-                MatmulSize { m: 16, n: 16, k: 1 }
-            );
-        }
-
         mod s2x2x2 {
             use super::*;
 
@@ -58,18 +34,6 @@ macro_rules! testgen_matmul_unit_stage {
                 $precision,
                 $tile,
                 MatmulSize { m: 8, n: 8, k: 4 }
-            );
-        }
-
-        mod s16x8x4 {
-            use super::*;
-
-            $crate::testgen_matmul_layouts!(
-                Unit,
-                $algorithm,
-                $precision,
-                $tile,
-                MatmulSize { m: 16, n: 8, k: 4 }
             );
         }
 

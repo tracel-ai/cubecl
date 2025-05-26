@@ -44,7 +44,7 @@ macro_rules! testgen_matmul_launch {
 
         #[test]
         pub fn test() {
-            cubecl_linalg::matmul::tests::test_macros::suite::launch::test_algo::<
+            cubecl_linalg::matmul::tests::test_macros::suite::plane_accelerated::test_algo::<
                 $algorithm,
                 $precision,
                 TestRuntime,

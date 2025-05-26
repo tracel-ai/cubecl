@@ -5,7 +5,6 @@ macro_rules! testgen_matmul_quantized_precision {
             use super::*;
 
             $crate::testgen_matmul_quantized_tile!(
-                Quantized,
                 $algorithm,
                 $crate::matmul::tests::SymQ8
             );

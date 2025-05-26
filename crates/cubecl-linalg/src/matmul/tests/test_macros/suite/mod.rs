@@ -13,7 +13,6 @@
 //!    - `problem`: actual matrix dimensions M/N/K
 
 pub mod common;
-pub mod launch;
 pub mod plane_accelerated;
 pub mod quantized;
 pub mod tma;
