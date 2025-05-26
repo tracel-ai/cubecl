@@ -1,6 +1,6 @@
 use cubecl_core::ir::Operator;
 use melior::{
-    dialect::ods::vector,
+    dialect::memref,
     ir::{BlockLike, Value},
 };
 
@@ -10,24 +10,16 @@ impl<'a> Visitor<'a> {
     pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Value<'_, '_>) {
         match operator {
             Operator::Index(index_operator) => {
-                let vector_type = self.item_to_type(index_operator.list.item);
-                let operation = vector::load(
-                    self.context,
-                    vector_type,
-                    self.get_variable(index_operator.list),
-                    &[self.get_variable(index_operator.index)],
-                    self.location,
-                )
-                .into();
-                let load_value = self
+                let memref = self.get_variable(index_operator.list);
+                let operation = memref::load(memref, &[], self.location).into();
+                let load_ssa = self
                     .block()
                     .append_operation(operation)
                     .result(0)
                     .unwrap()
                     .into();
-                self.block().append_operation(
-                    vector::store(self.context, load_value, out, &[], self.location).into(),
-                );
+                let operation = memref::store(load_ssa, out, &[], self.location).into();
+                self.block().append_operation(operation);
             }
             _ => todo!("{} is not yet implemented", operator),
         }
