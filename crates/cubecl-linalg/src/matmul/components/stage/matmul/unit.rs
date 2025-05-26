@@ -92,9 +92,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         }
 
         if config.buffering() == StageBuffering::Double && config.accumulator_count().n < 2 {
-            return Err(Box::new(format!(
-                "Error: Tried doing double buffering with only one tile to compute."
-            )));
+            return Err(Box::new(
+                "Error: Tried doing double buffering with only one tile to compute.".to_string(),
+            ));
         }
 
         TMM::check_config(&config.to_tmm_config())
