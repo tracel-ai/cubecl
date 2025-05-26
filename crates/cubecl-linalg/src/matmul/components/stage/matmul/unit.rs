@@ -1,7 +1,7 @@
 use crate::matmul::components::global::UnitWriter;
 use crate::matmul::components::stage::ReaderFamily;
+use crate::matmul::components::stage::StageBuffering;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageBuffering, StageVectorization};
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
 use crate::matmul::components::tile::TileMatmulFamily;
@@ -11,13 +11,13 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{Ident, MatmulProblem};
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::matmul::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::partitioned_stage_matmul::{PartitionedStageMatmul, StagePartitioner};
-use super::{AccumulatorCount, NumStages};
 
 type UnitMatmul<MP, TMM, RL, RR> = PartitionedStageMatmul<MP, TMM, RL, RR, UnitPartitioner>;
 
@@ -69,13 +69,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
 }
 
 impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmulFamily<TMM, RF> {
-    type Input = (
-        CompleteStageTiling,
-        StageBuffering,
-        StageVectorization,
-        NumStages,
-        AccumulatorCount,
-    );
+    type Input = StageInput;
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -114,18 +108,18 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     }
 
     fn make_config(
-        (tiling, buffering, vectorization, num_stages, acc_count): Self::Input,
+        stage_input: Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = tiling.tile_shape;
-        let tile_count = tiling.tile_count;
+        let tile_shape = stage_input.tiling.tile_shape;
+        let tile_count = stage_input.tiling.tile_count;
 
         let tile_input = TileMatmulConfigInput {
-            vectorization,
+            vectorization: stage_input.stage_vectorization,
             size: tile_shape,
         };
         let tmm_config = TMM::make_config(
@@ -138,7 +132,13 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         };
 
         CommonStageConfig::new(
-            tmm_config, tiling, cube_dim.y, quantized, buffering, num_stages, acc_count,
+            tmm_config,
+            tiling,
+            cube_dim.y,
+            quantized,
+            stage_input.stage_buffering,
+            stage_input.num_stages,
+            stage_input.accumulator_count,
         )
     }
 }

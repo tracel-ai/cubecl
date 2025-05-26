@@ -12,15 +12,19 @@ use cubecl_core::prelude::*;
 
 use super::MatmulSelection;
 
-type GlobalInput = (StageInput, LoadingPrecomputeStrategy, LoaderMode);
+pub struct GlobalInput<SI> {
+    pub stage_input: SI,
+    pub loading_precompute_strategy: LoadingPrecomputeStrategy,
+    pub loader_mode: LoaderMode,
+}
 
-type StageInput = (
-    CompleteStageTiling,
-    stage::StageBuffering,
-    StageVectorization,
-    NumStages,
-    AccumulatorCount,
-);
+pub struct StageInput {
+    pub tiling: CompleteStageTiling,
+    pub stage_buffering: stage::StageBuffering,
+    pub stage_vectorization: StageVectorization,
+    pub num_stages: NumStages,
+    pub accumulator_count: AccumulatorCount,
+}
 
 pub enum MultiRowStrategy {
     /// Always one row per plane
@@ -52,8 +56,8 @@ impl From<LoadingPrecomputeStrategy> for bool {
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
     type StageMatmul: stage::StageMatmulFamily<Input = StageInput>;
-    type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput>;
-    type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput>;
+    type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput<StageInput>>;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
     type MatmulSelection: MatmulSelection;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;

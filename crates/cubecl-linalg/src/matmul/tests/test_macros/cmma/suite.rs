@@ -1,7 +1,9 @@
 use crate::matmul::components::MatmulSize;
 use crate::matmul::components::stage::{AccumulatorCount, StageVectorization};
 use crate::matmul::components::{MatmulProblem, MatrixLayout};
-use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection, UnitMatmulSelection};
+use crate::matmul::kernels::matmul::{
+    Algorithm, GlobalInput, PlaneMatmulSelection, StageInput, UnitMatmulSelection,
+};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
@@ -42,7 +44,7 @@ pub fn test_algo<
         plane_dim,
         rows_per_plane,
     };
-    let config_input = (&selection).into();
+    let tiling = (&selection).into();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -51,17 +53,17 @@ pub fn test_algo<
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-                A::accumulator_count(&selection),
-            ),
-            A::loading_precompute_strategy(),
-            A::loader_mode(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }
@@ -101,7 +103,7 @@ pub fn test_algo_unit<
         plane_dim,
         accumulator_count,
     };
-    let config_input = (&selection).into();
+    let tiling = (&selection).into();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -110,17 +112,17 @@ pub fn test_algo_unit<
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-                A::accumulator_count(&selection),
-            ),
-            A::loading_precompute_strategy(),
-            A::loader_mode(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }
@@ -159,7 +161,7 @@ pub fn test_algo_tma<
         plane_dim,
         rows_per_plane: 1,
     };
-    let config_input = (&selection).into();
+    let tiling = (&selection).into();
 
     let vectorization = StageVectorization {
         stage_line_size: 0,
@@ -168,17 +170,17 @@ pub fn test_algo_tma<
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-                A::accumulator_count(&selection),
-            ),
-            A::loading_precompute_strategy(),
-            A::loader_mode(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }

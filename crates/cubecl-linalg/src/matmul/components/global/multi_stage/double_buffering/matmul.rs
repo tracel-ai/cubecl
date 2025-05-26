@@ -1,5 +1,4 @@
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::LoaderMode;
 use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
 };
@@ -15,7 +14,7 @@ use crate::matmul::components::{
 use crate::matmul::components::{MatmulLineSizes, global};
 use crate::matmul::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
+use crate::matmul::kernels::matmul::GlobalInput;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -48,7 +47,7 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Input = (SMM::Input, LoadingPrecomputeStrategy, LoaderMode);
+    type Input = GlobalInput<SMM::Input>;
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -73,7 +72,12 @@ where
         quantized: bool,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
-            input.0, problem, line_sizes, cube_dim, cube_count, quantized,
+            input.stage_input,
+            problem,
+            line_sizes,
+            cube_dim,
+            cube_count,
+            quantized,
         );
         let stage_shape = SMM::stage_shape(&smm_config);
 
@@ -88,8 +92,8 @@ where
             line_sizes.rhs as u32,
             line_sizes.out as u32,
             cube_dim.y,
-            input.1,
-            input.2,
+            input.loading_precompute_strategy,
+            input.loader_mode,
         )
     }
 }

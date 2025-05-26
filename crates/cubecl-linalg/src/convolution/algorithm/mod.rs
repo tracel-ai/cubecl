@@ -1,16 +1,17 @@
 use crate::{
     matmul::{
         components::{
-            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+            InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::{args::MatmulArgs, load::LoaderMode},
-            stage::{
-                AccumulatorCount, NumStages, StageBuffering, StageMatmulFamily, StageVectorization,
-            },
+            stage::{AccumulatorCount, NumStages, StageBuffering, StageMatmulFamily},
             tile::TileMatmulFamily,
         },
         kernels::{
             MatmulAvailabilityError,
-            matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
+            matmul::{
+                GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy,
+                StageInput,
+            },
         },
     },
     tensor::TensorHandle,
@@ -23,20 +24,11 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
-pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy, LoaderMode);
-pub type StageInput = (
-    CompleteStageTiling,
-    StageBuffering,
-    StageVectorization,
-    NumStages,
-    AccumulatorCount,
-);
-
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
-    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput>;
+    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput<StageInput>>;
     type MatmulSelection: MatmulSelection;
 
     type Args: MatmulArgs;
