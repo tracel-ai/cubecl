@@ -35,10 +35,10 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let max_thread = std::thread::available_parallelism()
         .map(|n| n.get() as u32)
         .unwrap_or(1);
-    // TODO determine how parallelism should be distributed between cube_count and cube_dim
-    // For now cube_count is parallel and cube_dim sequential
-    let max_cube_count = CubeDim::new(max_thread, 1, 1);
-    let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
+    // TODO determine how parallelism should be distributed with cube_count
+    // For now cube_dim is parallel and cube_count sequential
+    let max_cube_dim = CubeDim::new(max_thread, 1, 1);
+    let max_cube_count = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
     let system = System::new_all();
     let max_shared_memory_size = system
         .cgroup_limits()
@@ -96,10 +96,7 @@ impl Runtime for CpuRuntime {
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
-        let max_thread = std::thread::available_parallelism()
-            .map(|n| n.get() as u32)
-            .unwrap_or(1);
-        (max_thread, 1, 1)
+        (u32::MAX, u32::MAX, u32::MAX)
     }
 
     fn device_id(_device: &Self::Device) -> DeviceId {
