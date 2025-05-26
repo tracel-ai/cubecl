@@ -41,13 +41,13 @@ pub struct PartitionedStageMatmul<
 }
 
 #[cube]
-impl<MP, TMM, RL, RR, EP> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM, RL, RR, EP>
+impl<MP, TMM, RL, RR, SP> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM, RL, RR, SP>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
-    EP: StagePartitioner,
+    SP: StagePartitioner,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -56,7 +56,7 @@ where
     type Accumulator = Accumulators<MP, TMM>;
     type LhsTile = Sequence<TMM::Lhs>;
     type RhsTile = RhsTile<TMM::Rhs>;
-    type Writer = EP::Writer<MP::EO>;
+    type Writer = SP::Writer<MP::EO>;
 
     fn execute(
         lhs_reader: &RL,
@@ -89,8 +89,8 @@ where
         let m_acc_count = config.accumulator_count().m;
         let n_acc_count = config.accumulator_count().n;
         let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
-        let start_m = m_acc_count * (EP::position() / num_acc_n);
-        let start_n = n_acc_count * (EP::position() % num_acc_n);
+        let start_m = m_acc_count * (SP::position() / num_acc_n);
+        let start_n = n_acc_count * (SP::position() % num_acc_n);
 
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
@@ -156,17 +156,17 @@ where
         let n_iterations = acc.shape.n;
 
         let mut out_smem = SharedMemory::<MP::EO>::new_lined(
-            num_tile_lines * comptime!(EP::num_primitives(stage_config)),
+            num_tile_lines * comptime!(SP::num_primitives(stage_config)),
             out_smem_line_size,
         );
-        let slice_start = num_tile_lines * EP::position();
+        let slice_start = num_tile_lines * SP::position();
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
         let m_acc_count = stage_config.accumulator_count().m;
         let n_acc_count = stage_config.accumulator_count().n;
         let total_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
-        let m_offset = m_acc_count * (EP::position() / total_acc_n);
-        let n_offset = n_acc_count * (EP::position() % total_acc_n);
+        let m_offset = m_acc_count * (SP::position() / total_acc_n);
+        let n_offset = n_acc_count * (SP::position() % total_acc_n);
 
         let mut m_iter = comptime![0u32];
 
@@ -216,7 +216,7 @@ where
         y_offset: u32,
         batch_offset: u32,
     ) -> Self::Writer {
-        EP::init_writer::<MP::EO>(tensor, x_offset, y_offset, batch_offset)
+        SP::init_writer::<MP::EO>(tensor, x_offset, y_offset, batch_offset)
     }
 }
 
