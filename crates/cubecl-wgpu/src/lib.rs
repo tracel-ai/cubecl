@@ -52,7 +52,8 @@ mod tests_spirv {
     cubecl_std::testgen!();
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32, f64]);
     cubecl_linalg::testgen_matmul_simple!([f32]);
-    cubecl_linalg::testgen_matmul_accelerated!([f16]);
+    cubecl_linalg::testgen_matmul_plane_accelerated!();
+    cubecl_linalg::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
