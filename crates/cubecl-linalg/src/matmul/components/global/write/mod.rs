@@ -1,7 +1,7 @@
 mod base;
-mod tilewise;
+mod plane;
 mod unit;
 
 pub use base::*;
-pub use tilewise::TilewiseWriter;
+pub use plane::PlaneWriter;
 pub use unit::UnitWriter;

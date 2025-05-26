@@ -1,4 +1,4 @@
-mod stage_matmul_impl;
+mod partitioned_stage_matmul;
 
 pub mod plane;
 pub(super) mod shared;

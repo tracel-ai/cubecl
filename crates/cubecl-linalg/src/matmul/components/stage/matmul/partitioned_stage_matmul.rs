@@ -14,9 +14,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::shared::Accumulators;
 
-/// Either plane or unit
 #[cube]
-pub trait ExecutePrimitive: Send + Sync + 'static {
+pub trait StagePartitioner: Send + Sync + 'static {
     type Writer<EO: Numeric>: GlobalWriter<EO>;
 
     fn init_writer<EO: Numeric>(
@@ -31,24 +30,24 @@ pub trait ExecutePrimitive: Send + Sync + 'static {
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32);
 }
 
-pub struct StageMatmulImpl<
+pub struct PartitionedStageMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
-    EP: ExecutePrimitive,
+    EP: StagePartitioner,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, EP)>,
 }
 
 #[cube]
-impl<MP, TMM, RL, RR, EP> StageMatmul<MP> for StageMatmulImpl<MP, TMM, RL, RR, EP>
+impl<MP, TMM, RL, RR, EP> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM, RL, RR, EP>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
-    EP: ExecutePrimitive,
+    EP: StagePartitioner,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -222,13 +221,13 @@ where
 }
 
 #[cube]
-impl<MP, TMM, RL, RR, EP> StageMatmulImpl<MP, TMM, RL, RR, EP>
+impl<MP, TMM, RL, RR, EP> PartitionedStageMatmul<MP, TMM, RL, RR, EP>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
-    EP: ExecutePrimitive,
+    EP: StagePartitioner,
 {
     /// Execute stage matmul with a single buffer for rhs.
     #[allow(clippy::too_many_arguments)]

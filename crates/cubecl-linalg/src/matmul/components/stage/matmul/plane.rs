@@ -1,4 +1,4 @@
-use crate::matmul::components::global::TilewiseWriter;
+use crate::matmul::components::global::PlaneWriter;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::StageBuffering;
 use crate::matmul::components::stage::shared::CommonStageConfig;
@@ -16,22 +16,16 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
+use super::partitioned_stage_matmul::{PartitionedStageMatmul, StagePartitioner};
 use super::{AccumulatorCount, NumStages, StageVectorization};
 
-/// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
-/// - One plane per tile in m dimension,
-/// - One accumulator per tile in n dimension
-///
-/// # Assumptions
-/// - There are as many planes as the stage size in m
-type PlaneMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, PlaneExecutionPrimitive>;
+type PlaneMatmul<MP, TMM, RL, RR> = PartitionedStageMatmul<MP, TMM, RL, RR, PlanePartitioner>;
 
-pub struct PlaneExecutionPrimitive {}
+pub struct PlanePartitioner {}
 
 #[cube]
-impl ExecutePrimitive for PlaneExecutionPrimitive {
-    type Writer<EO: Numeric> = TilewiseWriter<EO>;
+impl StagePartitioner for PlanePartitioner {
+    type Writer<EO: Numeric> = PlaneWriter<EO>;
 
     fn init_writer<EO: Numeric>(
         tensor: VirtualTensor<EO, ReadWrite>,
@@ -39,7 +33,7 @@ impl ExecutePrimitive for PlaneExecutionPrimitive {
         y_offset: u32,
         batch_offset: u32,
     ) -> Self::Writer<EO> {
-        TilewiseWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
+        PlaneWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
     }
 
     fn id() -> u32 {

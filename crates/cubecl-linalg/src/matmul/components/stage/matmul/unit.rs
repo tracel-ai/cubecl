@@ -16,15 +16,15 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::stage_matmul_impl::{ExecutePrimitive, StageMatmulImpl};
+use super::partitioned_stage_matmul::{PartitionedStageMatmul, StagePartitioner};
 use super::{AccumulatorCount, NumStages};
 
-type UnitMatmul<MP, TMM, RL, RR> = StageMatmulImpl<MP, TMM, RL, RR, UnitExecutionPrimitive>;
+type UnitMatmul<MP, TMM, RL, RR> = PartitionedStageMatmul<MP, TMM, RL, RR, UnitPartitioner>;
 
-pub struct UnitExecutionPrimitive {}
+pub struct UnitPartitioner {}
 
 #[cube]
-impl ExecutePrimitive for UnitExecutionPrimitive {
+impl StagePartitioner for UnitPartitioner {
     type Writer<EO: Numeric> = UnitWriter<EO>;
 
     fn init_writer<EO: Numeric>(
