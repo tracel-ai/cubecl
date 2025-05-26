@@ -13,16 +13,11 @@ impl<'a> Visitor<'a> {
             // VariableKind::GlobalOutputArray(id) => {}
             VariableKind::LocalConst { id } => {
                 let ptr_type = self.item_to_memref_type(variable.item);
+                let operation =
+                    memref::alloca(self.context, ptr_type, &[], &[], None, self.location);
                 let value = self
-                    .block
-                    .append_operation(memref::alloca(
-                        self.context,
-                        ptr_type,
-                        &[],
-                        &[],
-                        None,
-                        self.location,
-                    ))
+                    .block()
+                    .append_operation(operation)
                     .result(0)
                     .unwrap()
                     .into();
@@ -45,7 +40,7 @@ impl<'a> Visitor<'a> {
                 .clone(),
             VariableKind::Builtin(_builtin) => {
                 let attribute = IntegerAttribute::new(Type::index(self.context), 0).into();
-                self.block
+                self.block()
                     .append_operation(arith::constant(self.context, attribute, self.location))
                     .result(0)
                     .unwrap()

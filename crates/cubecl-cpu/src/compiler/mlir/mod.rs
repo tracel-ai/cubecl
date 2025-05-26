@@ -1,6 +1,7 @@
 pub(super) mod elem;
 pub(super) mod instruction;
 pub(super) mod item;
+pub(super) mod memref;
 pub mod module;
 pub(super) mod operation;
 pub(super) mod operator;
@@ -9,6 +10,7 @@ pub(super) mod variable;
 pub(super) mod visitor;
 
 pub use elem::register_supported_types;
+use memref::LineMemRef;
 
 use std::fmt::{Debug, Display};
 
@@ -20,7 +22,7 @@ const MAX_BUFFER_SIZE: usize = 16;
 
 pub struct MlirEngine {
     // This field must never be reallocated, because a double indirection is necessary for Orca JIT
-    args: Vec<*mut u8>,
+    args: Vec<LineMemRef>,
     args_indirected: Vec<*mut ()>,
     execution_engine: ExecutionEngine,
 }
@@ -68,11 +70,11 @@ impl MlirEngine {
     }
 
     /// This function will make the program segfault if args is reallocated
-    pub unsafe fn push_buffer(&mut self, ptr: &mut [u8]) {
-        self.args.push(ptr.as_mut_ptr());
+    pub unsafe fn push_buffer(&mut self, pointer: &mut [u8]) {
+        self.args.push(LineMemRef::new(pointer));
         let last_elem = unsafe { self.args.last_mut().unwrap_unchecked() };
         self.args_indirected
-            .push(last_elem as *mut *mut u8 as *mut ());
+            .push(last_elem as *mut LineMemRef as *mut ());
     }
 
     pub unsafe fn run_kernel(&mut self) {

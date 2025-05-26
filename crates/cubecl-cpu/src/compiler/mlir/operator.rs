@@ -11,22 +11,21 @@ impl<'a> Visitor<'a> {
         match operator {
             Operator::Index(index_operator) => {
                 let vector_type = self.item_to_type(index_operator.list.item);
+                let operation = vector::load(
+                    self.context,
+                    vector_type,
+                    self.get_variable(index_operator.list),
+                    &[self.get_variable(index_operator.index)],
+                    self.location,
+                )
+                .into();
                 let load_value = self
-                    .block
-                    .append_operation(
-                        vector::load(
-                            self.context,
-                            vector_type,
-                            self.get_variable(index_operator.list),
-                            &[self.get_variable(index_operator.index)],
-                            self.location,
-                        )
-                        .into(),
-                    )
+                    .block()
+                    .append_operation(operation)
                     .result(0)
                     .unwrap()
                     .into();
-                self.block.append_operation(
+                self.block().append_operation(
                     vector::store(self.context, load_value, out, &[], self.location).into(),
                 );
             }

@@ -15,8 +15,18 @@ pub struct MemRef<const N_DIMS: usize> {
 }
 
 // For the moment, the memory is only considered as a simple contiguous memory array in MLIR, but maybe we could improve access pattern by adding dimensions
-type LineMemRef = MemRef<1>;
+pub type LineMemRef = MemRef<1>;
 
 impl LineMemRef {
-    pub fn new() {}
+    pub fn new(pointer: &mut [u8]) -> Self {
+        let len = pointer.len();
+        let pointer = pointer.as_mut_ptr() as *mut c_void;
+        Self {
+            allocated: pointer,
+            aligned: pointer,
+            offset: 0,
+            shape: [len as c_longlong],
+            stride: [1],
+        }
+    }
 }
