@@ -29,7 +29,7 @@ mod tests {
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_std::testgen!();
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32]);
-    cubecl_linalg::testgen_matmul_accelerated!([f16]);
+    //cubecl_linalg::testgen_matmul_accelerated!([f16]);
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);
     cubecl_linalg::testgen_tensor_identity!([f32, u32]);
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);

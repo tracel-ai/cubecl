@@ -304,13 +304,6 @@ pub(crate) fn compile(
     kernel: <WgpuServer as ComputeServer>::Kernel,
     mode: ExecutionMode,
 ) -> CompiledKernel<AutoCompiler> {
-    // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
-    // unchecked execution if robustness is enabled and let Vulkan handle it
-    let mode = if is_robust(&server.device) {
-        ExecutionMode::Unchecked
-    } else {
-        mode
-    };
     log::debug!("Compiling {}", kernel.name());
     let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode);
     #[cfg(feature = "spirv-dump")]

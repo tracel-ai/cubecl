@@ -101,5 +101,5 @@ fn is_u64(var: Variable) -> bool {
 }
 
 fn into_instructions(mut scope: Scope) -> Vec<Instruction> {
-    scope.process().instructions
+    scope.process([]).instructions
 }

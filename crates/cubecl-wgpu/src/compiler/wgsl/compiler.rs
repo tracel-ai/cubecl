@@ -4,14 +4,14 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{ConstantScalarValue, ExpandElement, UIntKind};
-use cubecl_core::prelude::{FloatExpand, Line};
+use cubecl_core::ir::{ConstantScalarValue, Processor, UIntKind};
+use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_core::prelude::*;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},
-    prelude::{expand_checked_index_assign, expand_erf},
+    prelude::expand_erf,
 };
-use cubecl_core::{io::read_tensor_checked, prelude::*};
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -369,7 +369,8 @@ impl WgslCompiler {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let processing = scope.process();
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
+        let processing = scope.process([checked_io]);
 
         for var in processing.variables {
             instructions.push(wgsl::Instruction::DeclareVariable {
@@ -402,7 +403,7 @@ impl WgslCompiler {
             }
             cube::Operation::Comparison(op) => self.compile_cmp(op, out, instructions),
             cube::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
-            cube::Operation::Operator(op) => self.compile_operator(op, out, instructions, scope),
+            cube::Operation::Operator(op) => self.compile_operator(op, out, instructions),
             cube::Operation::Atomic(op) => instructions.push(self.compile_atomic(op, out)),
             cube::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             cube::Operation::Branch(val) => self.compile_branch(instructions, val),
@@ -881,7 +882,6 @@ impl WgslCompiler {
         value: cube::Operator,
         out: Option<cube::Variable>,
         instructions: &mut Vec<wgsl::Instruction>,
-        scope: &mut cube::Scope,
     ) {
         let out = out.unwrap();
         match value {
@@ -890,55 +890,22 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked)
-                    && op.list.has_length()
-                    && !out.elem().is_atomic()
-                {
-                    let list = ExpandElement::Plain(op.list);
-                    let index = ExpandElement::Plain(op.index);
-                    scope.register_elem::<FloatExpand<0>>(op.list.elem());
-
-                    let mut child_scope = scope.child();
-                    let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
-                        &mut child_scope,
-                        list.into(),
-                        index.into(),
-                    );
-                    for inst in self.compile_scope(&mut child_scope) {
-                        instructions.push(inst);
-                    }
-
-                    instructions.push(wgsl::Instruction::Assign {
-                        input: self.compile_variable(input.into_variable()),
-                        out: self.compile_variable(out),
-                    })
-                } else {
-                    instructions.push(wgsl::Instruction::Index {
-                        lhs: self.compile_variable(op.list),
-                        rhs: self.compile_variable(op.index),
-                        out: self.compile_variable(out),
-                    });
-                }
+                instructions.push(wgsl::Instruction::Index {
+                    lhs: self.compile_variable(op.list),
+                    rhs: self.compile_variable(op.index),
+                    out: self.compile_variable(out),
+                });
             }
             cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
                 lhs: self.compile_variable(op.list),
                 rhs: self.compile_variable(op.index),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::IndexAssign(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if out.has_length() {
-                        expand_checked_index_assign(scope, op.index, op.value, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
-                instructions.push(wgsl::Instruction::IndexAssign {
-                    index: self.compile_variable(op.index),
-                    rhs: self.compile_variable(op.value),
-                    out: self.compile_variable(out),
-                })
-            }
+            cube::Operator::IndexAssign(op) => instructions.push(wgsl::Instruction::IndexAssign {
+                index: self.compile_variable(op.index),
+                rhs: self.compile_variable(op.value),
+                out: self.compile_variable(out),
+            }),
             cube::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
                     index: self.compile_variable(op.index),

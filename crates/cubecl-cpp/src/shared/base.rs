@@ -1,16 +1,16 @@
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{ExpandElement, FloatKind, UIntKind, VariableKind};
-use cubecl_core::prelude::{FloatExpand, Line};
+use cubecl_core::CubeDim;
+use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
+use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{
     Compiler, Feature,
     ir::{self as gpu},
 };
-use cubecl_core::{CubeDim, io::read_tensor_checked};
 use cubecl_core::{
     ir::{Operation, SourceLoc},
-    prelude::{FastMath, KernelDefinition, expand_checked_index_assign},
+    prelude::{FastMath, KernelDefinition},
 };
 use cubecl_runtime::DeviceProperties;
 
@@ -253,7 +253,8 @@ impl<D: Dialect> CppCompiler<D> {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let processing = scope.process();
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
+        let processing = scope.process([checked_io]);
 
         for var in processing.variables {
             instructions.push(Instruction::DeclareVariable {
@@ -264,7 +265,7 @@ impl<D: Dialect> CppCompiler<D> {
         processing
             .instructions
             .into_iter()
-            .for_each(|op| self.compile_instruction(&mut instructions, op, scope));
+            .for_each(|op| self.compile_instruction(&mut instructions, op));
 
         instructions
     }
@@ -273,7 +274,6 @@ impl<D: Dialect> CppCompiler<D> {
         &mut self,
         instructions: &mut Vec<Instruction<D>>,
         instruction: gpu::Instruction,
-        scope: &mut gpu::Scope,
     ) {
         self.update_debug_loc(instructions, &instruction);
         let out = instruction.out;
@@ -287,7 +287,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions),
             gpu::Operation::Comparison(op) => self.compile_comparison(op, out, instructions),
             gpu::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
-            gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions, scope),
+            gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions),
             gpu::Operation::Atomic(op) => self.compile_atomic(op, out, instructions),
             gpu::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
@@ -1021,49 +1021,16 @@ impl<D: Dialect> CppCompiler<D> {
         value: gpu::Operator,
         out: Option<gpu::Variable>,
         instructions: &mut Vec<Instruction<D>>,
-        scope: &mut gpu::Scope,
     ) {
         let out = out.unwrap();
         match value {
             gpu::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked)
-                    && op.list.has_length()
-                    && !out.elem().is_atomic()
-                {
-                    let list = ExpandElement::Plain(op.list);
-                    let index = ExpandElement::Plain(op.index);
-                    scope.register_elem::<FloatExpand<0>>(op.list.elem());
-
-                    let mut child_scope = scope.child();
-                    let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
-                        &mut child_scope,
-                        list.into(),
-                        index.into(),
-                    );
-
-                    for inst in self.compile_scope(&mut child_scope) {
-                        instructions.push(inst);
-                    }
-
-                    instructions.push(Instruction::Assign(UnaryInstruction {
-                        input: self.compile_variable(input.into_variable()),
-                        out: self.compile_variable(out),
-                    }))
-                } else {
-                    instructions.push(Instruction::Index(self.compile_index(op, out)));
-                }
+                instructions.push(Instruction::Index(self.compile_index(op, out)));
             }
             gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_index(op, out)))
             }
             gpu::Operator::IndexAssign(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if out.has_length() {
-                        expand_checked_index_assign(scope, op.index, op.value, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
                 instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)));
             }
             gpu::Operator::UncheckedIndexAssign(op) => {
