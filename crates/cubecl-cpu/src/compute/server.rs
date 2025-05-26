@@ -14,7 +14,7 @@ use cubecl_runtime::{
     storage::{BindingResource, BytesStorage, ComputeStorage},
 };
 
-use crate::{CpuCompiler, compiler::MLIRCompilerOptions};
+use crate::{CpuCompiler, compiler::MlirCompilerOptions};
 
 #[derive(Debug)]
 pub struct CpuServer {
@@ -140,7 +140,7 @@ impl ComputeServer for CpuServer {
         // TODO implement the runtime
         let kernel = kernel.compile(
             &mut Default::default(),
-            &MLIRCompilerOptions::default(),
+            &MlirCompilerOptions::default(),
             kind,
         );
         let mut execution_engine = kernel.repr.unwrap();
