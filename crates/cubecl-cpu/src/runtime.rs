@@ -10,7 +10,7 @@ use cubecl_runtime::{
 use sysinfo::System;
 
 use crate::{
-    compiler::{MLIRCompiler, mlir::register_supported_types},
+    compiler::{MlirCompiler, mlir::register_supported_types},
     compute::server::{CpuContext, CpuServer},
     device::CpuDevice,
 };
@@ -26,7 +26,7 @@ pub struct CpuRuntime;
 
 static RUNTIME: ComputeRuntime<CpuDevice, Server, Channel> = ComputeRuntime::new();
 
-pub type CpuCompiler = MLIRCompiler;
+pub type CpuCompiler = MlirCompiler;
 
 type Server = CpuServer;
 type Channel = MutexComputeChannel<Server>;
