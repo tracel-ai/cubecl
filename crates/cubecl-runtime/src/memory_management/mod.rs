@@ -126,19 +126,13 @@ pub struct HardwareProperties {
 impl HardwareProperties {
     /// Plane size that is defined for the device.
     pub fn defined_plane_size(&self) -> Option<u32> {
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
         if self.plane_size_min == self.plane_size_max {
+            Some(self.plane_size_min)
+        } else if self.plane_size_min == 32 {
+            // Normally 32 is chosen by default when it's the min plane size.
             Some(self.plane_size_min)
         } else {
             None
-        }
-
-        // On Apple Silicon, the plane size is 32,
-        // though the minimum and maximum differ.
-        // https://github.com/gpuweb/gpuweb/issues/3950
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            Some(32)
         }
     }
 }
