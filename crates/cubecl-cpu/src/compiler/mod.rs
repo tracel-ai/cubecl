@@ -1,4 +1,3 @@
-pub mod memref;
 pub mod mlir;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
