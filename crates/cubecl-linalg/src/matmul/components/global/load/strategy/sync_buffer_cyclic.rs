@@ -26,7 +26,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
         let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();
-        let num_lines_per_tile = tile_size / line_size;
+        let num_lines_per_tile = tile_size.div_ceil(line_size);
 
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
