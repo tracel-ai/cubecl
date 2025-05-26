@@ -2,7 +2,7 @@ use crate::{
     matmul::{
         components::{
             CompleteStageTiling, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-            global::args::MatmulArgs,
+            global::{args::MatmulArgs, load::LoaderMode},
             stage::{
                 AccumulatorCount, NumStages, StageBuffering, StageMatmulFamily, StageVectorization,
             },
@@ -23,7 +23,7 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
-pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
+pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy, LoaderMode);
 pub type StageInput = (
     CompleteStageTiling,
     StageBuffering,
@@ -60,6 +60,10 @@ pub trait Algorithm {
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
         LoadingPrecomputeStrategy::Never
+    }
+
+    fn loader_mode() -> LoaderMode {
+        LoaderMode::Relaxed
     }
 
     fn stage_buffering_strategy() -> StageBuffering {

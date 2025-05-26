@@ -7,6 +7,7 @@ use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::load::AsyncLoader;
+use crate::matmul::components::global::load::LoaderMode;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::problem::MatmulLineSizes;
 use crate::matmul::components::stage::StageMatmul;
@@ -55,7 +56,7 @@ where
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy, LoaderMode);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -102,6 +103,7 @@ where
             line_sizes.out as u32,
             stage_shape.k,
             input.1,
+            input.2,
         )
     }
 }

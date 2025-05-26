@@ -86,6 +86,7 @@ where
                 A::accumulator_count(&selection),
             ),
             A::loading_precompute_strategy(),
+            A::loader_mode(),
         ),
         selection,
     )
@@ -138,6 +139,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
                 A::accumulator_count(&selection),
             ),
             A::loading_precompute_strategy(),
+            A::loader_mode(),
         ),
         selection,
     )

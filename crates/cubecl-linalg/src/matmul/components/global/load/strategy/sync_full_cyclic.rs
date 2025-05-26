@@ -10,19 +10,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::{LoaderCheck, LoaderCheckLevel, LoadingJob, LoadingValidation};
+use super::{LoaderMode, LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct LoadingStrategy<T: TilingOrder, LC: LoaderCheck> {
+pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
-    _phantom: PhantomData<(T, LC)>,
+    _phantom: PhantomData<T>,
 }
 
-impl<TO: TilingOrder, LC: LoaderCheck> LoadingValidation for LoadingStrategy<TO, LC> {
+impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if let LoaderCheckLevel::Comptime = LC::to_level() {
+        if let LoaderMode::Strict = config.loader_mode() {
             let tiling = config.tiling_dimensions(ident);
             let line_size = config.global_line_size(ident);
 
@@ -42,7 +42,7 @@ impl<TO: TilingOrder, LC: LoaderCheck> LoadingValidation for LoadingStrategy<TO,
 }
 
 #[cube]
-impl<TO: TilingOrder, LC: LoaderCheck> SyncFullLoadingStrategy for LoadingStrategy<TO, LC> {
+impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<MP: MatmulPrecision> = Job;
 
@@ -71,7 +71,7 @@ impl<TO: TilingOrder, LC: LoaderCheck> SyncFullLoadingStrategy for LoadingStrate
             input_ident,
             balanced_workload,
             num_stage_elements,
-            loader_check_level: comptime!(LC::to_level()),
+            loader_mode: comptime!(config.loader_mode()),
         }
     }
 }
@@ -95,7 +95,7 @@ pub struct Job {
     #[cube(comptime)]
     num_stage_elements: u32,
     #[cube(comptime)]
-    loader_check_level: LoaderCheckLevel,
+    loader_mode: LoaderMode,
 }
 
 #[cube]
@@ -111,9 +111,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(
-            this.loader_check_level == LoaderCheckLevel::Comptime || this.balanced_workload
-        ) {
+        if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
             load_and_store_line::<MP, TO, G>(
                 this,
                 unit_position,

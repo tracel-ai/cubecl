@@ -111,6 +111,7 @@ pub fn test_algo<
                 A::accumulator_count(&selection),
             ),
             A::loading_precompute_strategy(),
+            A::loader_mode(),
         ),
         selection,
     );

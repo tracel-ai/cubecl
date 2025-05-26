@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::load::{ComptimeCheck, sync_buffer_cyclic};
+use crate::matmul::components::global::load::sync_buffer_cyclic;
 use crate::matmul::components::stage::{
     self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
@@ -31,7 +31,7 @@ where
     >;
     type GlobalMatmul = global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;

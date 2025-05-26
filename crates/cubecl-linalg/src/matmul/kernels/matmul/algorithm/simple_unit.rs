@@ -7,7 +7,7 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{RuntimeCheck, SyncFullLoadingStrategy, sync_full_cyclic},
+        load::{SyncFullLoadingStrategy, sync_full_cyclic},
     },
     stage::{
         self, AccumulatorCount, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder,
@@ -17,8 +17,8 @@ use crate::matmul::components::{
 };
 
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder, RuntimeCheck>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder, RuntimeCheck>,
+    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _ll: PhantomData<LL>,

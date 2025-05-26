@@ -3,7 +3,7 @@ use crate::matmul::{
         InputIdent, MatmulPrecision,
         global::{
             GlobalMatmul, Quantization, ZeroAccumulatorLoader,
-            load::{SyncFullLoader, SyncFullLoadingStrategy},
+            load::{LoaderMode, SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
         },
         problem::MatmulLineSizes,
@@ -52,7 +52,7 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy, LoaderMode);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -93,6 +93,7 @@ where
             line_sizes.out as u32,
             stage_shape.k,
             input.1,
+            input.2
         )
     }
 }

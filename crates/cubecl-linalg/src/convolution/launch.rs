@@ -201,7 +201,11 @@ where
 
     let config = Alg::make_config::<R, MP>(
         client,
-        (config_input, Alg::loading_precompute_strategy()),
+        (
+            config_input,
+            Alg::loading_precompute_strategy(),
+            Alg::loader_mode(),
+        ),
         &problem,
         line_sizes,
         &cube_dim,

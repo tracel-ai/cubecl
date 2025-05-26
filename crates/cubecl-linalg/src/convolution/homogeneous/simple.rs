@@ -14,7 +14,7 @@ use crate::{
             MatmulPrecision, MatmulSpec, OutputRuntimeArg,
             global::{
                 AccumulatorLoader, GlobalConfig,
-                load::{ComptimeCheck, SyncFullLoader, sync_full_cyclic},
+                load::{LoaderMode, SyncFullLoader, sync_full_cyclic},
                 single_stage,
             },
             stage::{
@@ -56,11 +56,8 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader = SyncFullLoader<
-        MP,
-        Self::Config,
-        sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder, ComptimeCheck>,
-    >;
+    type RhsLoader =
+        SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Writer = SMM::Writer;
@@ -189,7 +186,7 @@ where
     SMM: StageMatmulFamily,
 {
     type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy, LoaderMode);
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
@@ -227,6 +224,7 @@ where
                 line_sizes.out as u32,
                 size.k,
                 input.1,
+                input.2,
             ),
             &problem.kernel_size,
             &problem.stride,

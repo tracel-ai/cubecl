@@ -16,7 +16,11 @@ use crate::{
         components::{
             EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
             MatmulPrecision, MatmulSpec, OutputRuntimeArg,
-            global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
+            global::{
+                AccumulatorLoader, GlobalConfig,
+                load::{LoaderMode, arrive_tma},
+                single_stage,
+            },
             stage::{FullReaderFamily, FullStageToTileReader, StageMatmul, StageMatmulFamily},
         },
         kernels::{MatmulAvailabilityError, matmul::LoadingPrecomputeStrategy},
@@ -190,7 +194,7 @@ where
     SMM: StageMatmulFamily,
 {
     type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy, LoaderMode);
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
@@ -235,6 +239,7 @@ where
                 line_sizes.out as u32,
                 size.k,
                 input.1,
+                input.2,
             ),
             &problem.kernel_size,
             &problem.stride,

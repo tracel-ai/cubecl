@@ -1,3 +1,4 @@
+use crate::matmul::components::global::load::LoaderMode;
 use crate::matmul::components::stage::{
     AccumulatorCount, NumStages, StageBuffering, StageVectorization,
 };
@@ -11,7 +12,7 @@ use cubecl_core::prelude::*;
 
 use super::MatmulSelection;
 
-type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
+type GlobalInput = (StageInput, LoadingPrecomputeStrategy, LoaderMode);
 
 type StageInput = (
     CompleteStageTiling,
@@ -82,6 +83,10 @@ pub trait Algorithm {
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
         LoadingPrecomputeStrategy::Never
+    }
+
+    fn loader_mode() -> LoaderMode {
+        LoaderMode::Relaxed
     }
 
     fn stage_buffering_strategy() -> StageBuffering {

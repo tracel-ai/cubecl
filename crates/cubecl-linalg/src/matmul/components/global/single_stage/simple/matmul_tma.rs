@@ -1,5 +1,6 @@
 use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::load::LoaderMode;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::load::arrive_tma;
 use crate::matmul::components::global::single_stage::Config;
@@ -44,7 +45,7 @@ impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily,
 {
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = (SMM::Input, LoadingPrecomputeStrategy, LoaderMode);
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -120,6 +121,7 @@ where
             line_sizes.out as u32,
             stage_shape.k,
             input.1,
+            input.2,
         )
     }
 }
