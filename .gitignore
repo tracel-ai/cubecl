@@ -17,3 +17,4 @@ Cargo.lock
 
 # Nix artifacts
 .direnv
+.envrc
