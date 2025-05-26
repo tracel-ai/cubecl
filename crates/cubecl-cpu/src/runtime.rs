@@ -1,9 +1,9 @@
 use cubecl_core::{
-    CubeDim, DeviceId, MemoryConfiguration, Runtime, channel::MutexComputeChannel,
-    client::ComputeClient,
+    CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel, client::ComputeClient,
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
+    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::{BytesStorage, ComputeStorage},
 };
@@ -67,12 +67,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
 
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
-    let mut device_props = DeviceProperties::new(
-        &[],
-        mem_properties,
-        topology,
-        cubecl_runtime::TimeMeasurement::System,
-    );
+    let mut device_props = DeviceProperties::new(&[], mem_properties, topology);
     register_supported_types(&mut device_props);
 
     let ctx = CpuContext::new(memory_management);
@@ -107,7 +102,7 @@ impl Runtime for CpuRuntime {
         (max_thread, 1, 1)
     }
 
-    fn device_id(_device: &Self::Device) -> cubecl_core::DeviceId {
+    fn device_id(_device: &Self::Device) -> DeviceId {
         DeviceId::new(0, 0)
     }
 
