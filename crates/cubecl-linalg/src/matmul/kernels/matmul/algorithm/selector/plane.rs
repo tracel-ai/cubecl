@@ -49,7 +49,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     elem_stage: Elem,
     elem_acc: Elem,
 ) -> PlaneMatmulSelection {
-    let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
+    let tile_shape = find_instruction_shape(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
@@ -69,7 +69,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // Going over 8 might use too much shared memory.
     let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
 
-    let stage_size_n = find_stage_size(
+    let partition_shape_n = find_tiles_in_partition_n(
         problem.m,
         problem.n,
         problem.num_batches(),
@@ -79,46 +79,42 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
         tensor_cores_channels,
-        instruction_m,
-        instruction_n,
+        tile_shape.m as usize,
+        tile_shape.n as usize,
     );
 
-    let (rows_per_plane, stage_size_m) =
-        change_rows_per_plane(multi_row_strategy, stage_size_n, instruction_m, problem.m);
-
-    // Makes all rows the length of plane_dim
-    let stage_size_k = plane_dim / instruction_k as u32;
-
-    let tile_shape = MatmulSize {
-        m: instruction_m as u32,
-        n: instruction_n as u32,
-        k: instruction_k as u32,
-    };
+    let (rows_per_plane, stage_size_m) = change_rows_per_plane(
+        multi_row_strategy,
+        partition_shape_n,
+        tile_shape.m as usize,
+        problem.m,
+    );
 
     let tiles_per_partition = TilesPerPartition {
         m: rows_per_plane as u32,
-        n: stage_size_n as u32,
+        n: partition_shape_n as u32,
     };
 
-    // TODO this should be chosen then tile count deduced so it's always multiplicative
-    assert!(stage_size_m % rows_per_plane == 0);
     let partitions_per_stage = PartitionsPerStage {
-        m: (stage_size_m / rows_per_plane) as u32,
+        m: stage_size_m as u32,
         n: 1,
     };
+
+    // Makes all rows the length of plane_dim
+    let stage_k = plane_dim / tile_shape.k;
 
     PlaneMatmulSelection {
         plane_dim,
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_k: stage_size_k,
+        stage_k,
     }
 }
 
 fn change_rows_per_plane(
     strategy: MultiRowStrategy,
-    stage_size: usize,
+    total_stage_size_wanted: usize,
     instruction_m: usize,
     problem_m: usize,
 ) -> (usize, usize) {
@@ -127,11 +123,11 @@ fn change_rows_per_plane(
         MultiRowStrategy::Always => true,
         MultiRowStrategy::Adaptive {
             minimum_stage_count,
-        } => problem_m > stage_size * instruction_m * minimum_stage_count,
+        } => problem_m > total_stage_size_wanted * instruction_m * minimum_stage_count,
     };
 
     let rows = if use_multi { 2 } else { 1 };
-    (rows, stage_size * rows)
+    (rows, total_stage_size_wanted * rows)
 }
 
 /// A heuristic to find the number of tiles in the stage.
@@ -139,7 +135,7 @@ fn change_rows_per_plane(
 /// Maximizes tensor core usage unless doing so would significantly impair
 /// parallelization across SMs. It ensures the number of cubes is as close as
 /// possible to the available SMs.
-pub(crate) fn find_stage_size(
+pub(crate) fn find_tiles_in_partition_n(
     m: usize,
     n: usize,
     num_batches: usize,
@@ -195,7 +191,7 @@ pub(crate) fn find_instruction_shape(
     properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
     m: usize,
     n: usize,
-) -> (usize, usize, usize) {
+) -> MatmulSize {
     let supported = |m: u8, n: u8, k: u8| {
         properties
             .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
@@ -203,14 +199,14 @@ pub(crate) fn find_instruction_shape(
     };
 
     if m >= 4 * n && supported(32, 8, 16) {
-        (32, 8, 16)
+        (32, 8, 16).into()
     } else if n >= 4 * n && supported(8, 32, 16) {
-        (8, 32, 16)
+        (8, 32, 16).into()
     } else if supported(16, 16, 16) {
-        (16, 16, 16)
+        (16, 16, 16).into()
     } else if supported(8, 8, 8) {
-        (8, 8, 8)
+        (8, 8, 8).into()
     } else {
-        (16, 16, 8)
+        (16, 16, 8).into()
     }
 }

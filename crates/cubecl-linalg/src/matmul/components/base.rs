@@ -18,6 +18,16 @@ impl From<MatmulSize> for (u32, u32, u32) {
     }
 }
 
+impl From<(u32, u32, u32)> for MatmulSize {
+    fn from(sizes: (u32, u32, u32)) -> Self {
+        MatmulSize {
+            m: sizes.0,
+            n: sizes.1,
+            k: sizes.2,
+        }
+    }
+}
+
 /// Provides launch entry point to solve a matmul
 pub trait MatmulLaunch: MatmulConfigFactory {
     /// Entry point
@@ -35,4 +45,3 @@ pub trait MatmulLaunch: MatmulConfigFactory {
         config: <Self as MatmulConfigFactory>::Config,
     );
 }
- 

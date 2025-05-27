@@ -4,9 +4,7 @@ use super::{algorithm::Algorithm, base::ConvolutionProblem};
 use crate::matmul::components::stage::{PartitionsPerStage, TilesPerPartition};
 use crate::matmul::kernels::matmul::{MatmulSelection, StageInput};
 use crate::matmul::{
-    components::{
-        CompleteStageTiling, MatmulSize, stage::StageVectorization, tile::TileMatmulFamily,
-    },
+    components::{CompleteStageTiling, stage::StageVectorization, tile::TileMatmulFamily},
     kernels::matmul::{
         NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, PlaneMatmulSelection, find_instruction_shape,
     },
@@ -116,9 +114,9 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 ) -> PlaneMatmulSelection {
     // rough heuristic based on previous bench results where 512 channels with a 3x3 kernel seemed
     // to be the rough cutoff for the k=4 size.
-    let stage_size_k = if problem.k >= 4096 { 4 } else { 2 };
+    let stage_k = if problem.k >= 4096 { 4 } else { 2 };
 
-    let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
+    let tile_shape = find_instruction_shape(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
@@ -139,16 +137,10 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
         num_sm as usize,
         max_tensor_cores as usize,
-        instruction_m,
-        instruction_n,
-        stage_size_k,
+        tile_shape.m as usize,
+        tile_shape.n as usize,
+        stage_k as usize,
     );
-
-    let tile_shape = MatmulSize {
-        m: instruction_m as u32,
-        n: instruction_n as u32,
-        k: instruction_k as u32,
-    };
 
     let tiles_per_partition = TilesPerPartition {
         m: 1,
@@ -165,6 +157,6 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_k: stage_size_k as u32,
+        stage_k,
     }
 }
