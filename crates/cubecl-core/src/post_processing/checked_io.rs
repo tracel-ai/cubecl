@@ -28,13 +28,10 @@ impl Processor for CheckedIoProcessor {
             if let Operation::Operator(operator) = &instruction.operation {
                 match operator {
                     Operator::Index(op) => {
-                        let has_length = instruction.out.map(|o| o.has_length()).unwrap_or(false);
-                        let is_not_atomic = instruction
-                            .out
-                            .map(|o| !o.elem().is_atomic())
-                            .unwrap_or(true);
+                        let has_length = op.list.has_length();
+                        let is_not_atomic = !op.list.elem().is_atomic();
 
-                        if has_length & is_not_atomic {
+                        if has_length && is_not_atomic {
                             let list = ExpandElement::Plain(op.list);
                             let index = ExpandElement::Plain(op.index);
                             let mut scope = Scope::root(false).with_allocator(allocator.clone());
