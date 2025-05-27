@@ -406,7 +406,7 @@ where
         );
 
         #[cfg(multi_threading)]
-        let stream_id = self.profile_aquire();
+        let stream_id = self.profile_acquire();
 
         let token = self.channel.start_profile();
         let method = self.state.properties.timing_method;
@@ -490,7 +490,7 @@ where
     }
 
     #[cfg(multi_threading)]
-    fn profile_aquire(&self) -> Option<StreamId> {
+    fn profile_acquire(&self) -> Option<StreamId> {
         let stream_id = StreamId::current();
         let mut current = self.state.current_profiling.write();
 

@@ -270,7 +270,7 @@ impl WgpuStream {
             }
             Timings::Device(query) => {
                 // Close the current compute pass so that we start a new one. This keeps
-                // the timestamps seperated.
+                // the timestamps separated.
                 self.compute_pass = None;
                 query.start_profile()
             }
