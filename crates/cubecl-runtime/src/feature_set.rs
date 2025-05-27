@@ -11,7 +11,7 @@ pub struct DeviceProperties<Feature: Ord + Copy> {
     pub memory: MemoryDeviceProperties,
     /// The topology properties of this client.
     pub hardware: HardwareProperties,
-    /// Whether async timing is supported.
+    /// How profile timings are measured ('system' or 'device').
     pub timing_method: TimingMethod,
 }
 

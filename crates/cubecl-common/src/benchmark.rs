@@ -137,18 +137,9 @@ pub trait Benchmark {
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
         const DEFAULT: usize = 10;
-
-        #[cfg(feature = "std")]
-        {
-            std::env::var("BENCH_NUM_SAMPLES")
-                .map(|val| str::parse::<usize>(&val).unwrap_or(DEFAULT))
-                .unwrap_or(DEFAULT)
-        }
-
-        #[cfg(not(feature = "std"))]
-        {
-            DEFAULT
-        }
+        std::env::var("BENCH_NUM_SAMPLES")
+            .map(|val| str::parse::<usize>(&val).unwrap_or(DEFAULT))
+            .unwrap_or(DEFAULT)
     }
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
@@ -166,52 +157,44 @@ pub trait Benchmark {
     fn sync(&self);
 
     /// Start measuring the computation duration.
-    #[cfg(feature = "std")]
     fn profile(&self, args: Self::Args) -> crate::profile::ProfileDuration {
         self.profile_full(args)
     }
 
     /// Start measuring the computation duration. Use the full duration irregardless of whether
     /// device duration is available or not.
-    #[cfg(feature = "std")]
     fn profile_full(&self, args: Self::Args) -> crate::profile::ProfileDuration {
         self.sync();
-        let start_time = std::time::Instant::now();
+        let start_time = web_time::Instant::now();
         self.execute(args);
         self.sync();
-        crate::profile::ProfileDuration::new_system_time(start_time, std::time::Instant::now())
+        crate::profile::ProfileDuration::new_system_time(start_time, web_time::Instant::now())
     }
 
     /// Run the benchmark a number of times.
     #[allow(unused_variables)]
     fn run(&self, timing_method: TimingMethod) -> BenchmarkDurations {
-        #[cfg(not(feature = "std"))]
-        panic!("Attempting to run benchmark in a no-std environment");
+        // Warmup
+        let args = self.prepare();
+        for _ in 0..self.num_samples() {
+            self.execute(args.clone());
+        }
+        std::thread::sleep(Duration::from_secs(1));
 
-        #[cfg(feature = "std")]
-        {
-            // Warmup
-            let args = self.prepare();
-            for _ in 0..self.num_samples() {
-                self.execute(args.clone());
-            }
-            std::thread::sleep(Duration::from_secs(1));
+        let mut durations = Vec::with_capacity(self.num_samples());
 
-            let mut durations = Vec::with_capacity(self.num_samples());
+        for _ in 0..self.num_samples() {
+            let profile = match timing_method {
+                TimingMethod::System => self.profile_full(args.clone()),
+                TimingMethod::Device => self.profile(args.clone()),
+            };
+            let duration = crate::future::block_on(profile.resolve()).duration();
+            durations.push(duration);
+        }
 
-            for _ in 0..self.num_samples() {
-                let profile = match timing_method {
-                    TimingMethod::System => self.profile_full(args.clone()),
-                    TimingMethod::Device => self.profile(args.clone()),
-                };
-                let duration = crate::future::block_on(profile.resolve()).duration();
-                durations.push(duration);
-            }
-
-            BenchmarkDurations {
-                timing_method,
-                durations,
-            }
+        BenchmarkDurations {
+            timing_method,
+            durations,
         }
     }
 }
@@ -251,7 +234,6 @@ impl Display for BenchmarkResult {
     }
 }
 
-#[cfg(feature = "std")]
 /// Runs the given benchmark on the device and prints result and information.
 pub fn run_benchmark<BM>(benchmark: BM) -> BenchmarkResult
 where

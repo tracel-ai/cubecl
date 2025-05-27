@@ -272,14 +272,14 @@ pub(crate) fn create_client_on_setup(
         options.tasks_max,
         setup.backend,
     );
+    let channel = MutexComputeChannel::new(server);
 
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
+
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
-
-    let channel = MutexComputeChannel::new(server);
 
     ComputeClient::new(channel, device_props, setup.backend)
 }

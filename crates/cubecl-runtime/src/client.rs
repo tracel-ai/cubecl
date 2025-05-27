@@ -43,7 +43,7 @@ where
 #[derive(new)]
 struct ComputeClientState<Server: ComputeServer> {
     #[cfg(feature = "profile-tracy")]
-    epoch_time: std::time::Instant,
+    epoch_time: web_time::Instant,
 
     #[cfg(feature = "profile-tracy")]
     gpu_client: tracy_client::GpuContext,
@@ -97,7 +97,7 @@ where
                 )
                 .unwrap(),
             #[cfg(feature = "profile-tracy")]
-            epoch_time: std::time::Instant::now(),
+            epoch_time: web_time::Instant::now(),
         };
 
         Self {
@@ -435,7 +435,6 @@ where
                         let ticks = result.resolve().await;
                         let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
                         let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                        // TODO: Tracy says in a recursive stack one should upload start A, start B, end B, end A...
                         gpu_span.upload_timestamp_start(start_duration);
                         gpu_span.upload_timestamp_end(end_duration);
                         ticks

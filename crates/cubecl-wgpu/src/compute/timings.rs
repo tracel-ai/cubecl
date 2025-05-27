@@ -1,11 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
-use web_time::Instant;
-
 use cubecl_common::profile::{ProfileDuration, ProfileTicks};
 use cubecl_core::server::ProfilingToken;
 use hashbrown::HashMap;
-use wgpu::{ComputePassDescriptor, ComputePassTimestampWrites, QuerySet};
+use web_time::Instant;
+use wgpu::{QUERY_SIZE, QuerySet};
 
 type QuerySetId = u64;
 
@@ -48,7 +47,7 @@ fn create_query_set(device: &wgpu::Device, count: u32) -> QuerySet {
 fn create_resolve_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("CubeCL gpu -> cpu resolve buffer"),
-        size: (wgpu::QUERY_SIZE * count) as _,
+        size: (QUERY_SIZE * count) as _,
         usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     })
@@ -57,7 +56,7 @@ fn create_resolve_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
 fn create_map_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("CubeCL gpu -> cpu map buffer"),
-        size: (wgpu::QUERY_SIZE * count) as u64,
+        size: (QUERY_SIZE * count) as u64,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
@@ -65,47 +64,61 @@ fn create_map_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
 
 // Measure a timestamp to align the CPU & GPU timelines.
 fn synchronize_timestamps(queue: &wgpu::Queue, device: &wgpu::Device) -> (Instant, u64) {
-    // Make sure no work is outstanding.
-    device.poll(wgpu::PollType::Wait).unwrap();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        // Make sure no work is outstanding.
+        device.poll(wgpu::PollType::Wait).unwrap();
 
-    // Resolve a timestamp for the query set.
-    let query_set = create_query_set(device, 1);
-    let resolve_buffer = create_resolve_buffer(device, 1);
-    let map_buffer = create_map_buffer(device, 1);
+        // Resolve a timestamp for the query set.
+        let query_set = create_query_set(device, 1);
+        let resolve_buffer = create_resolve_buffer(device, 1);
+        let map_buffer = create_map_buffer(device, 1);
 
-    let mut timestamp_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("wgpu-profiler gpu -> cpu query timestamp"),
-    });
-    // This compute pass is purely to get a timestamp.
-    timestamp_encoder.begin_compute_pass(&ComputePassDescriptor {
-        label: Some("Write timestamp pass"),
-        timestamp_writes: Some(ComputePassTimestampWrites {
-            query_set: &query_set,
-            beginning_of_pass_write_index: None,
-            end_of_pass_write_index: Some(0),
-        }),
-    });
-    timestamp_encoder.write_timestamp(&query_set, 0);
-    timestamp_encoder.resolve_query_set(&query_set, 0..1, &resolve_buffer, 0);
-    // Workaround for https://github.com/gfx-rs/wgpu/issues/6406
-    // TODO when that bug is fixed, merge these encoders together again
-    let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("wgpu-profiler gpu -> cpu copy timestamp"),
-    });
-    copy_encoder.copy_buffer_to_buffer(&resolve_buffer, 0, &map_buffer, 0, wgpu::QUERY_SIZE as _);
+        let mut timestamp_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("wgpu-profiler gpu -> cpu query timestamp"),
+            });
+        // This compute pass is purely to get a timestamp.
+        timestamp_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Write timestamp pass"),
+            timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                query_set: &query_set,
+                beginning_of_pass_write_index: None,
+                end_of_pass_write_index: Some(0),
+            }),
+        });
+        timestamp_encoder.write_timestamp(&query_set, 0);
+        timestamp_encoder.resolve_query_set(&query_set, 0..1, &resolve_buffer, 0);
+        // Workaround for https://github.com/gfx-rs/wgpu/issues/6406
+        // TODO when that bug is fixed, merge these encoders together again
+        let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("wgpu-profiler gpu -> cpu copy timestamp"),
+        });
+        copy_encoder.copy_buffer_to_buffer(&resolve_buffer, 0, &map_buffer, 0, QUERY_SIZE as _);
 
-    let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
+        let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
 
-    queue.submit(commands);
-    map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
+        queue.submit(commands);
+        map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
 
-    device.poll(wgpu::PollType::Wait).unwrap();
-    // Measure CPU timestamp to go along GPU timestamp.
-    // This can't be 100% correct as this includes the time to rendezvous the GPU timestamp.
-    // Guesstimate by saying the rendesvouz time is twice the submission time.
-    let cpu_time = Instant::now();
-    let view = map_buffer.slice(..).get_mapped_range();
-    (cpu_time, u64::from_le_bytes((*view).try_into().unwrap()))
+        device.poll(wgpu::PollType::Wait).unwrap();
+        // Measure CPU timestamp to go along GPU timestamp.
+        // This can't be 100% correct as this includes the time to rendezvous the GPU timestamp.
+        // Guesstimate by saying the rendesvouz time is twice the submission time.
+        let cpu_time = Instant::now();
+        let view = map_buffer.slice(..).get_mapped_range();
+        (cpu_time, u64::from_le_bytes((*view).try_into().unwrap()))
+    }
+
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = device;
+        let _ = queue;
+        // Assume tick 0 is the current tick. To do this properly this function needs to be async,
+        // but on WASM tracy profiling isn't supported anyway, so the actual start/end time
+        // doens't matter anyway.
+        (Instant::now(), 0)
+    }
 }
 
 impl QueryProfiler {
@@ -155,47 +168,30 @@ impl QueryProfiler {
         *end = self.current;
 
         // TODO: We could optimize this by having a single handle for both `start` and `end`
-        // when a single query_set is used, but it probably doesn't impact much the real
-        // performance.
-        if let (Some(start), Some(end)) = (start, end) {
-            let query_set_start = self.query_sets.get_mut(start).unwrap();
-            query_set_start.num_ref -= 1;
-            if query_set_start.num_ref == 0 {
-                self.cleanups.push(*start);
-            }
+        // when a single query_set is used, but it probably doesn't impact the real
+        // performance all that much.
+        let (Some(start), Some(end)) = (start, end) else {
+            return None;
+        };
 
-            // TODO: Maybe could pool these to reduce profiling overhead, or use a wgpu `StagingBelt`.
-            let resolve_start = create_resolve_buffer(device, 1);
-            let resolve_end = create_resolve_buffer(device, 1);
-            let map_buffer = create_map_buffer(device, 2);
-
-            let query_set_start = self.query_sets.get(start).unwrap();
-            let query_set_end = self.query_sets.get(end).unwrap();
-
-            encoder.resolve_query_set(&query_set_start.query_set, 0..1, &resolve_start, 0);
-            encoder.resolve_query_set(&query_set_end.query_set, 1..2, &resolve_end, 0);
-
-            // Resolve everything else in the future. Don't need this in any particular order,
-            // so can do it when whatever thread picks this up.
-            encoder.copy_buffer_to_buffer(
-                &resolve_start,
-                0,
-                &map_buffer,
-                0,
-                wgpu::QUERY_SIZE as u64,
-            );
-            encoder.copy_buffer_to_buffer(
-                &resolve_end,
-                0,
-                &map_buffer,
-                wgpu::QUERY_SIZE as u64,
-                wgpu::QUERY_SIZE as u64,
-            );
-
-            Some(map_buffer)
-        } else {
-            None
+        let query_set_start = self.query_sets.get_mut(start).unwrap();
+        query_set_start.num_ref -= 1;
+        if query_set_start.num_ref == 0 {
+            self.cleanups.push(*start);
         }
+
+        // TODO: Could use a StagingBelt for a small speedup here.
+        let resolve_start = create_resolve_buffer(device, 1);
+        let resolve_end = create_resolve_buffer(device, 1);
+        let map_buffer = create_map_buffer(device, 2);
+        let query_set_start = self.query_sets.get(start).unwrap();
+        let query_set_end = self.query_sets.get(end).unwrap();
+        let size = QUERY_SIZE as u64;
+        encoder.resolve_query_set(&query_set_start.query_set, 0..1, &resolve_start, 0);
+        encoder.resolve_query_set(&query_set_end.query_set, 1..2, &resolve_end, 0);
+        encoder.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
+        encoder.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
+        Some(map_buffer)
     }
 
     pub fn stop_profile(

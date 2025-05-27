@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use core::{fmt::Display, time::Duration};
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::future::DynFut;
 

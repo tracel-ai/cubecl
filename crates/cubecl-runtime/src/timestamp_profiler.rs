@@ -1,24 +1,15 @@
 use cubecl_common::profile::ProfileDuration;
 use hashbrown::HashMap;
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::server::ProfilingToken;
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 /// A simple struct to keep track of timestamps for kernel execution.
 /// This should be used for servers that do not have native device profiling.
 pub struct TimestampProfiler {
     start: HashMap<ProfilingToken, Instant>,
     counter: u64,
-}
-
-impl Default for TimestampProfiler {
-    fn default() -> Self {
-        Self {
-            start: HashMap::new(),
-            counter: 0,
-        }
-    }
 }
 
 impl TimestampProfiler {

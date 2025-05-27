@@ -146,8 +146,7 @@ impl AsyncLogger {
                     self.logger.log_compilation(&msg);
                 }
                 LogMessage::Profile(name, profile) => {
-                    let ticks = profile.resolve().await;
-                    let duration = ticks.duration();
+                    let duration = profile.resolve().await.duration();
                     self.profiled.update(&name, duration);
                     self.logger
                         .log_profiling(&format!("| {duration:<10?} | {name}"));
