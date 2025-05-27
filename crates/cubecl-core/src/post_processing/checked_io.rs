@@ -17,7 +17,7 @@ impl Processor for CheckedIoProcessor {
         mut processing: cubecl_ir::ScopeProcessing,
         allocator: Allocator,
     ) -> cubecl_ir::ScopeProcessing {
-        if !matches!(self.mode, ExecutionMode::Checked) {
+        if matches!(self.mode, ExecutionMode::Unchecked) {
             return processing;
         }
 
