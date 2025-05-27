@@ -1,5 +1,9 @@
 use crate::matmul::{
-    components::{Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, global, stage},
+    components::{
+        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+        global::{self, load::LoaderMode},
+        stage,
+    },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
 
@@ -17,6 +21,7 @@ pub struct Config<S: stage::StageConfig> {
     out_line_size: u32,
     pub k_step: u32,
     precompute_job: LoadingPrecomputeStrategy,
+    loader_mode: LoaderMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -81,6 +86,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     fn precompute_job(&self) -> bool {
         self.precompute_job.into()
     }
+
+    fn loader_mode(&self) -> LoaderMode {
+        self.loader_mode
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
@@ -99,6 +108,7 @@ impl<S: stage::StageConfig> Config<S> {
         out_line_size: u32,
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
+        loader_mode: LoaderMode,
     ) -> Self {
         Self {
             smm_config,
@@ -112,6 +122,7 @@ impl<S: stage::StageConfig> Config<S> {
             out_line_size,
             k_step,
             precompute_job,
+            loader_mode,
         }
     }
 }

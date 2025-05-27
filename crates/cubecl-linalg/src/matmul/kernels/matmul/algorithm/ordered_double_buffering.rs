@@ -6,13 +6,13 @@ use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
 use crate::matmul::components::global::load::sync_buffer_cyclic;
 use crate::matmul::components::stage::{
-    self, BufferReaderFamily, FullReaderFamily, RowMajorTilingOrder,
+    self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
 use crate::matmul::components::tile;
 use crate::matmul::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
-use super::{PlaneMatmulSelection, plane_matmul_selection};
+use super::{plane_matmul_selection, MatmulSelection, PlaneMatmulSelection};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
@@ -38,21 +38,21 @@ where
     type MatmulSelection = PlaneMatmulSelection;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_planes = selection.tile_count.m.div_ceil(selection.rows_per_plane);
+        let num_planes = selection.partitions_per_stage.m;
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tile_count.m * selection.tile_shape.m;
-        let n_stage = selection.tile_count.n * selection.tile_shape.n;
+        let m_stage = selection.tile_count().m * selection.tile_shape.m;
+        let n_stage = selection.tile_count().n * selection.tile_shape.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (1, 2)
+    fn num_stages() -> NumStages {
+        (1, 2).into()
     }
 
     fn stage_buffering_strategy() -> stage::StageBuffering {

@@ -1,14 +1,17 @@
 use crate::{
     matmul::{
         components::{
-            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-            global::args::MatmulArgs,
-            stage::{StageBuffering, StageMatmulFamily, StageVectorization},
+            InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+            global::{args::MatmulArgs, load::LoaderMode},
+            stage::{NumStages, StageBuffering, StageMatmulFamily, TilesPerPartition},
             tile::TileMatmulFamily,
         },
         kernels::{
             MatmulAvailabilityError,
-            matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
+            matmul::{
+                GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy,
+                StageInput,
+            },
         },
     },
     tensor::TensorHandle,
@@ -21,26 +24,23 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
-pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
-pub type StageInput = (
-    CompleteStageTiling,
-    StageBuffering,
-    StageVectorization,
-    (u32, u32),
-);
-
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
-    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput>;
+    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput<StageInput>>;
     type MatmulSelection: MatmulSelection;
 
     type Args: MatmulArgs;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
-    fn num_stages() -> (u32, u32);
+    fn num_stages() -> NumStages;
+
+    // TODO delete in favor of using selection directly
+    fn partition(selection: &Self::MatmulSelection) -> TilesPerPartition {
+        selection.tiles_per_partition()
+    }
 
     fn multi_row_strategy() -> MultiRowStrategy {
         MultiRowStrategy::Never
@@ -48,6 +48,10 @@ pub trait Algorithm {
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
         LoadingPrecomputeStrategy::Never
+    }
+
+    fn loader_mode() -> LoaderMode {
+        LoaderMode::Relaxed
     }
 
     fn stage_buffering_strategy() -> StageBuffering {

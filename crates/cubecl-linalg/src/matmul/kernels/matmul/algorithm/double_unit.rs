@@ -5,35 +5,33 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     MatmulLineSizes, MatmulProblem, MatrixLayout,
     batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{
-        self,
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
-    },
-    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, StageBuffering},
+    global::{self, load::sync_buffer_cyclic},
+    stage::{self, BufferReaderFamily, NumStages, RowMajorTilingOrder},
     tile,
 };
 
-pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-    Dispatch = batch::TransposedDispatch,
-> {
-    pub _ll: PhantomData<LL>,
-    pub _rl: PhantomData<RL>,
+pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedDispatch> {
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<LL, RL, Dispatch> base::Algorithm for SimpleUnitAlgorithm<LL, RL, Dispatch>
+impl<Dispatch> base::Algorithm for DoubleUnitAlgorithm<Dispatch>
 where
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = tile::register_matmul::RegisterMatmul;
-    type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
-    type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+        Self::StageMatmul,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+    >;
+
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type MatmulSelection = UnitMatmulSelection;
+
+    fn num_stages() -> NumStages {
+        (2, 2).into()
+    }
 
     fn line_sizes(
         problem: &MatmulProblem,
@@ -70,7 +68,7 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_units_needed = selection.tiles_per_partition.num_elems();
+        let num_units_needed = selection.partitions_per_stage.num_elems();
         let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
         CubeDim::new(selection.plane_dim, num_planes, 1)
@@ -93,9 +91,5 @@ where
         _elem_acc: Elem,
     ) -> Self::MatmulSelection {
         unit_matmul_selection(problem, plane_dim)
-    }
-
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Single
     }
 }

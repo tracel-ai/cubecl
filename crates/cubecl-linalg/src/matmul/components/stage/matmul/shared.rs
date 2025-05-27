@@ -1,8 +1,8 @@
-use super::{StageBuffering, StageConfig};
 use crate::matmul::components::{
     CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulPrecision, MatmulSize,
     MatrixLayout, TilingDimensions,
     global::AccumulatorLoader,
+    stage::{StageBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
 };
 use cubecl::prelude::*;
@@ -16,7 +16,8 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub num_planes: u32,
     pub quantized: bool,
     pub buffering: StageBuffering,
-    pub num_stages: (u32, u32),
+    pub num_stages: NumStages,
+    pub tiles_per_partition: TilesPerPartition,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -64,9 +65,13 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
 
     fn num_stages(&self, ident: InputIdent) -> u32 {
         match ident {
-            InputIdent::Lhs => self.num_stages.0,
-            InputIdent::Rhs => self.num_stages.1,
+            InputIdent::Lhs => self.num_stages.lhs,
+            InputIdent::Rhs => self.num_stages.rhs,
         }
+    }
+
+    fn tiles_per_partition(&self) -> TilesPerPartition {
+        self.tiles_per_partition
     }
 }
 
@@ -80,7 +85,8 @@ impl<T: TileConfig> CommonStageConfig<T> {
         num_planes: u32,
         quantized: bool,
         buffering: StageBuffering,
-        num_stages: (u32, u32),
+        num_stages: NumStages,
+        tiles_per_partition: TilesPerPartition,
     ) -> Self {
         Self {
             tmm_config,
@@ -89,6 +95,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
             num_stages,
+            tiles_per_partition,
         }
     }
 }
@@ -99,31 +106,29 @@ impl<T: TileConfig> CommonStageConfig<T> {
 pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
     sequence: Sequence<TMM::Accumulator>,
     #[cube(comptime)]
-    pub shape: (u32, u32),
+    pub shape: TilesPerPartition,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
-    pub fn new(
-        #[comptime] shape: (u32, u32),
-        #[comptime] config: CommonStageConfig<TMM::Config>,
-    ) -> Accumulators<MP, TMM> {
+    pub fn new(#[comptime] config: CommonStageConfig<TMM::Config>) -> Accumulators<MP, TMM> {
+        let tiles_per_partition = config.tiles_per_partition();
         let mut accumulators = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(shape.0 * shape.1) {
+        for _ in 0..comptime!(tiles_per_partition.m * tiles_per_partition.n) {
             accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
         }
 
         Accumulators::<MP, TMM> {
             sequence: accumulators,
-            shape,
+            shape: tiles_per_partition,
         }
     }
 
     pub fn zero(&mut self, #[comptime] config: CommonStageConfig<TMM::Config>) {
         #[unroll]
-        for i in 0..comptime![self.shape.0 * self.shape.1] {
+        for i in 0..comptime![self.shape.num_elems()] {
             TMM::zero_accumulator(self.sequence.index_mut(i), config.to_tmm_config());
         }
     }
@@ -134,7 +139,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) {
         #[unroll]
-        for i in 0..comptime![self.shape.0 * self.shape.1] {
+        for i in 0..comptime![self.shape.num_elems()] {
             let acc = self.sequence.index_mut(i);
             L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
@@ -145,7 +150,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] i: u32,
         #[comptime] j: u32,
     ) -> &TMM::Accumulator {
-        this.sequence.index(comptime!(i * this.shape.1 + j))
+        this.sequence.index(comptime!(i * this.shape.n as u32 + j))
     }
 
     pub fn get_at_mut(
@@ -153,7 +158,8 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] i: u32,
         #[comptime] j: u32,
     ) -> &mut TMM::Accumulator {
-        this.sequence.index_mut(comptime!(i * this.shape.1 + j))
+        this.sequence
+            .index_mut(comptime!(i * this.shape.n as u32 + j))
     }
 }
 
@@ -162,3 +168,45 @@ pub enum RhsTile<Rhs: CubeType> {
     Single(Rhs),
     Double((Rhs, Rhs)),
 }
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NumStages {
+    lhs: u32,
+    rhs: u32,
+}
+
+impl From<(u32, u32)> for NumStages {
+    fn from(value: (u32, u32)) -> Self {
+        NumStages {
+            lhs: value.0,
+            rhs: value.1,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// TODO should be u8
+pub struct PartitionShape {
+    pub m: u32,
+    pub n: u32,
+}
+
+impl From<(u32, u32)> for PartitionShape {
+    fn from(value: (u32, u32)) -> Self {
+        PartitionShape {
+            m: value.0,
+            n: value.1,
+        }
+    }
+}
+
+impl PartitionShape {
+    pub fn num_elems(&self) -> u32 {
+        self.m * self.n
+    }
+}
+
+/// Number of tiles in a stage partition
+pub type TilesPerPartition = PartitionShape;
+/// Number of partitions in a stage
+pub type PartitionsPerStage = PartitionShape;

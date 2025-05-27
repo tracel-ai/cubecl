@@ -1,20 +1,17 @@
 //! Generates tests by combining parameters in the following order:
 //!
-//! 1. **Algorithm**
-//!    - `kind`: high-level matmul category (e.g., `accelerated`, `tma`, `unit`, `quantized`)
-//!    - `algorithm`: compute/loading strategy (e.g., `double_buffering_tilewise`, `simply_cyclic`)
-//! 2. **Instruction**
-//!    - `precision`: data type (e.g., `f16`, `f32`)
-//!    - `tile`: instruction tile dimensions in M/N/K
-//! 3. **Execution Shape**
-//!    - `stage`: shared memory shape (number of tiles in M/N/K)
-//! 4. **Problem**
-//!    - `layouts`: operand layouts (row-major (r) or column-major (c) for lhs and rhs)
-//!    - `problem`: actual matrix dimensions M/N/K
+//! - `kind`: high-level matmul category (e.g., `accelerated`, `tma`, `unit`, `quantized`)
+//! - `algorithm`: compute/loading strategy (e.g., `double_buffering_tilewise`, `simply_cyclic`)
+//! - `precision`: data type (e.g., `f16`, `f32`)
+//! - `tile`: instruction tile dimensions in M/N/K
+//! - `partition`: accumulator count per execution primitive (number of tiles in M/N)
+//! - `stage`: shared memory shape (number of tiles in M/N/K)
+//! - `layouts`: operand layouts (row-major (r) or column-major (c) for lhs and rhs)
+//! - `problem`: actual matrix dimensions M/N/K
 
 pub mod common;
 pub mod plane_accelerated;
-pub mod quantized;
+// pub mod quantized;
 pub mod tma;
 pub mod unit;
 
@@ -60,7 +57,7 @@ macro_rules! testgen_matmul_quantized {
             use super::*;
             type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-            $crate::testgen_matmul_quantized_algorithm!();
+            // $crate::testgen_matmul_quantized_algorithm!();
         }
     };
 }

@@ -1,7 +1,7 @@
 use crate::matmul::components::MatmulSize;
-use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::stage::{PartitionsPerStage, StageVectorization, TilesPerPartition};
 use crate::matmul::components::{MatmulProblem, MatrixLayout};
-use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection};
+use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
@@ -34,13 +34,28 @@ pub fn test_algo<
         rhs_layout: layouts.1,
     };
 
+    let tiles_per_partition = TilesPerPartition { m: 1, n: 1 };
+
+    // TODO choose partitions per to determine tile count instead
+    assert!(tile_count.m % tiles_per_partition.m == 0);
+    assert!(tile_count.n % tiles_per_partition.n == 0);
+    let partitions_per_stage = PartitionsPerStage {
+        m: tile_count.m / tiles_per_partition.m,
+        n: tile_count.n / tiles_per_partition.n,
+    };
+
+    // TODO only stage_size_k in args
+    let stage_size_k = tile_count.k;
+
     let selection = PlaneMatmulSelection {
         tile_shape,
-        tile_count,
+        tiles_per_partition,
+        partitions_per_stage,
+        stage_size_k,
         plane_dim,
-        rows_per_plane: 1,
     };
-    let config_input = (&selection).into();
+
+    let tiling = (&selection).into();
 
     let vectorization = StageVectorization {
         stage_line_size: 0,
@@ -49,15 +64,17 @@ pub fn test_algo<
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-            ),
-            A::loading_precompute_strategy(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                tiles_per_partition,
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }

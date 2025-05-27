@@ -1,60 +1,60 @@
 #[macro_export]
 macro_rules! testgen_matmul_unit_tile {
     ($algorithm: ty, $precision: ty) => {
-        mod t1x1x1 {
+        mod tl1x1x1 {
             use super::*;
 
-            $crate::testgen_matmul_unit_stage!(
+            $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 1, n: 1, k: 1 }
             );
         }
 
-        mod t8x1x4 {
+        mod tl8x1x4 {
             use super::*;
 
-            $crate::testgen_matmul_unit_stage!(
+            $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 8, n: 1, k: 4 }
             );
         }
 
-        mod t2x4x1 {
+        mod tl2x4x1 {
             use super::*;
 
-            $crate::testgen_matmul_unit_stage!(
+            $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 2, n: 4, k: 1 }
             );
         }
 
-        mod t1x8x8 {
+        mod tl1x8x8 {
             use super::*;
 
-            $crate::testgen_matmul_unit_stage!(
+            $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 1, n: 8, k: 8 }
             );
         }
 
-        mod t4x4x4 {
+        mod tl4x4x4 {
             use super::*;
 
-            $crate::testgen_matmul_unit_stage!(
+            $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 4, n: 4, k: 4 }
             );
         }
 
-        mod t8x8x8 {
+        mod tl8x8x8 {
             use super::*;
 
-            $crate::testgen_matmul_unit_stage!(
+            $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 8, n: 8, k: 8 }

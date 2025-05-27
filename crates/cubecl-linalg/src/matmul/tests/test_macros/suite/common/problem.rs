@@ -1,13 +1,14 @@
 #[macro_export]
 macro_rules! testgen_matmul_problem {
-    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $stage: expr, $layouts: expr) => {
-        mod p100x100x100 {
+    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr) => {
+        mod sh100x100x100 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 $stage,
                 $layouts,
                 MatmulSize {
@@ -18,26 +19,28 @@ macro_rules! testgen_matmul_problem {
             );
         }
 
-        mod p23x1x17 {
+        mod sh23x1x17 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 $stage,
                 $layouts,
                 MatmulSize { m: 23, n: 1, k: 17 }
             );
         }
 
-        mod p256x256x256 {
+        mod sh256x256x256 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 $stage,
                 $layouts,
                 MatmulSize {

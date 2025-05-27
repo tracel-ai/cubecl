@@ -1,7 +1,7 @@
 use crate::matmul::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
-        global::GlobalConfig,
+        global::{GlobalConfig, load::LoaderMode},
         stage::{self},
     },
     kernels::matmul::LoadingPrecomputeStrategy,
@@ -21,6 +21,7 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub out_line_size: u32,
     pub num_planes: u32,
     precompute_job: LoadingPrecomputeStrategy,
+    loader_mode: LoaderMode,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
@@ -88,6 +89,10 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
             InputIdent::Rhs => 2,
         }
     }
+
+    fn loader_mode(&self) -> LoaderMode {
+        self.loader_mode
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for OrderedDoubleBufferingGlobalConfig<S> {}
@@ -106,6 +111,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         out_line_size: u32,
         num_planes: u32,
         precompute_job: LoadingPrecomputeStrategy,
+        loader_mode: LoaderMode,
     ) -> Self {
         Self {
             smm_config,
@@ -119,6 +125,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             out_line_size,
             num_planes,
             precompute_job,
+            loader_mode,
         }
     }
 }

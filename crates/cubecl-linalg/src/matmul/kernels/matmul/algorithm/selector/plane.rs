@@ -4,6 +4,7 @@ use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
+use crate::matmul::components::stage::{PartitionsPerStage, TilesPerPartition};
 use crate::matmul::components::{MatmulProblem, MatmulSize, tile::TileMatmulFamily};
 use crate::matmul::kernels::matmul::MultiRowStrategy;
 
@@ -15,10 +16,11 @@ const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
 #[derive(Debug)]
 pub struct PlaneMatmulSelection {
-    pub tile_shape: MatmulSize,
-    pub tile_count: MatmulSize,
     pub plane_dim: u32,
-    pub rows_per_plane: u32,
+    pub tile_shape: MatmulSize,
+    pub tiles_per_partition: TilesPerPartition,
+    pub partitions_per_stage: PartitionsPerStage,
+    pub stage_size_k: u32,
 }
 
 impl MatmulSelection for PlaneMatmulSelection {
@@ -27,7 +29,15 @@ impl MatmulSelection for PlaneMatmulSelection {
     }
 
     fn tile_count(&self) -> MatmulSize {
-        self.tile_count
+        MatmulSize {
+            m: self.tiles_per_partition.m * self.partitions_per_stage.m,
+            n: self.tiles_per_partition.n * self.partitions_per_stage.n,
+            k: self.stage_size_k,
+        }
+    }
+
+    fn tiles_per_partition(&self) -> TilesPerPartition {
+        self.tiles_per_partition
     }
 }
 
@@ -59,7 +69,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // Going over 8 might use too much shared memory.
     let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
 
-    let stage_size = find_stage_size(
+    let stage_size_n = find_stage_size(
         problem.m,
         problem.n,
         problem.num_batches(),
@@ -74,24 +84,35 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     );
 
     let (rows_per_plane, stage_size_m) =
-        change_rows_per_plane(multi_row_strategy, stage_size, instruction_m, problem.m);
+        change_rows_per_plane(multi_row_strategy, stage_size_n, instruction_m, problem.m);
 
     // Makes all rows the length of plane_dim
-    let k = plane_dim / instruction_k as u32;
+    let stage_size_k = plane_dim / instruction_k as u32;
+
+    let tile_shape = MatmulSize {
+        m: instruction_m as u32,
+        n: instruction_n as u32,
+        k: instruction_k as u32,
+    };
+
+    let tiles_per_partition = TilesPerPartition {
+        m: rows_per_plane as u32,
+        n: stage_size_n as u32,
+    };
+
+    // TODO this should be chosen then tile count deduced so it's always multiplicative
+    assert!(stage_size_m % rows_per_plane == 0);
+    let partitions_per_stage = PartitionsPerStage {
+        m: (stage_size_m / rows_per_plane) as u32,
+        n: 1,
+    };
 
     PlaneMatmulSelection {
-        tile_shape: MatmulSize {
-            m: instruction_m as u32,
-            n: instruction_n as u32,
-            k: instruction_k as u32,
-        },
-        tile_count: MatmulSize {
-            m: stage_size_m as u32,
-            n: stage_size as u32,
-            k,
-        },
         plane_dim,
-        rows_per_plane: rows_per_plane as u32,
+        tile_shape,
+        tiles_per_partition,
+        partitions_per_stage,
+        stage_size_k,
     }
 }
 
@@ -175,36 +196,21 @@ pub(crate) fn find_instruction_shape(
     m: usize,
     n: usize,
 ) -> (usize, usize, usize) {
-    match properties {
-        Some(properties) => {
-            let supported = |m: u8, n: u8, k: u8| {
-                let (p, (a, b, c)) = properties;
-                p.feature_enabled(Feature::Cmma { a, b, c, m, n, k })
-            };
+    let supported = |m: u8, n: u8, k: u8| {
+        properties
+            .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
+            .unwrap_or(true)
+    };
 
-            if m >= 4 * n && supported(32, 8, 16) {
-                (32, 8, 16)
-            } else if n >= 4 * n && supported(8, 32, 16) {
-                (8, 32, 16)
-            } else if supported(16, 16, 16) {
-                (16, 16, 16)
-            } else if supported(8, 8, 8) {
-                (8, 8, 8)
-            } else {
-                (16, 16, 8)
-            }
-        } // TODO: instead, make another selector for non-cmma
-        // -> Better: every Algorithm implements its selector
-        // Though most will call the same function
-        // In refactoring selector, never be generic over element type, only use DTYPE
-        // Also, never use TensorHandleRef
-        //
-        // For unit selector,
-        // We first want to choose the stage size, to have a good unit count
-        // Then, we want a small tile size
-        // Depends on problem, like if it's mat@vec
-        //
-        // None => (8, 8, 8),
-        None => (4, 4, 4),
+    if m >= 4 * n && supported(32, 8, 16) {
+        (32, 8, 16)
+    } else if n >= 4 * n && supported(8, 32, 16) {
+        (8, 32, 16)
+    } else if supported(16, 16, 16) {
+        (16, 16, 16)
+    } else if supported(8, 8, 8) {
+        (8, 8, 8)
+    } else {
+        (16, 16, 8)
     }
 }

@@ -42,3 +42,18 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
 pub trait LoadingValidation {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Controls bounds checking for loader operations.
+///
+/// This **does not** disable tensor read bounds checks.
+/// It only affects checks for whether the loader loads more data than allowed
+/// at each global matmul iteration.
+pub enum LoaderMode {
+    /// Enforces compile-time validation of balanced workloads across units.
+    /// Restricts valid combinations of tile shape, count, and line size.
+    Strict,
+    /// Inserts runtime checks only when an out-of-bounds access will occur.
+    /// May reduce performance if workloads are imbalanced.
+    Relaxed,
+}

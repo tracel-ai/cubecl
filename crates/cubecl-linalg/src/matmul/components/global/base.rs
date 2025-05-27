@@ -10,7 +10,7 @@ use cubecl_std::{
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use super::{GlobalWriter, Quantization};
+use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -134,4 +134,8 @@ pub trait GlobalConfig: MatmulConfig {
     fn precompute_job(&self) -> bool;
 
     fn num_stages(&self, ident: InputIdent) -> u32;
+
+    /// Whether to check loader is balanced in comptime or runtime.
+    /// Not supported by all loading strategies
+    fn loader_mode(&self) -> LoaderMode;
 }

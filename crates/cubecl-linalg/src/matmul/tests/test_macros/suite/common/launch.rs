@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_launch {
-    (Accelerated, $algorithm: ty, $precision: ty, $tile: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (PlaneAccelerated, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -9,11 +9,11 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $stage, $problem);
+            >($layouts, $tile, $partition, $stage, $problem);
         }
     };
 
-    (Unit, $algorithm: ty, $precision: ty, $tile: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (Unit, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -22,11 +22,11 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $stage, $problem);
+            >($layouts, $tile, $partition, $stage, $problem);
         }
     };
 
-    (Tma, $algorithm: ty, $precision: ty, $tile: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (Tma, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -39,7 +39,7 @@ macro_rules! testgen_matmul_launch {
         }
     };
 
-    (Quantized, $algorithm: ty, $precision: ty, $tile: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (Quantized, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -48,7 +48,7 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $stage, $problem);
+            >($layouts, $tile, $partition, $stage, $problem);
         }
     };
 }

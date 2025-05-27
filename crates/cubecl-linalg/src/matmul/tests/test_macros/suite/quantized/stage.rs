@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_quantized_stage {
-    ($algorithm: ty, $precision: ty, $tile: expr) => {
+    ($algorithm: ty, $precision: ty, $tile: expr, $partition: expr) => {
         mod s1x1x1 {
             use super::*;
 
@@ -9,6 +9,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 1, n: 1, k: 1 }
             );
         }
@@ -21,6 +22,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 8, n: 8, k: 1 }
             );
         }
@@ -33,6 +35,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 16, n: 16, k: 1 }
             );
         }
@@ -45,6 +48,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 2, n: 2, k: 2 }
             );
         }
@@ -57,6 +61,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 8, n: 8, k: 4 }
             );
         }
@@ -69,6 +74,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 16, n: 8, k: 4 }
             );
         }
@@ -81,6 +87,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 4, n: 4, k: 2 }
             );
         }
@@ -93,6 +100,7 @@ macro_rules! testgen_matmul_quantized_stage {
                 $algorithm,
                 $precision,
                 $tile,
+                $partition,
                 MatmulSize { m: 8, n: 4, k: 2 }
             );
         }

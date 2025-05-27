@@ -17,10 +17,10 @@ use crate::{
         components::{
             InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::args::TensorMapArgs,
-            stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+            stage::{FullReaderFamily, NumStages, plane_matmul::PlaneMatmulFamily},
             tile::TileMatmulFamily,
         },
-        kernels::matmul::PlaneMatmulSelection,
+        kernels::matmul::{MatmulSelection, PlaneMatmulSelection},
     },
     tensor::TensorHandle,
 };
@@ -46,12 +46,12 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     type Args = TensorMapArgs;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
+        CubeDim::new(selection.plane_dim, selection.tile_count().m, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tile_count.m * selection.tile_shape.m;
-        let n_stage = selection.tile_count.n * selection.tile_shape.n;
+        let m_stage = selection.tile_count().m * selection.tile_shape.m;
+        let n_stage = selection.tile_count().n * selection.tile_shape.n;
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
@@ -103,8 +103,8 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
-    fn num_stages() -> (u32, u32) {
-        (1, 1)
+    fn num_stages() -> NumStages {
+        (1, 1).into()
     }
 
     fn selection<R: Runtime>(
