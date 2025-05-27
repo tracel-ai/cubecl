@@ -5,15 +5,11 @@ const VECTORIZATION: u8 = 4;
 #[cube(launch_unchecked)]
 /// A [Line] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-<<<<<<< HEAD
 fn sum_simple<F: Float>(
     input_a: &Array<Line<F>>,
     input_b: &Array<Line<F>>,
     output: &mut Array<Line<F>>,
 ) {
-=======
-fn sum_simple<F: Float>(input_a: &Array<F>, input_b: &Array<F>, output: &mut Array<F>) {
->>>>>>> e46fd3f9 (feat: add display for scope)
     output[ABSOLUTE_POS] = input_a[ABSOLUTE_POS] + input_b[ABSOLUTE_POS];
 }
 
