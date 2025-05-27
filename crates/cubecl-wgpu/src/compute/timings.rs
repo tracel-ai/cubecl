@@ -63,67 +63,60 @@ fn create_map_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
 }
 
 // Measure a timestamp to align the CPU & GPU timelines.
-fn synchronize_timestamps(queue: &wgpu::Queue, device: &wgpu::Device) -> (Instant, u64) {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        // Make sure no work is outstanding.
-        device.poll(wgpu::PollType::Wait).unwrap();
+#[cfg(feature = "profile-tracy")]
+fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
+    // Make sure no work is outstanding.
+    device.poll(wgpu::PollType::Wait).unwrap();
 
-        // Resolve a timestamp for the query set.
-        let query_set = create_query_set(device, 1);
-        let resolve_buffer = create_resolve_buffer(device, 1);
-        let map_buffer = create_map_buffer(device, 1);
+    // Resolve a timestamp for the query set.
+    let query_set = create_query_set(device, 1);
+    let resolve_buffer = create_resolve_buffer(device, 1);
+    let map_buffer = create_map_buffer(device, 1);
 
-        let mut timestamp_encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("wgpu-profiler gpu -> cpu query timestamp"),
-            });
-        // This compute pass is purely to get a timestamp.
-        timestamp_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("Write timestamp pass"),
-            timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
-                query_set: &query_set,
-                beginning_of_pass_write_index: None,
-                end_of_pass_write_index: Some(0),
-            }),
-        });
-        timestamp_encoder.write_timestamp(&query_set, 0);
-        timestamp_encoder.resolve_query_set(&query_set, 0..1, &resolve_buffer, 0);
-        // Workaround for https://github.com/gfx-rs/wgpu/issues/6406
-        // TODO when that bug is fixed, merge these encoders together again
-        let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("wgpu-profiler gpu -> cpu copy timestamp"),
-        });
-        copy_encoder.copy_buffer_to_buffer(&resolve_buffer, 0, &map_buffer, 0, QUERY_SIZE as _);
+    let mut timestamp_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("wgpu-profiler gpu -> cpu query timestamp"),
+    });
+    // This compute pass is purely to get a timestamp.
+    timestamp_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("Write timestamp pass"),
+        timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+            query_set: &query_set,
+            beginning_of_pass_write_index: None,
+            end_of_pass_write_index: Some(0),
+        }),
+    });
+    timestamp_encoder.write_timestamp(&query_set, 0);
+    timestamp_encoder.resolve_query_set(&query_set, 0..1, &resolve_buffer, 0);
+    // Workaround for https://github.com/gfx-rs/wgpu/issues/6406
+    // TODO when that bug is fixed, merge these encoders together again
+    let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("wgpu-profiler gpu -> cpu copy timestamp"),
+    });
+    copy_encoder.copy_buffer_to_buffer(&resolve_buffer, 0, &map_buffer, 0, QUERY_SIZE as _);
 
-        let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
+    let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
 
-        queue.submit(commands);
-        map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
+    queue.submit(commands);
+    map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
 
-        device.poll(wgpu::PollType::Wait).unwrap();
-        // Measure CPU timestamp to go along GPU timestamp.
-        // This can't be 100% correct as this includes the time to rendezvous the GPU timestamp.
-        // Guesstimate by saying the rendesvouz time is twice the submission time.
-        let cpu_time = Instant::now();
-        let view = map_buffer.slice(..).get_mapped_range();
-        (cpu_time, u64::from_le_bytes((*view).try_into().unwrap()))
-    }
+    device.poll(wgpu::PollType::Wait).unwrap();
 
-    #[cfg(target_family = "wasm")]
-    {
-        let _ = device;
-        let _ = queue;
-        // Assume tick 0 is the current tick. To do this properly this function needs to be async,
-        // but on WASM tracy profiling isn't supported anyway, so the actual start/end time
-        // doens't matter anyway.
-        (Instant::now(), 0)
-    }
+    let view = map_buffer.slice(..).get_mapped_range();
+    u64::from_le_bytes((*view).try_into().unwrap())
 }
 
 impl QueryProfiler {
-    pub fn new(queue: &wgpu::Queue, device: &wgpu::Device) -> Self {
-        let sync_timestamps = synchronize_timestamps(queue, device);
+    pub fn new(queue: &wgpu::Queue, #[allow(unused)] device: &wgpu::Device) -> Self {
+        #[cfg(feature = "profile-tracy")]
+        let sync_timestamps = get_cur_timestamp(queue, device);
+
+        #[cfg(not(feature = "profile-tracy"))]
+        let sync_timestamps = 0;
+
+        // Measure CPU timestamp to go along GPU timestamp.
+        // This can't be 100% correct as this includes the time to rendezvous the GPU timestamp.
+        // Guesstimate by saying the rendesvouz time is twice the submission time.
+        let epoch_instant = Instant::now();
 
         Self {
             cleanups: Vec::new(),
@@ -134,8 +127,8 @@ impl QueryProfiler {
             timestamps: HashMap::new(),
             init_tokens: Vec::new(),
             queue_period: queue.get_timestamp_period() as f64,
-            epoch_instant: sync_timestamps.0,
-            epoch_tick: sync_timestamps.1,
+            epoch_instant,
+            epoch_tick: sync_timestamps,
         }
     }
 

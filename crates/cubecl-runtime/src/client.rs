@@ -74,6 +74,8 @@ where
     ) -> Self {
         let logger = ServerLogger::default();
 
+        let server_name = format!("{info:?}");
+
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -89,7 +91,7 @@ where
             gpu_client: client
                 .clone()
                 .new_gpu_context(
-                    Some("wgpu"),
+                    Some(&server_name),
                     // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
                     tracy_client::GpuContextType::Invalid,
                     0,   // Timestamps are manually aligned to this epoch so start at 0.
@@ -389,9 +391,8 @@ where
         func: impl FnOnce(),
         #[allow(unused)] func_name: &str,
     ) -> ProfileDuration {
-        // Get the outer caller. Maybe this should be lazy, idk.
-        // For execute() this could also maybe point straight to the
-        // cube kernel instead. For general profiling that's not possible.
+        // Get the outer caller. For execute() this points straight to the
+        // cube kernel. For general profiling it points to whoever calls profile.
         #[cfg(feature = "profile-tracy")]
         let location = std::panic::Location::caller();
 
@@ -408,44 +409,48 @@ where
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
-        let token = self.channel.start_profile();
         let method = self.state.properties.timing_method;
 
-        let result = if method == TimingMethod::Device {
-            #[cfg(feature = "profile-tracy")]
-            let mut gpu_span = self
+        #[cfg(feature = "profile-tracy")]
+        let gpu_span = if method == TimingMethod::Device {
+            let gpu_span = self
                 .state
                 .gpu_client
                 .span_alloc(func_name, "profile", location.file(), location.line())
                 .unwrap();
-            func();
-            #[cfg(feature = "profile-tracy")]
+            Some(gpu_span)
+        } else {
+            None
+        };
+
+        let token = self.channel.start_profile();
+
+        func();
+
+        #[allow(unused_mut)]
+        let mut result = self.channel.end_profile(token);
+
+        #[cfg(feature = "profile-tracy")]
+        if let Some(mut gpu_span) = gpu_span {
             gpu_span.end_zone();
+            let epoch = self.state.epoch_time;
+            // Add in the work to upload the timestamp data.
+            result = ProfileDuration::new(
+                Box::pin(async move {
+                    let ticks = result.resolve().await;
+                    let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
+                    let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                    gpu_span.upload_timestamp_start(start_duration);
+                    gpu_span.upload_timestamp_end(end_duration);
+                    ticks
+                }),
+                method,
+            );
+        }
 
-            #[allow(unused_mut)]
-            let mut result = self.channel.end_profile(token);
-
-            #[cfg(feature = "profile-tracy")]
-            {
-                let epoch = self.state.epoch_time;
-
-                // Add in the work to upload the timestamp data.
-                result = ProfileDuration::new(
-                    Box::pin(async move {
-                        let ticks = result.resolve().await;
-                        let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
-                        let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                        gpu_span.upload_timestamp_start(start_duration);
-                        gpu_span.upload_timestamp_end(end_duration);
-                        ticks
-                    }),
-                    method,
-                );
-            }
-
+        let result = if method == TimingMethod::Device {
             result
         } else {
-            func();
             self.channel.end_profile(token)
         };
 

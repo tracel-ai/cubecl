@@ -30,7 +30,7 @@ compilation-cache = [
     "cubecl-cuda?/compilation-cache",
     "cubecl-hip?/compilation-cache",
 ]
-profile-tracy = ["cubecl-runtime/profile-tracy"]
+profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
 
 # Runtimes
