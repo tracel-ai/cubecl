@@ -21,6 +21,21 @@ pub(super) struct Module<'a> {
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context) -> Self {
         let location = Location::unknown(context);
+        // let module = melior::ir::Module::parse(
+        //     context,
+        //     r#"
+        //     module {
+        //         func.func @kernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>, %arg2: memref<?xf32>) -> f32 attributes {llvm.emit_c_interface} {
+        //             %c2 = arith.constant 1 : index
+        //             %3 = memref.load %arg0[%c2] : memref<?xf32>
+        //             %4 = memref.load %arg1[%c2] : memref<?xf32>
+        //             %res = arith.addf %3, %4 : f32
+        //             memref.store %res, %arg2[%c2] : memref<?xf32>
+        //             return %res : f32
+        //         }
+        //     }
+        //     "#,
+        // ).unwrap();
         let module = melior::ir::Module::new(location);
         Self {
             module,
@@ -62,6 +77,8 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn into_execution_engine(&self) -> ExecutionEngine {
-        ExecutionEngine::new(&self.module, 3, &[], false)
+        let engine = ExecutionEngine::new(&self.module, 3, &[], true);
+        engine.dump_to_object_file("test.so");
+        engine
     }
 }

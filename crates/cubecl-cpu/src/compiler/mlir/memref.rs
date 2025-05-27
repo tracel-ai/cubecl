@@ -1,6 +1,7 @@
 use std::ffi::{c_longlong, c_void};
 
 #[repr(C)]
+#[derive(Debug, Clone)]
 pub struct MemRef<const N_DIMS: usize> {
     /// Pointer to the allocated memory
     allocated: *mut c_void,

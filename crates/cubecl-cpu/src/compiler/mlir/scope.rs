@@ -4,7 +4,7 @@ use super::visitor::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn visit_scope(&mut self, scope: &Scope) {
-        for instruction in scope.instructions.iter().take(4) {
+        for instruction in scope.instructions.iter() {
             self.visit_instruction(instruction);
         }
     }
