@@ -27,6 +27,7 @@ cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = f
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
     "channel-mutex",
 ] }
+cubecl-opt = { path = "../cubecl-opt", version = "0.6.0", default-features = false }
 
 bytemuck = { workspace = true }
 derive-new = { workspace = true }
