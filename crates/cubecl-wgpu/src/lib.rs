@@ -50,10 +50,16 @@ mod tests_spirv {
 
     cubecl_core::testgen_all!(f32: [f16, flex32, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
+<<<<<<< HEAD
     cubecl_matmul::testgen_matmul_tiling2d!([f16, f32, f64]);
     cubecl_matmul::testgen_matmul_simple!([f32]);
     cubecl_matmul::testgen_matmul_plane_accelerated!();
     cubecl_matmul::testgen_matmul_unit!();
+=======
+    cubecl_linalg::testgen_matmul_tiling2d!([f16, f32, f64]);
+    cubecl_linalg::testgen_matmul_simple!([f32]);
+    // cubecl_linalg::testgen_matmul_accelerated!([f16]);
+>>>>>>> 874316b9 (Fix checked index read (#700))
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
