@@ -3,7 +3,7 @@ use cubecl_ir::{Allocator, ExpandElement, Instruction, Operation, Operator, Proc
 
 use crate::{
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{FloatExpand, Line, NumericExpand, expand_checked_index_assign},
+    prelude::{Line, NumericExpand, expand_checked_index_assign},
 };
 
 #[derive(new)]
