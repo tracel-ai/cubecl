@@ -15,7 +15,6 @@ autotune-checks = ["cubecl-runtime/autotune-checks"]
 default = [
     "std",
     "linalg",
-    "profile-tracy",
     "cubecl-core/default",
     "cubecl-cuda?/default",
     "cubecl-hip?/default",
