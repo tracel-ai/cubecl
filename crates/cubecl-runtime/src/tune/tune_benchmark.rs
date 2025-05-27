@@ -55,11 +55,14 @@ impl<
         let num_samples = 10;
         let durations = (0..num_samples)
             .map(|_| {
-                self.client.profile(|| {
-                    operation
-                        .execute(self.inputs.clone())
-                        .expect("Should not fail when previously tried during the warmup.");
-                })
+                self.client.profile(
+                    || {
+                        operation
+                            .execute(self.inputs.clone())
+                            .expect("Should not fail when previously tried during the warmup.");
+                    },
+                    operation.name(),
+                )
             })
             .collect();
 

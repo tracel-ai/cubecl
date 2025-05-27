@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::{
     DeviceProperties,
     channel::ComputeChannel,
@@ -12,26 +14,20 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, profile::ProfileDuration};
+use cubecl_common::{
+    ExecutionMode,
+    profile::{ProfileDuration, TimingMethod},
+};
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
+use tracy_client::{Client, GpuContext, span};
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
-#[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
     state: Arc<ComputeClientState<Server>>,
-}
-
-#[derive(new, Debug)]
-struct ComputeClientState<Server: ComputeServer> {
-    properties: DeviceProperties<Server::Feature>,
-    info: Server::Info,
-    logger: Arc<ServerLogger>,
-    #[cfg(multi_threading)]
-    current_profiling: spin::RwLock<Option<StreamId>>,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -45,6 +41,19 @@ where
             state: self.state.clone(),
         }
     }
+}
+
+#[derive(new)]
+struct ComputeClientState<Server: ComputeServer> {
+    epoch_time: Instant,
+    gpu_client: GpuContext,
+
+    properties: DeviceProperties<Server::Feature>,
+    info: Server::Info,
+    logger: Arc<ServerLogger>,
+
+    #[cfg(multi_threading)]
+    current_profiling: spin::RwLock<Option<StreamId>>,
 }
 
 impl<Server, Channel> ComputeClient<Server, Channel>
@@ -65,13 +74,31 @@ where
     ) -> Self {
         let logger = ServerLogger::default();
 
-        let state = ComputeClientState::new(
+        // Start tracy.
+        let client = Client::start();
+
+        // Add in the
+        let gpu_client = client
+            .clone()
+            .new_gpu_context(
+                Some("wgpu"),
+                // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
+                tracy_client::GpuContextType::Invalid,
+                0,   // Timestamps are manually aligned to this epoch so start at 0.
+                1.0, // Timestamps are manually converted to be nanoseconds so period is 1.
+            )
+            .unwrap();
+        let epoch_time = Instant::now();
+
+        let state = ComputeClientState {
             properties,
             info,
-            Arc::new(logger),
+            logger: Arc::new(logger),
             #[cfg(multi_threading)]
-            spin::RwLock::new(None),
-        );
+            current_profiling: spin::RwLock::new(None),
+            gpu_client,
+            epoch_time,
+        };
 
         Self {
             channel,
@@ -236,6 +263,7 @@ where
         self.channel.empty_tensors(shapes, elem_size)
     }
 
+    #[track_caller]
     unsafe fn execute_inner(
         &self,
         kernel: Server::Kernel,
@@ -264,15 +292,19 @@ where
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
-                let profile = self.profile(|| unsafe {
-                    self.channel.execute(
-                        kernel,
-                        count.clone(),
-                        bindings,
-                        mode,
-                        self.state.logger.clone(),
-                    )
-                });
+                let profile = self.profile(
+                    || unsafe {
+                        self.channel.execute(
+                            kernel,
+                            count.clone(),
+                            bindings,
+                            mode,
+                            self.state.logger.clone(),
+                        )
+                    },
+                    name,
+                );
+
                 let info = match level {
                     ProfileLevel::Full => {
                         format!("{name}: {kernel_id} CubeCount {count:?}")
@@ -285,6 +317,7 @@ where
     }
 
     /// Executes the `kernel` over the given `bindings`.
+    #[track_caller]
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
         // SAFETY: Using checked execution mode.
         unsafe {
@@ -299,6 +332,7 @@ where
     /// To ensure this is safe, you must verify your kernel:
     /// - Has no out-of-bound reads and writes that can happen.
     /// - Has no infinite loops that might never terminate.
+    #[track_caller]
     pub unsafe fn execute_unchecked(
         &self,
         kernel: Server::Kernel,
@@ -349,17 +383,60 @@ where
     }
 
     /// Measure the execution time of some inner operations.
-    ///
-    /// Nb: this function will only allow one function at a time to be submitted when multi threading.
-    /// Recursive measurements are not allowed and will deadlock.
-    pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
+    #[track_caller]
+    pub fn profile(&self, func: impl FnOnce(), func_name: &str) -> ProfileDuration {
+        // Get the outer caller. Maybe this should be lazy, idk.
+        // For execute() this could also maybe point straight to the
+        // cube kernel instead. For general profiling that's not possible.
+        let location = std::panic::Location::caller();
+
+        // Make a CPU span. If the server has system profiling this is all you need.
+        let _span = Client::running().unwrap().span_alloc(
+            None,
+            func_name,
+            location.file(),
+            location.line(),
+            0,
+        );
+
         #[cfg(multi_threading)]
         let stream_id = self.profile_aquire();
+
         let token = self.channel.start_profile();
 
+        let mut gpu_span = self
+            .state
+            .gpu_client
+            .span_alloc(func_name, "profile", location.file(), location.line())
+            .unwrap();
         func();
+        gpu_span.end_zone();
+        let mut result = {
+            let _span = span!("End profile");
+            self.channel.end_profile(token)
+        };
 
-        let result = self.channel.end_profile(token);
+        let _span = tracy_client::span!("WGPU Server Execute");
+
+        let method = result.timing_method();
+
+        // For a device profile, upload GPU timestamp data.
+        if method == TimingMethod::Device {
+            let epoch = self.state.epoch_time;
+
+            // Add in the work to upload the timestamp data.
+            let fut_upload = async move {
+                let ticks = result.resolve().await;
+                let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
+                let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                // TODO: Tracy says in a recursive stack one should upload start A, start B, end B, end A...
+                gpu_span.upload_timestamp_start(start_duration);
+                gpu_span.upload_timestamp_end(end_duration);
+                ticks
+            };
+
+            result = ProfileDuration::new(Box::pin(fut_upload), method);
+        }
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);

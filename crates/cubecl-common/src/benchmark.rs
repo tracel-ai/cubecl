@@ -179,8 +179,7 @@ pub trait Benchmark {
         let start_time = std::time::Instant::now();
         self.execute(args);
         self.sync();
-        // Just pretend this started at t=0, we don't really care about the actual start time here.
-        crate::profile::ProfileDuration::from_start_end(0, start_time.elapsed().as_nanos())
+        crate::profile::ProfileDuration::new_system_time(start_time, std::time::Instant::now())
     }
 
     /// Run the benchmark a number of times.
@@ -205,7 +204,7 @@ pub trait Benchmark {
                     TimingMethod::System => self.profile_full(args.clone()),
                     TimingMethod::Device => self.profile(args.clone()),
                 };
-                let duration = crate::future::block_on(profile.resolve());
+                let duration = crate::future::block_on(profile.resolve()).duration();
                 durations.push(duration);
             }
 

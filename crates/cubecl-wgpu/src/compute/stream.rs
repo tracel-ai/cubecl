@@ -1,5 +1,5 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use cubecl_common::profile::{ProfileDuration, ProfileTicks};
+use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
@@ -9,6 +9,7 @@ use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
+use tracy_client::span;
 use wgpu::ComputePipeline;
 
 #[derive(Debug)]
@@ -38,8 +39,22 @@ impl WgpuStream {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        timing_method: TimingMethod,
         tasks_max: usize,
     ) -> Self {
+        let timings = if timing_method == TimingMethod::Device {
+            Timings::Device(QueryProfiler::new(&queue, &device))
+        } else {
+            if cfg!(target_family = "wasm") {
+                // On WASM, there's not much we can do here anymore. This should be very rare however,
+                // all modern GPU's support timestamp queries.
+                panic!(
+                    "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
+                );
+            }
+            Timings::System(TimestampProfiler::default())
+        };
+
         let poll = WgpuPoll::new(device.clone());
 
         #[allow(unused_mut)]
@@ -51,19 +66,6 @@ impl WgpuStream {
 
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
-
-        let timings = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            Timings::Device(QueryProfiler::new(&queue))
-        } else {
-            if cfg!(target_family = "wasm") {
-                // On WASM, there's not much we can do here anymore. This should be very rare however,
-                // all modern GPU's support timestamp queries.
-                panic!(
-                    "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
-                );
-            }
-            Timings::System(TimestampProfiler::default())
-        };
 
         Self {
             mem_manage,
@@ -178,11 +180,13 @@ impl WgpuStream {
     }
 
     pub fn read_buffers(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+        let _span = span!("WGPU::read_buffers");
+
         self.compute_pass = None;
         let mut staging_buffers = Vec::with_capacity(bindings.len());
         let mut callbacks = Vec::with_capacity(bindings.len());
 
-        for binding in bindings.into_iter() {
+        for binding in bindings {
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -259,69 +263,53 @@ impl WgpuStream {
         timing
     }
 
-    fn device_profile(&mut self) -> &mut QueryProfiler {
-        let Timings::Device(timing) = &mut self.timings else {
-            panic!("Unexpected timings type");
-        };
-        timing
-    }
-
     pub fn start_profile(&mut self) -> ProfilingToken {
-        match &self.timings {
+        match &mut self.timings {
             Timings::System(..) => {
                 // Sync before profiling as well to get a cleaner measurement, we don't want to
                 // include any queued up work so far.
                 future::block_on(self.sync());
                 self.system_profiler().start()
             }
-            Timings::Device(..) => {
-                // Flush all commands to the queue. This isn't really needed, but this should mean
-                // new work after this will be run with less overlap.
-                self.flush();
-                self.device_profile().start_profile()
+            Timings::Device(query) => {
+                // Close the current compute pass so that we start a new one. This keeps
+                // the timestamps seperated.
+                self.compute_pass = None;
+                query.start_profile()
             }
         }
     }
 
-    pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    pub fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         match &mut self.timings {
             Timings::System(..) => {
+                let _span = span!("WGPU::Stop profile System");
+
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
                 future::block_on(self.sync());
                 self.system_profiler().stop(token)
             }
             Timings::Device(..) => {
-                // TODO: We could optimize this by having a single handle for both `start` and `end`
-                // when a single query_set is used, but it probably doesn't impact much the real
-                // performance.
+                let _span = span!("WGPU::Stop profile Device");
+                let poll = self.poll.start_polling();
+
                 self.compute_pass = None;
 
-                let queries = self.device_profile().stop_profile(token);
-                let Some((start, end)) = queries else {
-                    // If there was no work done between the start and stop of the profile, logically the
-                    // time should be 0. We could use a ProfileDuration::from_duration here,
-                    // but it seems better to always return things as 'device' timing method.
-                    return ProfileDuration::from_future(async move {
-                        ProfileTicks::from_start_end(0, 0)
-                    });
+                // Submit commands needed for profiling.
+                let buffer = {
+                    let Timings::Device(timing) = &mut self.timings else {
+                        panic!("Unexpected timings type");
+                    };
+                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)
                 };
-                // Resolve the query results & read the values
-                let (handle_start, resource_start) = self.mem_manage.query(1);
-                let (handle_end, resource_end) = self.mem_manage.query(1);
-                // Hack for borrow checker.
-                let Timings::Device(timing) = &self.timings else {
+
+                // Flush commands.
+                self.flush();
+
+                let Timings::Device(timing) = &mut self.timings else {
                     panic!("Unexpected timings type");
                 };
-                timing.resolve_profiles(
-                    start,
-                    end,
-                    &mut self.encoder,
-                    &resource_start,
-                    &resource_end,
-                );
-                let read_fut =
-                    self.read_buffers(vec![handle_start.binding(), handle_end.binding()]);
-                self.device_profile().duration_from_fut(read_fut)
+                timing.stop_profile(buffer, poll)
             }
         }
     }
@@ -431,26 +419,30 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
+        let _span = span!("wgpu::flush");
+
         // End the current compute pass.
         self.compute_pass = None;
 
         // Submit the pending actions to the queue. This will _first_ submit the
         // pending uniforms copy operations, then the main tasks.
-        let tasks_encoder = std::mem::replace(&mut self.encoder, {
-            self.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("CubeCL Tasks Encoder"),
-                })
-        });
+        let tasks_encoder = {
+            std::mem::replace(&mut self.encoder, {
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("CubeCL Tasks Encoder"),
+                    })
+            })
+        };
 
         // This will _first_ fire off all pending write_buffer work.
         let index = self.queue.submit([tasks_encoder.finish()]);
+
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);
 
         // All buffers are submitted, so don't need to exclude them anymore.
         self.mem_manage.clear_pending();
-
         // Cleanup allocations and deallocations.
         self.mem_manage.memory_cleanup(false);
 

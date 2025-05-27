@@ -2,7 +2,7 @@ use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::ProfilingToken;
@@ -38,6 +38,7 @@ impl WgpuServer {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         compilation_options: WgpuCompilationOptions,
+        timing_method: TimingMethod,
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
@@ -48,6 +49,7 @@ impl WgpuServer {
             queue.clone(),
             memory_properties,
             memory_config,
+            timing_method,
             tasks_max,
         );
 
@@ -148,6 +150,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) {
+        let _span = tracy_client::span!("WGPU Server Execute");
         let pipeline = self.pipeline(kernel, mode, logger);
         self.stream.register(pipeline, bindings, &count);
     }
@@ -167,7 +170,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
-        self.stream.stop_profile(token)
+        self.stream.end_profile(token)
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -187,11 +190,9 @@ impl ComputeServer for WgpuServer {
         let data = self.read(bindings);
         Box::pin(async move {
             let mut data = data.await;
-
             for (data, expected_size) in data.iter_mut().zip(expected_sizes) {
                 data.truncate(expected_size);
             }
-
             data
         })
     }
@@ -207,7 +208,6 @@ impl ComputeServer for WgpuServer {
         for i in 0..data.len() {
             let data = data[i];
             let (handle, _) = &handles_strides[i];
-
             self.stream.copy_to_handle(handle.clone(), data);
         }
 

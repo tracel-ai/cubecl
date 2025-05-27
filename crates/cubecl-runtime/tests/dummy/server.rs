@@ -32,6 +32,10 @@ pub struct KernelTask {
 }
 
 impl KernelMetadata for KernelTask {
+    fn name(&self) -> &'static str {
+        self.kernel.name()
+    }
+
     fn id(&self) -> KernelId {
         self.kernel.id()
     }

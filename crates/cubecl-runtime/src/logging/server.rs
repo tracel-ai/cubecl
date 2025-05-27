@@ -132,7 +132,6 @@ impl ServerLogger {
     }
 }
 
-#[derive(Debug)]
 struct AsyncLogger {
     message: Receiver<LogMessage>,
     logger: Logger,
@@ -146,8 +145,9 @@ impl AsyncLogger {
                 LogMessage::Compilation(msg) => {
                     self.logger.log_compilation(&msg);
                 }
-                LogMessage::Profile(name, duration) => {
-                    let duration = duration.resolve().await;
+                LogMessage::Profile(name, profile) => {
+                    let ticks = profile.resolve().await;
+                    let duration = ticks.duration();
                     self.profiled.update(&name, duration);
                     self.logger
                         .log_profiling(&format!("| {duration:<10?} | {name}"));

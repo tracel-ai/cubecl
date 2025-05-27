@@ -253,6 +253,10 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
 }
 
 impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
+    fn name(&self) -> &'static str {
+        self.kernel_definition.name()
+    }
+
     // Forward ID to underlying kernel definition.
     fn id(&self) -> KernelId {
         self.kernel_definition.id()
@@ -260,6 +264,10 @@ impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
 }
 
 impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
+    fn name(&self) -> &'static str {
+        self.as_ref().name()
+    }
+
     // Deref and use existing ID.
     fn id(&self) -> KernelId {
         self.as_ref().id()

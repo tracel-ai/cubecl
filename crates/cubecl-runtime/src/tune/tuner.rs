@@ -281,7 +281,7 @@ impl<K: AutotuneKey> Tuner<K> {
                                 if profile.timing_method() != timing_method {
                                     panic!("all profiles must use the same timing method");
                                 }
-                                durations.push(profile.resolve().await);
+                                durations.push(profile.resolve().await.duration());
                             }
                             let bench =
                                 BenchmarkDurations::from_durations(timing_method, durations);
