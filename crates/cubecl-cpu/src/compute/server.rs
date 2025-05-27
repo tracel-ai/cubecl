@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cubecl_core::{
-    ExecutionMode, Feature, MemoryUsage,
+    CubeCount, ExecutionMode, Feature, MemoryUsage,
     benchmark::ProfileDuration,
     compute::CubeTask,
     future::DynFut,
@@ -132,9 +132,9 @@ impl ComputeServer for CpuServer {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        _count: cubecl_core::CubeCount,
+        _count: CubeCount,
         bindings: Bindings,
-        kind: cubecl_core::ExecutionMode,
+        kind: ExecutionMode,
         _logger: Arc<ServerLogger>,
     ) {
         // TODO implement the runtime
