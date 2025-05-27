@@ -21,8 +21,9 @@ use module::Module;
 const MAX_BUFFER_SIZE: usize = 16;
 
 pub struct MlirEngine {
-    args: Vec<Box<LineMemRef>>,
-    args_undirected: Vec<*mut ()>,
+    args_zero_indirection: Vec<LineMemRef>,
+    args_first_indirection: Vec<*mut LineMemRef>,
+    args_second_indirection: Vec<*mut ()>,
     execution_engine: ExecutionEngine,
 }
 
@@ -55,12 +56,14 @@ impl MlirEngine {
         module.run_pass();
 
         let execution_engine = module.into_execution_engine();
-        let args = Vec::with_capacity(MAX_BUFFER_SIZE);
-        let args_undirected = Vec::with_capacity(MAX_BUFFER_SIZE);
+        let args_zero_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
+        let args_first_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
+        let args_second_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
         Self {
             execution_engine,
-            args,
-            args_undirected,
+            args_zero_indirection,
+            args_first_indirection,
+            args_second_indirection,
         }
     }
 
@@ -70,15 +73,26 @@ impl MlirEngine {
 
     /// This function will make the program segfault if args is reallocated
     pub unsafe fn push_buffer(&mut self, pointer: &mut [u8]) {
-        self.args.push(Box::new(LineMemRef::new(pointer)));
-        let last_elem = self.args.last_mut().unwrap().as_mut() as *mut LineMemRef;
-        self.args_undirected.push(last_elem as *mut ());
+        let first_box = LineMemRef::new(pointer);
+        self.args_zero_indirection.push(first_box);
+        let undirected = self.args_zero_indirection.last_mut().unwrap() as *mut LineMemRef;
+        self.args_first_indirection.push(undirected);
+        let undirected = self.args_first_indirection.last_mut().unwrap() as *mut *mut LineMemRef;
+        self.args_second_indirection.push(undirected as *mut ());
     }
 
     pub unsafe fn run_kernel(&mut self) {
         unsafe {
             self.execution_engine
-                .invoke_packed("kernel", &mut self.args_undirected)
+                .invoke_packed(
+                    "kernel",
+                    // &mut [
+                    //     &mut buffer0_ as *mut *mut LineMemRef as *mut (),
+                    //     &mut buffer1_ as *mut *mut LineMemRef as *mut (),
+                    //     &mut buffer2_ as *mut *mut LineMemRef as *mut (),
+                    // ],
+                    self.args_second_indirection.as_mut(),
+                )
                 .unwrap()
         }
     }
