@@ -22,7 +22,7 @@ use crate::{
                 RowMajorTilingOrder, StageMatmul, StageMatmulFamily,
             },
         },
-        kernels::matmul::LoadingPrecomputeStrategy,
+        kernels::matmul::GlobalInput,
     },
 };
 use cubecl_core as cubecl;
@@ -186,7 +186,7 @@ where
     SMM: StageMatmulFamily,
 {
     type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = GlobalInput<SMM::Input>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         SMM::check_config(&config.to_smm_config())
@@ -201,7 +201,7 @@ where
         cube_count: &CubeCount,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
-            input.0,
+            input.stage_input,
             &problem.as_matmul_problem(),
             line_sizes,
             cube_dim,
@@ -223,7 +223,8 @@ where
                 line_sizes.rhs as u32,
                 line_sizes.out as u32,
                 size.k,
-                input.1,
+                input.loading_precompute_strategy,
+                input.loader_mode,
             ),
             &problem.kernel_size,
             &problem.stride,

@@ -1,10 +1,7 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
-use super::{
-    algorithm::{Algorithm, StageInput},
-    base::ConvolutionProblem,
-};
-use crate::matmul::kernels::matmul::MatmulSelection;
+use super::{algorithm::Algorithm, base::ConvolutionProblem};
+use crate::matmul::kernels::matmul::{MatmulSelection, StageInput};
 use crate::matmul::{
     components::{
         CompleteStageTiling, MatmulSize, stage::StageVectorization, tile::TileMatmulFamily,
@@ -22,7 +19,7 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
     elem_acc: Elem,
 ) -> (A::MatmulSelection, StageInput) {
     let selection = A::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc);
-    let config_input = CompleteStageTiling {
+    let tiling = CompleteStageTiling {
         tile_shape: selection.tile_shape(),
         tile_count: selection.tile_count(),
     };
@@ -30,14 +27,16 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
         stage_line_size: 0,
         stage_elem_padding: 0,
     };
+    let accumulator_count = A::accumulator_count(&selection);
     (
         selection,
-        (
-            config_input,
-            A::stage_buffering_strategy(),
-            vectorization,
-            A::num_stages(),
-        ),
+        StageInput {
+            tiling,
+            stage_buffering: A::stage_buffering_strategy(),
+            stage_vectorization: vectorization,
+            num_stages: A::num_stages(),
+            accumulator_count,
+        },
     )
 }
 

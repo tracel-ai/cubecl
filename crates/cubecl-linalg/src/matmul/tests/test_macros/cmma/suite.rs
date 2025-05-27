@@ -1,7 +1,9 @@
 use crate::matmul::components::MatmulSize;
-use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::stage::{AccumulatorCount, StageVectorization};
 use crate::matmul::components::{MatmulProblem, MatrixLayout};
-use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection, UnitMatmulSelection};
+use crate::matmul::kernels::matmul::{
+    Algorithm, GlobalInput, PlaneMatmulSelection, StageInput, UnitMatmulSelection,
+};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
@@ -42,7 +44,7 @@ pub fn test_algo<
         plane_dim,
         rows_per_plane,
     };
-    let config_input = (&selection).into();
+    let tiling = (&selection).into();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -51,15 +53,17 @@ pub fn test_algo<
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-            ),
-            A::loading_precompute_strategy(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }
@@ -73,6 +77,7 @@ pub fn test_algo_unit<
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
+    accumulator_count: AccumulatorCount,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -96,8 +101,9 @@ pub fn test_algo_unit<
         tile_shape,
         tile_count,
         plane_dim,
+        accumulator_count,
     };
-    let config_input = (&selection).into();
+    let tiling = (&selection).into();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -106,15 +112,17 @@ pub fn test_algo_unit<
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-            ),
-            A::loading_precompute_strategy(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }
@@ -153,7 +161,7 @@ pub fn test_algo_tma<
         plane_dim,
         rows_per_plane: 1,
     };
-    let config_input = (&selection).into();
+    let tiling = (&selection).into();
 
     let vectorization = StageVectorization {
         stage_line_size: 0,
@@ -162,15 +170,17 @@ pub fn test_algo_tma<
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-            ),
-            A::loading_precompute_strategy(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }
@@ -410,10 +420,10 @@ macro_rules! matmul_standard_tests {
 
     // Select variant of unit matmul
     (unit; $lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::kernels::matmul::simple_unit::SimpleUnitAlgorithm;
+        use $crate::matmul::kernels::matmul::{simple_unit::SimpleUnitAlgorithm, double_unit::DoubleUnitAlgorithm};
 
         #[test]
-        pub fn simple_unit() {
+        pub fn simple_unit_2_2() {
             cubecl_linalg::matmul::tests::test_algo_unit::<
                 SimpleUnitAlgorithm,
                 Precision,
@@ -423,6 +433,22 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                (2, 2).into()
+            );
+        }
+
+        #[test]
+        pub fn double_unit_2_2() {
+            cubecl_linalg::matmul::tests::test_algo_unit::<
+                DoubleUnitAlgorithm,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                (2, 2).into()
             );
         }
     };
@@ -663,14 +689,14 @@ macro_rules! matmul_standard_tests {
         }
 
         #[cfg(target_os="macos")]
-        mod s16x8x4 {
+        mod s8x4x4 {
             use super::*;
             $crate::matmul_standard_tests!(
                 $kind;
                 $lhs_layout,
                 $rhs_layout,
                 $tile,
-                MatmulSize { m: 16, n: 8, k: 4 }
+                MatmulSize { m: 8, n: 4, k: 4 }
             );
         }
 

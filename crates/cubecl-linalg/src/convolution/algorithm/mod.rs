@@ -1,14 +1,17 @@
 use crate::{
     matmul::{
         components::{
-            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-            global::args::MatmulArgs,
-            stage::{StageBuffering, StageMatmulFamily, StageVectorization},
+            InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+            global::{args::MatmulArgs, load::LoaderMode},
+            stage::{AccumulatorCount, NumStages, StageBuffering, StageMatmulFamily},
             tile::TileMatmulFamily,
         },
         kernels::{
             MatmulAvailabilityError,
-            matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
+            matmul::{
+                GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy,
+                StageInput,
+            },
         },
     },
     tensor::TensorHandle,
@@ -21,26 +24,27 @@ pub mod multi_stage_tma;
 pub mod simple;
 pub mod simple_tma;
 
-pub type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
-pub type StageInput = (
-    CompleteStageTiling,
-    StageBuffering,
-    StageVectorization,
-    (u32, u32),
-);
-
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
-    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput>;
+    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput<StageInput>>;
     type MatmulSelection: MatmulSelection;
 
     type Args: MatmulArgs;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
-    fn num_stages() -> (u32, u32);
+    fn num_stages() -> NumStages;
+
+    fn accumulator_count(selection: &Self::MatmulSelection) -> AccumulatorCount {
+        // Default behaviour for algorithms using PlaneMatmul
+        (
+            selection.tile_count().m / Self::cube_dim(selection).y,
+            selection.tile_count().n,
+        )
+            .into()
+    }
 
     fn multi_row_strategy() -> MultiRowStrategy {
         MultiRowStrategy::Never
@@ -48,6 +52,10 @@ pub trait Algorithm {
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
         LoadingPrecomputeStrategy::Never
+    }
+
+    fn loader_mode() -> LoaderMode {
+        LoaderMode::Relaxed
     }
 
     fn stage_buffering_strategy() -> StageBuffering {

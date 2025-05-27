@@ -6,7 +6,7 @@ use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
 use crate::matmul::components::global::load::sync_buffer_cyclic;
 use crate::matmul::components::stage::{
-    self, BufferReaderFamily, FullReaderFamily, RowMajorTilingOrder,
+    self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
 use crate::matmul::components::tile;
 use crate::matmul::components::{batch, global};
@@ -51,8 +51,8 @@ where
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (1, 2)
+    fn num_stages() -> NumStages {
+        (1, 2).into()
     }
 
     fn stage_buffering_strategy() -> stage::StageBuffering {

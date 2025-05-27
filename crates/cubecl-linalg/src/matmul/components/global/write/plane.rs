@@ -9,26 +9,26 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use super::GlobalWriter;
 
 #[derive(CubeType)]
-pub struct TilewiseWriter<EG: Numeric> {
+pub struct PlaneWriter<EG: Numeric> {
     pub tensor_view: TensorWriter<EG>,
 }
 
 #[cube]
-impl<EG: Numeric> TilewiseWriter<EG> {
+impl<EG: Numeric> PlaneWriter<EG> {
     pub fn new(
         tensor: VirtualTensor<EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self {
-        TilewiseWriter::<EG> {
+        PlaneWriter::<EG> {
             tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
         }
     }
 }
 
 #[cube]
-impl<EG: Numeric> GlobalWriter<EG> for TilewiseWriter<EG> {
+impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
     fn write<G: GlobalConfig>(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,

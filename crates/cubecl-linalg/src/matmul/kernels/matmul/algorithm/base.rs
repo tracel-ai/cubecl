@@ -1,4 +1,7 @@
-use crate::matmul::components::stage::{StageBuffering, StageVectorization};
+use crate::matmul::components::global::load::LoaderMode;
+use crate::matmul::components::stage::{
+    AccumulatorCount, NumStages, StageBuffering, StageVectorization,
+};
 use crate::matmul::components::{
     CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
     batch, global, stage, tile,
@@ -9,14 +12,19 @@ use cubecl_core::prelude::*;
 
 use super::MatmulSelection;
 
-type GlobalInput = (StageInput, LoadingPrecomputeStrategy);
+pub struct GlobalInput<SI> {
+    pub stage_input: SI,
+    pub loading_precompute_strategy: LoadingPrecomputeStrategy,
+    pub loader_mode: LoaderMode,
+}
 
-type StageInput = (
-    CompleteStageTiling,
-    stage::StageBuffering,
-    StageVectorization,
-    (u32, u32),
-);
+pub struct StageInput {
+    pub tiling: CompleteStageTiling,
+    pub stage_buffering: stage::StageBuffering,
+    pub stage_vectorization: StageVectorization,
+    pub num_stages: NumStages,
+    pub accumulator_count: AccumulatorCount,
+}
 
 pub enum MultiRowStrategy {
     /// Always one row per plane
@@ -48,8 +56,8 @@ impl From<LoadingPrecomputeStrategy> for bool {
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
     type StageMatmul: stage::StageMatmulFamily<Input = StageInput>;
-    type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput>;
-    type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput>;
+    type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput<StageInput>>;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
     type MatmulSelection: MatmulSelection;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
@@ -64,12 +72,25 @@ pub trait Algorithm {
         MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }
 
-    fn num_stages() -> (u32, u32) {
-        (1, 1)
+    fn num_stages() -> NumStages {
+        (1, 1).into()
+    }
+
+    fn accumulator_count(selection: &Self::MatmulSelection) -> AccumulatorCount {
+        // Default behaviour for algorithms using PlaneMatmul
+        (
+            selection.tile_count().m / Self::cube_dim(selection).y,
+            selection.tile_count().n,
+        )
+            .into()
     }
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
         LoadingPrecomputeStrategy::Never
+    }
+
+    fn loader_mode() -> LoaderMode {
+        LoaderMode::Relaxed
     }
 
     fn stage_buffering_strategy() -> StageBuffering {
@@ -85,6 +106,13 @@ pub trait Algorithm {
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
+        #[cfg(target_os = "macos")]
+        if cube_dim.num_elems() >= 512 {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::CubeDimTooBig(*cube_dim),
+            ));
+        }
+
         let config = Self::BatchMatmul::make_config(
             input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
