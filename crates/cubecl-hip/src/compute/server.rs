@@ -43,7 +43,7 @@ pub(crate) struct HipContext {
     stream: cubecl_hip_sys::hipStream_t,
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
-    timestamps: KernelTimestamps,
+    timestamps: TimestampProfiler,
     compilation_options: CompilationOptions,
     #[cfg(feature = "compilation-cache")]
     compilation_cache: Cache<String, CompilationCacheEntry>,
@@ -308,7 +308,7 @@ impl HipContext {
             memory_management,
             module_names: HashMap::new(),
             stream,
-            timestamps: KernelTimestamps::default(),
+            timestamps: TimestampProfiler::default(),
             compilation_options,
             #[cfg(feature = "compilation-cache")]
             compilation_cache: Cache::new("hip/compilation", CacheOption::default()),
