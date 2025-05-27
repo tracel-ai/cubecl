@@ -150,7 +150,6 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) {
-        let _span = tracy_client::span!("WGPU Server Execute");
         let pipeline = self.pipeline(kernel, mode, logger);
         self.stream.register(pipeline, bindings, &count);
     }

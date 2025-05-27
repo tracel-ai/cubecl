@@ -54,8 +54,6 @@ web-time = { workspace = true }
 
 cfg-if = { workspace = true }
 
-tracy-client = { workspace = true }
-
 ## wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 wgpu = { version = "25.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }

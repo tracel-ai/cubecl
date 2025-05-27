@@ -67,7 +67,7 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 
-tracy-client = "0.18.0"
+tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }

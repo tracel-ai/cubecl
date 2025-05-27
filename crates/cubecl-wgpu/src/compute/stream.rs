@@ -9,7 +9,6 @@ use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
-use tracy_client::span;
 use wgpu::ComputePipeline;
 
 #[derive(Debug)]
@@ -180,8 +179,6 @@ impl WgpuStream {
     }
 
     pub fn read_buffers(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
-        let _span = span!("WGPU::read_buffers");
-
         self.compute_pass = None;
         let mut staging_buffers = Vec::with_capacity(bindings.len());
         let mut callbacks = Vec::with_capacity(bindings.len());
@@ -283,14 +280,11 @@ impl WgpuStream {
     pub fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
         match &mut self.timings {
             Timings::System(..) => {
-                let _span = span!("WGPU::Stop profile System");
-
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
                 future::block_on(self.sync());
                 self.system_profiler().stop(token)
             }
             Timings::Device(..) => {
-                let _span = span!("WGPU::Stop profile Device");
                 let poll = self.poll.start_polling();
 
                 self.compute_pass = None;
@@ -419,8 +413,6 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
-        let _span = span!("wgpu::flush");
-
         // End the current compute pass.
         self.compute_pass = None;
 

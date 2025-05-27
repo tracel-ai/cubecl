@@ -1,4 +1,5 @@
 use std::{sync::Arc, time::Duration};
+
 use web_time::Instant;
 
 use cubecl_common::profile::{ProfileDuration, ProfileTicks};
