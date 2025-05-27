@@ -165,6 +165,6 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_size_k: stage_size_k as u32,
+        stage_k: stage_size_k as u32,
     }
 }

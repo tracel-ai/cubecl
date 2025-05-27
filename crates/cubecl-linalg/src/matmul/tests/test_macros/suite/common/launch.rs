@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_launch {
-    (PlaneAccelerated, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (PlaneAccelerated, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -9,11 +9,18 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $partition, $stage, $problem);
+            >(
+                $layouts,
+                $tile,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
+                $problem,
+            );
         }
     };
 
-    (Unit, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (Unit, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -22,11 +29,18 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $partition, $stage, $problem);
+            >(
+                $layouts,
+                $tile,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
+                $problem,
+            );
         }
     };
 
-    (Tma, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (Tma, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -35,11 +49,18 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $stage, $problem);
+            >(
+                $layouts,
+                $tile,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
+                $problem,
+            );
         }
     };
 
-    (Quantized, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr, $layouts: expr, $problem: expr) => {
+    (Quantized, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr, $layouts: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -48,7 +69,14 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >($layouts, $tile, $partition, $stage, $problem);
+            >(
+                $layouts,
+                $tile,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
+                $problem,
+            );
         }
     };
 }

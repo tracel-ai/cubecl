@@ -20,7 +20,7 @@ pub struct PlaneMatmulSelection {
     pub tile_shape: MatmulSize,
     pub tiles_per_partition: TilesPerPartition,
     pub partitions_per_stage: PartitionsPerStage,
-    pub stage_size_k: u32,
+    pub stage_k: u32,
 }
 
 impl MatmulSelection for PlaneMatmulSelection {
@@ -32,7 +32,7 @@ impl MatmulSelection for PlaneMatmulSelection {
         MatmulSize {
             m: self.tiles_per_partition.m * self.partitions_per_stage.m,
             n: self.tiles_per_partition.n * self.partitions_per_stage.n,
-            k: self.stage_size_k,
+            k: self.stage_k,
         }
     }
 
@@ -112,7 +112,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_size_k,
+        stage_k: stage_size_k,
     }
 }
 

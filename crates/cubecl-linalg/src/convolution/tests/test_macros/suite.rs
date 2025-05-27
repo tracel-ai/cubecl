@@ -103,7 +103,7 @@ pub fn test_algo<
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_size_k,
+        stage_k: stage_size_k,
         plane_dim,
     };
 

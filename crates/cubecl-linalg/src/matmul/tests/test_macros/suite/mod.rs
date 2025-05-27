@@ -11,7 +11,7 @@
 
 pub mod common;
 pub mod plane_accelerated;
-// pub mod quantized;
+pub mod quantized;
 pub mod tma;
 pub mod unit;
 
@@ -57,7 +57,7 @@ macro_rules! testgen_matmul_quantized {
             use super::*;
             type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-            // $crate::testgen_matmul_quantized_algorithm!();
+            $crate::testgen_matmul_quantized_algorithm!();
         }
     };
 }

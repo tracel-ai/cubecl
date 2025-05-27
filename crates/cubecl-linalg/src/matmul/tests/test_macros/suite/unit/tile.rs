@@ -4,7 +4,7 @@ macro_rules! testgen_matmul_unit_tile {
         mod tl1x1x1 {
             use super::*;
 
-            $crate::testgen_matmul_unit_partition!(
+            $crate::testgen_matmul_unit_partition_shape!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 1, n: 1, k: 1 }
@@ -14,7 +14,7 @@ macro_rules! testgen_matmul_unit_tile {
         mod tl8x1x4 {
             use super::*;
 
-            $crate::testgen_matmul_unit_partition!(
+            $crate::testgen_matmul_unit_partition_shape!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 8, n: 1, k: 4 }
@@ -24,7 +24,7 @@ macro_rules! testgen_matmul_unit_tile {
         mod tl2x4x1 {
             use super::*;
 
-            $crate::testgen_matmul_unit_partition!(
+            $crate::testgen_matmul_unit_partition_shape!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 2, n: 4, k: 1 }
@@ -34,7 +34,7 @@ macro_rules! testgen_matmul_unit_tile {
         mod tl1x8x8 {
             use super::*;
 
-            $crate::testgen_matmul_unit_partition!(
+            $crate::testgen_matmul_unit_partition_shape!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 1, n: 8, k: 8 }
@@ -44,7 +44,7 @@ macro_rules! testgen_matmul_unit_tile {
         mod tl4x4x4 {
             use super::*;
 
-            $crate::testgen_matmul_unit_partition!(
+            $crate::testgen_matmul_unit_partition_shape!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 4, n: 4, k: 4 }
@@ -54,7 +54,7 @@ macro_rules! testgen_matmul_unit_tile {
         mod tl8x8x8 {
             use super::*;
 
-            $crate::testgen_matmul_unit_partition!(
+            $crate::testgen_matmul_unit_partition_shape!(
                 $algorithm,
                 $precision,
                 MatmulSize { m: 8, n: 8, k: 8 }

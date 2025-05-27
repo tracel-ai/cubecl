@@ -16,7 +16,7 @@ pub struct UnitMatmulSelection {
     pub tile_shape: MatmulSize,
     pub tiles_per_partition: TilesPerPartition,
     pub partitions_per_stage: PartitionsPerStage,
-    pub stage_size_k: u32,
+    pub stage_k: u32,
 }
 
 impl MatmulSelection for UnitMatmulSelection {
@@ -28,7 +28,7 @@ impl MatmulSelection for UnitMatmulSelection {
         MatmulSize {
             m: self.tiles_per_partition.m * self.partitions_per_stage.m,
             n: self.tiles_per_partition.n * self.partitions_per_stage.n,
-            k: self.stage_size_k,
+            k: self.stage_k,
         }
     }
 
@@ -78,7 +78,7 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmul
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_size_k: ARBITRARY_K_COUNT,
+        stage_k: ARBITRARY_K_COUNT,
     }
 }
 

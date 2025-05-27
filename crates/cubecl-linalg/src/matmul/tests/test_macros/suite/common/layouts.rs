@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_layouts {
-    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition: expr, $stage: expr) => {
+    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr) => {
         use $crate::matmul::components::{MatmulSize, MatrixLayout};
 
         mod rr {
@@ -11,8 +11,9 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition,
-                $stage,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor)
             );
         }
@@ -25,8 +26,9 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition,
-                $stage,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
                 (MatrixLayout::RowMajor, MatrixLayout::ColMajor)
             );
         }
@@ -39,8 +41,9 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition,
-                $stage,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
                 (MatrixLayout::ColMajor, MatrixLayout::RowMajor)
             );
         }
@@ -53,8 +56,9 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition,
-                $stage,
+                $partition_shape,
+                $partition_count,
+                $stage_k,
                 (MatrixLayout::ColMajor, MatrixLayout::ColMajor)
             );
         }

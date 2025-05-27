@@ -13,7 +13,9 @@ pub fn test_algo<
 >(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
-    tile_count: MatmulSize,
+    tiles_per_partition: TilesPerPartition,
+    partitions_per_stage: PartitionsPerStage,
+    stage_k: u32,
     problem: MatmulSize,
 ) {
     let client = R::client(&Default::default());
@@ -34,24 +36,11 @@ pub fn test_algo<
         rhs_layout: layouts.1,
     };
 
-    let tiles_per_partition = TilesPerPartition { m: 1, n: 1 };
-
-    // TODO choose partitions per to determine tile count instead
-    assert!(tile_count.m % tiles_per_partition.m == 0);
-    assert!(tile_count.n % tiles_per_partition.n == 0);
-    let partitions_per_stage = PartitionsPerStage {
-        m: tile_count.m / tiles_per_partition.m,
-        n: tile_count.n / tiles_per_partition.n,
-    };
-
-    // TODO only stage_size_k in args
-    let stage_size_k = tile_count.k;
-
     let selection = PlaneMatmulSelection {
         tile_shape,
         tiles_per_partition,
         partitions_per_stage,
-        stage_size_k,
+        stage_k,
         plane_dim,
     };
 
