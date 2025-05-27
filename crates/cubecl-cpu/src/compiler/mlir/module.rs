@@ -25,14 +25,19 @@ impl<'a> Module<'a> {
         //     context,
         //     r#"
         //     module {
-        //         func.func @kernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>, %arg2: memref<?xf32>) -> f32 attributes {llvm.emit_c_interface} {
-        //             %c2 = arith.constant 1 : index
-        //             %3 = memref.load %arg0[%c2] : memref<?xf32>
-        //             %4 = memref.load %arg1[%c2] : memref<?xf32>
-        //             %res = arith.addf %3, %4 : f32
-        //             memref.store %res, %arg2[%c2] : memref<?xf32>
-        //             return %res : f32
+        //       func.func @kernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>, %arg2: memref<?xf32>) attributes {llvm.emit_c_interface} {
+        //         %cc1 = arith.constant 4 : index
+        //         %cc0 = arith.constant 0 : index
+        //         %cc1024 = arith.constant 64 : index
+        //         scf.for %i = %cc0 to %cc1024 step %cc1 {
+        //             %0 = vector.load %arg0[%i] : memref<?xf32>, vector<4xf32>
+        //             %1 = vector.load %arg1[%i] : memref<?xf32>, vector<4xf32>
+        //             %2 = arith.addf %0, %1 : vector<4xf32>
+        //             vector.store %1, %arg2[%i] : memref<?xf32>, vector<4xf32>
+        //             scf.yield
         //         }
+        //         return
+        //       }
         //     }
         //     "#,
         // ).unwrap();
@@ -64,14 +69,17 @@ impl<'a> Module<'a> {
         pass_manager.add_pass(pass::transform::create_canonicalizer());
         pass_manager.add_pass(pass::conversion::create_finalize_mem_ref_to_llvm());
         pass_manager.add_pass(pass::conversion::create_scf_to_control_flow());
+        pass_manager.add_pass(pass::conversion::create_control_flow_to_llvm());
         pass_manager.add_pass(pass::conversion::create_vector_to_llvm());
         pass_manager.add_pass(pass::conversion::create_arith_to_llvm());
         pass_manager.add_pass(pass::conversion::create_func_to_llvm());
-        pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
-        pass_manager.add_pass(pass::transform::create_mem_2_reg());
         pass_manager.add_pass(pass::transform::create_inliner());
+        pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
+        pass_manager.add_pass(pass::transform::create_sccp());
+        pass_manager.add_pass(pass::transform::create_mem_2_reg());
         pass_manager.add_pass(pass::transform::create_remove_dead_values());
-        pass_manager.add_pass(pass::transform::create_generate_runtime_verification());
+        pass_manager.add_pass(pass::transform::create_control_flow_sink());
+        pass_manager.add_pass(pass::transform::create_cse());
         pass_manager.run(&mut self.module).unwrap();
         self.module.as_operation().verify();
     }

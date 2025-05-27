@@ -1,13 +1,10 @@
-use cubecl_core::ir::Operator;
-use melior::{
-    dialect::ods::vector,
-    ir::{BlockLike, Value},
-};
+use cubecl_core::ir::{Operator, Variable};
+use melior::{dialect::ods::vector, ir::BlockLike};
 
 use super::visitor::Visitor;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Value<'_, '_>) {
+    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {
         match operator {
             Operator::Index(index_operator) => {
                 let memref = self.get_variable(index_operator.list);
@@ -21,14 +18,12 @@ impl<'a> Visitor<'a> {
                     .result(0)
                     .unwrap()
                     .into();
-                let index = self.zero_index();
-                let operation =
-                    vector::store(self.context, load_ssa, out, &[index], self.location).into();
-                self.block().append_operation(operation);
+                self.insert_variable(out, load_ssa);
             }
             Operator::IndexAssign(index_assign) => {
-                let memref = self.get_variable_vector(index_assign.value);
+                let memref = self.get_variable(index_assign.value);
                 let index = self.get_variable(index_assign.index);
+                let out = self.get_variable(out);
                 let operation =
                     vector::store(self.context, memref, out, &[index], self.location).into();
                 self.block().append_operation(operation);

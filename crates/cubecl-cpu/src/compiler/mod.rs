@@ -1,6 +1,7 @@
 pub mod mlir;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
+use cubecl_opt::OptimizerBuilder;
 use mlir::MlirEngine;
 
 #[derive(Clone, Debug, Default)]
@@ -16,10 +17,12 @@ impl Compiler for MlirCompiler {
 
     fn compile(
         &mut self,
-        kernel: KernelDefinition,
+        mut kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
-        _mode: ExecutionMode, // TODO support this by adding array bound checking
+        mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
+        let opt = OptimizerBuilder::default().optimize(kernel.body.clone(), kernel.cube_dim, mode);
+        kernel.body = opt.root_scope;
         MlirEngine::from_cubecl_ir(kernel)
     }
 

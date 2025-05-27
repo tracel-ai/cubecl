@@ -5,7 +5,11 @@ const VECTORIZATION: u8 = 4;
 #[cube(launch_unchecked)]
 /// A [Line] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn sum_simple<F: Float>(input_a: &Array<F>, input_b: &Array<F>, output: &mut Array<F>) {
+fn sum_simple<F: Float>(
+    input_a: &Array<Line<F>>,
+    input_b: &Array<Line<F>>,
+    output: &mut Array<Line<F>>,
+) {
     output[ABSOLUTE_POS] = input_a[ABSOLUTE_POS] + input_b[ABSOLUTE_POS];
 }
 
@@ -20,8 +24,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     unsafe {
         sum_simple::launch_unchecked::<f32, R>(
             &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new((input_a.len() / VECTORIZATION as usize) as u32, 1, 1),
+            CubeCount::Static((input_a.len() / 8 / VECTORIZATION as usize) as u32, 1, 1),
+            CubeDim::new(8, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&input_a_handle, input_a.len(), VECTORIZATION),
             ArrayArg::from_raw_parts::<f32>(&input_b_handle, input_a.len(), VECTORIZATION),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input_a.len(), VECTORIZATION),
