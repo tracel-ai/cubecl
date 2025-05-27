@@ -76,8 +76,6 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmul
     }
 }
 
-// TODO all other variants
-
 /// (M, K) @ (K, 1) → (M, 1)
 fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let tile_shape = MatmulSize {

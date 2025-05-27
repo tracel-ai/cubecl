@@ -1,4 +1,6 @@
-use super::{base, plane_matmul_selection, MatmulSelection, MultiRowStrategy, PlaneMatmulSelection};
+use super::{
+    MatmulSelection, MultiRowStrategy, PlaneMatmulSelection, base, plane_matmul_selection,
+};
 use core::marker::PhantomData;
 use cubecl_core::{ir::Elem, prelude::*};
 

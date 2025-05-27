@@ -12,7 +12,7 @@ use crate::matmul::components::tile;
 use crate::matmul::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
-use super::{plane_matmul_selection, MatmulSelection, PlaneMatmulSelection};
+use super::{MatmulSelection, PlaneMatmulSelection, plane_matmul_selection};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
