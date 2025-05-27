@@ -6,8 +6,8 @@ use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
 use crate::runtime::HipCompiler;
-use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::DynFut;
+use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
@@ -18,7 +18,7 @@ use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::storage::ComputeStorage;
-use cubecl_runtime::timestamp_profiler::KernelTimestamps;
+use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
