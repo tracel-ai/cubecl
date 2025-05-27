@@ -10,29 +10,31 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::{LoadingJob, LoadingValidation};
+use super::{LoaderMode, LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
 pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
-    tiling_order: PhantomData<T>,
+    _phantom: PhantomData<T>,
 }
 
 impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
+        if let LoaderMode::Strict = config.loader_mode() {
+            let tiling = config.tiling_dimensions(ident);
+            let line_size = config.global_line_size(ident);
 
-        let num_stage_lines = tiling.total_size() / line_size;
-        let total_units = config.num_planes() * config.plane_dim();
+            let num_stage_lines = tiling.total_size() / line_size;
+            let total_units = config.num_planes() * config.plane_dim();
 
-        if num_stage_lines % total_units != 0 {
-            return Err(Box::new(
+            if num_stage_lines % total_units != 0 {
+                return Err(Box::new(
                 "Too many data will be loaded, resulting in out of bounds.
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
             ));
+            }
         }
 
         Ok(())
@@ -52,8 +54,10 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         let tile_num_elements = tiling.tile_size();
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = tiling.total_size();
-        let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
-        let num_tasks_per_unit = comptime!(num_stage_elements / jump_length);
+        let total_units = comptime!(config.num_planes() * config.plane_dim());
+        let jump_length = comptime!(total_units * line_size);
+        let num_tasks_per_unit = comptime!(num_stage_elements.div_ceil(jump_length));
+        let balanced_workload = num_tasks_per_unit % total_units == 0;
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
@@ -65,24 +69,33 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
             jump_length,
             line_size,
             input_ident,
+            balanced_workload,
+            num_stage_elements,
+            loader_mode: comptime!(config.loader_mode()),
         }
     }
 }
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
-    pub unit_position_base: u32,
+    unit_position_base: u32,
 
     #[cube(comptime)]
-    pub num_tasks_per_unit: u32,
+    num_tasks_per_unit: u32,
     #[cube(comptime)]
-    pub tile_num_elements: u32,
+    tile_num_elements: u32,
     #[cube(comptime)]
-    pub jump_length: u32,
+    jump_length: u32,
     #[cube(comptime)]
-    pub line_size: u32,
+    line_size: u32,
     #[cube(comptime)]
-    pub input_ident: InputIdent,
+    input_ident: InputIdent,
+    #[cube(comptime)]
+    balanced_workload: bool,
+    #[cube(comptime)]
+    num_stage_elements: u32,
+    #[cube(comptime)]
+    loader_mode: LoaderMode,
 }
 
 #[cube]
@@ -97,14 +110,28 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
-        load_and_store_line::<MP, TO, G>(
-            this,
-            unit_position,
-            tensor_reader,
-            stage,
-            quantization,
-            config,
-        );
+        #[allow(clippy::collapsible_else_if)]
+        if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
+            load_and_store_line::<MP, TO, G>(
+                this,
+                unit_position,
+                tensor_reader,
+                stage,
+                quantization,
+                config,
+            );
+        } else {
+            if unit_position < this.num_stage_elements {
+                load_and_store_line::<MP, TO, G>(
+                    this,
+                    unit_position,
+                    tensor_reader,
+                    stage,
+                    quantization,
+                    config,
+                );
+            }
+        }
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

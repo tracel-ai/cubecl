@@ -4,7 +4,7 @@ use crate::convolution::{
 };
 use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{CompleteStageTiling, MatrixLayout};
-use crate::matmul::kernels::matmul::PlaneMatmulSelection;
+use crate::matmul::kernels::matmul::{GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::{
     convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
 };
@@ -90,7 +90,7 @@ pub fn test_algo<
         plane_dim,
         rows_per_plane: 1,
     };
-    let config_input = CompleteStageTiling {
+    let tiling = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };
@@ -102,15 +102,17 @@ pub fn test_algo<
     test_convolution_algorithm::<A, Args, P, R>(
         client,
         problem,
-        (
-            (
-                config_input,
-                A::stage_buffering_strategy(),
-                vectorization,
-                A::num_stages(),
-            ),
-            A::loading_precompute_strategy(),
-        ),
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                accumulator_count: A::accumulator_count(&selection),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
         selection,
     );
 }

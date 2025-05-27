@@ -4,9 +4,9 @@ use crate::matmul::components::global::load::{
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::stage::BufferStageToTileReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -14,7 +14,7 @@ use crate::matmul::components::{
 use crate::matmul::components::{MatmulLineSizes, global};
 use crate::matmul::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::matmul::kernels::matmul::LoadingPrecomputeStrategy;
+use crate::matmul::kernels::matmul::GlobalInput;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -47,24 +47,12 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = GlobalInput<SMM::Input>;
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
-
-        // Check necessary for multi row.
-        let stage_n = config
-            .to_smm_config()
-            .tiling_dimensions(Ident::Rhs)
-            .tile_count_col();
-        if stage_n != config.num_planes() {
-            return Err(Box::new(
-                "At the moment tile count in n should be equal to number of planes, which is not the case on symetric stage shapes in multi row or asymetric stage shapes in single row.",
-            ));
-        }
-
         SMM::check_config(&config.to_smm_config())
     }
 
@@ -84,7 +72,12 @@ where
         quantized: bool,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
-            input.0, problem, line_sizes, cube_dim, cube_count, quantized,
+            input.stage_input,
+            problem,
+            line_sizes,
+            cube_dim,
+            cube_count,
+            quantized,
         );
         let stage_shape = SMM::stage_shape(&smm_config);
 
@@ -99,7 +92,8 @@ where
             line_sizes.rhs as u32,
             line_sizes.out as u32,
             cube_dim.y,
-            input.1,
+            input.loading_precompute_strategy,
+            input.loader_mode,
         )
     }
 }

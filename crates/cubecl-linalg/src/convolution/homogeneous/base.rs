@@ -95,7 +95,8 @@ pub mod config {
     use crate::{
         convolution::{ConvGemmConfig, base::Dimensionality},
         matmul::components::{
-            InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig,
+            InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+            global::{GlobalConfig, load::LoaderMode},
         },
     };
 
@@ -165,6 +166,10 @@ pub mod config {
 
         fn num_stages(&self, _ident: InputIdent) -> u32 {
             self.num_stages
+        }
+
+        fn loader_mode(&self) -> LoaderMode {
+            self.matmul.loader_mode()
         }
     }
 

@@ -9,7 +9,7 @@ use crate::matmul::{
         problem::MatmulLineSizes,
         stage::{FullStageToTileReader, StageMatmul},
     },
-    kernels::matmul::LoadingPrecomputeStrategy,
+    kernels::matmul::GlobalInput,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -52,7 +52,7 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type Input = (SMM::Input, LoadingPrecomputeStrategy);
+    type Input = GlobalInput<SMM::Input>;
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -77,7 +77,12 @@ where
         quantized: bool,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
-            input.0, problem, line_sizes, cube_dim, cube_count, quantized,
+            input.stage_input,
+            problem,
+            line_sizes,
+            cube_dim,
+            cube_count,
+            quantized,
         );
         let stage_shape = SMM::stage_shape(&smm_config);
 
@@ -92,7 +97,8 @@ where
             line_sizes.rhs as u32,
             line_sizes.out as u32,
             stage_shape.k,
-            input.1,
+            input.loading_precompute_strategy,
+            input.loader_mode,
         )
     }
 }

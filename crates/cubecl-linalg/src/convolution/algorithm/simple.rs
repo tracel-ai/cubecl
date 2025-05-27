@@ -7,6 +7,7 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 
+use crate::matmul::components::stage::NumStages;
 use crate::{
     convolution::{
         base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily,
@@ -76,8 +77,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
-    fn num_stages() -> (u32, u32) {
-        (1, 1)
+    fn num_stages() -> NumStages {
+        (1, 1).into()
     }
 
     fn selection<R: Runtime>(
