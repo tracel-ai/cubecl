@@ -5,6 +5,7 @@ fn main() {
     // Setup cfg aliases
     cfg_aliases! {
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
+        apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
     }
 
     // Check if we are on macOS

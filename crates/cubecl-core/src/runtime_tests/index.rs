@@ -10,10 +10,10 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
         output[0] = item;
 
         // out of bounds write should not show up in the array.
-        output[3] = F::new(10.0);
+        output[4] = F::new(10.0);
 
         // out of bounds read should be read as 0.
-        output[1] = output[3];
+        output[1] = output[4];
     }
 }
 
