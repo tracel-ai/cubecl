@@ -11,13 +11,6 @@ impl<'a> Visitor<'a> {
             None => inner_type,
         }
     }
-    pub fn item_to_memref_type(&self, item: Item) -> MemRefType<'a> {
-        let inner_type = self.elem_to_type(item.elem);
-        match item.vectorization {
-            Some(size) => MemRefType::new(inner_type, &[size.get() as i64], None, None),
-            None => MemRefType::new(inner_type, &[1], None, None),
-        }
-    }
     pub fn item_to_memref_buffer_type(&self, item: Item) -> MemRefType<'a> {
         let inner_type = self.elem_to_type(item.elem);
         MemRefType::new(inner_type, &[i64::MIN], None, None)

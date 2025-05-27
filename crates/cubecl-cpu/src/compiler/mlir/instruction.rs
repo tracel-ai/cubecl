@@ -6,7 +6,6 @@ impl<'a> Visitor<'a> {
     pub fn visit_instruction(&mut self, instruction: &Instruction) {
         match instruction.out {
             Some(out) => {
-                let out = self.visit_variable(out);
                 self.visit_operation_with_out(&instruction.operation, out);
             }
             _ => {
