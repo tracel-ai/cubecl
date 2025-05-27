@@ -74,8 +74,6 @@ where
     ) -> Self {
         let logger = ServerLogger::default();
 
-        let server_name = format!("{info:?}");
-
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -91,7 +89,7 @@ where
             gpu_client: client
                 .clone()
                 .new_gpu_context(
-                    Some(&server_name),
+                    Some(&format!("{info:?}")),
                     // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
                     tracy_client::GpuContextType::Invalid,
                     0,   // Timestamps are manually aligned to this epoch so start at 0.
