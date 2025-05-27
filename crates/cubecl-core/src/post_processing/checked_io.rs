@@ -31,8 +31,8 @@ impl Processor for CheckedIoProcessor {
                         let has_length = instruction.out.map(|o| o.has_length()).unwrap_or(false);
                         let is_not_atomic = instruction
                             .out
-                            .map(|o| o.elem().is_atomic())
-                            .unwrap_or(false);
+                            .map(|o| !o.elem().is_atomic())
+                            .unwrap_or(true);
 
                         if has_length & is_not_atomic {
                             let list = ExpandElement::Plain(op.list);
