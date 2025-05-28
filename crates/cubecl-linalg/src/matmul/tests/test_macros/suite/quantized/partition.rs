@@ -3,7 +3,7 @@ macro_rules! testgen_matmul_quantized_partition {
     ($algorithm: ty, $precision: ty, $tile: expr) => {
         use $crate::matmul::components::TilesPerPartition;
 
-        mod pt1x1 {
+        mod ps1x1 {
             use super::*;
 
             $crate::testgen_matmul_quantized_partition_count!(

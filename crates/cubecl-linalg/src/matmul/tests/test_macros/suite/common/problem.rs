@@ -2,8 +2,7 @@
 macro_rules! testgen_matmul_problem {
     ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage: expr, $layouts: expr) => {
         use $crate::matmul::components::MatmulSize;
-
-        mod sh100x100x100 {
+        mod g100x100x100 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,
@@ -22,7 +21,7 @@ macro_rules! testgen_matmul_problem {
             );
         }
 
-        mod sh23x1x17 {
+        mod g23x1x17 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,
@@ -37,7 +36,7 @@ macro_rules! testgen_matmul_problem {
             );
         }
 
-        mod sh256x256x256 {
+        mod g256x256x256 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,

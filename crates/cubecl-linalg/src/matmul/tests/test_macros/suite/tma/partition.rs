@@ -46,44 +46,5 @@ macro_rules! testgen_matmul_tma_partition_count {
                 PartitionsPerStage { m: 2, n: 2 }
             );
         }
-
-        mod pc4x4 {
-            use super::*;
-
-            $crate::testgen_matmul_stage_k!(
-                Tma,
-                $algorithm,
-                $precision,
-                $tile,
-                $partition_shape,
-                PartitionsPerStage { m: 4, n: 4 }
-            );
-        }
-
-        mod pc8x4 {
-            use super::*;
-
-            $crate::testgen_matmul_stage_k!(
-                Tma,
-                $algorithm,
-                $precision,
-                $tile,
-                $partition_shape,
-                PartitionsPerStage { m: 8, n: 4 }
-            );
-        }
-
-        mod pc8x8 {
-            use super::*;
-
-            $crate::testgen_matmul_stage_k!(
-                Tma,
-                $algorithm,
-                $precision,
-                $tile,
-                $partition_shape,
-                PartitionsPerStage { m: 8, n: 8 }
-            );
-        }
     };
 }

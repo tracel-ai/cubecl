@@ -1024,17 +1024,11 @@ impl<D: Dialect> CppCompiler<D> {
     ) {
         let out = out.unwrap();
         match value {
-            gpu::Operator::Index(op) => {
+            gpu::Operator::Index(op) | gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_index(op, out)));
             }
-            gpu::Operator::UncheckedIndex(op) => {
-                instructions.push(Instruction::Index(self.compile_index(op, out)))
-            }
-            gpu::Operator::IndexAssign(op) => {
+            gpu::Operator::IndexAssign(op) | gpu::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)));
-            }
-            gpu::Operator::UncheckedIndexAssign(op) => {
-                instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)))
             }
             gpu::Operator::And(op) => {
                 instructions.push(Instruction::And(self.compile_binary(op, out)))

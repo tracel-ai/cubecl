@@ -143,7 +143,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
-            Operator::Index(op) => {
+            Operator::Index(op) | Operator::UncheckedIndex(op) => {
                 let is_atomic = op.list.item.elem.is_atomic();
                 let value = self.compile_variable(op.list);
                 let index = self.compile_variable(op.index);
@@ -164,29 +164,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
-            Operator::IndexAssign(op) => {
+            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
                 let index = self.compile_variable(op.index);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed(&out, &index, value_id);
-            }
-            Operator::UncheckedIndex(op) => {
-                let value = self.compile_variable(op.list);
-                let index = self.compile_variable(op.index);
-                let out = self.compile_variable(out);
-
-                let out_id = self.read_indexed_unchecked(&out, &value, &index);
-                self.write(&out, out_id);
-            }
-            Operator::UncheckedIndexAssign(op) => {
-                let index = self.compile_variable(op.index);
-                let value = self.compile_variable(op.value);
-                let out = self.compile_variable(out);
-                let value_id = self.read_as(&value, &out.indexed_item());
-
-                self.write_indexed_unchecked(&out, &index, value_id);
             }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);

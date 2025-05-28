@@ -1,7 +1,7 @@
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::stage::{StageVectorization, TilesPerPartition};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg, TilingScheme,
 };

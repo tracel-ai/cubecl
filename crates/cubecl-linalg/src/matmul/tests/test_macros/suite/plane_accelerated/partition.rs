@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_accelerated_partition_shape {
-    ($algorithm: ty, $precision: ty, $tile: expr, $constrained: ident) => {
+    ($algorithm: ty, $precision: ty, $tile: expr) => {
         use $crate::matmul::components::TilesPerPartition;
 
         mod ps1x1 {
@@ -10,8 +10,7 @@ macro_rules! testgen_matmul_accelerated_partition_shape {
                 $algorithm,
                 $precision,
                 $tile,
-                TilesPerPartition { m: 1, n: 1 },
-                $constrained
+                TilesPerPartition { m: 1, n: 1 }
             );
         }
 
@@ -22,8 +21,7 @@ macro_rules! testgen_matmul_accelerated_partition_shape {
                 $algorithm,
                 $precision,
                 $tile,
-                TilesPerPartition { m: 2, n: 1 },
-                $constrained
+                TilesPerPartition { m: 2, n: 1 }
             );
         }
     };
@@ -31,7 +29,7 @@ macro_rules! testgen_matmul_accelerated_partition_shape {
 
 #[macro_export]
 macro_rules! testgen_matmul_accelerated_partition_count {
-    ($algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $constrained: ident) => {
+    ($algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr) => {
         use $crate::matmul::components::PartitionsPerStage;
 
         mod pc1x1 {

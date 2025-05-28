@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_accelerated_tile {
-    ($algorithm: ty, $precision: ty, $constrained: ident) => {
+    ($algorithm: ty, $precision: ty) => {
         use $crate::matmul::components::TileShape;
 
         #[cfg(target_os = "macos")]
@@ -10,8 +10,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                TileShape { m: 8, n: 8, k: 8 },
-                $constrained
+                TileShape { m: 8, n: 8, k: 8 }
             );
         }
 
@@ -26,8 +25,7 @@ macro_rules! testgen_matmul_accelerated_tile {
                     m: 16,
                     n: 16,
                     k: 16
-                },
-                $constrained
+                }
             );
         }
 
@@ -38,8 +36,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                TileShape { m: 32, n: 8, k: 16 },
-                $constrained
+                TileShape { m: 32, n: 8, k: 16 }
             );
         }
 
@@ -50,8 +47,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                TileShape { m: 8, n: 32, k: 16 },
-                $constrained
+                TileShape { m: 8, n: 32, k: 16 }
             );
         }
 
@@ -62,8 +58,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                TileShape { m: 16, n: 16, k: 8 },
-                $constrained
+                TileShape { m: 16, n: 16, k: 8 }
             );
         }
     };

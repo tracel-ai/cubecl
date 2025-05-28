@@ -4,6 +4,8 @@ use cubecl_core::prelude::*;
 use super::{InputRuntimeArg, MatmulConfigFactory, MatmulSpec, OutputRuntimeArg};
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// TODO type alias for different uses
+// Also those for numbers always <255 should be u8
 pub struct MatmulSize {
     pub m: u32,
     pub n: u32,

@@ -1,11 +1,10 @@
-/// tmxnxk
 #[macro_export]
 macro_rules! testgen_matmul_quantized_tile {
     ($algorithm: ty, $precision: ty) => {
         use $crate::matmul::components::TileShape;
 
         #[cfg(target_os = "macos")]
-        mod t8x8x8 {
+        mod tl8x8x8 {
             use super::*;
 
             $crate::testgen_matmul_quantized_partition!(
@@ -16,7 +15,7 @@ macro_rules! testgen_matmul_quantized_tile {
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod t16x16x16 {
+        mod tl16x16x16 {
             use super::*;
 
             $crate::testgen_matmul_quantized_partition!(
@@ -31,7 +30,7 @@ macro_rules! testgen_matmul_quantized_tile {
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod t32x8x16 {
+        mod tl32x8x16 {
             use super::*;
 
             $crate::testgen_matmul_quantized_partition!(
@@ -42,7 +41,7 @@ macro_rules! testgen_matmul_quantized_tile {
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod t8x32x16 {
+        mod tl8x32x16 {
             use super::*;
 
             $crate::testgen_matmul_quantized_partition!(
@@ -53,7 +52,7 @@ macro_rules! testgen_matmul_quantized_tile {
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod t16x16x8 {
+        mod tl16x16x8 {
             use super::*;
 
             $crate::testgen_matmul_quantized_partition!(

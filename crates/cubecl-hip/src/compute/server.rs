@@ -12,7 +12,7 @@ use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
 use cubecl_core::{Feature, server::Bindings};
-use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -27,7 +27,6 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "compilation-cache")]
@@ -397,8 +396,8 @@ impl HipContext {
         };
         // Compile HIP program
         // options
-        let include_path = include_path();
-        let include_option = format!("-I{}", include_path.display());
+        let include_path = get_hip_include_path().unwrap();
+        let include_option = format!("-I{include_path}");
         let include_option_cstr = CString::new(include_option).unwrap();
         // needed for rocWMMA extension to compile
         let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
@@ -582,35 +581,6 @@ impl HipServer {
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     }
-}
-
-fn include_path() -> PathBuf {
-    let error_msg = "
-        ROCm HIP installation not found.
-        Please ensure that ROCm is installed with HIP runtimes and development libraries and the ROCM_PATH or HIP_PATH environment variable is set correctly.
-        Note: Default path is /opt/rocm which may not be correct.
-    ";
-    let path = hip_path().expect(error_msg);
-    let result = path.join("include");
-    let hip_include = result.join("hip");
-    if !hip_include.exists() || !hip_include.is_dir() {
-        panic!("{error_msg}");
-    }
-    result
-}
-
-fn hip_path() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("CUBECL_ROCM_PATH") {
-        return Some(PathBuf::from(path));
-    }
-    if let Ok(path) = std::env::var("ROCM_PATH") {
-        return Some(PathBuf::from(path));
-    }
-    if let Ok(path) = std::env::var("HIP_PATH") {
-        return Some(PathBuf::from(path));
-    }
-    // Default path (only Linux is supported for now)
-    Some(PathBuf::from("/opt/rocm"))
 }
 
 pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
