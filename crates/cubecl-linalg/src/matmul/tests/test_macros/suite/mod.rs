@@ -4,8 +4,9 @@
 //! - `algorithm`: compute/loading strategy (e.g., `double_buffering_tilewise`, `simply_cyclic`)
 //! - `precision`: data type (e.g., `f16`, `f32`)
 //! - `tile`: instruction tile dimensions in M/N/K
-//! - `partition`: accumulator count per execution primitive (number of tiles in M/N)
-//! - `stage`: shared memory shape (number of tiles in M/N/K)
+//! - `partition_shape`: accumulator count per execution primitive (number of tiles in M/N)
+//! - `partition_count`: partition count per stage (number of partitions in M/N)
+//! - `stage_k`: shared memory shape in K (M and N are inferred from partition shape and count)
 //! - `layouts`: operand layouts (row-major (r) or column-major (c) for lhs and rhs)
 //! - `problem`: actual matrix dimensions M/N/K
 

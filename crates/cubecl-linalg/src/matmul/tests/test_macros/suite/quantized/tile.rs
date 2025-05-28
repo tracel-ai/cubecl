@@ -1,4 +1,3 @@
-/// tmxnxk
 #[macro_export]
 macro_rules! testgen_matmul_quantized_tile {
     ($algorithm: ty, $precision: ty) => {
