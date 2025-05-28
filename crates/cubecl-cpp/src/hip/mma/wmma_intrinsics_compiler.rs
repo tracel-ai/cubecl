@@ -388,7 +388,7 @@ fn frag_as_ptr<D: Dialect>(
     if item.vectorization > 1 {
         let mut item_value = item.clone();
         item_value.vectorization = 1;
-        frag.reinterpret_ptr(f, item_value)
+        frag_ptr.reinterpret_ptr(f, item_value)
     } else {
         frag_ptr
     }

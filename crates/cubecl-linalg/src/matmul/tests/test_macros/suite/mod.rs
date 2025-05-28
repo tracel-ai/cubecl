@@ -19,12 +19,12 @@ pub mod unit;
 #[macro_export]
 macro_rules! testgen_matmul_plane_accelerated {
     () => {
-        // mod matmul_plane_accelerated {
-        //     use super::*;
-        //     type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
+        mod matmul_plane_accelerated {
+            use super::*;
+            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-        //     $crate::testgen_matmul_plane_accelerated_algorithm!();
-        // }
+            $crate::testgen_matmul_plane_accelerated_algorithm!();
+        }
     };
 }
 
