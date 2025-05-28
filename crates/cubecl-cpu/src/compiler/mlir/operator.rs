@@ -9,7 +9,7 @@ impl<'a> Visitor<'a> {
             Operator::Index(index_operator) => {
                 let memref = self.get_variable(index_operator.list);
                 let vector_type = self.item_to_type(index_operator.list.item);
-                let index = self.get_variable(index_operator.index);
+                let index = self.get_index(index_operator.index);
                 let operation =
                     vector::load(self.context, vector_type, memref, &[index], self.location).into();
                 let load_ssa = self
@@ -22,7 +22,7 @@ impl<'a> Visitor<'a> {
             }
             Operator::IndexAssign(index_assign) => {
                 let memref = self.get_variable(index_assign.value);
-                let index = self.get_variable(index_assign.index);
+                let index = self.get_index(index_assign.index);
                 let out = self.get_variable(out);
                 let operation =
                     vector::store(self.context, memref, out, &[index], self.location).into();

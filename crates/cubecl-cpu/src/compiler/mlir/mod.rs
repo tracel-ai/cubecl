@@ -1,3 +1,4 @@
+pub(super) mod block;
 pub(super) mod elem;
 pub(super) mod instruction;
 pub(super) mod item;
@@ -5,10 +6,10 @@ pub(super) mod memref;
 pub mod module;
 pub(super) mod operation;
 pub(super) mod operator;
-pub(super) mod scope;
 pub(super) mod variable;
 pub(super) mod visitor;
 
+use cubecl_opt::Optimizer;
 pub use elem::register_supported_types;
 use memref::LineMemRef;
 
@@ -40,7 +41,7 @@ impl Display for MlirEngine {
 }
 
 impl MlirEngine {
-    pub fn from_cubecl_ir(kernel: KernelDefinition) -> Self {
+    pub fn from_cubecl_ir(kernel: KernelDefinition, opt: &Optimizer) -> Self {
         let registry = DialectRegistry::new();
         register_all_dialects(&registry);
 
@@ -51,7 +52,7 @@ impl MlirEngine {
 
         let mut module = Module::new(&context);
 
-        module.visit_kernel(&kernel);
+        module.visit_kernel(&kernel, opt);
 
         module.run_pass();
 
@@ -84,15 +85,7 @@ impl MlirEngine {
     pub unsafe fn run_kernel(&mut self) {
         unsafe {
             self.execution_engine
-                .invoke_packed(
-                    "kernel",
-                    // &mut [
-                    //     &mut buffer0_ as *mut *mut LineMemRef as *mut (),
-                    //     &mut buffer1_ as *mut *mut LineMemRef as *mut (),
-                    //     &mut buffer2_ as *mut *mut LineMemRef as *mut (),
-                    // ],
-                    self.args_second_indirection.as_mut(),
-                )
+                .invoke_packed("kernel", self.args_second_indirection.as_mut())
                 .unwrap()
         }
     }
