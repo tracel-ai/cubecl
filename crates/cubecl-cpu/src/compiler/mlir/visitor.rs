@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use cubecl_core::prelude::KernelDefinition;
+use cubecl_opt::Optimizer;
 use melior::{
     Context,
     dialect::func,
@@ -41,9 +42,11 @@ impl<'a> Visitor<'a> {
         &'a mut self,
         kernel: &'b KernelDefinition,
         module: &melior::ir::Module<'a>,
+        opt: &Optimizer,
     ) {
         let name = StringAttribute::new(self.context, "kernel");
 
+        let block_ids = opt.node_ids();
         let attributes = &[(
             Identifier::new(self.context, "llvm.emit_c_interface"),
             Attribute::unit(self.context).into(),
@@ -76,8 +79,9 @@ impl<'a> Visitor<'a> {
                     self.global_buffers.push(block.argument(i).unwrap().into());
                 }
 
-                self.block_stack.push(block);
-                self.visit_scope(&kernel.body);
+                for basic_block_id in block_ids {
+                    self.visit_basic_block(block, basic_block_id, opt);
+                }
 
                 block.append_operation(func::r#return(&[], location));
 
