@@ -1,10 +1,10 @@
 use cubecl_core::ir::{ConstantScalarValue, IntKind, Variable, VariableKind};
 use melior::{
     dialect::ods::arith,
-    ir::{BlockLike, Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
+    ir::{Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
 };
 
-use super::visitor::Visitor;
+use super::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn insert_variable(&mut self, variable: Variable, value: Value<'a, 'a>) {
@@ -39,15 +39,11 @@ impl<'a> Visitor<'a> {
                         };
                         let integer_type = IntegerType::new(self.context, size).into();
                         let value = IntegerAttribute::new(integer_type, value).into();
-                        arith::constant(self.context, integer_type, value, self.location).into()
+                        arith::constant(self.context, integer_type, value, self.location)
                     }
                     _ => todo!("Operation is not implemented {}", constant_scalar_value),
                 };
-                self.block()
-                    .append_operation(operation)
-                    .result(0)
-                    .unwrap()
-                    .into()
+                self.append_operation_with_result(operation)
             }
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
@@ -59,16 +55,24 @@ impl<'a> Visitor<'a> {
                     ConstantScalarValue::Int(value, _) => {
                         let integer_type = Type::index(self.context);
                         let value = IntegerAttribute::new(integer_type, value).into();
-                        arith::constant(self.context, integer_type, value, self.location).into()
+                        arith::constant(self.context, integer_type, value, self.location)
                     }
                     _ => todo!("Operation is not implemented {}", constant_scalar_value),
                 };
-                self.block()
-                    .append_operation(operation)
-                    .result(0)
-                    .unwrap()
-                    .into()
+                self.append_operation_with_result(operation)
             }
+            VariableKind::Builtin(builtin) => match builtin {
+                _ => {
+                    let integer_type = Type::index(self.context);
+                    let value = IntegerAttribute::new(integer_type, 0).into();
+                    self.append_operation_with_result(arith::constant(
+                        self.context,
+                        integer_type,
+                        value,
+                        self.location,
+                    ))
+                }
+            },
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
     }
