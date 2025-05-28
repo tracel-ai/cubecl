@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use cubecl_core::prelude::KernelDefinition;
+use cubecl_opt::Optimizer;
 use melior::{
     Context, ExecutionEngine,
     ir::{
@@ -49,8 +50,8 @@ impl<'a> Module<'a> {
         }
     }
 
-    pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition) {
-        Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module);
+    pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition, opt: &Optimizer) {
+        Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module, opt);
     }
 
     pub(super) fn run_pass(&mut self) {
