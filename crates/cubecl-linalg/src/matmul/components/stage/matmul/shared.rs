@@ -150,7 +150,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] i: u32,
         #[comptime] j: u32,
     ) -> &TMM::Accumulator {
-        this.sequence.index(comptime!(i * this.shape.n as u32 + j))
+        this.sequence.index(comptime!(i * this.shape.n + j))
     }
 
     pub fn get_at_mut(
@@ -158,8 +158,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] i: u32,
         #[comptime] j: u32,
     ) -> &mut TMM::Accumulator {
-        this.sequence
-            .index_mut(comptime!(i * this.shape.n as u32 + j))
+        this.sequence.index_mut(comptime!(i * this.shape.n + j))
     }
 }
 
