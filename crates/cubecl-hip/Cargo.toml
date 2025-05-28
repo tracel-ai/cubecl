@@ -15,11 +15,11 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "wmma-intrinsics",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-wmma-intrinsics = []
+roc-wmma = []
 compilation-cache = ["cubecl-common/cache", "serde"]
+test-matmul = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0" }

@@ -14,6 +14,17 @@ macro_rules! testgen_matmul_accelerated_partition_shape {
             );
         }
 
+        mod ps1x4 {
+            use super::*;
+
+            $crate::testgen_matmul_accelerated_partition_count!(
+                $algorithm,
+                $precision,
+                $tile,
+                TilesPerPartition { m: 1, n: 4 }
+            );
+        }
+
         mod ps2x1 {
             use super::*;
 
@@ -55,6 +66,19 @@ macro_rules! testgen_matmul_accelerated_partition_count {
                 $tile,
                 $partition_shape,
                 PartitionsPerStage { m: 2, n: 2 }
+            );
+        }
+
+        mod pc4x1 {
+            use super::*;
+
+            $crate::testgen_matmul_stage_k!(
+                PlaneAccelerated,
+                $algorithm,
+                $precision,
+                $tile,
+                $partition_shape,
+                PartitionsPerStage { m: 4, n: 1 }
             );
         }
 

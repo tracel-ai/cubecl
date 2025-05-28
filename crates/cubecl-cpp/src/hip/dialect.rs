@@ -271,7 +271,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     }
 
     fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__syncwarp();\n")
+        writeln!(f, "__syncthreads();\n")
+        // writeln!(f, "__syncwarp();\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

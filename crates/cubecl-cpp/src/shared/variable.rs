@@ -187,9 +187,13 @@ impl<D: Dialect> Component<D> for Variable<D> {
     }
 
     fn is_const(&self) -> bool {
+        if let Variable::Tmp { is_const, .. } = self {
+            return *is_const;
+        }
+
         matches!(
             self,
-            Variable::LocalConst { .. } | Variable::GlobalInputArray(..)
+            Variable::LocalConst { .. } | Variable::GlobalInputArray { .. }
         )
     }
 }
@@ -333,15 +337,20 @@ impl<D: Dialect> Variable<D> {
 
     /// Create a temporary variable with a reinterpret_cast.
     pub fn reinterpret_ptr(&self, f: &mut Formatter<'_>, item: Item<D>) -> Self {
-        let out = Self::tmp_ptr(item);
+        let mut out = Self::tmp_ptr(item);
+
+        if self.is_const() {
+            out.to_const();
+        }
+
         let elem = out.elem();
         let qualifier = out.const_qualifier();
-        let addr_space = D::address_space_for_variable(&out);
+        let addr_space = D::address_space_for_variable(&self);
         let out_fmt = out.fmt_left();
 
         writeln!(
             f,
-            "{out_fmt} = reinterpret_cast<{addr_space}{elem}{qualifier}*>(&{self});"
+            "{out_fmt} = reinterpret_cast<{addr_space}{elem}{qualifier}*>({self});"
         )
         .unwrap();
 
@@ -604,7 +613,7 @@ impl<D: Dialect> Component<D> for IndexedVariable<D> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(self.var, Variable::LocalConst { .. })
+        self.var.is_const()
     }
 }
 

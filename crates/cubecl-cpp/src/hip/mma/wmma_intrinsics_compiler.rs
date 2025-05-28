@@ -334,7 +334,6 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                //                                  i  o  c
                 .map(|(m, n, k)| (m, n, k, vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
@@ -389,7 +388,7 @@ fn frag_as_ptr<D: Dialect>(
     if item.vectorization > 1 {
         let mut item_value = item.clone();
         item_value.vectorization = 1;
-        frag_ptr.reinterpret_ptr(f, item_value)
+        frag.reinterpret_ptr(f, item_value)
     } else {
         frag_ptr
     }
