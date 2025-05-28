@@ -280,3 +280,5 @@ define_2d_shape!(TilesPerPartition);
 define_2d_shape!(PartitionsPerStage);
 // Number of elements in a tile
 define_3d_shape!(TileShape);
+// Shapes m,n,k of the problem
+define_3d_shape!(MatmulProblemShape);

@@ -10,9 +10,18 @@ use crate::{
 };
 use crate::{
     convolution::tests::convolution_test_launcher::test_convolution_algorithm,
-    matmul::components::{MatmulSize, global::args::MatmulArgs},
+    matmul::components::global::args::MatmulArgs,
 };
+use cubecl_core as cubecl;
 use cubecl_core::Runtime;
+use cubecl_core::prelude::*;
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct MatmulSize {
+    pub m: u32,
+    pub n: u32,
+    pub k: u32,
+}
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionSize {
@@ -142,8 +151,7 @@ pub fn calculate_conv_output_size(
 #[macro_export]
 macro_rules! conv2d_standard_tests {
     () => {
-        use $crate::convolution::tests::ConvolutionSize;
-        use $crate::matmul::components::MatmulSize;
+        use $crate::convolution::tests::{ConvolutionSize, MatmulSize};
 
         mod t8x8x8 {
             use super::*;

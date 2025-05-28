@@ -2,7 +2,7 @@ use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSize, MatrixLayout, TileShape, as_cmma_layout,
+    MatmulProblem, MatrixLayout, TileShape, as_cmma_layout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -166,7 +166,7 @@ impl MatmulConfigFactory for AcceleratedMatmul {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input: es,
                 output: ea,
-                shape: Some(MatmulSize {
+                shape: Some(TileShape {
                     m: size.m,
                     n: size.n,
                     k: size.k,

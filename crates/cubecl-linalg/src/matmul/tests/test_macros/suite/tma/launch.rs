@@ -2,7 +2,7 @@ use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{
     MatmulProblem, MatrixLayout, PartitionsPerStage, TileShape, TilesPerPartition,
 };
-use crate::matmul::components::{MatmulSize, TilingScheme};
+use crate::matmul::components::{MatmulProblemShape, TilingScheme};
 use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
@@ -18,7 +18,7 @@ pub fn test_algo<
     tiles_per_partition: TilesPerPartition,
     partitions_per_stage: PartitionsPerStage,
     stage_k: u32,
-    problem: MatmulSize,
+    problem: MatmulProblemShape,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {

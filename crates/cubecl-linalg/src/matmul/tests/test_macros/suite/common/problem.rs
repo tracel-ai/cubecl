@@ -1,7 +1,8 @@
 #[macro_export]
 macro_rules! testgen_matmul_problem {
     ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage: expr, $layouts: expr) => {
-        use $crate::matmul::components::MatmulSize;
+        use $crate::matmul::components::MatmulProblemShape;
+
         mod g100x100x100 {
             use super::*;
             $crate::testgen_matmul_launch!(
@@ -13,7 +14,7 @@ macro_rules! testgen_matmul_problem {
                 $partition_count,
                 $stage,
                 $layouts,
-                MatmulSize {
+                MatmulProblemShape {
                     m: 100,
                     n: 100,
                     k: 100
@@ -32,7 +33,7 @@ macro_rules! testgen_matmul_problem {
                 $partition_count,
                 $stage,
                 $layouts,
-                MatmulSize { m: 23, n: 1, k: 17 }
+                MatmulProblemShape { m: 23, n: 1, k: 17 }
             );
         }
 
@@ -47,7 +48,7 @@ macro_rules! testgen_matmul_problem {
                 $partition_count,
                 $stage,
                 $layouts,
-                MatmulSize {
+                MatmulProblemShape {
                     m: 256,
                     n: 256,
                     k: 256
