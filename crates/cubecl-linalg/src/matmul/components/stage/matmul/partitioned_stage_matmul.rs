@@ -86,8 +86,9 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        let m_acc_count = config.accumulator_count().m;
-        let n_acc_count = config.accumulator_count().n;
+        let tiles_per_partition = config.tiles_per_partition();
+        let m_acc_count = tiles_per_partition.m;
+        let n_acc_count = tiles_per_partition.n;
         let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
         let start_m = m_acc_count * (SP::position() / num_acc_n);
         let start_n = n_acc_count * (SP::position() % num_acc_n);
@@ -119,17 +120,13 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        let shape = config.accumulator_count();
-        // assert!(
-        //     shape.n == config.tiling.tile_count.n,
-        //     "For now, Plane Matmul assumes planes perform whole rows."
-        // );
+        let partition_shape = config.tiles_per_partition();
 
         let tmm_config = config.to_tmm_config();
         let mut lhs = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(shape.m) {
+        for _ in 0..comptime!(partition_shape.m) {
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
@@ -162,11 +159,10 @@ where
         let slice_start = num_tile_lines * SP::position();
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let m_acc_count = stage_config.accumulator_count().m;
-        let n_acc_count = stage_config.accumulator_count().n;
-        let total_acc_n = stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
-        let m_offset = m_acc_count * (SP::position() / total_acc_n);
-        let n_offset = n_acc_count * (SP::position() % total_acc_n);
+        let total_acc_n =
+            stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_iterations;
+        let m_offset = m_iterations * (SP::position() / total_acc_n);
+        let n_offset = n_iterations * (SP::position() % total_acc_n);
 
         let mut m_iter = comptime![0u32];
 

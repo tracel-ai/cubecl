@@ -17,7 +17,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub buffering: StageBuffering,
     pub num_stages: NumStages,
-    pub accumulator_count: AccumulatorCount,
+    pub tiles_per_partition: TilesPerPartition,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -70,8 +70,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         }
     }
 
-    fn accumulator_count(&self) -> AccumulatorCount {
-        self.accumulator_count
+    fn tiles_per_partition(&self) -> TilesPerPartition {
+        self.tiles_per_partition
     }
 }
 
@@ -86,7 +86,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         quantized: bool,
         buffering: StageBuffering,
         num_stages: NumStages,
-        accumulator_count: AccumulatorCount,
+        tiles_per_partition: TilesPerPartition,
     ) -> Self {
         Self {
             tmm_config,
@@ -95,7 +95,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
             num_stages,
-            accumulator_count,
+            tiles_per_partition,
         }
     }
 }
@@ -106,29 +106,29 @@ impl<T: TileConfig> CommonStageConfig<T> {
 pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
     sequence: Sequence<TMM::Accumulator>,
     #[cube(comptime)]
-    pub shape: AccumulatorCount,
+    pub shape: TilesPerPartition,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
     pub fn new(#[comptime] config: CommonStageConfig<TMM::Config>) -> Accumulators<MP, TMM> {
-        let shape = config.accumulator_count();
+        let tiles_per_partition = config.tiles_per_partition();
         let mut accumulators = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(shape.m * shape.n) {
+        for _ in 0..comptime!(tiles_per_partition.m * tiles_per_partition.n) {
             accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
         }
 
         Accumulators::<MP, TMM> {
             sequence: accumulators,
-            shape,
+            shape: tiles_per_partition,
         }
     }
 
     pub fn zero(&mut self, #[comptime] config: CommonStageConfig<TMM::Config>) {
         #[unroll]
-        for i in 0..comptime![self.shape.num_tiles()] {
+        for i in 0..comptime![self.shape.num_elems()] {
             TMM::zero_accumulator(self.sequence.index_mut(i), config.to_tmm_config());
         }
     }
@@ -139,7 +139,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) {
         #[unroll]
-        for i in 0..comptime![self.shape.num_tiles()] {
+        for i in 0..comptime![self.shape.num_elems()] {
             let acc = self.sequence.index_mut(i);
             L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
@@ -184,22 +184,28 @@ impl From<(u32, u32)> for NumStages {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AccumulatorCount {
+// TODO should be u8
+pub struct PartitionShape {
     pub m: u32,
     pub n: u32,
 }
 
-impl From<(u32, u32)> for AccumulatorCount {
+impl From<(u32, u32)> for PartitionShape {
     fn from(value: (u32, u32)) -> Self {
-        AccumulatorCount {
+        PartitionShape {
             m: value.0,
             n: value.1,
         }
     }
 }
 
-impl AccumulatorCount {
-    pub fn num_tiles(&self) -> u32 {
+impl PartitionShape {
+    pub fn num_elems(&self) -> u32 {
         self.m * self.n
     }
 }
+
+/// Number of tiles in a stage partition
+pub type TilesPerPartition = PartitionShape;
+/// Number of partitions in a stage
+pub type PartitionsPerStage = PartitionShape;

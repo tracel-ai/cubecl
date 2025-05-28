@@ -25,8 +25,9 @@ mod tests {
 
     cubecl_std::testgen!();
 
-    cubecl_linalg::testgen_matmul_accelerated!([f16]);
-    cubecl_linalg::testgen_matmul_tma!([f32: tf32, f16: f16]);
+    cubecl_linalg::testgen_matmul_plane_accelerated!();
+    cubecl_linalg::testgen_matmul_unit!();
+    cubecl_linalg::testgen_matmul_tma!();
     cubecl_linalg::testgen_matmul_quantized!();
     cubecl_linalg::testgen_matmul_simple!([f16, bf16, f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([f16, bf16, f32]);
