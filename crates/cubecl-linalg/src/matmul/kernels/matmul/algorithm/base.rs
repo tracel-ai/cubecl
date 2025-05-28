@@ -76,17 +76,6 @@ pub trait Algorithm {
         (1, 1).into()
     }
 
-    // TODO delete in favor of using selection directly
-    fn tiles_per_partition(selection: &Self::MatmulSelection) -> TilesPerPartition {
-        selection.tiles_per_partition()
-        // Default behaviour for algorithms using PlaneMatmul
-        // (
-        //     selection.tile_count().m / Self::cube_dim(selection).y,
-        //     selection.tile_count().n,
-        // )
-        //     .into()
-    }
-
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
         LoadingPrecomputeStrategy::Never
     }

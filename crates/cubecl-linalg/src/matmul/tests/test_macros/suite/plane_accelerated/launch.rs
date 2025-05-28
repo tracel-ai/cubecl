@@ -1,7 +1,9 @@
 use crate::matmul::components::MatmulSize;
 use crate::matmul::components::stage::{PartitionsPerStage, StageVectorization, TilesPerPartition};
 use crate::matmul::components::{MatmulProblem, MatrixLayout};
-use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, PlaneMatmulSelection, StageInput};
+use crate::matmul::kernels::matmul::{
+    Algorithm, GlobalInput, MatmulSelection, PlaneMatmulSelection, StageInput,
+};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
@@ -59,7 +61,7 @@ pub fn test_algo<
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
-                tiles_per_partition: A::tiles_per_partition(&selection),
+                tiles_per_partition: selection.tiles_per_partition(),
             },
             loading_precompute_strategy: A::loading_precompute_strategy(),
             loader_mode: A::loader_mode(),
