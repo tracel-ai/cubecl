@@ -313,7 +313,7 @@ pub(crate) fn compile(
 fn dump_spirv(
     compiled: &CompiledKernel<AutoCompiler>,
     name: &str,
-    id: cubecl_common::id::KernelId,
+    id: cubecl_runtime::id::KernelId,
 ) {
     use std::{
         fs,
