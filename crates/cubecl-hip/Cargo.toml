@@ -15,6 +15,7 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
+    "wmma-intrinsics",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 wmma-intrinsics = []

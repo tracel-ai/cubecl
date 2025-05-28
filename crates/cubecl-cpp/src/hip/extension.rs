@@ -14,9 +14,9 @@ pub fn format_f162bf16(f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     write!(
         f,
         "
-__device__ __hip_bfloat16 half_to_bfloat16(__half h) {{
-    float temp = __half2float(h);
-    return __float2bfloat16(temp);
+__device__ __bf16 half_to_bfloat16(__half h) {{
+    float temp = float(h);
+    return __bf16(temp);
 }}
 "
     )
@@ -30,11 +30,11 @@ pub fn format_max<D: Dialect>(
         crate::shared::Elem::BF16 => write!(
             f,
             "
-__device__ __hip_bfloat16 max_bfloat16(__hip_bfloat16 a, __hip_bfloat16 b) {{
-    float fa = __bfloat162float(a);
-    float fb = __bfloat162float(b);
+__device__ __bf16 max_bfloat16(__bf16 a, __bf16 b) {{
+    float fa = float(a);
+    float fb = float(b);
     float max_val = fmaxf(fa, fb);
-    return __float2bfloat16(max_val);
+    return __bf16(max_val);
 }}
 "
         ),
@@ -50,11 +50,11 @@ pub fn format_min<D: Dialect>(
         crate::shared::Elem::BF16 => write!(
             f,
             "
-__device__ __hip_bfloat16 min_bfloat16(__hip_bfloat16 a, __hip_bfloat16 b) {{
-    float fa = __bfloat162float(a);
-    float fb = __bfloat162float(b);
+__device__ __bf16 min_bfloat16(__bf16 a, __bf16 b) {{
+    float fa = float(a);
+    float fb = float(b);
     float min_val = fminf(fa, fb);
-    return __float2bfloat16(min_val);
+    return __bf16(min_val);
 }}
 "
         ),

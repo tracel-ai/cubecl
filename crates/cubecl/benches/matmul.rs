@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_linalg::matmul::SyncBufferLoadingStrategy;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
+use cubecl_linalg::matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
@@ -138,27 +138,27 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
-    // );
-    // run::<R, MP>(
-    // Default::default(),
-    // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // );
+    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    );
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::Tiling2D(Default::default()),
