@@ -5,6 +5,10 @@ pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
     fn compute(&self, resources: &mut [&BytesResource]);
 
     fn id(&self) -> KernelId;
+
+    fn name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
 }
 
 /// Contains the algorithm for element-wise addition

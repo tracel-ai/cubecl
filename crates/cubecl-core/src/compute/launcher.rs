@@ -107,6 +107,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Launch the kernel.
+    #[track_caller]
     pub fn launch<K: CubeKernel>(
         self,
         cube_count: CubeCount,
@@ -127,6 +128,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// - Contain any out of bounds reads or writes. Doing so is immediate UB.
     /// - Contain any loops that never terminate. These may be optimized away entirely or cause
     ///   other unpredictable behaviour.
+    #[track_caller]
     pub unsafe fn launch_unchecked<K: CubeKernel>(
         self,
         cube_count: CubeCount,

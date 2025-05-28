@@ -8,6 +8,7 @@ use cubecl_cpp::{
     },
 };
 
+use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime,
     ir::{Elem, FloatKind},
@@ -139,7 +140,12 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     };
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
-    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
+    let mut device_props = DeviceProperties::new(
+        &[Feature::Plane],
+        mem_properties,
+        topology,
+        TimingMethod::System,
+    );
     register_supported_types(&mut device_props);
     // Not sure if there's a good way to check for support on HIP
     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));

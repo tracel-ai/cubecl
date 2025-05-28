@@ -25,8 +25,13 @@ pub mod cache;
 #[cfg(feature = "cache")]
 pub(crate) mod cache_file;
 
-/// Module for benchmarking any executable part
+/// Module for benchmark timings
+#[cfg(feature = "std")]
 pub mod benchmark;
+
+/// Module for profiling any executable part
+#[cfg(feature = "std")]
+pub mod profile;
 
 /// Useful when you need to read async data without having to decorate each function with async
 /// notation.

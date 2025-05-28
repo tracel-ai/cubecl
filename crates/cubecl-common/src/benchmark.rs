@@ -1,78 +1,11 @@
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
-
-use core::pin::Pin;
 use core::time::Duration;
 
-/// Result from profiling between two measurements. This can either be a duration or a future that resolves to a duration.
-pub enum ProfileDuration {
-    /// Client profile contains a full duration.
-    Full(Duration),
-    /// Client profile measures the device duration, and requires to be resolved.
-    DeviceDuration(Pin<Box<dyn Future<Output = Duration> + Send + 'static>>),
-}
-
-impl core::fmt::Debug for ProfileDuration {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            ProfileDuration::Full(duration) => write!(f, "Full({:?})", duration),
-            ProfileDuration::DeviceDuration(_) => write!(f, "DeviceDuration"),
-        }
-    }
-}
-
-impl ProfileDuration {
-    /// Create a new `ProfileDuration` straight from a duration.
-    pub fn from_duration(duration: Duration) -> Self {
-        ProfileDuration::Full(duration)
-    }
-
-    /// Create a new `ProfileDuration` from a future that resolves to a duration.
-    pub fn from_future(future: impl Future<Output = Duration> + Send + 'static) -> Self {
-        ProfileDuration::DeviceDuration(Box::pin(future))
-    }
-
-    /// The method used to measure the execution time.
-    pub fn timing_method(&self) -> TimingMethod {
-        match self {
-            ProfileDuration::Full(_) => TimingMethod::System,
-            ProfileDuration::DeviceDuration(_) => TimingMethod::Device,
-        }
-    }
-
-    /// Resolve the actual duration of the profile, possibly by waiting for the future to complete.
-    pub async fn resolve(self) -> Duration {
-        match self {
-            ProfileDuration::Full(duration) => duration,
-            ProfileDuration::DeviceDuration(future) => future.await,
-        }
-    }
-}
-
-/// How a benchmark's execution times are measured.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum TimingMethod {
-    /// Time measurements come from full timing of execution + sync
-    /// calls.
-    System,
-    /// Time measurements come from hardware reported timestamps
-    /// coming from a sync call.
-    Device,
-}
-
-impl Display for TimingMethod {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            TimingMethod::System => f.write_str("system"),
-            TimingMethod::Device => f.write_str("device"),
-        }
-    }
-}
+use crate::profile::TimingMethod;
 
 /// Results of a benchmark run.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -87,27 +20,6 @@ pub struct BenchmarkDurations {
 impl BenchmarkDurations {
     /// Construct from a list of durations.
     pub fn from_durations(timing_method: TimingMethod, durations: Vec<Duration>) -> Self {
-        Self {
-            timing_method,
-            durations,
-        }
-    }
-
-    /// Construct from a list of profiles.
-    pub async fn from_profiles(profiles: Vec<ProfileDuration>) -> Self {
-        let mut durations = Vec::new();
-        let mut types = Vec::new();
-
-        for profile in profiles {
-            types.push(profile.timing_method());
-            durations.push(profile.resolve().await);
-        }
-
-        let timing_method = *types.first().expect("need at least 1 profile");
-        if types.iter().any(|&t| t != timing_method) {
-            panic!("all profiles must use the same timing method");
-        }
-
         Self {
             timing_method,
             durations,
@@ -225,18 +137,9 @@ pub trait Benchmark {
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
         const DEFAULT: usize = 10;
-
-        #[cfg(feature = "std")]
-        {
-            std::env::var("BENCH_NUM_SAMPLES")
-                .map(|val| str::parse::<usize>(&val).unwrap_or(DEFAULT))
-                .unwrap_or(DEFAULT)
-        }
-
-        #[cfg(not(feature = "std"))]
-        {
-            DEFAULT
-        }
+        std::env::var("BENCH_NUM_SAMPLES")
+            .map(|val| str::parse::<usize>(&val).unwrap_or(DEFAULT))
+            .unwrap_or(DEFAULT)
     }
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
@@ -254,52 +157,44 @@ pub trait Benchmark {
     fn sync(&self);
 
     /// Start measuring the computation duration.
-    #[cfg(feature = "std")]
-    fn profile(&self, args: Self::Args) -> ProfileDuration {
+    fn profile(&self, args: Self::Args) -> crate::profile::ProfileDuration {
         self.profile_full(args)
     }
 
     /// Start measuring the computation duration. Use the full duration irregardless of whether
     /// device duration is available or not.
-    #[cfg(feature = "std")]
-    fn profile_full(&self, args: Self::Args) -> ProfileDuration {
+    fn profile_full(&self, args: Self::Args) -> crate::profile::ProfileDuration {
         self.sync();
-        let start_time = std::time::Instant::now();
+        let start_time = web_time::Instant::now();
         self.execute(args);
         self.sync();
-        ProfileDuration::from_duration(start_time.elapsed())
+        crate::profile::ProfileDuration::new_system_time(start_time, web_time::Instant::now())
     }
 
     /// Run the benchmark a number of times.
     #[allow(unused_variables)]
     fn run(&self, timing_method: TimingMethod) -> BenchmarkDurations {
-        #[cfg(not(feature = "std"))]
-        panic!("Attempting to run benchmark in a no-std environment");
+        // Warmup
+        let args = self.prepare();
+        for _ in 0..self.num_samples() {
+            self.execute(args.clone());
+        }
+        std::thread::sleep(Duration::from_secs(1));
 
-        #[cfg(feature = "std")]
-        {
-            // Warmup
-            let args = self.prepare();
-            for _ in 0..self.num_samples() {
-                self.execute(args.clone());
-            }
-            std::thread::sleep(Duration::from_secs(1));
+        let mut durations = Vec::with_capacity(self.num_samples());
 
-            let mut durations = Vec::with_capacity(self.num_samples());
+        for _ in 0..self.num_samples() {
+            let profile = match timing_method {
+                TimingMethod::System => self.profile_full(args.clone()),
+                TimingMethod::Device => self.profile(args.clone()),
+            };
+            let duration = crate::future::block_on(profile.resolve()).duration();
+            durations.push(duration);
+        }
 
-            for _ in 0..self.num_samples() {
-                let profile = match timing_method {
-                    TimingMethod::System => self.profile_full(args.clone()),
-                    TimingMethod::Device => self.profile(args.clone()),
-                };
-                let duration = crate::future::block_on(profile.resolve());
-                durations.push(duration);
-            }
-
-            BenchmarkDurations {
-                timing_method,
-                durations,
-            }
+        BenchmarkDurations {
+            timing_method,
+            durations,
         }
     }
 }
@@ -339,7 +234,6 @@ impl Display for BenchmarkResult {
     }
 }
 
-#[cfg(feature = "std")]
 /// Runs the given benchmark on the device and prints result and information.
 pub fn run_benchmark<BM>(benchmark: BM) -> BenchmarkResult
 where

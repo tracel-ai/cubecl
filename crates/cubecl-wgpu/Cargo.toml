@@ -24,6 +24,7 @@ msl = ["cubecl-cpp/metal"]
 spirv = ["cubecl-spirv", "ash"]
 
 spirv-dump = ["sanitize-filename"]
+profile-tracy = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }

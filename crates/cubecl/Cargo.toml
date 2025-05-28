@@ -26,6 +26,12 @@ reduce = ["dep:cubecl-reduce"]
 random = ["dep:cubecl-random"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
+compilation-cache = [
+    "cubecl-cuda?/compilation-cache",
+    "cubecl-hip?/compilation-cache",
+]
+profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
+
 
 # Runtimes
 cuda = ["cubecl-cuda"]
@@ -35,11 +41,6 @@ hip-intrinsic = ["cubecl-hip?/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
-
-compilation-cache = [
-    "cubecl-cuda?/compilation-cache",
-    "cubecl-hip?/compilation-cache",
-]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
