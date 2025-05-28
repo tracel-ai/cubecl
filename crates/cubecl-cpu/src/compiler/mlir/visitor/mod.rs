@@ -1,3 +1,11 @@
+pub(super) mod block;
+pub(super) mod elem;
+pub(super) mod instruction;
+pub(super) mod item;
+pub(super) mod operation;
+pub(super) mod operator;
+pub(super) mod variable;
+
 use std::collections::HashMap;
 
 use cubecl_core::prelude::KernelDefinition;
@@ -6,7 +14,8 @@ use melior::{
     Context,
     dialect::func,
     ir::{
-        Attribute, Block, BlockLike, BlockRef, Identifier, Location, Region, RegionLike, Value,
+        Attribute, Block, BlockLike, BlockRef, Identifier, Location, Operation, Region, RegionLike,
+        Value,
         attribute::{StringAttribute, TypeAttribute},
         r#type::FunctionType,
     },
@@ -36,6 +45,17 @@ impl<'a> Visitor<'a> {
 
     pub fn block(&self) -> BlockRef<'a, 'a> {
         self.block_stack.last().unwrap().clone()
+    }
+
+    pub fn append_operation_with_result(
+        &self,
+        operation: impl Into<Operation<'a>>,
+    ) -> Value<'a, 'a> {
+        self.block()
+            .append_operation(operation.into())
+            .result(0)
+            .unwrap()
+            .into()
     }
 
     pub(super) fn visit_kernel<'b: 'a>(

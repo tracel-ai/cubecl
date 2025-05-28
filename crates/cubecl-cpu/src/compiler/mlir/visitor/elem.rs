@@ -5,7 +5,7 @@ use cubecl_core::ir::FloatKind;
 use cubecl_runtime::DeviceProperties;
 use melior::ir::Type;
 
-use super::visitor::Visitor;
+use super::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn elem_to_type(&self, elem: Elem) -> Type<'a> {
