@@ -1,9 +1,6 @@
 use ash::{
     khr::cooperative_matrix,
-    vk::{
-        ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, EXT_ROBUSTNESS2_NAME, ScopeKHR,
-        TRUE,
-    },
+    vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
 };
 use cubecl_core::{
     AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
@@ -173,6 +170,7 @@ fn register_features(
             props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
         }
     }
+
     if let Some(atomic_float2) = &extended_feat.atomic_float2 {
         if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
             props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
@@ -209,7 +207,7 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         Elem::AtomicUInt(UIntKind::U32),
         Elem::AtomicUInt(UIntKind::U64),
         Elem::Float(FloatKind::F32),
-        //Elem::Float(FloatKind::F64),
+        // Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];
 
@@ -228,9 +226,9 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
             register(Elem::AtomicFloat(FloatKind::F32));
-            register(Elem::AtomicFloat(FloatKind::F64));
         }
     }
+
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
             register(Elem::AtomicFloat(FloatKind::F16));
@@ -311,22 +309,11 @@ pub(crate) fn compile(
     compiled
 }
 
-fn is_robust(device: &wgpu::Device) -> bool {
-    fn is_robust(device: &vulkan::Device) -> bool {
-        device
-            .enabled_device_extensions()
-            .contains(&EXT_ROBUSTNESS2_NAME)
-    }
-    unsafe {
-        device.as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
-    }
-}
-
 #[cfg(feature = "spirv-dump")]
 fn dump_spirv(
     compiled: &CompiledKernel<AutoCompiler>,
     name: &str,
-    id: cubecl_common::id::KernelId,
+    id: cubecl_runtime::id::KernelId,
 ) {
     use std::{
         fs,

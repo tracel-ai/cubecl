@@ -328,12 +328,10 @@ fn fill_coordinate_line(
 ) -> Line<u32> {
     match comptime!(line_mode) {
         LineMode::Parallel => {
-            let mut coordinates = Line::empty(line_size).fill(first);
-            if line_size > 1 {
-                #[unroll]
-                for j in 0..line_size {
-                    coordinates[j] += j;
-                }
+            let mut coordinates = Line::empty(line_size);
+            #[unroll]
+            for j in 0..line_size {
+                coordinates[j] = first + j;
             }
             coordinates
         }

@@ -2,8 +2,8 @@ use cubecl_common::ExecutionMode;
 use cubecl_ir::{Allocator, ExpandElement, Instruction, Operation, Operator, Processor, Scope};
 
 use crate::{
-    io::read_tensor_checked,
-    prelude::{FloatExpand, Line, expand_checked_index_assign},
+    io::{read_tensor_atomic_checked, read_tensor_checked},
+    prelude::{Line, NumericExpand, expand_checked_index_assign},
 };
 
 #[derive(new)]
@@ -29,19 +29,32 @@ impl Processor for CheckedIoProcessor {
                 match operator {
                     Operator::Index(op) => {
                         let has_length = op.list.has_length();
-                        let is_not_atomic = !op.list.elem().is_atomic();
 
-                        if has_length && is_not_atomic {
+                        if has_length {
                             let list = ExpandElement::Plain(op.list);
                             let index = ExpandElement::Plain(op.index);
                             let mut scope = Scope::root(false).with_allocator(allocator.clone());
-                            scope.register_elem::<FloatExpand<0>>(op.list.elem());
+                            scope.register_elem::<NumericExpand<0>>(op.list.elem());
 
-                            let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
-                                &mut scope,
-                                list.into(),
-                                index.into(),
-                            );
+                            let input = if op.list.elem().is_atomic() {
+                                // Atomic can't really be checked, since the pointer needs to be
+                                // valid, so the kernel will probably not output the correct value if
+                                // not manually checked later, but will at least avoid out-of-bounds
+                                // memory access.
+                                read_tensor_atomic_checked::expand::<NumericExpand<0>>(
+                                    &mut scope,
+                                    list.into(),
+                                    index.into(),
+                                )
+                                .expand
+                            } else {
+                                read_tensor_checked::expand::<Line<NumericExpand<0>>>(
+                                    &mut scope,
+                                    list.into(),
+                                    index.into(),
+                                )
+                                .expand
+                            };
                             let tmp_processing = scope.process([]);
 
                             for inst in tmp_processing.instructions {
@@ -51,10 +64,9 @@ impl Processor for CheckedIoProcessor {
                                 processing.variables.push(var);
                             }
 
-                            processing.instructions.push(Instruction::new(
-                                Operation::Copy(*input.expand),
-                                instruction.out(),
-                            ));
+                            processing
+                                .instructions
+                                .push(Instruction::new(Operation::Copy(*input), instruction.out()));
                             continue;
                         }
                     }
