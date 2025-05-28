@@ -85,24 +85,5 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
 
             $crate::testgen_matmul_accelerated_precision!(OrderedDoubleBufferingAlgorithm<TMM>);
         }
-
-        // mod simple_cyclic_multi_row {
-        //     // TODO
-        // }
-
-        // #[test]
-        // pub fn double_buffering_multi_row_cyclic() {
-        //     // TODO
-        // }
-
-        // #[test]
-        // pub fn double_buffering_multi_row_tilewise() {
-        //     // TODO
-        // }
-
-        // #[test]
-        // pub fn double_buffering_multi_row_hybrid() {
-        //     // TODO
-        // }
     };
 }
