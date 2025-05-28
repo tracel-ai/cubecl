@@ -2,13 +2,13 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
 use crate::matmul::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::matmul::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
 };
-use crate::matmul::components::tile;
+use crate::matmul::components::{MatmulDim, tile};
+use crate::matmul::components::{MatmulProblem, TilingLevel};
 use crate::matmul::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
@@ -47,13 +47,13 @@ where
     type MatmulSelection = PlaneMatmulSelection;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_planes = selection.partitions_per_stage.m;
+        let num_planes = selection.tiling_scheme().partitions_in_stage_m();
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tile_count().m * selection.tile_shape.m;
-        let n_stage = selection.tile_count().n * selection.tile_shape.n;
+        let m_stage = selection.tiling_scheme().elements_in_stage_m();
+        let n_stage = selection.tiling_scheme().elements_in_stage_n();
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
@@ -106,13 +106,13 @@ where
     type MatmulSelection = PlaneMatmulSelection;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_planes = selection.partitions_per_stage.m;
+        let num_planes = selection.tiling_scheme().partitions_in_stage_m();
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tile_count().m * selection.tile_shape.m;
-        let n_stage = selection.tile_count().n * selection.tile_shape.n;
+        let m_stage = selection.tiling_scheme().elements_in_stage_m();
+        let n_stage = selection.tiling_scheme().elements_in_stage_n();
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 

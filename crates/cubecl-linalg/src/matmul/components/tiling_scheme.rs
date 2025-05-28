@@ -73,10 +73,10 @@ pub enum TilingLevel {
 }
 
 impl TilingScheme {
-    pub fn count_dim(
+    fn count_dim(
         &self,
-        parent_level: TilingLevel,
         child_level: TilingLevel,
+        parent_level: TilingLevel,
         dim: MatmulDim,
     ) -> u32 {
         self.try_count_dim(parent_level, child_level, dim)
@@ -85,10 +85,10 @@ impl TilingScheme {
             })
     }
 
-    pub fn try_count_dim(
+    fn try_count_dim(
         &self,
-        parent_level: TilingLevel,
         child_level: TilingLevel,
+        parent_level: TilingLevel,
         dim: MatmulDim,
     ) -> Option<u32> {
         use MatmulDim::*;
@@ -144,21 +144,62 @@ impl TilingScheme {
         }
     }
 
-    pub fn count_total(&self, parent: TilingLevel, child: TilingLevel) -> u32 {
+    fn count_total(&self, parent: TilingLevel, child: TilingLevel) -> u32 {
         self.try_count_total(parent, child)
             .unwrap_or_else(|| panic!("Invalid hierarchy: {parent:?} cannot contain {child:?}"))
     }
 
-    pub fn try_count_total(
-        &self,
-        parent_level: TilingLevel,
-        child_level: TilingLevel,
-    ) -> Option<u32> {
+    fn try_count_total(&self, parent_level: TilingLevel, child_level: TilingLevel) -> Option<u32> {
         let m = self.try_count_dim(parent_level, child_level, MatmulDim::M)?;
         let n = self.try_count_dim(parent_level, child_level, MatmulDim::N)?;
         let k = self.try_count_dim(parent_level, child_level, MatmulDim::K)?;
         Some(m * n * k)
     }
+}
+
+macro_rules! tiling_dim_method {
+    ($name:ident, $child:ident, $parent:ident, $dim:ident) => {
+        pub fn $name(&self) -> u32 {
+            self.count_dim(TilingLevel::$child, TilingLevel::$parent, MatmulDim::$dim)
+        }
+    };
+}
+
+macro_rules! tiling_total_method {
+    ($name:ident, $child:ident, $parent:ident) => {
+        pub fn $name(&self) -> u32 {
+            self.count_total(TilingLevel::$child, TilingLevel::$parent)
+        }
+    };
+}
+
+impl TilingScheme {
+    tiling_dim_method!(partitions_in_stage_m, Partition, Stage, M);
+    tiling_dim_method!(partitions_in_stage_n, Partition, Stage, N);
+    tiling_total_method!(partitions_in_stage_total, Partition, Stage);
+
+    tiling_dim_method!(tiles_in_stage_m, Tile, Stage, M);
+    tiling_dim_method!(tiles_in_stage_n, Tile, Stage, N);
+    tiling_dim_method!(tiles_in_stage_k, Tile, Stage, K);
+    tiling_total_method!(tiles_in_stage_total, Tile, Stage);
+
+    tiling_dim_method!(elements_in_stage_m, Element, Stage, M);
+    tiling_dim_method!(elements_in_stage_n, Element, Stage, N);
+    tiling_dim_method!(elements_in_stage_k, Element, Stage, K);
+    tiling_total_method!(elements_in_stage_total, Element, Stage);
+
+    tiling_dim_method!(tiles_in_partition_m, Tile, Partition, M);
+    tiling_dim_method!(tiles_in_partition_n, Tile, Partition, N);
+    tiling_total_method!(tiles_in_partition_total, Tile, Partition);
+
+    tiling_dim_method!(elements_in_partition_m, Element, Partition, M);
+    tiling_dim_method!(elements_in_partition_n, Element, Partition, N);
+    tiling_total_method!(elements_in_partition_total, Element, Partition);
+
+    tiling_dim_method!(elements_in_tile_m, Element, Tile, M);
+    tiling_dim_method!(elements_in_tile_n, Element, Tile, N);
+    tiling_dim_method!(elements_in_tile_k, Element, Tile, K);
+    tiling_total_method!(elements_in_tile_total, Element, Tile);
 }
 
 macro_rules! define_2d_shape {
