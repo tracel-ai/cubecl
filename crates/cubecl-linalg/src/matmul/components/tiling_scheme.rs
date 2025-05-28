@@ -1,9 +1,12 @@
-#[derive(Debug, Clone)]
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct TilingScheme {
-    tile_shape: TileShape,
-    tiles_per_partition: TilesPerPartition,
-    partitions_per_stage: PartitionsPerStage,
-    stage_k_tile_count: u32,
+    pub tile_shape: TileShape,
+    pub tiles_per_partition: TilesPerPartition,
+    pub partitions_per_stage: PartitionsPerStage,
+    pub stage_k_tile_count: u32,
 }
 
 impl TilingScheme {
@@ -79,7 +82,7 @@ impl TilingScheme {
         parent_level: TilingLevel,
         dim: MatmulDim,
     ) -> u32 {
-        self.try_count_dim(parent_level, child_level, dim)
+        self.try_count_dim(child_level, parent_level, dim)
             .unwrap_or_else(|| {
                 panic!("Invalid hierarchy: {parent_level:?} cannot contain {child_level:?}")
             })
@@ -94,30 +97,33 @@ impl TilingScheme {
         use MatmulDim::*;
         use TilingLevel::*;
 
-        match (parent_level, child_level) {
-            (parent, child) if parent == child => Some(1),
+        println!("{:?}", child_level);
+        println!("{:?}", parent_level);
 
-            (Stage, Partition) => Some(match dim {
+        match (child_level, parent_level) {
+            (child, parent) if child == parent => Some(1),
+
+            (Partition, Stage) => Some(match dim {
                 M => self.partitions_per_stage.m,
                 N => self.partitions_per_stage.n,
                 K => 1,
             }),
 
-            (Partition, Tile) => Some(match dim {
+            (Tile, Partition) => Some(match dim {
                 M => self.tiles_per_partition.m,
                 N => self.tiles_per_partition.n,
                 K => 1,
             }),
 
-            (Tile, Element) => Some(match dim {
+            (Element, Tile) => Some(match dim {
                 M => self.tile_shape.m,
                 N => self.tile_shape.n,
                 K => self.tile_shape.k,
             }),
 
-            (Stage, Tile) => {
-                let partitions_per_stage = self.try_count_dim(Stage, Partition, dim)?;
-                let tiles_per_partition = self.try_count_dim(Partition, Tile, dim)?;
+            (Tile, Stage) => {
+                let partitions_per_stage = self.try_count_dim(Partition, Stage, dim)?;
+                let tiles_per_partition = self.try_count_dim(Tile, Partition, dim)?;
 
                 // We must account for the k dim which is not considered in partitions
                 if let K = dim {
@@ -127,15 +133,15 @@ impl TilingScheme {
                 }
             }
 
-            (Stage, Element) => {
-                let tiles_per_stage = self.try_count_dim(Stage, Tile, dim)?;
-                let elements_per_tile = self.try_count_dim(Tile, Element, dim)?;
+            (Element, Stage) => {
+                let tiles_per_stage = self.try_count_dim(Tile, Stage, dim)?;
+                let elements_per_tile = self.try_count_dim(Element, Tile, dim)?;
                 Some(tiles_per_stage * elements_per_tile)
             }
 
-            (Partition, Element) => {
-                let tiles_per_partition = self.try_count_dim(Partition, Tile, dim)?;
-                let elements_per_tile = self.try_count_dim(Tile, Element, dim)?;
+            (Element, Partition) => {
+                let tiles_per_partition = self.try_count_dim(Tile, Partition, dim)?;
+                let elements_per_tile = self.try_count_dim(Element, Tile, dim)?;
                 Some(tiles_per_partition * elements_per_tile)
             }
 
@@ -144,15 +150,17 @@ impl TilingScheme {
         }
     }
 
-    fn count_total(&self, parent: TilingLevel, child: TilingLevel) -> u32 {
-        self.try_count_total(parent, child)
-            .unwrap_or_else(|| panic!("Invalid hierarchy: {parent:?} cannot contain {child:?}"))
+    fn count_total(&self, child_level: TilingLevel, parent_level: TilingLevel) -> u32 {
+        self.try_count_total(child_level, parent_level)
+            .unwrap_or_else(|| {
+                panic!("Invalid hierarchy: {parent_level:?} cannot contain {child_level:?}")
+            })
     }
 
-    fn try_count_total(&self, parent_level: TilingLevel, child_level: TilingLevel) -> Option<u32> {
-        let m = self.try_count_dim(parent_level, child_level, MatmulDim::M)?;
-        let n = self.try_count_dim(parent_level, child_level, MatmulDim::N)?;
-        let k = self.try_count_dim(parent_level, child_level, MatmulDim::K)?;
+    fn try_count_total(&self, child_level: TilingLevel, parent_level: TilingLevel) -> Option<u32> {
+        let m = self.try_count_dim(child_level, parent_level, MatmulDim::M)?;
+        let n = self.try_count_dim(child_level, parent_level, MatmulDim::N)?;
+        let k = self.try_count_dim(child_level, parent_level, MatmulDim::K)?;
         Some(m * n * k)
     }
 }
@@ -204,7 +212,7 @@ impl TilingScheme {
 
 macro_rules! define_2d_shape {
     ($name:ident) => {
-        #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+        #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
         pub struct $name {
             pub m: u32,
             pub n: u32,
@@ -219,6 +227,12 @@ macro_rules! define_2d_shape {
             }
         }
 
+        impl From<$name> for (u32, u32) {
+            fn from(value: $name) -> Self {
+                (value.m, value.n)
+            }
+        }
+
         impl $name {
             pub fn num_elems(&self) -> u32 {
                 self.m * self.n
@@ -229,7 +243,7 @@ macro_rules! define_2d_shape {
 
 macro_rules! define_3d_shape {
     ($name:ident) => {
-        #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+        #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
         pub struct $name {
             pub m: u32,
             pub n: u32,
@@ -246,6 +260,12 @@ macro_rules! define_3d_shape {
             }
         }
 
+        impl From<$name> for (u32, u32, u32) {
+            fn from(value: $name) -> Self {
+                (value.m, value.n, value.k)
+            }
+        }
+
         impl $name {
             pub fn num_elems(&self) -> u32 {
                 self.m * self.n * self.k
@@ -254,9 +274,9 @@ macro_rules! define_3d_shape {
     };
 }
 
-/// Number of tiles in a stage partition
+// Number of tiles in a stage partition
 define_2d_shape!(TilesPerPartition);
-/// Number of partitions in a stage
+// Number of partitions in a stage
 define_2d_shape!(PartitionsPerStage);
-/// Number of elements in a tile
+// Number of elements in a tile
 define_3d_shape!(TileShape);

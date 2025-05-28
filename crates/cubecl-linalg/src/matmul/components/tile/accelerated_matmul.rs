@@ -2,7 +2,7 @@ use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSize, MatrixLayout, as_cmma_layout,
+    MatmulProblem, MatmulSize, MatrixLayout, TileShape, as_cmma_layout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -16,7 +16,7 @@ pub struct AcceleratedMatmul;
 impl TileMatmulFamily for AcceleratedMatmul {
     type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
 
-    fn tile_shape(config: &Self::Config) -> MatmulSize {
+    fn tile_shape(config: &Self::Config) -> TileShape {
         config.size
     }
 
@@ -203,7 +203,7 @@ impl MatmulConfigFactory for AcceleratedMatmul {
                 )
             };
         Config::new(
-            input.size,
+            input.tile_shape,
             cube_dim.x,
             problem.lhs_layout,
             problem.rhs_layout,
@@ -218,7 +218,7 @@ impl MatmulConfigFactory for AcceleratedMatmul {
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated instruction
 pub struct Config {
-    size: MatmulSize,
+    size: TileShape,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -249,7 +249,7 @@ impl TileConfig for Config {
         }
     }
 
-    fn tile_shape(&self) -> &MatmulSize {
+    fn tile_shape(&self) -> &TileShape {
         &self.size
     }
 }
@@ -259,7 +259,7 @@ impl MatmulConfig for Config {}
 impl Config {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        size: MatmulSize,
+        size: TileShape,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,

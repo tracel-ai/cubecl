@@ -86,9 +86,8 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        let tiles_per_partition = config.tiles_per_partition();
-        let m_acc_count = tiles_per_partition.m;
-        let n_acc_count = tiles_per_partition.n;
+        let m_acc_count = config.tiling_scheme().tiles_in_partition_m();
+        let n_acc_count = config.tiling_scheme().tiles_in_partition_n();
         let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
         let start_m = m_acc_count * (SP::position() / num_acc_n);
         let start_n = n_acc_count * (SP::position() % num_acc_n);
@@ -120,13 +119,11 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        let partition_shape = config.tiles_per_partition();
-
         let tmm_config = config.to_tmm_config();
         let mut lhs = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(partition_shape.m) {
+        for _ in 0..comptime!(config.tiling_scheme().tiles_in_partition_m()) {
             lhs.push(TMM::allocate_lhs(tmm_config));
         }
 
@@ -242,7 +239,7 @@ where
 
         let m_iterations = acc.shape.m;
         let n_iterations = acc.shape.n;
-        let k_iterations = config.tiling.tile_count.k;
+        let k_iterations = config.tiling_scheme().tiles_in_stage_k();
 
         let mut k_iter = comptime![0u32];
         let mut lhs_load_counter = comptime![0];
@@ -348,7 +345,7 @@ where
 
         let m_iterations = acc.shape.m;
         let n_iterations = acc.shape.n;
-        let k_iterations = config.tiling.tile_count.k;
+        let k_iterations = config.tiling_scheme().tiles_in_stage_k();
 
         let mut k_iter = comptime![0u32];
 

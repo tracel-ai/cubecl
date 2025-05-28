@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_tma_partition_shape {
     ($algorithm: ty, $precision: ty, $tile: expr) => {
-        use $crate::matmul::components::stage::TilesPerPartition;
+        use $crate::matmul::components::TilesPerPartition;
 
         mod ps1x1 {
             use super::*;
@@ -19,7 +19,7 @@ macro_rules! testgen_matmul_tma_partition_shape {
 #[macro_export]
 macro_rules! testgen_matmul_tma_partition_count {
     ($algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr) => {
-        use $crate::matmul::components::stage::PartitionsPerStage;
+        use $crate::matmul::components::PartitionsPerStage;
 
         mod pc1x1 {
             use super::*;

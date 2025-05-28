@@ -15,7 +15,7 @@ use crate::{
     matmul::{
         components::{
             EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
-            MatmulLineSizes, MatmulPrecision, MatmulSize, MatmulSpec, OutputRuntimeArg,
+            MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
             stage::{
                 FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
@@ -289,11 +289,15 @@ where
             cube_count,
             false,
         );
-        let size = SMM::stage_shape(&smm_config);
-        let shape = SMM::tile_shape(&smm_config);
 
-        let num_stages =
-            num_stages::<R, MP>(client, &size, &shape, problem, smm_config.num_planes());
+        let stage_k = smm_config.tiling_scheme().elements_in_stage_k();
+
+        let num_stages = num_stages::<R, MP>(
+            client,
+            problem,
+            smm_config.num_planes(),
+            &smm_config.tiling_scheme(),
+        );
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
@@ -307,7 +311,7 @@ where
                 line_sizes.lhs as u32,
                 line_sizes.rhs as u32,
                 line_sizes.out as u32,
-                size.k,
+                stage_k,
                 input.loading_precompute_strategy,
                 input.loader_mode,
             ),
@@ -386,17 +390,19 @@ const MIN_STAGES_PER_PIPELINE: u32 = 32;
 
 fn num_stages<R: Runtime, MP: MatmulPrecision>(
     client: &ComputeClient<R::Server, R::Channel>,
-    stage_size: &MatmulSize,
-    tile_size: &MatmulSize,
     problem: &ConvolutionProblem,
     num_planes: u32,
+    tiling_scheme: &TilingScheme,
 ) -> u32 {
-    let inputs_stage_size = stage_size.m * stage_size.k + stage_size.k * stage_size.n;
+    let inputs_stage_size = tiling_scheme.elements_in_stage_m()
+        * tiling_scheme.elements_in_stage_k()
+        + tiling_scheme.elements_in_stage_k() * tiling_scheme.elements_in_stage_n();
     // u64 is the barrier, which is also in shared.
     // Just to ensure we don't go over by a few bytes accidentally.
     let inputs_stage_size_bytes =
         inputs_stage_size * size_of::<MP::ES>() as u32 + size_of::<u64>() as u32;
-    let output_stage_size = tile_size.m * tile_size.n * num_planes;
+    let output_stage_size =
+        tiling_scheme.elements_in_tile_m() * tiling_scheme.elements_in_tile_n() * num_planes;
     let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
 
     let max_smem = client.properties().hardware.max_shared_memory_size;
@@ -406,7 +412,8 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
 
     let mut num_stages = prev_power_of_two(max_stages as u64) as u32;
 
-    let num_tiles_k = (problem.k as u32).div_ceil(stage_size.k) / MIN_STAGES_PER_PIPELINE;
+    let num_tiles_k =
+        (problem.k as u32).div_ceil(tiling_scheme.elements_in_stage_k()) / MIN_STAGES_PER_PIPELINE;
 
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;

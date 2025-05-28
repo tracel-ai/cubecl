@@ -4,9 +4,9 @@ use crate::matmul::components::global::load::{
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::BufferStageToTileReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
+use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -79,13 +79,15 @@ where
             cube_count,
             quantized,
         );
-        let stage_shape = SMM::stage_shape(&smm_config);
+        let stage_shape_m = smm_config.tiling_scheme().elements_in_stage_m();
+        let stage_shape_n = smm_config.tiling_scheme().elements_in_stage_n();
+        let stage_shape_k = smm_config.tiling_scheme().elements_in_stage_k();
 
         DoubleBufferingGlobalConfig::new(
             smm_config,
-            problem.m as u32 % stage_shape.m != 0,
-            problem.n as u32 % stage_shape.n != 0,
-            problem.k as u32 % (2 * stage_shape.k) != 0,
+            problem.m as u32 % stage_shape_m != 0,
+            problem.n as u32 % stage_shape_n != 0,
+            problem.k as u32 % (2 * stage_shape_k) != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             line_sizes.lhs as u32,

@@ -1,6 +1,6 @@
 use crate::matmul::components::{
-    CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulPrecision, MatmulSize,
-    MatrixLayout, TilingDimensions,
+    Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilesPerPartition,
+    TilingDimensions, TilingScheme,
     global::AccumulatorLoader,
     stage::{StageBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
@@ -12,12 +12,11 @@ use cubecl_core as cubecl;
 /// Configuration for the single buffer matmul
 pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
-    pub tiling: CompleteStageTiling,
+    pub tiling_scheme: TilingScheme,
     pub num_planes: u32,
     pub quantized: bool,
     pub buffering: StageBuffering,
     pub num_stages: NumStages,
-    pub tiles_per_partition: TilesPerPartition,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -40,7 +39,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     }
 
     fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
-        self.tiling.get(ident)
+        TilingDimensions::new(&self.tiling_scheme, ident)
     }
 
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
@@ -55,10 +54,6 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.plane_dim()
     }
 
-    fn tile_count(&self) -> &MatmulSize {
-        &self.tiling.tile_count
-    }
-
     fn buffering(&self) -> StageBuffering {
         self.buffering
     }
@@ -70,8 +65,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         }
     }
 
-    fn tiles_per_partition(&self) -> TilesPerPartition {
-        self.tiles_per_partition
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.tiling_scheme
     }
 }
 
@@ -81,21 +76,19 @@ impl<T: TileConfig> CommonStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tmm_config: T,
-        tiling: CompleteStageTiling,
+        tiling_scheme: TilingScheme,
         num_planes: u32,
         quantized: bool,
         buffering: StageBuffering,
         num_stages: NumStages,
-        tiles_per_partition: TilesPerPartition,
     ) -> Self {
         Self {
             tmm_config,
-            tiling,
+            tiling_scheme,
             num_planes,
             quantized,
             buffering,
             num_stages,
-            tiles_per_partition,
         }
     }
 }
@@ -112,7 +105,7 @@ pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
 #[cube]
 impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
     pub fn new(#[comptime] config: CommonStageConfig<TMM::Config>) -> Accumulators<MP, TMM> {
-        let tiles_per_partition = config.tiles_per_partition();
+        let tiles_per_partition = config.tiling_scheme().tiles_per_partition;
         let mut accumulators = Sequence::new();
 
         #[unroll]
@@ -182,30 +175,3 @@ impl From<(u32, u32)> for NumStages {
         }
     }
 }
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-// TODO should be u8
-pub struct PartitionShape {
-    pub m: u32,
-    pub n: u32,
-}
-
-impl From<(u32, u32)> for PartitionShape {
-    fn from(value: (u32, u32)) -> Self {
-        PartitionShape {
-            m: value.0,
-            n: value.1,
-        }
-    }
-}
-
-impl PartitionShape {
-    pub fn num_elems(&self) -> u32 {
-        self.m * self.n
-    }
-}
-
-/// Number of tiles in a stage partition
-pub type TilesPerPartition = PartitionShape;
-/// Number of partitions in a stage
-pub type PartitionsPerStage = PartitionShape;

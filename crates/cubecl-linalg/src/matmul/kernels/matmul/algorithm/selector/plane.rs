@@ -21,8 +21,8 @@ pub struct PlaneMatmulSelection {
 }
 
 impl MatmulSelection for PlaneMatmulSelection {
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.tiling_scheme.clone()
+    fn tiling_scheme(&self) -> &TilingScheme {
+        &self.tiling_scheme
     }
 }
 

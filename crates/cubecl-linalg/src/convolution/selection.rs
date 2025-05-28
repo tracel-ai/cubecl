@@ -1,10 +1,10 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use super::{algorithm::Algorithm, base::ConvolutionProblem};
-use crate::matmul::components::stage::{PartitionsPerStage, TilesPerPartition};
+use crate::matmul::components::TilingScheme;
 use crate::matmul::kernels::matmul::{MatmulSelection, StageInput};
 use crate::matmul::{
-    components::{CompleteStageTiling, stage::StageVectorization, tile::TileMatmulFamily},
+    components::{stage::StageVectorization, tile::TileMatmulFamily},
     kernels::matmul::{
         NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, PlaneMatmulSelection, find_instruction_shape,
     },
@@ -18,24 +18,20 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
     elem_acc: Elem,
 ) -> (A::MatmulSelection, StageInput) {
     let selection = A::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc);
-    let tiling = CompleteStageTiling {
-        tile_shape: selection.tile_shape(),
-        tile_count: selection.tile_count(),
-    };
+    let tiling_scheme = selection.tiling_scheme().clone();
+
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
     };
-    let tiles_per_partition = selection.tiles_per_partition();
 
     (
         selection,
         StageInput {
-            tiling_scheme: tiling,
+            tiling_scheme,
             stage_buffering: A::stage_buffering_strategy(),
             stage_vectorization: vectorization,
             num_stages: A::num_stages(),
-            tiles_per_partition,
         },
     )
 }
@@ -142,21 +138,16 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         stage_k as usize,
     );
 
-    let tiles_per_partition = TilesPerPartition {
-        m: 1,
-        n: stage_size_n as u32,
-    };
-
-    let partitions_per_stage = PartitionsPerStage {
-        m: stage_size_m as u32,
-        n: 1,
-    };
+    let tiling_scheme = TilingScheme::builder()
+        .with_partitions_per_stage((stage_size_m as u32, 1).into())
+        .with_stage_k_tile_count(stage_k)
+        .with_tile_shape(tile_shape)
+        .with_tiles_per_partition((1, stage_size_n as u32).into())
+        .build()
+        .unwrap();
 
     PlaneMatmulSelection {
         plane_dim,
-        tile_shape,
-        tiles_per_partition,
-        partitions_per_stage,
-        stage_k,
+        tiling_scheme,
     }
 }

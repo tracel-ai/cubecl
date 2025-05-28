@@ -2,20 +2,20 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TileShape,
     config::MatmulConfig, stage::StageVectorization,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TileMatmulConfigInput {
     pub vectorization: StageVectorization,
-    pub size: MatmulSize,
+    pub tile_shape: TileShape,
 }
 
 pub trait TileMatmulFamily:
     MatmulConfigFactory<Input = TileMatmulConfigInput, Config: TileConfig>
 {
-    fn tile_shape(config: &Self::Config) -> MatmulSize;
+    fn tile_shape(config: &Self::Config) -> TileShape;
     fn requires_tensor_cores() -> bool;
 
     type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
@@ -111,7 +111,7 @@ pub trait TileConfig: MatmulConfig {
     fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the shape of the tiles in the three axes m, k and n.
-    fn tile_shape(&self) -> &MatmulSize;
+    fn tile_shape(&self) -> &TileShape;
 }
 
 #[derive(CubeType, Clone)]

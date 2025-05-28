@@ -9,15 +9,15 @@ const ARBITRARY_K_COUNT: u32 = 8;
 const TILE_DIM: u32 = 4;
 const TILES_PER_PARTITION_APPROX: TilesPerPartition = TilesPerPartition { m: 1, n: 1 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UnitMatmulSelection {
-    plane_dim: u32,
-    tiling_scheme: TilingScheme,
+    pub plane_dim: u32,
+    pub tiling_scheme: TilingScheme,
 }
 
 impl MatmulSelection for UnitMatmulSelection {
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.tiling_scheme.clone()
+    fn tiling_scheme(&self) -> &TilingScheme {
+        &self.tiling_scheme
     }
 }
 

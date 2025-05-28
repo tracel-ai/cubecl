@@ -3,7 +3,7 @@ use crate::{
         components::{
             InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::{args::MatmulArgs, load::LoaderMode},
-            stage::{NumStages, StageBuffering, StageMatmulFamily, TilesPerPartition},
+            stage::{NumStages, StageBuffering, StageMatmulFamily},
             tile::TileMatmulFamily,
         },
         kernels::{
@@ -36,11 +36,6 @@ pub trait Algorithm {
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
     fn num_stages() -> NumStages;
-
-    // TODO delete in favor of using selection directly
-    fn partition(selection: &Self::MatmulSelection) -> TilesPerPartition {
-        selection.tiles_per_partition()
-    }
 
     fn multi_row_strategy() -> MultiRowStrategy {
         MultiRowStrategy::Never

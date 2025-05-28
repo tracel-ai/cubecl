@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_layouts {
     ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr) => {
-        use $crate::matmul::components::{MatmulSize, MatrixLayout};
+        use $crate::matmul::components::MatrixLayout;
 
         mod rr {
             use super::*;

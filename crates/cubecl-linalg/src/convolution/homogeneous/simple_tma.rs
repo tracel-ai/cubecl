@@ -17,7 +17,10 @@ use crate::{
             EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
             MatmulPrecision, MatmulSpec, OutputRuntimeArg,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
-            stage::{FullReaderFamily, FullStageToTileReader, StageMatmul, StageMatmulFamily},
+            stage::{
+                FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
+                StageMatmulFamily,
+            },
         },
         kernels::{MatmulAvailabilityError, matmul::GlobalInput},
     },
@@ -219,7 +222,7 @@ where
             cube_count,
             false,
         );
-        let size = SMM::stage_shape(&smm_config);
+        let stage_k = smm_config.tiling_scheme().elements_in_stage_k();
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
@@ -233,7 +236,7 @@ where
                 line_sizes.lhs as u32,
                 line_sizes.rhs as u32,
                 line_sizes.out as u32,
-                size.k,
+                stage_k,
                 input.loading_precompute_strategy,
                 input.loader_mode,
             ),

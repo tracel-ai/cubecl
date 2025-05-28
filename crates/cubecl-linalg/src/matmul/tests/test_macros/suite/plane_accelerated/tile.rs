@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! testgen_matmul_accelerated_tile {
     ($algorithm: ty, $precision: ty, $constrained: ident) => {
+        use $crate::matmul::components::TileShape;
+
         #[cfg(target_os = "macos")]
         mod tl8x8x8 {
             use super::*;
@@ -8,7 +10,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 8, n: 8, k: 8 },
+                TileShape { m: 8, n: 8, k: 8 },
                 $constrained
             );
         }
@@ -20,7 +22,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                MatmulSize {
+                TileShape {
                     m: 16,
                     n: 16,
                     k: 16
@@ -36,7 +38,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 32, n: 8, k: 16 },
+                TileShape { m: 32, n: 8, k: 16 },
                 $constrained
             );
         }
@@ -48,7 +50,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 8, n: 32, k: 16 },
+                TileShape { m: 8, n: 32, k: 16 },
                 $constrained
             );
         }
@@ -60,7 +62,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition_shape!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 16, n: 16, k: 8 },
+                TileShape { m: 16, n: 16, k: 8 },
                 $constrained
             );
         }

@@ -9,6 +9,7 @@ use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::load::AsyncLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::problem::MatmulLineSizes;
+use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::{FullReaderFamily, FullStageToTileReader};
 use crate::matmul::kernels::matmul::GlobalInput;
@@ -93,19 +94,21 @@ where
             cube_count,
             quantized,
         );
-        let stage_shape = SMM::stage_shape(&smm_config);
+        let stage_shape_m = smm_config.tiling_scheme().elements_in_stage_m();
+        let stage_shape_n = smm_config.tiling_scheme().elements_in_stage_n();
+        let stage_shape_k = smm_config.tiling_scheme().elements_in_stage_k();
 
         Config::new(
             smm_config,
-            problem.m as u32 % stage_shape.m != 0,
-            problem.n as u32 % stage_shape.n != 0,
-            problem.k as u32 % stage_shape.k != 0,
+            problem.m as u32 % stage_shape_m != 0,
+            problem.n as u32 % stage_shape_n != 0,
+            problem.k as u32 % stage_shape_k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             line_sizes.lhs as u32,
             line_sizes.rhs as u32,
             line_sizes.out as u32,
-            stage_shape.k,
+            stage_shape_k,
             input.loading_precompute_strategy,
             input.loader_mode,
         )

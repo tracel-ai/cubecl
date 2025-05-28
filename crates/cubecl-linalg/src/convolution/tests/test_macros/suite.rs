@@ -2,11 +2,9 @@ use crate::convolution::{
     algorithm::Algorithm, args::ConvInputsLaunch, base::Dimensionality,
     tests::test_utils::TestPrecision,
 };
-use crate::matmul::components::stage::{PartitionsPerStage, StageVectorization, TilesPerPartition};
-use crate::matmul::components::{CompleteStageTiling, MatrixLayout};
-use crate::matmul::kernels::matmul::{
-    GlobalInput, MatmulSelection, PlaneMatmulSelection, StageInput,
-};
+use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::{MatrixLayout, TileShape, TilingScheme};
+use crate::matmul::kernels::matmul::{GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::{
     convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
 };
@@ -86,30 +84,24 @@ pub fn test_algo<
         dimensionality: Dimensionality::Dim2,
     };
 
-    // Assuming these tiles per partition
-    let tiles_per_partition = TilesPerPartition {
-        m: 1,
-        n: tile_count.n,
+    // TODO change MatmulSize for TileShape in input, but needs refactoring whole macro
+    let tile_shape = TileShape {
+        m: tile_shape.m,
+        n: tile_shape.n,
+        k: tile_shape.k,
     };
 
-    let partitions_per_stage = PartitionsPerStage {
-        m: tile_count.m,
-        n: 1,
-    };
-
-    let stage_size_k = tile_count.k;
+    let tiling_scheme = TilingScheme::builder()
+        .with_partitions_per_stage((tile_count.m, 1).into())
+        .with_stage_k_tile_count(tile_count.k)
+        .with_tile_shape(tile_shape)
+        .with_tiles_per_partition((1, tile_count.n).into())
+        .build()
+        .unwrap();
 
     let selection = PlaneMatmulSelection {
-        tile_shape,
-        tiles_per_partition,
-        partitions_per_stage,
-        stage_k: stage_size_k,
         plane_dim,
-    };
-
-    let tiling = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count(),
+        tiling_scheme: tiling_scheme.clone(),
     };
 
     let vectorization = StageVectorization {
@@ -121,11 +113,10 @@ pub fn test_algo<
         problem,
         GlobalInput {
             stage_input: StageInput {
-                tiling_scheme: tiling,
+                tiling_scheme,
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
-                tiles_per_partition,
             },
             loading_precompute_strategy: A::loading_precompute_strategy(),
             loader_mode: A::loader_mode(),

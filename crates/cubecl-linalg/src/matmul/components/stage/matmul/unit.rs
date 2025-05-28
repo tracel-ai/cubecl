@@ -5,11 +5,10 @@ use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
 use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
-    MatmulSize,
-};
 use crate::matmul::components::{Ident, MatmulProblem};
+use crate::matmul::components::{
+    InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
+};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::kernels::matmul::StageInput;
 use core::marker::PhantomData;
@@ -50,18 +49,6 @@ pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
 }
 
 impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFamily<TMM, RF> {
-    fn stage_shape(config: &Self::Config) -> MatmulSize {
-        config.tiling.total_shape()
-    }
-
-    fn tile_count(config: &Self::Config) -> MatmulSize {
-        config.tiling.tile_count
-    }
-
-    fn tile_shape(config: &Self::Config) -> MatmulSize {
-        config.tiling.tile_shape
-    }
-
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
@@ -74,7 +61,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        let tiles_per_partition = config.tiles_per_partition();
+        let tiles_per_partition = config.tiling_scheme().tiles_per_partition;
         let acc_per_unit = tiles_per_partition.num_elems();
 
         if num_acc % acc_per_unit != 0 {
@@ -116,30 +103,21 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = stage_input.tiling_scheme.tile_shape;
-        let tile_count = stage_input.tiling_scheme.tile_count;
-
         let tile_input = TileMatmulConfigInput {
             vectorization: stage_input.stage_vectorization,
-            size: tile_shape,
+            tile_shape: stage_input.tiling_scheme.tile_shape,
         };
         let tmm_config = TMM::make_config(
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
 
-        let tiling = CompleteStageTiling {
-            tile_shape,
-            tile_count,
-        };
-
         CommonStageConfig::new(
             tmm_config,
-            tiling,
+            stage_input.tiling_scheme,
             cube_dim.y,
             quantized,
             stage_input.stage_buffering,
             stage_input.num_stages,
-            stage_input.tiles_per_partition,
         )
     }
 }

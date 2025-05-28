@@ -4,10 +4,9 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::matmul::kernels::matmul::MatmulSelection;
 
 use super::problem::MatmulLineSizes;
-use super::{MatmulPrecision, MatmulProblem, MatmulSize};
+use super::{MatmulPrecision, MatmulProblem, TilingScheme};
 
 pub type InvalidConfigError = Box<dyn Display>;
 
@@ -127,51 +126,27 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Aggregation of [StageTiling]s for all components.
-pub struct CompleteStageTiling {
-    pub tile_shape: MatmulSize,
-    pub tile_count: MatmulSize,
-}
-
-impl<M: MatmulSelection> From<&M> for CompleteStageTiling {
-    fn from(matmul_selection: &M) -> Self {
-        CompleteStageTiling {
-            tile_shape: matmul_selection.tile_shape(),
-            tile_count: matmul_selection.tile_count(),
-        }
-    }
-}
-
-impl CompleteStageTiling {
-    pub fn get(&self, ident: Ident) -> TilingDimensions {
+impl TilingDimensions {
+    pub fn new(tiling_scheme: &TilingScheme, ident: Ident) -> TilingDimensions {
         match ident {
             Ident::Lhs => TilingDimensions {
-                tile_shape_row: self.tile_shape.m,
-                tile_shape_col: self.tile_shape.k,
-                tile_count_row: self.tile_count.m,
-                tile_count_col: self.tile_count.k,
+                tile_shape_row: tiling_scheme.elements_in_tile_m(),
+                tile_shape_col: tiling_scheme.elements_in_tile_k(),
+                tile_count_row: tiling_scheme.tiles_in_stage_m(),
+                tile_count_col: tiling_scheme.tiles_in_stage_k(),
             },
             Ident::Rhs => TilingDimensions {
-                tile_shape_row: self.tile_shape.k,
-                tile_shape_col: self.tile_shape.n,
-                tile_count_row: self.tile_count.k,
-                tile_count_col: self.tile_count.n,
+                tile_shape_row: tiling_scheme.elements_in_tile_k(),
+                tile_shape_col: tiling_scheme.elements_in_tile_n(),
+                tile_count_row: tiling_scheme.tiles_in_stage_k(),
+                tile_count_col: tiling_scheme.tiles_in_stage_n(),
             },
             Ident::Out => TilingDimensions {
-                tile_shape_row: self.tile_shape.m,
-                tile_shape_col: self.tile_shape.n,
-                tile_count_row: self.tile_count.m,
-                tile_count_col: self.tile_count.n,
+                tile_shape_row: tiling_scheme.elements_in_tile_m(),
+                tile_shape_col: tiling_scheme.elements_in_tile_n(),
+                tile_count_row: tiling_scheme.tiles_in_stage_m(),
+                tile_count_col: tiling_scheme.tiles_in_stage_n(),
             },
-        }
-    }
-
-    pub fn total_shape(&self) -> MatmulSize {
-        MatmulSize {
-            m: self.tile_shape.m * self.tile_count.m,
-            n: self.tile_shape.n * self.tile_count.n,
-            k: self.tile_shape.k * self.tile_count.k,
         }
     }
 }

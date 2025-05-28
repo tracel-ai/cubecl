@@ -3,14 +3,14 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
-    TilingDimensions,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
+    TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter},
     tile::TileConfig,
 };
 
-use super::{StageEventListener, StageToTileReader, TilesPerPartition, TilingLayout};
+use super::{StageEventListener, StageToTileReader, TilingLayout};
 
 pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
@@ -21,15 +21,6 @@ pub trait StageMatmulFamily:
 {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
-
-    /// Returns the shape of the stage. This is the number of elements per axis.
-    fn stage_shape(config: &Self::Config) -> MatmulSize;
-
-    /// Returns the number of tiles in each axis of the stage.
-    fn tile_count(config: &Self::Config) -> MatmulSize;
-
-    /// Returns the number of tiles in each axis of the stage.
-    fn tile_shape(config: &Self::Config) -> MatmulSize;
 
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
@@ -158,15 +149,11 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 
-    fn tile_count(&self) -> &MatmulSize;
-
     fn buffering(&self) -> StageBuffering;
 
     fn num_stages(&self, ident: InputIdent) -> u32;
 
-    /// Returns a pair stating the number of tile matmuls for one
-    /// execution primitive in m and n respectfully
-    fn tiles_per_partition(&self) -> TilesPerPartition;
+    fn tiling_scheme(&self) -> TilingScheme;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

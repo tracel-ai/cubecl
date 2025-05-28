@@ -16,7 +16,7 @@ use crate::matmul::{
 use cubecl_core::frontend::CubePrimitive;
 
 pub trait MatmulSelection {
-    fn tiling_scheme(&self) -> TilingScheme;
+    fn tiling_scheme(&self) -> &TilingScheme;
 }
 
 /// Select which kernel to launch for the given Algorithm.
@@ -53,8 +53,6 @@ where
         &selection,
     ));
 
-    let tiling_scheme = selection.tiling_scheme();
-
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -75,7 +73,7 @@ where
         &line_sizes,
         GlobalInput {
             stage_input: StageInput {
-                tiling_scheme,
+                tiling_scheme: selection.tiling_scheme().clone(),
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
@@ -111,7 +109,6 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         &selection,
     ));
 
-    let tiling_scheme = selection.tiling_scheme();
     let vectorization = StageVectorization {
         stage_line_size: 0,
         stage_elem_padding: 0,
@@ -124,7 +121,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         &line_sizes,
         GlobalInput {
             stage_input: StageInput {
-                tiling_scheme,
+                tiling_scheme: selection.tiling_scheme().clone(),
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
