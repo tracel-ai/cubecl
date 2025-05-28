@@ -1,8 +1,8 @@
-use alloc::{borrow::Cow, rc::Rc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
+use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, SourceLoc, TypeHash};
 
 use super::{
     Allocator, Elem, Id, Instruction, Item, Variable, VariableKind, processing::ScopeProcessing,
@@ -100,6 +100,12 @@ impl Scope {
             },
             typemap: Default::default(),
         }
+    }
+
+    /// Shift variable ids.
+    pub fn with_allocator(mut self, allocator: Allocator) -> Self {
+        self.allocator = allocator;
+        self
     }
 
     /// Create a new matrix element.
@@ -210,7 +216,10 @@ impl Scope {
     ///
     /// New operations and variables can be created within the same scope without having name
     /// conflicts.
-    pub fn process(&mut self) -> ScopeProcessing {
+    pub fn process(
+        &mut self,
+        processors: impl IntoIterator<Item = Box<dyn Processor>>,
+    ) -> ScopeProcessing {
         let mut variables = core::mem::take(&mut self.locals);
 
         for var in self.matrices.drain(..) {
@@ -225,11 +234,17 @@ impl Scope {
 
         variables.extend(self.allocator.take_variables());
 
-        ScopeProcessing {
+        let mut processing = ScopeProcessing {
             variables,
             instructions,
         }
-        .optimize()
+        .optimize();
+
+        for p in processors {
+            processing = p.transform(processing, self.allocator.clone());
+        }
+
+        processing
     }
 
     pub fn new_local_index(&self) -> u32 {

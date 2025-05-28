@@ -8,6 +8,8 @@ pub mod frontend;
 /// Input Output utilities.
 pub mod io;
 
+pub mod post_processing;
+
 /// Some future utilities that work across environments.
 pub use cubecl_common::{PLANE_DIM_APPROX, future};
 

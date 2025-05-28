@@ -7,7 +7,6 @@ use crate::{
     item::{Elem, Item},
     lookups::Array,
 };
-use cubecl_common::ExecutionMode;
 use cubecl_core::ir::{self, ConstantScalarValue, FloatKind, Id};
 use rspirv::{
     dr::Builder,
@@ -586,9 +585,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn read_indexed(&mut self, out: &Variable, variable: &Variable, index: &Variable) -> Word {
-        let checked = matches!(self.mode, ExecutionMode::Checked) && variable.has_len();
         let always_in_bounds = is_always_in_bounds(variable, index);
-        let index_id = self.read(index);
         let indexed = self.index(variable, index, always_in_bounds);
 
         let read = |b: &mut Self| match indexed {
@@ -620,11 +617,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 out_id
             }
         };
-        if checked && !always_in_bounds {
-            self.compile_read_bound(variable, index_id, variable.item(), read)
-        } else {
-            read(self)
-        }
+
+        read(self)
     }
 
     pub fn read_indexed_unchecked(
@@ -701,9 +695,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn write_indexed(&mut self, out: &Variable, index: &Variable, value: Word) {
-        let checked = matches!(self.mode, ExecutionMode::Checked) && out.has_len();
         let always_in_bounds = is_always_in_bounds(out, index);
-        let index_id = self.read(index);
         let variable = self.index(out, index, always_in_bounds);
 
         let write = |b: &mut Self| match variable {
@@ -724,11 +716,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             IndexedVariable::Scalar(var) => b.write(&var, value),
         };
-        if checked && !always_in_bounds {
-            self.compile_write_bound(out, index_id, write);
-        } else {
-            write(self)
-        }
+
+        write(self)
     }
 
     pub fn write_indexed_unchecked(&mut self, out: &Variable, index: &Variable, value: Word) {

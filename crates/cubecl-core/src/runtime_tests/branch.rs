@@ -2,19 +2,17 @@ use crate::{self as cubecl, as_bytes};
 
 use cubecl::prelude::*;
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 pub fn kernel_switch_simple<F: Float>(output: &mut Array<F>, case: u32) {
-    if UNIT_POS == 0 {
-        match case {
-            0 => {
-                output[0] = F::new(1.0);
-            }
-            1 => {
-                output[0] = F::new(3.0);
-            }
-            _ => {
-                output[0] = F::new(5.0);
-            }
+    match case {
+        0 => {
+            output[0] = F::new(1.0);
+        }
+        1 => {
+            output[0] = F::new(3.0);
+        }
+        _ => {
+            output[0] = F::new(5.0);
         }
     }
 }
@@ -55,15 +53,17 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(
 ) {
     let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
-    let vectorization = 2;
+    let vectorization = 1;
 
-    kernel_switch_simple::launch::<F, R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
-        ScalarArg::new(0),
-    );
+    unsafe {
+        kernel_switch_simple::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::default(),
+            ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization),
+            ScalarArg::new(0),
+        );
+    }
 
     let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);

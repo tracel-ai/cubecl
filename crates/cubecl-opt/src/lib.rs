@@ -34,8 +34,10 @@ use std::{
 
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable, VariableKind,
+    self as core, Allocator, Branch, Id, Item, Operation, Operator, Processor, Scope, Variable,
+    VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
@@ -146,7 +148,6 @@ pub struct Optimizer {
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
-    #[allow(unused)]
     pub(crate) mode: ExecutionMode,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
 }
@@ -348,7 +349,8 @@ impl Optimizer {
 
     /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
-        let processed = scope.process();
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.mode));
+        let processed = scope.process([checked_io]);
 
         for var in processed.variables {
             if let VariableKind::LocalMut { id } = var.kind {

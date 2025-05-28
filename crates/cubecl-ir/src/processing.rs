@@ -1,11 +1,17 @@
+use core::fmt::Display;
+
 use alloc::vec::Vec;
 
-use crate::{AtomicOp, Bitwise, Comparison, Operator};
+use crate::{Allocator, AtomicOp, Bitwise, Comparison, Operator};
 
 use super::{
     Arithmetic, Branch, CoopMma, Elem, Instruction, Metadata, Operation, UIntKind, Variable,
     VariableKind,
 };
+
+pub trait Processor {
+    fn transform(&self, processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing;
+}
 
 /// Information necessary when compiling a scope.
 pub struct ScopeProcessing {
@@ -13,6 +19,16 @@ pub struct ScopeProcessing {
     pub variables: Vec<Variable>,
     /// The operations.
     pub instructions: Vec<Instruction>,
+}
+
+impl Display for ScopeProcessing {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for inst in self.instructions.iter() {
+            f.write_fmt(format_args!("{inst}\n"))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl ScopeProcessing {

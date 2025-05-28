@@ -38,6 +38,7 @@ pub use non_semantic::*;
 pub use operation::*;
 pub use operator::*;
 pub use plane::*;
+pub use processing::*;
 pub use reflect::*;
 pub use scope::*;
 pub use synchronization::*;

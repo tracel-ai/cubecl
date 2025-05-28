@@ -1,4 +1,3 @@
-use cubecl_common::ExecutionMode;
 use cubecl_core::ir::{
     self as core, BinaryOperator, Comparison, Instruction, Operation, Operator, UnaryOperator,
 };
@@ -151,8 +150,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
 
                 if is_atomic {
-                    let checked = matches!(self.mode, ExecutionMode::Checked) && value.has_len();
-                    let ptr = match self.index(&value, &index, !checked) {
+                    let ptr = match self.index(&value, &index, true) {
                         IndexedVariable::Pointer(ptr, _) => ptr,
                         _ => unreachable!("Atomic is always pointer"),
                     };
@@ -252,18 +250,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let in_ptr = self.index_ptr(&input, &in_index);
                 let out_ptr = self.index_ptr(&out, &out_index);
-                let checked =
-                    matches!(self.mode, ExecutionMode::Checked) && input.has_len() && out.has_len();
-                if checked {
-                    let in_index = self.read(&in_index);
-                    let out_index = self.read(&out_index);
-                    self.compile_copy_bound(&input, &out, in_index, out_index, None, |b| {
-                        b.copy_memory(out_ptr, in_ptr, None, None, vec![]).unwrap();
-                    });
-                } else {
-                    self.copy_memory(out_ptr, in_ptr, None, None, vec![])
-                        .unwrap();
-                }
+                self.copy_memory(out_ptr, in_ptr, None, None, vec![])
+                    .unwrap();
             }
             Operator::CopyMemoryBulk(op) => {
                 self.capabilities.insert(Capability::Addresses);
@@ -276,19 +264,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let source = self.index_ptr(&input, &in_index);
                 let target = self.index_ptr(&out, &out_index);
                 let size = self.const_u32(len * out.item().size());
-                let checked =
-                    matches!(self.mode, ExecutionMode::Checked) && input.has_len() && out.has_len();
-                if checked {
-                    let in_index = self.read(&in_index);
-                    let out_index = self.read(&out_index);
-                    self.compile_copy_bound(&input, &out, in_index, out_index, Some(size), |b| {
-                        b.copy_memory_sized(target, source, size, None, None, vec![])
-                            .unwrap();
-                    });
-                } else {
-                    self.copy_memory_sized(target, source, size, None, None, vec![])
-                        .unwrap();
-                }
+                self.copy_memory_sized(target, source, size, None, None, vec![])
+                    .unwrap();
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }
