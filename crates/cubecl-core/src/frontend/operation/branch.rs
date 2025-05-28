@@ -1,10 +1,10 @@
+use cubecl_macros::intrinsic;
+
+use crate as cubecl;
+use crate::prelude::{CubePrimitive, Line};
 use crate::{
     ir::{Operator, Scope, Select},
     prelude::*,
-};
-use crate::{
-    prelude::{CubePrimitive, Line},
-    unexpanded,
 };
 
 /// Executes both branches, *then* selects a value based on the condition. This *should* be
@@ -19,13 +19,14 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
 }
 
 /// Same as [select()] but with lines instead.
+#[cube]
 #[allow(unused_variables)]
 pub fn select_many<C: CubePrimitive>(
     condition: Line<bool>,
     then: Line<C>,
     or_else: Line<C>,
 ) -> Line<C> {
-    unexpanded!()
+    intrinsic!(|scope| select::expand(scope, condition.expand.into(), then, or_else))
 }
 
 pub mod select {
@@ -60,18 +61,5 @@ pub mod select {
         scope.register(Instruction::new(select, out));
 
         output.into()
-    }
-}
-
-pub mod select_many {
-    use super::*;
-
-    pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
-        condition: ExpandElementTyped<Line<bool>>,
-        then: ExpandElementTyped<Line<C>>,
-        or_else: ExpandElementTyped<Line<C>>,
-    ) -> ExpandElementTyped<Line<C>> {
-        select::expand(scope, condition.expand.into(), then, or_else)
     }
 }

@@ -597,8 +597,13 @@ impl Display for Instruction {
             Instruction::Assign { input, out } => {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
+
                 if out.elem().is_atomic() {
-                    writeln!(f, "let {out} = &{input};")
+                    if !input.is_atomic() {
+                        writeln!(f, "let {out} = {input};")
+                    } else {
+                        writeln!(f, "let {out} = &{input};")
+                    }
                 } else if vec_left != vec_right {
                     if vec_right == 1 {
                         let input = input.fmt_cast_to(out.item());

@@ -889,24 +889,14 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::Index(op) => {
+            cube::Operator::Index(op) | cube::Operator::UncheckedIndex(op) => {
                 instructions.push(wgsl::Instruction::Index {
                     lhs: self.compile_variable(op.list),
                     rhs: self.compile_variable(op.index),
                     out: self.compile_variable(out),
                 });
             }
-            cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
-                lhs: self.compile_variable(op.list),
-                rhs: self.compile_variable(op.index),
-                out: self.compile_variable(out),
-            }),
-            cube::Operator::IndexAssign(op) => instructions.push(wgsl::Instruction::IndexAssign {
-                index: self.compile_variable(op.index),
-                rhs: self.compile_variable(op.value),
-                out: self.compile_variable(out),
-            }),
-            cube::Operator::UncheckedIndexAssign(op) => {
+            cube::Operator::IndexAssign(op) | cube::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
                     index: self.compile_variable(op.index),
                     rhs: self.compile_variable(op.value),
