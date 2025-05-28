@@ -37,6 +37,10 @@ impl Processor for CheckedIoProcessor {
                             scope.register_elem::<NumericExpand<0>>(op.list.elem());
 
                             let input = if op.list.elem().is_atomic() {
+                                // Atomic can't really be checked, since the pointer needs to be
+                                // valid, so the kernel will probably not output the correct value if
+                                // not manually checked later, but will at least avoid out-of-bounds
+                                // memory access.
                                 read_tensor_atomic_checked::expand::<NumericExpand<0>>(
                                     &mut scope,
                                     list.into(),
