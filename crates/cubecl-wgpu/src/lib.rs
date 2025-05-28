@@ -32,19 +32,15 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_std::testgen!();
-    cubecl_linalg::testgen_matmul_unit!();
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_linalg::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
-<<<<<<< HEAD
-=======
 
     // Deactivated for CI
     // cubecl_linalg::testgen_matmul_unit!();
->>>>>>> main
 }
 
 #[cfg(all(test, feature = "spirv"))]

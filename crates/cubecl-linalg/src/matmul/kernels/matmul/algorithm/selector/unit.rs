@@ -36,13 +36,6 @@ pub fn unit_matmul_selection(problem: &MatmulProblem, plane_dim: u32) -> UnitMat
 
 /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
 fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
-    let tile_shape = MatmulSize {
-        m: TILE_DIM,
-        n: TILE_DIM,
-        k: TILE_DIM,
-    };
-    let tiles_per_partition = TILES_PER_PARTITION_APPROX;
-
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_shape((TILE_DIM, TILE_DIM, TILE_DIM).into())
@@ -60,17 +53,7 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmul
 
 /// (M, K) @ (K, 1) → (M, 1)
 fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
-    let tile_shape = MatmulSize {
-        m: TILE_DIM,
-        n: 1,
-        k: TILE_DIM,
-    };
-    let tiles_per_partition = TILES_PER_PARTITION_APPROX;
-
     let num_units = NUM_PLANES_APPROX * plane_dim;
-    let partitions_per_stage = PartitionsPerStage { m: num_units, n: 1 };
-    let stage_k = ARBITRARY_K_COUNT;
-
     let tiling_scheme = TilingScheme::builder()
         .with_tile_shape((TILE_DIM, 1, TILE_DIM).into())
         .with_tiles_per_partition(TILES_PER_PARTITION_APPROX)
@@ -87,13 +70,6 @@ fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
 
 /// (1, K) @ (K, N) → (1, N)
 fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
-    let tile_shape = MatmulSize {
-        m: 1,
-        n: TILE_DIM,
-        k: TILE_DIM,
-    };
-    let tiles_per_partition = TILES_PER_PARTITION_APPROX;
-
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_shape((1, TILE_DIM, TILE_DIM).into())
@@ -111,13 +87,6 @@ fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
 
 /// (1, 1) @ (1, N) → (1, N)
 fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
-    let tile_shape = MatmulSize {
-        m: 1,
-        n: TILE_DIM,
-        k: 1,
-    };
-    let tiles_per_partition = TILES_PER_PARTITION_APPROX;
-
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_shape((1, TILE_DIM, 1).into())
@@ -135,13 +104,6 @@ fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
 
 /// (M, 1) @ (1, 1) → (M, 1)
 fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
-    let tile_shape = MatmulSize {
-        m: TILE_DIM,
-        n: 1,
-        k: 1,
-    };
-    let tiles_per_partition = TILES_PER_PARTITION_APPROX;
-
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_shape((TILE_DIM, 1, 1).into())
@@ -175,13 +137,6 @@ fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Unit
 
 /// (M, 1) @ (1, N) → (M, N)
 fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
-    let tile_shape = MatmulSize {
-        m: TILE_DIM,
-        n: TILE_DIM,
-        k: 1,
-    };
-    let tiles_per_partition = TILES_PER_PARTITION_APPROX;
-
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_shape((TILE_DIM, TILE_DIM, 1).into())
