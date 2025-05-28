@@ -57,7 +57,7 @@ pub fn test_algo<
         problem,
         GlobalInput {
             stage_input: StageInput {
-                tiling,
+                tiling_scheme: tiling,
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),

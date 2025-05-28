@@ -1,8 +1,60 @@
+#[derive(Debug, Clone)]
 pub struct TilingScheme {
     tile_shape: TileShape,
     tiles_per_partition: TilesPerPartition,
     partitions_per_stage: PartitionsPerStage,
     stage_k_tile_count: u32,
+}
+
+impl TilingScheme {
+    pub fn builder() -> TilingSchemeBuilder {
+        TilingSchemeBuilder::default()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct TilingSchemeBuilder {
+    tile_shape: Option<TileShape>,
+    tiles_per_partition: Option<TilesPerPartition>,
+    partitions_per_stage: Option<PartitionsPerStage>,
+    stage_k_tile_count: Option<u32>,
+}
+
+impl TilingSchemeBuilder {
+    pub fn with_tile_shape(mut self, tile_shape: TileShape) -> Self {
+        self.tile_shape = Some(tile_shape);
+        self
+    }
+
+    pub fn with_tiles_per_partition(mut self, tiles_per_partition: TilesPerPartition) -> Self {
+        self.tiles_per_partition = Some(tiles_per_partition);
+        self
+    }
+
+    pub fn with_partitions_per_stage(mut self, partitions_per_stage: PartitionsPerStage) -> Self {
+        self.partitions_per_stage = Some(partitions_per_stage);
+        self
+    }
+
+    pub fn with_stage_k_tile_count(mut self, stage_k_tile_count: u32) -> Self {
+        self.stage_k_tile_count = Some(stage_k_tile_count);
+        self
+    }
+
+    pub fn build(self) -> Result<TilingScheme, &'static str> {
+        Ok(TilingScheme {
+            tile_shape: self.tile_shape.ok_or("Missing tile_shape")?,
+            tiles_per_partition: self
+                .tiles_per_partition
+                .ok_or("Missing tiles_per_partition")?,
+            partitions_per_stage: self
+                .partitions_per_stage
+                .ok_or("Missing partitions_per_stage")?,
+            stage_k_tile_count: self
+                .stage_k_tile_count
+                .ok_or("Missing stage_k_tile_count")?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -108,6 +160,7 @@ impl TilingScheme {
         Some(m * n * k)
     }
 }
+
 macro_rules! define_2d_shape {
     ($name:ident) => {
         #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -166,5 +219,3 @@ define_2d_shape!(TilesPerPartition);
 define_2d_shape!(PartitionsPerStage);
 /// Number of elements in a tile
 define_3d_shape!(TileShape);
-/// Number of tiles in the stage
-define_3d_shape!(StageTileCount);

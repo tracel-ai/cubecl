@@ -116,8 +116,8 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = stage_input.tiling.tile_shape;
-        let tile_count = stage_input.tiling.tile_count;
+        let tile_shape = stage_input.tiling_scheme.tile_shape;
+        let tile_count = stage_input.tiling_scheme.tile_count;
 
         let tile_input = TileMatmulConfigInput {
             vectorization: stage_input.stage_vectorization,

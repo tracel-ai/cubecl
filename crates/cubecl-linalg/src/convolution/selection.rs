@@ -31,7 +31,7 @@ pub fn select_matmul<A: Algorithm, R: Runtime>(
     (
         selection,
         StageInput {
-            tiling,
+            tiling_scheme: tiling,
             stage_buffering: A::stage_buffering_strategy(),
             stage_vectorization: vectorization,
             num_stages: A::num_stages(),

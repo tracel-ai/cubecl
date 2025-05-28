@@ -4,8 +4,8 @@ use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
-use crate::matmul::components::stage::{PartitionsPerStage, TilesPerPartition};
-use crate::matmul::components::{MatmulProblem, MatmulSize, tile::TileMatmulFamily};
+use crate::matmul::components::{MatmulProblem, tile::TileMatmulFamily};
+use crate::matmul::components::{PartitionsPerStage, TileShape, TilesPerPartition, TilingScheme};
 use crate::matmul::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
@@ -17,27 +17,12 @@ const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 #[derive(Debug)]
 pub struct PlaneMatmulSelection {
     pub plane_dim: u32,
-    pub tile_shape: MatmulSize,
-    pub tiles_per_partition: TilesPerPartition,
-    pub partitions_per_stage: PartitionsPerStage,
-    pub stage_k: u32,
+    pub tiling_scheme: TilingScheme,
 }
 
 impl MatmulSelection for PlaneMatmulSelection {
-    fn tile_shape(&self) -> MatmulSize {
-        self.tile_shape
-    }
-
-    fn tile_count(&self) -> MatmulSize {
-        MatmulSize {
-            m: self.tiles_per_partition.m * self.partitions_per_stage.m,
-            n: self.tiles_per_partition.n * self.partitions_per_stage.n,
-            k: self.stage_k,
-        }
-    }
-
-    fn tiles_per_partition(&self) -> TilesPerPartition {
-        self.tiles_per_partition
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.tiling_scheme.clone()
     }
 }
 
@@ -103,12 +88,17 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // Makes all rows the length of plane_dim
     let stage_k = plane_dim / tile_shape.k;
 
+    let tiling_scheme = TilingScheme::builder()
+        .with_tile_shape(tile_shape)
+        .with_tiles_per_partition(tiles_per_partition)
+        .with_partitions_per_stage(partitions_per_stage)
+        .with_stage_k_tile_count(stage_k)
+        .build()
+        .unwrap();
+
     PlaneMatmulSelection {
+        tiling_scheme,
         plane_dim,
-        tile_shape,
-        tiles_per_partition,
-        partitions_per_stage,
-        stage_k,
     }
 }
 
@@ -191,7 +181,7 @@ pub(crate) fn find_instruction_shape(
     properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
     m: usize,
     n: usize,
-) -> MatmulSize {
+) -> TileShape {
     let supported = |m: u8, n: u8, k: u8| {
         properties
             .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))

@@ -1,10 +1,8 @@
 use crate::matmul::components::global::load::LoaderMode;
-use crate::matmul::components::stage::{
-    NumStages, StageBuffering, StageVectorization, TilesPerPartition,
-};
+use crate::matmul::components::stage::{NumStages, StageBuffering, StageVectorization};
 use crate::matmul::components::{
-    CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    batch, global, stage, tile,
+    MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
+    global, stage, tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
@@ -19,11 +17,10 @@ pub struct GlobalInput<SI> {
 }
 
 pub struct StageInput {
-    pub tiling: CompleteStageTiling,
+    pub tiling_scheme: TilingScheme,
     pub stage_buffering: stage::StageBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
-    pub tiles_per_partition: TilesPerPartition,
 }
 
 pub enum MultiRowStrategy {
