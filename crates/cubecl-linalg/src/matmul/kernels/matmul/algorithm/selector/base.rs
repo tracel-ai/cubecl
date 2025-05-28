@@ -1,7 +1,7 @@
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::matmul::components::stage::StageVectorization;
+use crate::matmul::components::stage::{StageVectorization, TilesPerPartition};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSize, OutputRuntimeArg,
 };
@@ -18,6 +18,7 @@ use cubecl_core::frontend::CubePrimitive;
 pub trait MatmulSelection {
     fn tile_shape(&self) -> MatmulSize;
     fn tile_count(&self) -> MatmulSize;
+    fn tiles_per_partition(&self) -> TilesPerPartition;
 }
 
 /// Select which kernel to launch for the given Algorithm.
@@ -83,7 +84,7 @@ where
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
-                accumulator_count: A::accumulator_count(&selection),
+                tiles_per_partition: selection.tiles_per_partition(),
             },
             loading_precompute_strategy: A::loading_precompute_strategy(),
             loader_mode: A::loader_mode(),
@@ -136,7 +137,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
                 stage_buffering: A::stage_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
-                accumulator_count: A::accumulator_count(&selection),
+                tiles_per_partition: selection.tiles_per_partition(),
             },
             loading_precompute_strategy: A::loading_precompute_strategy(),
             loader_mode: A::loader_mode(),

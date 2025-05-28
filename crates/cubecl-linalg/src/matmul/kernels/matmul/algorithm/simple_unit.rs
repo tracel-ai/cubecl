@@ -1,4 +1,4 @@
-use super::{UnitMatmulSelection, base, unit_matmul_selection};
+use super::{MatmulSelection, UnitMatmulSelection, base, unit_matmul_selection};
 use cubecl_core::{ir::Elem, prelude::*};
 use std::marker::PhantomData;
 
@@ -9,10 +9,7 @@ use crate::matmul::components::{
         self,
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
     },
-    stage::{
-        self, AccumulatorCount, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder,
-        StageBuffering,
-    },
+    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, StageBuffering},
     tile,
 };
 
@@ -73,17 +70,15 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_acc = selection.tile_count.m * selection.tile_count.n;
-        let acc_per_unit = selection.accumulator_count.num_tiles();
-        let num_units_needed = num_acc.div_ceil(acc_per_unit);
+        let num_units_needed = selection.tiles_per_partition.num_elems();
         let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tile_count.m * selection.tile_shape.m;
-        let n_stage = selection.tile_count.n * selection.tile_shape.n;
+        let m_stage = selection.tile_count().m * selection.tile_shape.m;
+        let n_stage = selection.tile_count().n * selection.tile_shape.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
@@ -98,10 +93,6 @@ where
         _elem_acc: Elem,
     ) -> Self::MatmulSelection {
         unit_matmul_selection(problem, plane_dim)
-    }
-
-    fn accumulator_count(selection: &Self::MatmulSelection) -> AccumulatorCount {
-        selection.accumulator_count
     }
 
     fn stage_buffering_strategy() -> StageBuffering {

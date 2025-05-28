@@ -1,6 +1,6 @@
 use crate::matmul::components::global::load::LoaderMode;
 use crate::matmul::components::stage::{
-    AccumulatorCount, NumStages, StageBuffering, StageVectorization,
+    NumStages, StageBuffering, StageVectorization, TilesPerPartition,
 };
 use crate::matmul::components::{
     CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
@@ -23,7 +23,7 @@ pub struct StageInput {
     pub stage_buffering: stage::StageBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
-    pub accumulator_count: AccumulatorCount,
+    pub tiles_per_partition: TilesPerPartition,
 }
 
 pub enum MultiRowStrategy {
@@ -74,15 +74,6 @@ pub trait Algorithm {
 
     fn num_stages() -> NumStages {
         (1, 1).into()
-    }
-
-    fn accumulator_count(selection: &Self::MatmulSelection) -> AccumulatorCount {
-        // Default behaviour for algorithms using PlaneMatmul
-        (
-            selection.tile_count().m / Self::cube_dim(selection).y,
-            selection.tile_count().n,
-        )
-            .into()
     }
 
     fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {

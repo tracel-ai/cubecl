@@ -3,7 +3,7 @@ use crate::{
         components::{
             InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::{args::MatmulArgs, load::LoaderMode},
-            stage::{AccumulatorCount, NumStages, StageBuffering, StageMatmulFamily},
+            stage::{NumStages, StageBuffering, StageMatmulFamily, TilesPerPartition},
             tile::TileMatmulFamily,
         },
         kernels::{
@@ -37,13 +37,9 @@ pub trait Algorithm {
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
     fn num_stages() -> NumStages;
 
-    fn accumulator_count(selection: &Self::MatmulSelection) -> AccumulatorCount {
-        // Default behaviour for algorithms using PlaneMatmul
-        (
-            selection.tile_count().m / Self::cube_dim(selection).y,
-            selection.tile_count().n,
-        )
-            .into()
+    // TODO delete in favor of using selection directly
+    fn partition(selection: &Self::MatmulSelection) -> TilesPerPartition {
+        selection.tiles_per_partition()
     }
 
     fn multi_row_strategy() -> MultiRowStrategy {
