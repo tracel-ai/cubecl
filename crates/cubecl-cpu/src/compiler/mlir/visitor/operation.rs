@@ -1,7 +1,7 @@
 use cubecl_core::ir::{Arithmetic, Operation, Variable};
 use melior::{dialect::arith, ir::BlockLike};
 
-use super::visitor::Visitor;
+use super::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
