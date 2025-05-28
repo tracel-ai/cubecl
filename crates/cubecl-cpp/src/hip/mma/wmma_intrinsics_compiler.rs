@@ -276,7 +276,7 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 let output_idx = match layout {
                     FragmentLayout::ColMajor => format!("wmmaLane * {stride} + rowIdx"),
                     FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * {stride}"),
-                    FragmentLayout::_Dialect(_) => format!(""),
+                    FragmentLayout::_Dialect(_) => String::new(),
                 };
                 write!(
                     f,
@@ -386,7 +386,7 @@ fn frag_as_ptr<D: Dialect>(
     writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
 
     if item.vectorization > 1 {
-        let mut item_value = item.clone();
+        let mut item_value = item;
         item_value.vectorization = 1;
         frag_ptr.reinterpret_ptr(f, item_value)
     } else {

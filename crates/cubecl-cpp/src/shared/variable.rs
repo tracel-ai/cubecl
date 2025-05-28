@@ -345,7 +345,7 @@ impl<D: Dialect> Variable<D> {
 
         let elem = out.elem();
         let qualifier = out.const_qualifier();
-        let addr_space = D::address_space_for_variable(&self);
+        let addr_space = D::address_space_for_variable(self);
         let out_fmt = out.fmt_left();
 
         writeln!(
