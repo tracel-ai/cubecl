@@ -1,10 +1,8 @@
 pub mod mlir;
-pub mod passes;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
 use cubecl_opt::OptimizerBuilder;
 use mlir::MlirEngine;
-use passes::builtin_replace::BuiltinReplace;
 
 #[derive(Clone, Debug, Default)]
 pub struct MlirCompiler {}
@@ -23,9 +21,7 @@ impl Compiler for MlirCompiler {
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
-        let opt = OptimizerBuilder::default()
-            .with_transformer(BuiltinReplace)
-            .optimize(kernel.body.clone(), kernel.cube_dim, mode);
+        let opt = OptimizerBuilder::default().optimize(kernel.body.clone(), kernel.cube_dim, mode);
         println!("{}", opt);
         MlirEngine::from_cubecl_ir(kernel, &opt)
     }

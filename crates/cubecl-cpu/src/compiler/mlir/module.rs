@@ -22,27 +22,27 @@ pub(super) struct Module<'a> {
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context) -> Self {
         let location = Location::unknown(context);
-        // let module = melior::ir::Module::parse(
-        //     context,
-        //     r#"
-        //     module {
-        //       func.func @kernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>, %arg2: memref<?xf32>) attributes {llvm.emit_c_interface} {
-        //         %cc1 = arith.constant 4 : index
-        //         %cc0 = arith.constant 0 : index
-        //         %cc1024 = arith.constant 64 : index
-        //         scf.for %i = %cc0 to %cc1024 step %cc1 {
-        //             %0 = vector.load %arg0[%i] : memref<?xf32>, vector<4xf32>
-        //             %1 = vector.load %arg1[%i] : memref<?xf32>, vector<4xf32>
-        //             %2 = arith.addf %0, %1 : vector<4xf32>
-        //             vector.store %1, %arg2[%i] : memref<?xf32>, vector<4xf32>
-        //             scf.yield
-        //         }
-        //         return
-        //       }
-        //     }
-        //     "#,
-        // ).unwrap();
-        let module = melior::ir::Module::new(location);
+        let module = melior::ir::Module::parse(
+            context,
+            r#"
+            module {
+              func.func @kernel(%arg0: memref<?xvector<4xf32>>, %arg1: memref<?xvector<4xf32>>, %arg2: memref<?xvector<4xf32>>, %cube_dim_x: index, %cube_dim_y: index, %cube_dim_z: index, %cube_count_x: index, %cube_count_y: index, %cube_count_z: index, %cube_pos_x: index, %cube_pos_y: index, %cube_pos_z: index) -> index attributes {llvm.emit_c_interface} {
+                %cc1 = arith.constant 1 : index
+                %cc0 = arith.constant 0 : index
+                %cc64 = arith.constant 64 : index
+                scf.for %i = %cc0 to %cube_dim_x step %cc1 {
+                   %0 = vector.load %arg0[%i] : memref<?xvector<4xf32>>, vector<4xf32>
+                   %1 = vector.load %arg1[%i] : memref<?xvector<4xf32>>, vector<4xf32>
+                   %2 = arith.addf %0, %1 : vector<4xf32>
+                   vector.store %2, %arg2[%i] : memref<?xvector<4xf32>>, vector<4xf32>
+                   scf.yield
+                }
+                return %cube_dim_x : index
+              }
+            }
+            "#,
+        ).unwrap();
+        // let module = melior::ir::Module::new(location);
         Self {
             module,
             context,
@@ -51,7 +51,7 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition, opt: &Optimizer) {
-        Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module, opt);
+        // Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module, opt);
     }
 
     pub(super) fn run_pass(&mut self) {

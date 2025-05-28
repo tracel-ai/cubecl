@@ -1,7 +1,7 @@
 use cubecl_core::ir::Item;
 use melior::ir::{Type, r#type::MemRefType};
 
-use super::visitor::Visitor;
+use super::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn item_to_type(&self, item: Item) -> Type<'a> {

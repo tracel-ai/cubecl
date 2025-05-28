@@ -1,7 +1,7 @@
 use cubecl_opt::{NodeIndex, Optimizer};
 use melior::ir::BlockRef;
 
-use super::visitor::Visitor;
+use super::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn visit_basic_block(

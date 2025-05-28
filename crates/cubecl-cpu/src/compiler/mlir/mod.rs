@@ -1,17 +1,12 @@
-pub(super) mod block;
-pub(super) mod elem;
-pub(super) mod instruction;
-pub(super) mod item;
+pub mod builtin;
 pub(super) mod memref;
 pub mod module;
-pub(super) mod operation;
-pub(super) mod operator;
-pub(super) mod variable;
 pub(super) mod visitor;
 
+use builtin::Builtin;
 use cubecl_opt::Optimizer;
-pub use elem::register_supported_types;
 use memref::LineMemRef;
+pub use visitor::elem::register_supported_types;
 
 use std::fmt::{Debug, Display};
 
@@ -19,12 +14,13 @@ use cubecl_core::prelude::KernelDefinition;
 use melior::{Context, ExecutionEngine, dialect::DialectRegistry, utility::register_all_dialects};
 use module::Module;
 
-const MAX_BUFFER_SIZE: usize = 16;
+const MAX_BUFFER_SIZE: usize = 128;
 
 pub struct MlirEngine {
     args_zero_indirection: Vec<LineMemRef>,
-    args_first_indirection: Vec<*mut LineMemRef>,
+    args_first_indirection: Vec<*mut ()>,
     args_second_indirection: Vec<*mut ()>,
+    pub builtin: Builtin,
     execution_engine: ExecutionEngine,
 }
 
@@ -60,11 +56,14 @@ impl MlirEngine {
         let args_zero_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
         let args_first_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
         let args_second_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
+        let mut builtin = Builtin::default();
+        builtin.set_cube_dim(kernel.cube_dim);
         Self {
             execution_engine,
             args_zero_indirection,
             args_first_indirection,
             args_second_indirection,
+            builtin,
         }
     }
 
@@ -77,16 +76,27 @@ impl MlirEngine {
         let first_box = LineMemRef::new(pointer);
         self.args_zero_indirection.push(first_box);
         let undirected = self.args_zero_indirection.last_mut().unwrap() as *mut LineMemRef;
-        self.args_first_indirection.push(undirected);
-        let undirected = self.args_first_indirection.last_mut().unwrap() as *mut *mut LineMemRef;
+        self.args_first_indirection.push(undirected as *mut ());
+        let undirected = self.args_first_indirection.last_mut().unwrap() as *mut *mut ();
         self.args_second_indirection.push(undirected as *mut ());
     }
 
+    pub fn push_builtin(&mut self) {
+        for arg in self.builtin.dims.iter_mut() {
+            self.args_second_indirection
+                .push(arg as *mut u64 as *mut ());
+        }
+    }
+
     pub unsafe fn run_kernel(&mut self) {
+        let mut result = u64::MAX;
+        let mut t = self.args_second_indirection.clone();
+        t.push(&mut result as *mut u64 as *mut ());
         unsafe {
             self.execution_engine
-                .invoke_packed("kernel", self.args_second_indirection.as_mut())
+                .invoke_packed("kernel", t.as_mut())
                 .unwrap()
         }
+        println!("{:?}", result);
     }
 }

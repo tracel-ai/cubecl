@@ -132,7 +132,7 @@ impl ComputeServer for CpuServer {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        _count: CubeCount,
+        count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         _logger: Arc<ServerLogger>,
@@ -156,8 +156,25 @@ impl ComputeServer for CpuServer {
                 execution_engine.push_buffer(ptr);
             }
         }
-        unsafe {
-            execution_engine.run_kernel();
+        let cube_count = match count {
+            CubeCount::Static(x, y, z) => (x, y, z),
+            CubeCount::Dynamic(_binding) => todo!("Needs to figure it later"),
+        };
+        execution_engine.push_builtin();
+        execution_engine.builtin.set_cube_count(cube_count);
+        let (cube_dim_x, cube_dim_y, cube_dim_z) = execution_engine.builtin.get_cube_dim();
+        // Will be multithreaded later
+        for cube_pos_x in 0..cube_dim_x {
+            execution_engine.builtin.set_cube_pos_x(cube_pos_x);
+            for cube_pos_y in 0..cube_dim_y {
+                execution_engine.builtin.set_cube_pos_y(cube_pos_y);
+                for cube_pos_z in 0..cube_dim_z {
+                    execution_engine.builtin.set_cube_pos_z(cube_pos_z);
+                    unsafe {
+                        execution_engine.run_kernel();
+                    }
+                }
+            }
         }
     }
 

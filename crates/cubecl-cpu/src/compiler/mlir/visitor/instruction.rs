@@ -1,6 +1,6 @@
 use cubecl_core::ir::Instruction;
 
-use super::visitor::Visitor;
+use super::Visitor;
 
 impl<'a> Visitor<'a> {
     pub fn visit_instruction(&mut self, instruction: &Instruction) {
