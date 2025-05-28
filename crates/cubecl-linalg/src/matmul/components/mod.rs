@@ -7,6 +7,7 @@ mod base;
 mod config;
 mod problem;
 mod spec;
+mod tiling_scheme;
 
 pub use base::*;
 pub use config::*;
