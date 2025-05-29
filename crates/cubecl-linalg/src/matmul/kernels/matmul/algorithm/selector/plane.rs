@@ -5,7 +5,7 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::components::{MatmulProblem, tile::TileMatmulFamily};
-use crate::matmul::components::{PartitionsPerStage, TileSize, TilesPerPartition, TilingScheme};
+use crate::matmul::components::{PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::matmul::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
@@ -75,24 +75,23 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.m,
     );
 
-    let tiles_per_partition = TilesPerPartition {
+    let tiles_per_partition = PartitionSize {
         m: rows_per_plane as u32,
         n: partition_shape_n as u32,
+        // Makes all rows the length of plane_dim
+        k: plane_dim / tile_size.k,
     };
 
-    let partitions_per_stage = PartitionsPerStage {
+    let partitions_per_stage = StageSize {
         m: stage_size_m as u32,
         n: 1,
+        k: 1,
     };
-
-    // Makes all rows the length of plane_dim
-    let stage_k = plane_dim / tile_size.k;
 
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size(tile_size)
-        .with_tiles_per_partition(tiles_per_partition)
+        .with_partition_size(tiles_per_partition)
         .with_partitions_per_stage(partitions_per_stage)
-        .with_stage_k_tile_count(stage_k)
         .build()
         .unwrap();
 

@@ -143,11 +143,11 @@ where
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.to_smm_config().stage_line_size(Ident::Out);
+        let out_smem_line_size = stage_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
-        let m_iterations = acc.shape.m;
-        let n_iterations = acc.shape.n;
+        let m_iterations = global_config.tiling_scheme().tiles_in_partition_m();
+        let n_iterations = global_config.tiling_scheme().tiles_in_partition_n();
 
         let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * comptime!(SP::num_primitives(stage_config)),
@@ -171,7 +171,7 @@ where
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
-                let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter);
+                let accumulator = Self::Accumulator::get_at(acc, m_iter, n_iter, stage_config);
                 TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
                 Self::Writer::write::<G>(
                     out,
@@ -237,9 +237,9 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let m_iterations = acc.shape.m;
-        let n_iterations = acc.shape.n;
-        let k_iterations = config.tiling_scheme().tiles_in_stage_k();
+        let m_iterations = config.tiling_scheme().tiles_in_partition_m();
+        let n_iterations = config.tiling_scheme().tiles_in_partition_n();
+        let k_iterations = config.tiling_scheme().tiles_in_partition_k();
 
         let mut k_iter = comptime![0u32];
         let mut lhs_load_counter = comptime![0];
@@ -298,7 +298,8 @@ where
                 #[allow(clippy::explicit_counter_loop)]
                 #[unroll]
                 for _ in 0..m_iterations {
-                    let accumulator = Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter);
+                    let accumulator =
+                        Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter, config);
                     TMM::execute(
                         lhs_fragment.index(m_iter),
                         rhs_fragment,
@@ -343,9 +344,9 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let m_iterations = acc.shape.m;
-        let n_iterations = acc.shape.n;
-        let k_iterations = config.tiling_scheme().tiles_in_stage_k();
+        let m_iterations = config.tiling_scheme().tiles_in_partition_m();
+        let n_iterations = config.tiling_scheme().tiles_in_partition_n();
+        let k_iterations = config.tiling_scheme().tiles_in_partition_k();
 
         let mut k_iter = comptime![0u32];
 
@@ -431,7 +432,8 @@ where
                 #[allow(clippy::explicit_counter_loop)]
                 #[unroll]
                 for _ in 0..m_iterations {
-                    let accumulator = Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter);
+                    let accumulator =
+                        Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter, config);
 
                     TMM::execute(
                         lhs_fragment.index(m_iter),
@@ -465,7 +467,7 @@ where
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
-                let accumulator = Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter);
+                let accumulator = Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter, config);
                 TMM::execute(
                     lhs_fragment.index(m_iter),
                     last,

@@ -139,10 +139,9 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     );
 
     let tiling_scheme = TilingScheme::builder()
-        .with_partitions_per_stage((stage_size_m as u32, 1).into())
-        .with_stage_k_tile_count(stage_k)
+        .with_partitions_per_stage((stage_size_m as u32, 1, 1).into())
         .with_tile_size(tile_size)
-        .with_tiles_per_partition((1, stage_size_n as u32).into())
+        .with_partition_size((1, stage_size_n as u32, stage_k).into())
         .build()
         .unwrap();
 

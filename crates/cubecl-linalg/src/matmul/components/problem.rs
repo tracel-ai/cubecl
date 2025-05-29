@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::matmul::kernels::MatmulInvalidProblem;
 
-use super::{Ident, MatmulProblemShape, MatrixLayout, batch};
+use super::{Ident, MatmulProblemSize, MatrixLayout, batch};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
@@ -174,8 +174,8 @@ pub enum MatmulKind {
     ScalarProduct,
 }
 
-impl From<MatmulProblemShape> for MatmulKind {
-    fn from(matmul_size: MatmulProblemShape) -> Self {
+impl From<MatmulProblemSize> for MatmulKind {
+    fn from(matmul_size: MatmulProblemSize) -> Self {
         enum DimKind {
             Scalar,
             Vector,
@@ -208,9 +208,9 @@ impl From<MatmulProblemShape> for MatmulKind {
     }
 }
 
-impl From<MatmulProblem> for MatmulProblemShape {
+impl From<MatmulProblem> for MatmulProblemSize {
     fn from(problem: MatmulProblem) -> Self {
-        MatmulProblemShape {
+        MatmulProblemSize {
             m: problem.m as u32,
             n: problem.n as u32,
             k: problem.k as u32,
@@ -220,7 +220,7 @@ impl From<MatmulProblem> for MatmulProblemShape {
 
 impl From<MatmulProblem> for MatmulKind {
     fn from(problem: MatmulProblem) -> Self {
-        MatmulProblemShape {
+        MatmulProblemSize {
             m: problem.m as u32,
             n: problem.n as u32,
             k: problem.k as u32,
@@ -231,7 +231,7 @@ impl From<MatmulProblem> for MatmulKind {
 
 impl From<&MatmulProblem> for MatmulKind {
     fn from(problem: &MatmulProblem) -> Self {
-        MatmulProblemShape {
+        MatmulProblemSize {
             m: problem.m as u32,
             n: problem.n as u32,
             k: problem.k as u32,

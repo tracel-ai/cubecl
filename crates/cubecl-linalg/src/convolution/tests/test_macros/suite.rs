@@ -101,10 +101,9 @@ pub fn test_algo<
     };
 
     let tiling_scheme = TilingScheme::builder()
-        .with_partitions_per_stage((tile_count.m, 1).into())
-        .with_stage_k_tile_count(tile_count.k)
+        .with_partitions_per_stage((tile_count.m, 1, 1).into())
         .with_tile_size(tile_size)
-        .with_tiles_per_partition((1, tile_count.n).into())
+        .with_partition_size((1, tile_count.n, tile_count.k).into())
         .build()
         .unwrap();
 

@@ -1,8 +1,6 @@
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{
-    MatmulProblem, MatrixLayout, PartitionsPerStage, TileSize, TilesPerPartition,
-};
-use crate::matmul::components::{MatmulProblemShape, TilingScheme};
+use crate::matmul::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
+use crate::matmul::components::{MatmulProblemSize, TilingScheme};
 use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::matmul::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
@@ -15,10 +13,9 @@ pub fn test_algo<
 >(
     layouts: (MatrixLayout, MatrixLayout),
     tile_size: TileSize,
-    tiles_per_partition: TilesPerPartition,
-    partitions_per_stage: PartitionsPerStage,
-    stage_k: u32,
-    problem: MatmulProblemShape,
+    partition_size: PartitionSize,
+    stage_size: StageSize,
+    problem: MatmulProblemSize,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -39,10 +36,9 @@ pub fn test_algo<
     };
 
     let tiling_scheme = TilingScheme::builder()
-        .with_partitions_per_stage(partitions_per_stage)
-        .with_stage_k_tile_count(stage_k)
+        .with_partitions_per_stage(stage_size)
         .with_tile_size(tile_size)
-        .with_tiles_per_partition(tiles_per_partition)
+        .with_partition_size(partition_size)
         .build()
         .unwrap();
 

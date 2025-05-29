@@ -61,8 +61,8 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        let tiles_per_partition = config.tiling_scheme().tiles_per_partition;
-        let acc_per_unit = tiles_per_partition.num_elems();
+        let partition_size = config.tiling_scheme().partition_size;
+        let acc_per_unit = partition_size.mn();
 
         if num_acc % acc_per_unit != 0 {
             return Err(Box::new(format!(
@@ -79,7 +79,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             )));
         }
 
-        if config.buffering() == StageBuffering::Double && tiles_per_partition.n < 2 {
+        if config.buffering() == StageBuffering::Double && partition_size.n < 2 {
             return Err(Box::new(
                 "Error: Tried doing double buffering with only one tile to compute.".to_string(),
             ));
