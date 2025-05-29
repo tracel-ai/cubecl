@@ -49,7 +49,7 @@ impl<'a> Visitor<'a> {
         }
     }
     pub fn get_index(&self, variable: Variable) -> Value<'a, 'a> {
-        match variable.kind {
+        let mut index = match variable.kind {
             VariableKind::ConstantScalar(constant_scalar_value) => {
                 let operation = match constant_scalar_value {
                     ConstantScalarValue::Int(value, _) => {
@@ -74,6 +74,23 @@ impl<'a> Visitor<'a> {
                 }
             },
             _ => todo!("{:?} is not yet implemented", variable.kind),
+        };
+        if let Some(vectorization) = variable.item.vectorization {
+            let vectorization = vectorization.get() as i64;
+            let shift = vectorization.ilog2() as i64;
+            let constant = self.append_operation_with_result(arith::constant(
+                self.context,
+                Type::index(self.context),
+                IntegerAttribute::new(Type::index(self.context), shift).into(),
+                self.location,
+            ));
+            index = self.append_operation_with_result(arith::shli(
+                self.context,
+                index,
+                constant,
+                self.location,
+            ));
         }
+        index
     }
 }
