@@ -139,8 +139,8 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
                 MatrixLayout::ColMajor => tiling_dims.total_col(),
             };
             let size_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => tiling_dims.tile_shape_col(),
-                MatrixLayout::ColMajor => tiling_dims.tile_shape_row(),
+                MatrixLayout::RowMajor => tiling_dims.tile_size_col(),
+                MatrixLayout::ColMajor => tiling_dims.tile_size_row(),
             };
             let tile_count_col = match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => tiling_dims.tile_count_col(),

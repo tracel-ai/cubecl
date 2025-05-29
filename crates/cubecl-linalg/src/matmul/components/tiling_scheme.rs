@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct TilingScheme {
-    pub tile_shape: TileShape,
+    pub tile_size: TileSize,
     pub tiles_per_partition: TilesPerPartition,
     pub partitions_per_stage: PartitionsPerStage,
     pub stage_k_tile_count: u32,
@@ -17,15 +17,15 @@ impl TilingScheme {
 
 #[derive(Debug, Default)]
 pub struct TilingSchemeBuilder {
-    tile_shape: Option<TileShape>,
+    tile_size: Option<TileSize>,
     tiles_per_partition: Option<TilesPerPartition>,
     partitions_per_stage: Option<PartitionsPerStage>,
     stage_k_tile_count: Option<u32>,
 }
 
 impl TilingSchemeBuilder {
-    pub fn with_tile_shape(mut self, tile_shape: TileShape) -> Self {
-        self.tile_shape = Some(tile_shape);
+    pub fn with_tile_size(mut self, tile_size: TileSize) -> Self {
+        self.tile_size = Some(tile_size);
         self
     }
 
@@ -46,7 +46,7 @@ impl TilingSchemeBuilder {
 
     pub fn build(self) -> Result<TilingScheme, &'static str> {
         Ok(TilingScheme {
-            tile_shape: self.tile_shape.ok_or("Missing tile_shape")?,
+            tile_size: self.tile_size.ok_or("Missing tile_size")?,
             tiles_per_partition: self
                 .tiles_per_partition
                 .ok_or("Missing tiles_per_partition")?,
@@ -116,9 +116,9 @@ impl TilingScheme {
             }),
 
             (Element, Tile) => Some(match dim {
-                M => self.tile_shape.m,
-                N => self.tile_shape.n,
-                K => self.tile_shape.k,
+                M => self.tile_size.m,
+                N => self.tile_size.n,
+                K => self.tile_size.k,
             }),
 
             (Tile, Stage) => {
@@ -279,6 +279,6 @@ define_2d_shape!(TilesPerPartition);
 // Number of partitions in a stage
 define_2d_shape!(PartitionsPerStage);
 // Number of elements in a tile
-define_3d_shape!(TileShape);
+define_3d_shape!(TileSize);
 // Shapes m,n,k of the problem
 define_3d_shape!(MatmulProblemShape);

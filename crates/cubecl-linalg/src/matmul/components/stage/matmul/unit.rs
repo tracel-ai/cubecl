@@ -105,7 +105,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     ) -> Self::Config {
         let tile_input = TileMatmulConfigInput {
             vectorization: stage_input.stage_vectorization,
-            tile_shape: stage_input.tiling_scheme.tile_shape,
+            tile_size: stage_input.tiling_scheme.tile_size,
         };
         let tmm_config = TMM::make_config(
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,

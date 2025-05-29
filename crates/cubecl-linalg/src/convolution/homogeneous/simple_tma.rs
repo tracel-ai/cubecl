@@ -280,7 +280,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
     ) {
         let tiling_dims = config.tiling_dimensions(Ident::Lhs);
         let padded_channels =
-            (problem.channels as u32).next_multiple_of(tiling_dims.tile_shape_col());
+            (problem.channels as u32).next_multiple_of(tiling_dims.tile_size_col());
 
         let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 

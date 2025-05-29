@@ -1,7 +1,7 @@
 use cubecl_core::{CubeCount, CubeDim, ir::Elem};
 use std::fmt::Debug;
 
-use crate::matmul::components::{InvalidConfigError, TileShape};
+use crate::matmul::components::{InvalidConfigError, TileSize};
 
 pub enum MatmulLaunchError {
     Unavailable(MatmulAvailabilityError),
@@ -25,7 +25,7 @@ pub enum MatmulAvailabilityError {
     CmmaInstructionUnavailable {
         input: Elem,
         output: Elem,
-        shape: Option<TileShape>,
+        shape: Option<TileSize>,
     },
     PipelineUnavailable,
     BarrierUnavailable,

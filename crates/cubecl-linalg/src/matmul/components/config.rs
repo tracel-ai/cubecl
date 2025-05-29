@@ -130,20 +130,20 @@ impl TilingDimensions {
     pub fn new(tiling_scheme: &TilingScheme, ident: Ident) -> TilingDimensions {
         match ident {
             Ident::Lhs => TilingDimensions {
-                tile_shape_row: tiling_scheme.elements_in_tile_m(),
-                tile_shape_col: tiling_scheme.elements_in_tile_k(),
+                tile_size_row: tiling_scheme.elements_in_tile_m(),
+                tile_size_col: tiling_scheme.elements_in_tile_k(),
                 tile_count_row: tiling_scheme.tiles_in_stage_m(),
                 tile_count_col: tiling_scheme.tiles_in_stage_k(),
             },
             Ident::Rhs => TilingDimensions {
-                tile_shape_row: tiling_scheme.elements_in_tile_k(),
-                tile_shape_col: tiling_scheme.elements_in_tile_n(),
+                tile_size_row: tiling_scheme.elements_in_tile_k(),
+                tile_size_col: tiling_scheme.elements_in_tile_n(),
                 tile_count_row: tiling_scheme.tiles_in_stage_k(),
                 tile_count_col: tiling_scheme.tiles_in_stage_n(),
             },
             Ident::Out => TilingDimensions {
-                tile_shape_row: tiling_scheme.elements_in_tile_m(),
-                tile_shape_col: tiling_scheme.elements_in_tile_n(),
+                tile_size_row: tiling_scheme.elements_in_tile_m(),
+                tile_size_col: tiling_scheme.elements_in_tile_n(),
                 tile_count_row: tiling_scheme.tiles_in_stage_m(),
                 tile_count_col: tiling_scheme.tiles_in_stage_n(),
             },
@@ -154,8 +154,8 @@ impl TilingDimensions {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
 pub struct TilingDimensions {
-    pub tile_shape_row: u32,
-    pub tile_shape_col: u32,
+    pub tile_size_row: u32,
+    pub tile_size_col: u32,
     pub tile_count_row: u32,
     pub tile_count_col: u32,
 }
@@ -168,27 +168,27 @@ impl TilingDimensions {
 
     /// Returns the total number of rows of the stage.
     pub fn total_row(&self) -> u32 {
-        self.tile_count_row() * self.tile_shape_row()
+        self.tile_count_row() * self.tile_size_row()
     }
 
     /// Returns the total number of columns of the stage.
     pub fn total_col(&self) -> u32 {
-        self.tile_count_col() * self.tile_shape_col()
+        self.tile_count_col() * self.tile_size_col()
     }
 
     /// Returns the number of elements within one tile.
     pub fn tile_size(&self) -> u32 {
-        self.tile_shape_row() * self.tile_shape_col()
+        self.tile_size_row() * self.tile_size_col()
     }
 
     /// Returns the size of the row axis of a tile.
-    pub fn tile_shape_row(&self) -> u32 {
-        self.tile_shape_row
+    pub fn tile_size_row(&self) -> u32 {
+        self.tile_size_row
     }
 
     /// Returns the size of the column axis of a tile.
-    pub fn tile_shape_col(&self) -> u32 {
-        self.tile_shape_col
+    pub fn tile_size_col(&self) -> u32 {
+        self.tile_size_col
     }
 
     /// Returns the number of tiles within the stage.

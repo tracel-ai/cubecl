@@ -142,13 +142,13 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
                     buffer_id.to_index() * buffer_length + unit_position
                 }
                 (InputIdent::Lhs, MatrixLayout::RowMajor) => {
-                    let buffer_width = tiling_dimensions.tile_shape_col() / line_size;
+                    let buffer_width = tiling_dimensions.tile_size_col() / line_size;
                     buffer_id.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width
                 }
                 (InputIdent::Rhs, MatrixLayout::ColMajor) => {
-                    let buffer_height = tiling_dimensions.tile_shape_row() / line_size;
+                    let buffer_height = tiling_dimensions.tile_size_row() / line_size;
                     buffer_id.to_index() * buffer_height
                         + unit_position
                         + (unit_position / buffer_height) * buffer_height

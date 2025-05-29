@@ -2,7 +2,7 @@ use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatrixLayout, TileShape, as_cmma_layout,
+    MatmulProblem, MatrixLayout, TileSize, as_cmma_layout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -15,10 +15,6 @@ pub struct AcceleratedMatmul;
 
 impl TileMatmulFamily for AcceleratedMatmul {
     type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
-
-    fn tile_shape(config: &Self::Config) -> TileShape {
-        config.size
-    }
 
     fn requires_tensor_cores() -> bool {
         true
@@ -166,7 +162,7 @@ impl MatmulConfigFactory for AcceleratedMatmul {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input: es,
                 output: ea,
-                shape: Some(TileShape {
+                shape: Some(TileSize {
                     m: size.m,
                     n: size.n,
                     k: size.k,
@@ -203,7 +199,7 @@ impl MatmulConfigFactory for AcceleratedMatmul {
                 )
             };
         Config::new(
-            input.tile_shape,
+            input.tile_size,
             cube_dim.x,
             problem.lhs_layout,
             problem.rhs_layout,
@@ -218,7 +214,7 @@ impl MatmulConfigFactory for AcceleratedMatmul {
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated instruction
 pub struct Config {
-    size: TileShape,
+    size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -249,7 +245,7 @@ impl TileConfig for Config {
         }
     }
 
-    fn tile_shape(&self) -> &TileShape {
+    fn tile_size(&self) -> &TileSize {
         &self.size
     }
 }
@@ -259,7 +255,7 @@ impl MatmulConfig for Config {}
 impl Config {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        size: TileShape,
+        size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,

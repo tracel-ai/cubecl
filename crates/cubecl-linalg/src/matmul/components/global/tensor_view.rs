@@ -141,8 +141,8 @@ impl<EG: Numeric> TensorReader<EG> {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let matrix_layout = config.matrix_layout(input_ident);
 
-        let tile_size_x = tiling_dimensions.tile_shape_row();
-        let tile_size_y = tiling_dimensions.tile_shape_col();
+        let tile_size_x = tiling_dimensions.tile_size_row();
+        let tile_size_y = tiling_dimensions.tile_size_col();
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor => tile_size_y / line_size,
@@ -276,15 +276,15 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let tile_shape_x = config.tiling_dimensions(input_ident).tile_shape_row();
-        let tile_shape_y = config.tiling_dimensions(input_ident).tile_shape_col();
+        let tile_size_x = config.tiling_dimensions(input_ident).tile_size_row();
+        let tile_size_y = config.tiling_dimensions(input_ident).tile_size_col();
 
-        let view_tile_x = tile_x * tile_shape_x;
-        let view_tile_y = tile_y * tile_shape_y;
+        let view_tile_x = tile_x * tile_size_x;
+        let view_tile_y = tile_y * tile_size_y;
 
         let (load_x, load_y) = match config.matrix_layout(input_ident) {
-            MatrixLayout::RowMajor => (position / tile_shape_y, position % tile_shape_y),
-            MatrixLayout::ColMajor => (position % tile_shape_x, position / tile_shape_x),
+            MatrixLayout::RowMajor => (position / tile_size_y, position % tile_size_y),
+            MatrixLayout::ColMajor => (position % tile_size_x, position / tile_size_x),
         };
 
         self.load_coalesced::<G>(
@@ -403,9 +403,9 @@ impl<EG: Numeric> TensorWriter<EG> {
         let tiling = config.tiling_dimensions(Ident::Out);
 
         let view_x =
-            tile_x * tiling.tile_shape_row() + unit_id / tiling.tile_shape_col() + self.x_offset;
+            tile_x * tiling.tile_size_row() + unit_id / tiling.tile_size_col() + self.x_offset;
         let view_y =
-            tile_y * tiling.tile_shape_col() + unit_id % tiling.tile_shape_col() + self.y_offset;
+            tile_y * tiling.tile_size_col() + unit_id % tiling.tile_size_col() + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);

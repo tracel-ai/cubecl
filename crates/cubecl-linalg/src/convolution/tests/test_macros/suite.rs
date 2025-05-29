@@ -3,7 +3,7 @@ use crate::convolution::{
     tests::test_utils::TestPrecision,
 };
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{MatrixLayout, TileShape, TilingScheme};
+use crate::matmul::components::{MatrixLayout, TileSize, TilingScheme};
 use crate::matmul::kernels::matmul::{GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::{
     convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
@@ -38,7 +38,7 @@ pub fn test_algo<
     P: TestPrecision,
     R: Runtime,
 >(
-    tile_shape: MatmulSize,
+    tile_size: MatmulSize,
     tile_count: MatmulSize,
     problem: ConvolutionSize,
 ) where
@@ -93,17 +93,17 @@ pub fn test_algo<
         dimensionality: Dimensionality::Dim2,
     };
 
-    // TODO change MatmulSize for TileShape in input, but needs refactoring whole macro
-    let tile_shape = TileShape {
-        m: tile_shape.m,
-        n: tile_shape.n,
-        k: tile_shape.k,
+    // TODO change MatmulSize for TileSize in input, but needs refactoring whole macro
+    let tile_size = TileSize {
+        m: tile_size.m,
+        n: tile_size.n,
+        k: tile_size.k,
     };
 
     let tiling_scheme = TilingScheme::builder()
         .with_partitions_per_stage((tile_count.m, 1).into())
         .with_stage_k_tile_count(tile_count.k)
-        .with_tile_shape(tile_shape)
+        .with_tile_size(tile_size)
         .with_tiles_per_partition((1, tile_count.n).into())
         .build()
         .unwrap();

@@ -271,27 +271,27 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 }
             };
 
-        let (tile_shape_x, tile_shape_y, tile_slice_length) = match matrix_layout {
+        let (tile_size_x, tile_size_y, tile_slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_shape_x = tiling_dimensions.tile_shape_row();
-                let tile_shape_y = tiling_dimensions.tile_shape_col() / stage_line_size;
-                let stride_x = comptime!(tile_shape_y * total_tile_count_col);
-                let length = (tile_shape_x - 1) * stride_x + tile_shape_y;
+                let tile_size_x = tiling_dimensions.tile_size_row();
+                let tile_size_y = tiling_dimensions.tile_size_col() / stage_line_size;
+                let stride_x = comptime!(tile_size_y * total_tile_count_col);
+                let length = (tile_size_x - 1) * stride_x + tile_size_y;
 
-                (tile_shape_x, tile_shape_y, length)
+                (tile_size_x, tile_size_y, length)
             }
             MatrixLayout::ColMajor => {
-                let tile_shape_x = tiling_dimensions.tile_shape_row() / stage_line_size;
-                let tile_shape_y = tiling_dimensions.tile_shape_col();
-                let stride_y = comptime!(tile_shape_x * total_tile_count_row);
-                let length = (tile_shape_y - 1) * stride_y + tile_shape_x;
+                let tile_size_x = tiling_dimensions.tile_size_row() / stage_line_size;
+                let tile_size_y = tiling_dimensions.tile_size_col();
+                let stride_y = comptime!(tile_size_x * total_tile_count_row);
+                let length = (tile_size_y - 1) * stride_y + tile_size_x;
 
-                (tile_shape_x, tile_shape_y, length)
+                (tile_size_x, tile_size_y, length)
             }
         };
 
-        let start = tile_shape_x
-            * tile_shape_y
+        let start = tile_size_x
+            * tile_size_y
             * TO::to_nth_tile::<S>(
                 row + row_buffer_offset,
                 col + col_buffer_offset,
@@ -359,12 +359,12 @@ impl TilingLayout for StridedTilingLayout {
 
         match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_shape_x = tiling_dimensions.tile_shape_row();
-                let tile_shape_y = tiling_dimensions.tile_shape_col() / stage_line_size;
+                let tile_size_x = tiling_dimensions.tile_size_row();
+                let tile_size_y = tiling_dimensions.tile_size_col() / stage_line_size;
 
-                let stride = tile_count_y * tile_shape_y;
-                let length = (tile_shape_x - 1) * stride + tile_shape_y;
-                let start = x * tile_shape_x * stride + y * tile_shape_y;
+                let stride = tile_count_y * tile_size_y;
+                let length = (tile_size_x - 1) * stride + tile_size_y;
+                let start = x * tile_size_x * stride + y * tile_size_y;
 
                 Tile::new_strided(
                     stage.as_slice(stage_line_size).slice(start, start + length),
@@ -373,12 +373,12 @@ impl TilingLayout for StridedTilingLayout {
                 )
             }
             MatrixLayout::ColMajor => {
-                let tile_shape_x = tiling_dimensions.tile_shape_row() / stage_line_size;
-                let tile_shape_y = tiling_dimensions.tile_shape_col();
+                let tile_size_x = tiling_dimensions.tile_size_row() / stage_line_size;
+                let tile_size_y = tiling_dimensions.tile_size_col();
 
-                let stride = tile_count_x * tile_shape_x;
-                let length = (tile_shape_y - 1) * stride + tile_shape_x;
-                let start = x * tile_shape_x + y * tile_shape_y * stride;
+                let stride = tile_count_x * tile_size_x;
+                let length = (tile_size_y - 1) * stride + tile_size_x;
+                let start = x * tile_size_x + y * tile_size_y * stride;
 
                 Tile::new_strided(
                     stage.as_slice(stage_line_size).slice(start, start + length),

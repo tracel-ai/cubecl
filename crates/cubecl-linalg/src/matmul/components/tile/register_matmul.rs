@@ -5,7 +5,7 @@ use crate::matmul::components::problem::MatmulLineSizes;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
-    TileShape,
+    TileSize,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -28,10 +28,6 @@ pub enum ProductType {
 
 impl TileMatmulFamily for RegisterMatmul {
     type Matmul<MP: MatmulPrecision> = RegisterMatmul;
-
-    fn tile_shape(config: &Self::Config) -> TileShape {
-        config.size
-    }
 
     fn requires_tensor_cores() -> bool {
         false
@@ -453,7 +449,7 @@ impl MatmulConfigFactory for RegisterMatmul {
                 )
             };
         Config::new(
-            input.tile_shape,
+            input.tile_size,
             cube_dim.x,
             problem.lhs_layout,
             problem.rhs_layout,
@@ -468,7 +464,7 @@ impl MatmulConfigFactory for RegisterMatmul {
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register instruction
 pub struct Config {
-    size: TileShape,
+    size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -499,7 +495,7 @@ impl TileConfig for Config {
         }
     }
 
-    fn tile_shape(&self) -> &TileShape {
+    fn tile_size(&self) -> &TileSize {
         &self.size
     }
 }
@@ -509,7 +505,7 @@ impl MatmulConfig for Config {}
 impl Config {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        size: TileShape,
+        size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,

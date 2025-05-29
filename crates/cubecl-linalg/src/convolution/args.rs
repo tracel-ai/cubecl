@@ -52,8 +52,8 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         let tiling_scheme = selection.tiling_scheme();
         let stage_m = tiling_scheme.elements_in_stage_m();
         let stage_n = tiling_scheme.elements_in_stage_n();
-        let tile_shape_k = tiling_scheme.elements_in_tile_k();
-        let stage_size_rhs = vec![stage_n, 1, tile_shape_k];
+        let tile_size_k = tiling_scheme.elements_in_tile_k();
+        let stage_size_rhs = vec![stage_n, 1, tile_size_k];
 
         let elem_size = size_of::<EI>();
 
@@ -66,7 +66,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             }
         }
 
-        let prefetch_lhs = prefetch(tile_shape_k as usize * elem_size);
+        let prefetch_lhs = prefetch(tile_size_k as usize * elem_size);
         let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * elem_size);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
@@ -91,7 +91,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
                     &problem.kernel_size,
                     &problem.dilation,
                 ),
-                channels_per_pixel: tile_shape_k,
+                channels_per_pixel: tile_size_k,
                 pixels_per_column: stage_m,
             },
             lhs.as_tensor_arg(line_sizes.lhs),

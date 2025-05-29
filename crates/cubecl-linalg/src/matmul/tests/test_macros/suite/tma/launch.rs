@@ -1,6 +1,6 @@
 use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{
-    MatmulProblem, MatrixLayout, PartitionsPerStage, TileShape, TilesPerPartition,
+    MatmulProblem, MatrixLayout, PartitionsPerStage, TileSize, TilesPerPartition,
 };
 use crate::matmul::components::{MatmulProblemShape, TilingScheme};
 use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, PlaneMatmulSelection, StageInput};
@@ -14,7 +14,7 @@ pub fn test_algo<
     R: Runtime,
 >(
     layouts: (MatrixLayout, MatrixLayout),
-    tile_shape: TileShape,
+    tile_size: TileSize,
     tiles_per_partition: TilesPerPartition,
     partitions_per_stage: PartitionsPerStage,
     stage_k: u32,
@@ -41,7 +41,7 @@ pub fn test_algo<
     let tiling_scheme = TilingScheme::builder()
         .with_partitions_per_stage(partitions_per_stage)
         .with_stage_k_tile_count(stage_k)
-        .with_tile_shape(tile_shape)
+        .with_tile_size(tile_size)
         .with_tiles_per_partition(tiles_per_partition)
         .build()
         .unwrap();
