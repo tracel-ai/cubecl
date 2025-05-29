@@ -192,9 +192,9 @@ impl TilingDimensions {
     // }
 
     /// Returns the number of tiles within the stage.
-    pub fn tile_count(&self) -> u32 {
-        self.tile_count_row() * self.tile_count_col()
-    }
+    // pub fn tile_count(&self) -> u32 {
+    //     self.tile_count_row() * self.tile_count_col()
+    // }
 
     /// Returns the number of tiles across the row axis of the stage.
     pub fn tile_count_row(&self) -> u32 {

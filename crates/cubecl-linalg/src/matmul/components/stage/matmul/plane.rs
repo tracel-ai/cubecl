@@ -1,3 +1,4 @@
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::PlaneWriter;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::StageBuffering;
@@ -5,7 +6,6 @@ use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
 use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{Ident, MatmulProblem};
 use crate::matmul::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
@@ -64,17 +64,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        // let partition_shape = config.tiling_scheme().partition_size;
-        let acc_per_plane = config.tiling_scheme().partition_size.mn();
-
-        if num_acc % acc_per_plane != 0 {
-            return Err(Box::new(format!(
-                "Error: Number of accumulators {num_acc} should be divisible by number of accumulators per plane {acc_per_plane}."
-            )));
-        }
-
-        let num_planes_needed = num_acc / acc_per_plane;
+        let num_planes_needed = config.tiling_scheme().partitions_in_stage_mn();
         let num_planes = config.num_planes();
 
         if num_planes != num_planes_needed {

@@ -23,9 +23,8 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
-            let tiling_dimensions = config.tiling_dimensions(ident);
             let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
-            let num_tiles_in_buffer = tiling_dimensions.tile_count();
+            let num_tiles_in_buffer = config.tiling_scheme().tiles_in_stage(ident);
             let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
 
             let total_units = config.plane_dim() * config.num_planes();

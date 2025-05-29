@@ -32,7 +32,7 @@ impl LoadingValidation for LoadingStrategy {
         let line_size = config.global_line_size(ident);
 
         let num_planes = config.num_planes();
-        let num_tiles = tiling.tile_count();
+        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
 
         if num_tiles % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
@@ -82,10 +82,9 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let tiling = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
         let num_planes = config.num_planes();
-        let num_tiles = tiling.tile_count();
+        let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
         let plane_dim = config.plane_dim();
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
