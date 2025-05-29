@@ -158,7 +158,18 @@ impl ComputeServer for CpuServer {
         }
         let cube_count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
-            CubeCount::Dynamic(_binding) => todo!("Needs to figure it later"),
+            CubeCount::Dynamic(binding) => {
+                let handle = self
+                    .ctx
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource");
+                let bytes = handle.read();
+                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
+                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
+                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
+                (x, y, z)
+            }
         };
         execution_engine.push_builtin();
         execution_engine.builtin.set_cube_count(cube_count);
