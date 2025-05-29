@@ -95,7 +95,7 @@ pub mod config {
     use crate::{
         convolution::{ConvGemmConfig, base::Dimensionality},
         matmul::components::{
-            InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+            InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, TilingScheme,
             global::{GlobalConfig, load::LoaderMode},
         },
     };
@@ -170,6 +170,10 @@ pub mod config {
 
         fn loader_mode(&self) -> LoaderMode {
             self.matmul.loader_mode()
+        }
+
+        fn tiling_scheme(&self) -> TilingScheme {
+            self.matmul.tiling_scheme()
         }
     }
 
