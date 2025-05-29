@@ -76,7 +76,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         let stage = this.stages.index_mut(stage_idx);
 
         if UNIT_POS == 0 {
-            let m_size = tiling_dims.total_row();
+            let m_size = config.tiling_scheme().elements_in_stage_m();
             let k_size = tiling_dims.tile_size_col();
             let slice_size = m_size * k_size;
             let mut full_stage = stage.as_slice_mut(1u32);

@@ -44,8 +44,8 @@ pub(crate) fn implicit_conv<
     let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
     let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
 
-    let x_offset = CUBE_POS_X * config.tiling_dimensions(Ident::Lhs).total_row();
-    let y_offset = CUBE_POS_Y * config.tiling_dimensions(Ident::Rhs).total_col();
+    let x_offset = CUBE_POS_X * config.tiling_scheme().elements_in_stage_m();
+    let y_offset = CUBE_POS_Y * config.tiling_scheme().elements_in_stage_n();
     let k_range = (0, runtime_args.size_k);
 
     let bias = match bias {

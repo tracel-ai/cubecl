@@ -3,7 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
-    TilingScheme, config::MatmulConfig, stage,
+    TilingScheme,
+    config::MatmulConfig,
+    stage::{self, StageConfig},
 };
 use cubecl_std::{
     CubeOption,
@@ -113,7 +115,9 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the [StageTiling] for the given ident
     fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions;
 
-    fn tiling_scheme(&self) -> TilingScheme;
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.to_smm_config().tiling_scheme()
+    }
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;

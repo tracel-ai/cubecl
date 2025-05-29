@@ -320,13 +320,12 @@ impl StridedTilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> SliceMut<Line<ES>> {
-        let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
         let stage_line_size = config.stage_line_size(ident);
 
         let slice_length = match comptime!(matrix_layout) {
-            MatrixLayout::RowMajor => tiling_dimensions.total_col(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_row(),
+            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_col(ident),
+            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_row(ident),
         } / stage_line_size;
 
         let start = slice_length * nth;

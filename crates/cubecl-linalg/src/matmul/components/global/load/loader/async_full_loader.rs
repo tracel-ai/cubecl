@@ -7,7 +7,7 @@ use crate::matmul::components::global::{Quantization, single_stage};
 use crate::matmul::components::stage::FullStageToTileReader;
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::{self, StageMemory};
-use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
+use crate::matmul::components::{InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -87,7 +87,7 @@ impl<
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
                     if tensor_reader.x_offset.read()
-                        > tensor_reader.shape_x - config.tiling_dimensions(Ident::Lhs).total_row()
+                        > tensor_reader.shape_x - config.tiling_scheme().elements_in_stage_m()
                     {
                         stage_memory.clear::<G::SmmConfig>(ident, config.to_smm_config());
                     }
@@ -98,7 +98,7 @@ impl<
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
                     if tensor_reader.y_offset.read()
-                        > tensor_reader.shape_y - config.tiling_dimensions(Ident::Rhs).total_col()
+                        > tensor_reader.shape_y - config.tiling_scheme().elements_in_stage_n()
                     {
                         stage_memory.clear::<G::SmmConfig>(ident, config.to_smm_config());
                     }

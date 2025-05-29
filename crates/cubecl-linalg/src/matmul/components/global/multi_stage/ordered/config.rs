@@ -1,6 +1,6 @@
 use crate::matmul::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, TilingScheme,
+        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
         global::{GlobalConfig, load::LoaderMode},
         stage::{self},
     },
@@ -92,10 +92,6 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
 
     fn loader_mode(&self) -> LoaderMode {
         self.loader_mode
-    }
-
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.smm_config.tiling_scheme()
     }
 }
 

@@ -173,15 +173,14 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Window<EG> {
         let line_size = config.global_line_size(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
         let matrix_layout = config.matrix_layout(input_ident);
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor =>
-                tiling_dimensions.total_col() / line_size
+                config.tiling_scheme().elements_in_stage_col(input_ident) / line_size
             ,
             MatrixLayout::ColMajor =>
-                tiling_dimensions.total_row() / line_size
+                config.tiling_scheme().elements_in_stage_row(input_ident) / line_size
             ,
         }};
 
@@ -310,8 +309,8 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let stage_shape_x = config.tiling_dimensions(input_ident).total_row();
-        let stage_shape_y = config.tiling_dimensions(input_ident).total_col();
+        let stage_shape_x = config.tiling_scheme().elements_in_stage_row(input_ident);
+        let stage_shape_y = config.tiling_scheme().elements_in_stage_col(input_ident);
 
         let load_offsets = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (position / stage_shape_y, position % stage_shape_y),

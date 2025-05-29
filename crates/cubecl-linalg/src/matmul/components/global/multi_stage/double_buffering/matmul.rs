@@ -142,7 +142,7 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
+        let buffer_step = config.tiling_scheme().elements_in_stage_k();
         let loop_step = buffer_step * 2;
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = div_ceil(range, buffer_step);

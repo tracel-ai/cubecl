@@ -20,17 +20,16 @@ pub struct LoadingStrategy {}
 impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                tiling_dimensions.total_row(),
-                tiling_dimensions.total_col() / line_size,
+                config.tiling_scheme().elements_in_stage_row(ident),
+                config.tiling_scheme().elements_in_stage_col(ident) / line_size,
             ),
             MatrixLayout::ColMajor => (
-                tiling_dimensions.total_col(),
-                tiling_dimensions.total_row() / line_size,
+                config.tiling_scheme().elements_in_stage_col(ident),
+                config.tiling_scheme().elements_in_stage_row(ident) / line_size,
             ),
         };
         let unit_count = config.plane_dim() * config.num_planes();
@@ -60,17 +59,16 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.to_smm_config().stage_line_size(input_ident.into());
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                tiling_dimensions.total_row(),
-                tiling_dimensions.total_col() / line_size,
+                config.tiling_scheme().elements_in_stage_row(input_ident),
+                config.tiling_scheme().elements_in_stage_col(input_ident) / line_size,
             ),
             MatrixLayout::ColMajor => (
-                tiling_dimensions.total_col(),
-                tiling_dimensions.total_row() / line_size,
+                config.tiling_scheme().elements_in_stage_col(input_ident),
+                config.tiling_scheme().elements_in_stage_row(input_ident) / line_size,
             ),
         };
 

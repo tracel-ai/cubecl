@@ -34,11 +34,10 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
+            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(input_ident),
+            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(input_ident),
         };
         let unit_count = config.plane_dim() * config.num_planes();
 

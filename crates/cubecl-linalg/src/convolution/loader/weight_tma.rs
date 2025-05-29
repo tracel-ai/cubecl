@@ -78,7 +78,8 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
             let mut stage = stage.as_slice_mut(1u32);
-            let slice_size = tiling_dims.total_col() * tiling_dims.tile_size_row();
+            let slice_size =
+                config.tiling_scheme().elements_in_stage_n() * tiling_dims.tile_size_row();
 
             #[unroll]
             for tile_k in 0..tiling_dims.tile_count_row() {

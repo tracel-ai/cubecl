@@ -131,8 +131,8 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.tiling_dimensions(Ident::Out).total_row();
-        let stage_y = config.tiling_dimensions(Ident::Out).total_col();
+        let stage_x = config.tiling_scheme().elements_in_stage_m();
+        let stage_y = config.tiling_scheme().elements_in_stage_n();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();

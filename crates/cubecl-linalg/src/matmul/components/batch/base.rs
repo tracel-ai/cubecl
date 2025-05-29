@@ -1,8 +1,8 @@
 use crate::matmul::components::{
-    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions,
+    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions, TilingScheme,
     config::MatmulConfig,
     global::{
-        self, Quantization,
+        self, GlobalConfig as _, Quantization,
         args::{self, MatmulArgs, TensorInput, TensorOutput},
     },
 };
@@ -72,6 +72,10 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;
+
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.to_gmm_config().tiling_scheme()
+    }
 }
 
 type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
