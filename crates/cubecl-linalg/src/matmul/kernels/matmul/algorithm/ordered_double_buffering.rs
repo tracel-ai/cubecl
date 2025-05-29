@@ -55,8 +55,8 @@ where
         (1, 2).into()
     }
 
-    fn stage_buffering_strategy() -> stage::StageBuffering {
-        stage::StageBuffering::Single
+    fn partition_buffering_strategy() -> stage::PartitionBuffering {
+        stage::PartitionBuffering::Single
     }
 
     fn selection<R: Runtime>(

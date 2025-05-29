@@ -1,7 +1,7 @@
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::UnitWriter;
 use crate::matmul::components::stage::ReaderFamily;
-use crate::matmul::components::stage::StageBuffering;
+use crate::matmul::components::stage::PartitionBuffering;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
@@ -69,7 +69,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             )));
         }
 
-        if config.buffering() == StageBuffering::Double
+        if config.buffering() == PartitionBuffering::Double
             && config.tiling_scheme().tiles_in_partition_n() < 2
         {
             return Err(Box::new(
@@ -108,7 +108,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             stage_input.tiling_scheme,
             cube_dim.y,
             quantized,
-            stage_input.stage_buffering,
+            stage_input.partition_buffering,
             stage_input.num_stages,
         )
     }

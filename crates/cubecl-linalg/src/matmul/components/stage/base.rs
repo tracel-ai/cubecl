@@ -145,7 +145,7 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 
-    fn buffering(&self) -> StageBuffering;
+    fn buffering(&self) -> PartitionBuffering;
 
     fn num_stages(&self, ident: InputIdent) -> u32;
 
@@ -153,7 +153,7 @@ pub trait StageConfig: MatmulConfig {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum StageBuffering {
+pub enum PartitionBuffering {
     Single,
     Double,
 }

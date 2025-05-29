@@ -9,7 +9,7 @@ use crate::matmul::components::{
         self,
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
     },
-    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, StageBuffering},
+    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, PartitionBuffering},
     tile,
 };
 
@@ -95,7 +95,7 @@ where
         unit_matmul_selection(problem, plane_dim)
     }
 
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Single
+    fn partition_buffering_strategy() -> PartitionBuffering {
+        PartitionBuffering::Single
     }
 }

@@ -1,5 +1,5 @@
 use crate::matmul::components::global::load::LoaderMode;
-use crate::matmul::components::stage::{NumStages, StageBuffering, StageVectorization};
+use crate::matmul::components::stage::{NumStages, PartitionBuffering, StageVectorization};
 use crate::matmul::components::{
     MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
     global, stage, tile,
@@ -18,7 +18,7 @@ pub struct GlobalInput<SI> {
 
 pub struct StageInput {
     pub tiling_scheme: TilingScheme,
-    pub stage_buffering: stage::StageBuffering,
+    pub partition_buffering: stage::PartitionBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
 }
@@ -81,8 +81,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Double
+    fn partition_buffering_strategy() -> PartitionBuffering {
+        PartitionBuffering::Double
     }
 
     #[allow(clippy::type_complexity, clippy::result_large_err)]

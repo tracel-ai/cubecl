@@ -4,7 +4,7 @@ use crate::matmul::components::global::GlobalWriter;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageToTileReader;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
-use crate::matmul::components::stage::{NoEvent, StageBuffering, StageEventListener};
+use crate::matmul::components::stage::{NoEvent, PartitionBuffering, StageEventListener};
 use crate::matmul::components::stage::{StageConfig, StageMatmul};
 use crate::matmul::components::{Ident, global, tile};
 use core::marker::PhantomData;
@@ -128,8 +128,8 @@ where
         }
 
         let rhs = match config.buffering() {
-            StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
-            StageBuffering::Double => {
+            PartitionBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
+            PartitionBuffering::Double => {
                 RhsTile::new_Double((TMM::allocate_rhs(tmm_config), TMM::allocate_rhs(tmm_config)))
             }
         };

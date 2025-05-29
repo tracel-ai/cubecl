@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
     global::AccumulatorLoader,
-    stage::{StageBuffering, StageConfig},
+    stage::{PartitionBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
 };
 use cubecl::prelude::*;
@@ -14,7 +14,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub tiling_scheme: TilingScheme,
     pub num_planes: u32,
     pub quantized: bool,
-    pub buffering: StageBuffering,
+    pub buffering: PartitionBuffering,
     pub num_stages: NumStages,
 }
 
@@ -49,7 +49,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.plane_dim()
     }
 
-    fn buffering(&self) -> StageBuffering {
+    fn buffering(&self) -> PartitionBuffering {
         self.buffering
     }
 
@@ -74,7 +74,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         tiling_scheme: TilingScheme,
         num_planes: u32,
         quantized: bool,
-        buffering: StageBuffering,
+        buffering: PartitionBuffering,
         num_stages: NumStages,
     ) -> Self {
         Self {

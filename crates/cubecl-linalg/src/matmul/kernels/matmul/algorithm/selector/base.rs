@@ -74,7 +74,7 @@ where
         GlobalInput {
             stage_input: StageInput {
                 tiling_scheme: selection.tiling_scheme().clone(),
-                stage_buffering: A::stage_buffering_strategy(),
+                partition_buffering: A::partition_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
             },
@@ -122,7 +122,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         GlobalInput {
             stage_input: StageInput {
                 tiling_scheme: selection.tiling_scheme().clone(),
-                stage_buffering: A::stage_buffering_strategy(),
+                partition_buffering: A::partition_buffering_strategy(),
                 stage_vectorization: vectorization,
                 num_stages: A::num_stages(),
             },

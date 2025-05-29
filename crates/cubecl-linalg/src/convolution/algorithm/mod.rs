@@ -3,7 +3,7 @@ use crate::{
         components::{
             InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::{args::MatmulArgs, load::LoaderMode},
-            stage::{NumStages, StageBuffering, StageMatmulFamily},
+            stage::{NumStages, PartitionBuffering, StageMatmulFamily},
             tile::TileMatmulFamily,
         },
         kernels::{
@@ -49,8 +49,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Double
+    fn partition_buffering_strategy() -> PartitionBuffering {
+        PartitionBuffering::Double
     }
 
     /// Make a convolution config from a convolution problem, and launch options
