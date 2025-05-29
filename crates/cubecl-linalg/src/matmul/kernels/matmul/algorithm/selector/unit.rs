@@ -39,7 +39,7 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmul
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, TILE_DIM, TILE_DIM).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((stage_size_m, stage_size_n, NUM_STAGES).into())
+        .with_stage_size((stage_size_m, stage_size_n, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -55,7 +55,7 @@ fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, 1, TILE_DIM).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((num_units, 1, NUM_STAGES).into())
+        .with_stage_size((num_units, 1, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -71,7 +71,7 @@ fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, TILE_DIM, TILE_DIM).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((1, num_units, NUM_STAGES).into())
+        .with_stage_size((1, num_units, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -87,7 +87,7 @@ fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, TILE_DIM, 1).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((1, num_units, NUM_STAGES).into())
+        .with_stage_size((1, num_units, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -103,7 +103,7 @@ fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, 1, 1).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((num_units, 1, NUM_STAGES).into())
+        .with_stage_size((num_units, 1, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -118,7 +118,7 @@ fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Unit
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, 1, TILE_DIM).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((1, 1, NUM_STAGES).into())
+        .with_stage_size((1, 1, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -135,7 +135,7 @@ fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Unit
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, TILE_DIM, 1).into())
         .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_partitions_per_stage((stage_size_m, stage_size_n, NUM_STAGES).into())
+        .with_stage_size((stage_size_m, stage_size_n, NUM_STAGES).into())
         .build()
         .unwrap();
 
@@ -150,7 +150,7 @@ fn scalar_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Uni
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, 1, 1).into())
         .with_partition_size((1, 1, 1).into())
-        .with_partitions_per_stage((1, 1, 1).into())
+        .with_stage_size((1, 1, 1).into())
         .build()
         .unwrap();
 

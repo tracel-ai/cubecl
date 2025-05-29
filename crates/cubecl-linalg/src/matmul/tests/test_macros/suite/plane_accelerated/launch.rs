@@ -36,7 +36,7 @@ pub fn test_algo<
     };
 
     let tiling_scheme = TilingScheme::builder()
-        .with_partitions_per_stage(partitions_per_stage)
+        .with_stage_size(partitions_per_stage)
         .with_tile_size(tile_size)
         .with_partition_size(tiles_per_partition)
         .build()

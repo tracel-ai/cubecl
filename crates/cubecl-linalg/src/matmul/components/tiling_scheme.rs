@@ -34,7 +34,7 @@ impl TilingSchemeBuilder {
         self
     }
 
-    pub fn with_partitions_per_stage(mut self, stage_size: StageSize) -> Self {
+    pub fn with_stage_size(mut self, stage_size: StageSize) -> Self {
         assert!(stage_size.k == 1, "Stage size k > 1 is not supported");
         self.stage_size = Some(stage_size);
         self

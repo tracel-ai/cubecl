@@ -91,7 +91,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size(tile_size)
         .with_partition_size(tiles_per_partition)
-        .with_partitions_per_stage(partitions_per_stage)
+        .with_stage_size(partitions_per_stage)
         .build()
         .unwrap();
 

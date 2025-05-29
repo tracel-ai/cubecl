@@ -3,7 +3,7 @@ use crate::convolution::{
     tests::test_utils::TestPrecision,
 };
 use crate::matmul::components::stage::StageVectorization;
-use crate::matmul::components::{MatrixLayout, TileSize, TilingScheme};
+use crate::matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::matmul::kernels::matmul::{GlobalInput, PlaneMatmulSelection, StageInput};
 use crate::{
     convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
@@ -12,16 +12,7 @@ use crate::{
     convolution::tests::convolution_test_launcher::test_convolution_algorithm,
     matmul::components::global::args::MatmulArgs,
 };
-use cubecl_core as cubecl;
 use cubecl_core::Runtime;
-use cubecl_core::prelude::*;
-
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct MatmulSize {
-    pub m: u32,
-    pub n: u32,
-    pub k: u32,
-}
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionSize {
@@ -38,8 +29,9 @@ pub fn test_algo<
     P: TestPrecision,
     R: Runtime,
 >(
-    tile_size: MatmulSize,
-    tile_count: MatmulSize,
+    tile_size: TileSize,
+    partition_size: PartitionSize,
+    stage_size: StageSize,
     problem: ConvolutionSize,
 ) where
     Args::Input<P::EG>: ConvInputsLaunch,
@@ -93,17 +85,12 @@ pub fn test_algo<
         dimensionality: Dimensionality::Dim2,
     };
 
-    // TODO change MatmulSize for TileSize in input, but needs refactoring whole macro
-    let tile_size = TileSize {
-        m: tile_size.m,
-        n: tile_size.n,
-        k: tile_size.k,
-    };
-
     let tiling_scheme = TilingScheme::builder()
-        .with_partitions_per_stage((tile_count.m, 1, 1).into())
         .with_tile_size(tile_size)
-        .with_partition_size((1, tile_count.n, tile_count.k).into())
+        .with_partition_size(partition_size)
+        .with_stage_size(stage_size)
+        // .with_partition_size((1, tile_count.n, tile_count.k).into())
+        // .with_stage_size((tile_count.m, 1, 1).into())
         .build()
         .unwrap();
 
@@ -150,17 +137,18 @@ pub fn calculate_conv_output_size(
 #[macro_export]
 macro_rules! conv2d_standard_tests {
     () => {
-        use $crate::convolution::tests::{ConvolutionSize, MatmulSize};
+        use $crate::convolution::tests::ConvolutionSize;
+        use $crate::matmul::components::{PartitionSize, StageSize, TileSize};
 
         mod t8x8x8 {
             use super::*;
-            $crate::conv2d_standard_tests!(MatmulSize { m: 8, n: 8, k: 8 });
+            $crate::conv2d_standard_tests!(TileSize { m: 8, n: 8, k: 8 });
         }
 
         #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t16x16x16 {
             use super::*;
-            $crate::conv2d_standard_tests!(MatmulSize {
+            $crate::conv2d_standard_tests!(TileSize {
                 m: 16,
                 n: 16,
                 k: 16
@@ -170,49 +158,93 @@ macro_rules! conv2d_standard_tests {
         #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t32x8x16 {
             use super::*;
-            $crate::conv2d_standard_tests!(MatmulSize { m: 32, n: 8, k: 16 });
+            $crate::conv2d_standard_tests!(TileSize { m: 32, n: 8, k: 16 });
         }
 
         #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t8x32x16 {
             use super::*;
-            $crate::conv2d_standard_tests!(MatmulSize { m: 8, n: 32, k: 16 });
+            $crate::conv2d_standard_tests!(TileSize { m: 8, n: 32, k: 16 });
         }
 
         #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t16x16x8 {
             use super::*;
-            $crate::conv2d_standard_tests!(MatmulSize { m: 16, n: 16, k: 8 });
+            $crate::conv2d_standard_tests!(TileSize { m: 16, n: 16, k: 8 });
         }
     };
 
+    // ($tile:expr) => {
+    //     mod s1x1x1 {
+    //         use super::*;
+    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 1, n: 1, k: 1 });
+    //     }
+
+    //     mod s8x8x1 {
+    //         use super::*;
+    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 8, n: 8, k: 1 });
+    //     }
+
+    //     mod s2x2x2 {
+    //         use super::*;
+    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 2, n: 2, k: 2 });
+    //     }
+
+    //     mod s4x4x2 {
+    //         use super::*;
+    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 4, n: 4, k: 2 });
+    //     }
+    // };
     ($tile:expr) => {
         mod s1x1x1 {
             use super::*;
-            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 1, n: 1, k: 1 });
+            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 1, k: 1 });
         }
 
-        mod s8x8x1 {
+        mod s1x8x1 {
             use super::*;
-            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 8, n: 8, k: 1 });
+            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 8, k: 1 });
         }
 
-        mod s2x2x2 {
+        mod s1x2x2 {
             use super::*;
-            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 2, n: 2, k: 2 });
+            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 2, k: 2 });
         }
 
-        mod s4x4x2 {
+        mod s1x4x2 {
             use super::*;
-            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 4, n: 4, k: 2 });
+            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 4, k: 2 });
         }
     };
 
-    ($tile:expr, $stage:expr) => {
+    ($tile:expr, $partition:expr) => {
+        mod s1x1x1 {
+            use super::*;
+            $crate::conv2d_standard_tests!($tile, $partition, StageSize { m: 1, n: 1, k: 1 });
+        }
+
+        mod s2x1x1 {
+            use super::*;
+            $crate::conv2d_standard_tests!($tile, $partition, StageSize { m: 2, n: 1, k: 1 });
+        }
+
+        mod s4x1x1 {
+            use super::*;
+            $crate::conv2d_standard_tests!($tile, $partition, StageSize { m: 4, n: 1, k: 1 });
+        }
+
+        mod s8x1x1 {
+            use super::*;
+            $crate::conv2d_standard_tests!($tile, $partition, StageSize { m: 8, n: 1, k: 1 });
+        }
+    };
+
+    ($tile:expr, $partition:expr, $stage:expr) => {
         mod p4x4x1x1 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 4,
@@ -227,6 +259,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 17,
@@ -241,6 +274,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 16,
@@ -255,6 +289,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 32,
@@ -269,6 +304,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 64,
@@ -283,6 +319,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 32,
@@ -297,6 +334,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 100,
@@ -311,6 +349,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 20,
@@ -325,6 +364,7 @@ macro_rules! conv2d_standard_tests {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
+                $partition,
                 $stage,
                 ConvolutionSize {
                     h: 23,
@@ -336,7 +376,7 @@ macro_rules! conv2d_standard_tests {
         }
     };
 
-    ($tile:expr, $stage:expr, $problem:expr) => {
+    ($tile:expr, $partition:expr, $stage:expr, $problem:expr) => {
         use $crate::convolution::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
         use $crate::convolution::algorithm::simple::SimpleConvAlgorithm;
         use $crate::convolution::algorithm::simple_tma::SimpleTmaConvAlgorithm;
@@ -349,7 +389,7 @@ macro_rules! conv2d_standard_tests {
                 TensorArgs,
                 Precision,
                 TestRuntime,
-            >($tile, $stage, $problem);
+            >($tile, $partition, $stage, $problem);
         }
 
         #[test]
@@ -359,7 +399,7 @@ macro_rules! conv2d_standard_tests {
                 TensorMapArgs,
                 Precision,
                 TestRuntime,
-            >($tile, $stage, $problem);
+            >($tile, $partition, $stage, $problem);
         }
 
         #[test]
@@ -369,7 +409,7 @@ macro_rules! conv2d_standard_tests {
                 TensorMapArgs,
                 Precision,
                 TestRuntime,
-            >($tile, $stage, $problem);
+            >($tile, $partition, $stage, $problem);
         }
     };
 }
