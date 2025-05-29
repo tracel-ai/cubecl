@@ -1,7 +1,7 @@
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::PlaneWriter;
-use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::PartitionBuffering;
+use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;

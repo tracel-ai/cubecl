@@ -1,3 +1,4 @@
+mod partition_matmul;
 mod partitioned_stage_matmul;
 
 pub mod plane;

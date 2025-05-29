@@ -1,7 +1,7 @@
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::UnitWriter;
-use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::PartitionBuffering;
+use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
@@ -16,7 +16,8 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::partitioned_stage_matmul::{PartitionedStageMatmul, StagePartitioner};
+use super::partitioned_stage_matmul::PartitionedStageMatmul;
+use super::partitioned_stage_matmul::StagePartitioner;
 
 type UnitMatmul<MP, TMM, RL, RR> = PartitionedStageMatmul<MP, TMM, RL, RR, UnitPartitioner>;
 
