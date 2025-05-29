@@ -74,7 +74,6 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
         if UNIT_POS == 0 {
             let k = this.tensor_view.tile_x;
             let out_c = this.tensor_view.tile_y;
-            let tiling_dims = config.tiling_dimensions(Ident::Rhs);
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
             let mut stage = stage.as_slice_mut(1u32);
@@ -82,7 +81,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
                 * config.tiling_scheme().elements_in_tile_k();
 
             #[unroll]
-            for tile_k in 0..tiling_dims.tile_count_row() {
+            for tile_k in 0..config.tiling_scheme().tiles_in_stage_k() {
                 let slice_start = slice_size * tile_k;
                 let mut slice = stage.slice_mut(slice_start, slice_size);
 

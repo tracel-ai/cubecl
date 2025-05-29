@@ -12,10 +12,7 @@ use crate::{
     },
     matmul::components::{
         Ident, InputIdent, MatmulPrecision,
-        stage::{
-            ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageConfig,
-            StageMemory,
-        },
+        stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory},
     },
 };
 
@@ -71,8 +68,6 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         #[comptime] stage_idx: u32,
         #[comptime] config: G,
     ) {
-        let tmm = config.to_smm_config();
-        let tiling_dims = tmm.tiling_dimensions(Ident::Lhs);
         let stage = this.stages.index_mut(stage_idx);
 
         if UNIT_POS == 0 {
@@ -94,7 +89,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
             }
 
             #[unroll]
-            for tile_k in 0..tiling_dims.tile_count_col() {
+            for tile_k in 0..config.tiling_scheme().tiles_in_stage_k() {
                 let k = this.map.k_offset + tile_k * k_size;
                 let (k_idx, channel_start) = this.padded_channels.div_mod(k);
                 let slice_start = tile_k * slice_size;

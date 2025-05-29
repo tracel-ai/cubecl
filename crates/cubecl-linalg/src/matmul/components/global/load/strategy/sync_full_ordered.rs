@@ -28,9 +28,7 @@ impl LoadingValidation for LoadingStrategy {
             }));
         }
 
-        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
-
         let num_planes = config.num_planes();
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
 
@@ -48,7 +46,7 @@ impl LoadingValidation for LoadingStrategy {
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_planes = config.num_planes();
         let plane_dim = config.plane_dim();
-        let rows_per_plane = tiling.tile_count_row() / num_planes;
+        let rows_per_plane = config.tiling_scheme().tiles_in_stage_row(ident) / num_planes;
 
         if num_lines_per_plane % plane_dim != 0 {
             return Err(FormattedConfigError::new(move || {
@@ -58,13 +56,12 @@ impl LoadingValidation for LoadingStrategy {
             }));
         }
 
-        if num_tiles_per_plane != rows_per_plane * tiling.tile_count_col() {
+        let tile_count_col = config.tiling_scheme().tiles_in_stage_col(ident);
+        if num_tiles_per_plane != rows_per_plane * tile_count_col {
             return Err(FormattedConfigError::new(move || {
                 format!(
                     "Number of tiles per plane {:?} must equal rows_per_plane {:?} times cols {:?} for ordered loading.",
-                    num_tiles_per_plane,
-                    rows_per_plane,
-                    tiling.tile_count_col(),
+                    num_tiles_per_plane, rows_per_plane, tile_count_col,
                 )
             }));
         }

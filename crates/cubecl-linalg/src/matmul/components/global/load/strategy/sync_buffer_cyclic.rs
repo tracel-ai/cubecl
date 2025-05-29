@@ -58,12 +58,11 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
         let tile_size = config.tiling_scheme().elements_in_tile(input_ident);
-        let tile_count_row = tiling_dimensions.tile_count_row();
-        let tile_count_col = tiling_dimensions.tile_count_col();
+        let tile_count_row = config.tiling_scheme().tiles_in_stage_row(input_ident);
+        let tile_count_col = config.tiling_scheme().tiles_in_stage_col(input_ident);
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.plane_dim() * config.num_planes();
@@ -164,12 +163,11 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     #[comptime] config: G,
 ) {
     let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
-        let tiling_dimensions = config.tiling_dimensions(job.input_ident);
         (
             config.global_line_size(job.input_ident),
             config.tiling_scheme().elements_in_tile(job.input_ident),
-            tiling_dimensions.tile_count_row(),
-            tiling_dimensions.tile_count_col()
+            config.tiling_scheme().tiles_in_stage_row(job.input_ident),
+            config.tiling_scheme().tiles_in_stage_col(job.input_ident),
         )
     };
 

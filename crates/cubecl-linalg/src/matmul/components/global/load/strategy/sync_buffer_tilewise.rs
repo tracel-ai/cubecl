@@ -72,7 +72,6 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        let tiling = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
         let num_planes = config.num_planes();
         let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
@@ -86,8 +85,8 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
 
         let num_stages = config.num_stages(input_ident);
         let stage_width = comptime!(match input_ident {
-            InputIdent::Lhs => tiling.tile_count_col(),
-            InputIdent::Rhs => tiling.tile_count_row(),
+            InputIdent::Lhs => config.tiling_scheme().tiles_in_stage_col(input_ident),
+            InputIdent::Rhs => config.tiling_scheme().tiles_in_stage_row(input_ident),
         });
         let row_col_stride = num_stages * stage_width;
         let buffer_offset = stage_width * buffer_index;
@@ -151,18 +150,16 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
         let (total_tile_count_row, total_tile_count_col) = match comptime!(this.input_ident) {
             InputIdent::Lhs => (
-                comptime!(config.tiling_dimensions(this.input_ident).tile_count_row()),
+                comptime!(config.tiling_scheme().tiles_in_stage_m()),
                 comptime!(
-                    config.tiling_dimensions(this.input_ident).tile_count_col()
-                        * config.num_stages(InputIdent::Lhs)
+                    config.tiling_scheme().tiles_in_stage_k() * config.num_stages(InputIdent::Lhs)
                 ),
             ),
             InputIdent::Rhs => (
                 comptime!(
-                    config.tiling_dimensions(this.input_ident).tile_count_row()
-                        * config.num_stages(InputIdent::Rhs)
+                    config.tiling_scheme().tiles_in_stage_k() * config.num_stages(InputIdent::Rhs)
                 ),
-                comptime!(config.tiling_dimensions(this.input_ident).tile_count_col()),
+                comptime!(config.tiling_scheme().tiles_in_stage_n()),
             ),
         };
 

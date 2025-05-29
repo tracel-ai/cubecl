@@ -88,9 +88,9 @@ where
     ) {
         let m_acc_count = config.tiling_scheme().tiles_in_partition_m();
         let n_acc_count = config.tiling_scheme().tiles_in_partition_n();
-        let num_acc_n = config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_acc_count;
-        let start_m = m_acc_count * (SP::position() / num_acc_n);
-        let start_n = n_acc_count * (SP::position() % num_acc_n);
+        let num_partitions_n = config.tiling_scheme().partitions_in_stage_n();
+        let start_m = m_acc_count * (SP::position() / num_partitions_n);
+        let start_n = n_acc_count * (SP::position() % num_partitions_n);
 
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
@@ -156,10 +156,9 @@ where
         let slice_start = num_tile_lines * SP::position();
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let total_acc_n =
-            stage_config.tiling_dimensions(Ident::Rhs).tile_count_col() / n_iterations;
-        let m_offset = m_iterations * (SP::position() / total_acc_n);
-        let n_offset = n_iterations * (SP::position() % total_acc_n);
+        let num_partitions_n = stage_config.tiling_scheme().partitions_in_stage_n();
+        let m_offset = m_iterations * (SP::position() / num_partitions_n);
+        let n_offset = n_iterations * (SP::position() % num_partitions_n);
 
         let mut m_iter = comptime![0u32];
 

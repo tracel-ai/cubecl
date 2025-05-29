@@ -133,7 +133,6 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
                 MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
             };
 
-            let tiling_dims = config.tiling_dimensions(ident);
             let size_row = match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
                 MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
@@ -143,8 +142,8 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
                 MatrixLayout::ColMajor => config.tiling_scheme().elements_in_tile_row(ident),
             };
             let tile_count_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => tiling_dims.tile_count_col(),
-                MatrixLayout::ColMajor => tiling_dims.tile_count_row(),
+                MatrixLayout::RowMajor => config.tiling_scheme().tiles_in_stage_col(ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(ident),
             };
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
