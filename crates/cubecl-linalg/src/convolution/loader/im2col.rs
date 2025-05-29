@@ -105,7 +105,7 @@ impl SimpleIm2col {
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
-            let tile_num_elements = config.tiling_scheme().elements_in_stage(ident);
+            let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
