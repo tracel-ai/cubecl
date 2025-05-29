@@ -59,7 +59,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let line_size = config.to_smm_config().stage_line_size(input_ident.into());
+        let line_size = config.stage_config().stage_line_size(input_ident.into());
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
@@ -114,11 +114,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         #[comptime] config: G,
     ) {
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 this.nth_slice,
                 comptime!(this.input_ident.as_ident()),
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
         let window: Window<MP::EI> =

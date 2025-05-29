@@ -104,10 +104,10 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             }
         }
 
-        let stage = StageMemory::new_aligned::<G::SmmConfig>(
+        let stage = StageMemory::new_aligned::<G::StageConfig>(
             comptime!(ident.as_ident()),
             128u32,
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);

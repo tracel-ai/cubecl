@@ -162,7 +162,7 @@ where
             for _ in 0..comptime![n_iterations] {
                 let accumulator =
                     Accumulators::<MP, TMM>::get_at(acc, m_iter, n_iter, stage_config);
-                TMM::write_results(accumulator, &mut smem_slice, stage_config.to_tmm_config());
+                TMM::write_results(accumulator, &mut smem_slice, stage_config.tile_config());
                 Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),

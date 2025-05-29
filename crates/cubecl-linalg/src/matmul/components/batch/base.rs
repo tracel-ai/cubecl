@@ -53,10 +53,10 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Configuration for the [batch matmul](BatchMatmul) level.
 pub trait BatchConfig: MatmulConfig {
     /// Underlying Global matmul config
-    type GmmConfig: global::GlobalConfig;
+    type GlobalConfig: global::GlobalConfig;
 
     /// Convert itself to the underlying global matmul config
-    fn to_gmm_config(&self) -> Self::GmmConfig;
+    fn global_config(&self) -> Self::GlobalConfig;
 
     /// Returns the largest m dimension supported with these configs
     fn max_m(&self) -> u32;
@@ -71,7 +71,7 @@ pub trait BatchConfig: MatmulConfig {
     fn quantized(&self) -> bool;
 
     fn tiling_scheme(&self) -> TilingScheme {
-        self.to_gmm_config().tiling_scheme()
+        self.global_config().tiling_scheme()
     }
 }
 

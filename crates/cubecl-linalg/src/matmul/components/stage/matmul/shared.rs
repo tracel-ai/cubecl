@@ -10,7 +10,7 @@ use cubecl_core as cubecl;
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
 pub struct CommonStageConfig<T: TileConfig> {
-    pub tmm_config: T,
+    pub tile_config: T,
     pub tiling_scheme: TilingScheme,
     pub num_planes: u32,
     pub quantized: bool,
@@ -27,18 +27,18 @@ pub struct StageVectorization {
 }
 
 impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
-    type TmmConfig = T;
+    type TileConfig = T;
 
-    fn to_tmm_config(self) -> Self::TmmConfig {
-        self.tmm_config
+    fn tile_config(self) -> Self::TileConfig {
+        self.tile_config
     }
 
     fn stage_line_size(&self, ident: Ident) -> u32 {
-        self.tmm_config.stage_line_size(ident)
+        self.tile_config.stage_line_size(ident)
     }
 
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
-        self.tmm_config.matrix_layout(ident)
+        self.tile_config.matrix_layout(ident)
     }
 
     fn num_planes(&self) -> u32 {
@@ -46,7 +46,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     }
 
     fn plane_dim(&self) -> u32 {
-        self.tmm_config.plane_dim()
+        self.tile_config.plane_dim()
     }
 
     fn buffering(&self) -> PartitionBuffering {
@@ -70,7 +70,7 @@ impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
 impl<T: TileConfig> CommonStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        tmm_config: T,
+        tile_config: T,
         tiling_scheme: TilingScheme,
         num_planes: u32,
         quantized: bool,
@@ -78,7 +78,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         num_stages: NumStages,
     ) -> Self {
         Self {
-            tmm_config,
+            tile_config,
             tiling_scheme,
             num_planes,
             quantized,
@@ -103,7 +103,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
 
         #[unroll]
         for _ in 0..comptime!(partition_size.mn()) {
-            accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
+            accumulators.push(TMM::allocate_accumulator(config.tile_config()));
         }
 
         Accumulators::<MP, TMM> {
@@ -114,7 +114,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
     pub fn zero(&mut self, #[comptime] config: CommonStageConfig<TMM::Config>) {
         #[unroll]
         for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
-            TMM::zero_accumulator(self.sequence.index_mut(i), config.to_tmm_config());
+            TMM::zero_accumulator(self.sequence.index_mut(i), config.tile_config());
         }
     }
 
@@ -126,7 +126,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[unroll]
         for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
             let acc = self.sequence.index_mut(i);
-            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<TMM>(loader, acc, i, config.tile_config());
         }
     }
 

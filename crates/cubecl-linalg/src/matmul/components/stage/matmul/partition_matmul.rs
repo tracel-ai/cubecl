@@ -70,19 +70,20 @@ where
     pub fn init_tile_inputs(
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) -> (Sequence<TMM::Lhs>, RhsTile<TMM::Rhs>) {
-        let tmm_config = config.to_tmm_config();
+        let tile_config = config.tile_config();
         let mut lhs = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(config.tiling_scheme().tiles_in_partition_m()) {
-            lhs.push(TMM::allocate_lhs(tmm_config));
+            lhs.push(TMM::allocate_lhs(tile_config));
         }
 
         let rhs = match config.buffering() {
-            PartitionBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
-            PartitionBuffering::Double => {
-                RhsTile::new_Double((TMM::allocate_rhs(tmm_config), TMM::allocate_rhs(tmm_config)))
-            }
+            PartitionBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tile_config)),
+            PartitionBuffering::Double => RhsTile::new_Double((
+                TMM::allocate_rhs(tile_config),
+                TMM::allocate_rhs(tile_config),
+            )),
         };
 
         (lhs, rhs)
@@ -149,7 +150,7 @@ where
                 TMM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
-                    config.to_tmm_config(),
+                    config.tile_config(),
                 );
                 SEL::on_event(
                     &mut listener,
@@ -170,7 +171,7 @@ where
             for _ in 0..n_iterations {
                 let rhs_tile_next =
                     RR::read_tile::<TMM::Config>(rhs_reader, k_iter, start_n + n_iter, config);
-                TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.to_tmm_config());
+                TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime![StageEvent::RhsLoaded {
@@ -191,7 +192,7 @@ where
                         lhs_fragment.index(m_iter),
                         rhs_fragment,
                         accumulator,
-                        config.to_tmm_config(),
+                        config.tile_config(),
                     );
                     SEL::on_event(
                         &mut listener,
@@ -257,7 +258,7 @@ where
                 TMM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
-                    config.to_tmm_config(),
+                    config.tile_config(),
                 );
                 SEL::on_event(
                     &mut listener,
@@ -275,11 +276,7 @@ where
 
             let rhs_tile_first =
                 RR::read_tile::<TMM::Config>(rhs_reader, k_iter, start_n + n_iter, config);
-            TMM::fill_rhs(
-                &rhs_tile_first,
-                &mut rhs_fragments.0,
-                config.to_tmm_config(),
-            );
+            TMM::fill_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
@@ -304,7 +301,7 @@ where
                     start_n + comptime![n_iter + 1],
                     config,
                 );
-                TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
+                TMM::fill_rhs(&rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {
@@ -326,7 +323,7 @@ where
                         lhs_fragment.index(m_iter),
                         current,
                         accumulator,
-                        config.to_tmm_config(),
+                        config.tile_config(),
                     );
                     SEL::on_event(
                         &mut listener,
@@ -359,7 +356,7 @@ where
                     lhs_fragment.index(m_iter),
                     last,
                     accumulator,
-                    config.to_tmm_config(),
+                    config.tile_config(),
                 );
                 SEL::on_event(
                     &mut listener,

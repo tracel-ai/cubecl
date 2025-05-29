@@ -34,7 +34,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage = StageMemory::new::<G::SmmConfig>(1u32, Ident::Lhs, config.to_smm_config());
+        let stage = StageMemory::new::<G::StageConfig>(1u32, Ident::Lhs, config.stage_config());
 
         let shape_m = runtime_args.size_m;
         let shape_k = runtime_args.size_k;
@@ -110,8 +110,8 @@ impl SimpleIm2col {
             let pos_within_tile = unit_position % tile_num_elements;
 
             let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<
-                G::SmmConfig,
-            >(nth_tile, ident, config.to_smm_config());
+                G::StageConfig,
+            >(nth_tile, ident, config.stage_config());
 
             let line_read =
                 tensor_reader.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);

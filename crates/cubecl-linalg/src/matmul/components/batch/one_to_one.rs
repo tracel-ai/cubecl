@@ -32,14 +32,14 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
     type Config = Config<GMM::Config, C>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        GMM::check_config(&config.to_gmm_config())
+        GMM::check_config(&config.global_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R, MP>(client, &config.gmm_config)
+        GMM::check_availability::<R, MP>(client, &config.global_config)
     }
 
     fn make_config(
@@ -50,7 +50,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let gmm_config =
+        let global_config =
             GMM::make_config(input, problem, line_sizes, cube_dim, cube_count, quantized);
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
@@ -58,7 +58,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
             panic!("Dynamic cube count unsupported")
         };
 
-        Config::<GMM::Config, C>::new(gmm_config, cube_count, quantized)
+        Config::<GMM::Config, C>::new(global_config, cube_count, quantized)
     }
 }
 
@@ -111,7 +111,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         let nth_batch = C::batch_index();
         let k_range = (0, size_k);
 
-        let gmm_config = config.to_gmm_config();
+        let global_config = config.global_config();
 
         gmm_execute::<MP, GMM>(
             lhs,
@@ -120,10 +120,10 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
             x_offset,
             y_offset,
             nth_batch,
-            &mut GMM::init_accumulator(gmm_config),
+            &mut GMM::init_accumulator(global_config),
             k_range,
             quantization,
-            gmm_config,
+            global_config,
         );
     }
 }
@@ -131,17 +131,17 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
 pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
-    gmm_config: G,
+    global_config: G,
     cube_count: (u32, u32, u32),
     quantized: bool,
     _c: PhantomData<C>,
 }
 
 impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, C> {
-    type GmmConfig = G;
+    type GlobalConfig = G;
 
-    fn to_gmm_config(&self) -> Self::GmmConfig {
-        self.gmm_config
+    fn global_config(&self) -> Self::GlobalConfig {
+        self.global_config
     }
 
     fn max_m(&self) -> u32 {
@@ -164,9 +164,9 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
 impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
 impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
-    pub fn new(gmm_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
+    pub fn new(global_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
         Self {
-            gmm_config,
+            global_config,
             cube_count,
             quantized,
             _c: PhantomData,

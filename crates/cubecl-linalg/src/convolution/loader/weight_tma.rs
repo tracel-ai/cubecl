@@ -46,10 +46,10 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::SmmConfig>(
+            stages.push(StageMemory::new_aligned::<G::StageConfig>(
                 Ident::Rhs,
                 128u32,
-                config.to_smm_config(),
+                config.stage_config(),
             ));
         }
 

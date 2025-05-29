@@ -34,7 +34,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let line_size = config.to_smm_config().stage_line_size(input_ident.into());
+        let line_size = config.stage_config().stage_line_size(input_ident.into());
         let num_stages = 2;
 
         let total_row = config.tiling_scheme().elements_in_stage_row(input_ident);
@@ -133,11 +133,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(nth_slice, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 nth_slice,
                 comptime!(this.input_ident.as_ident()),
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
         let start = this.slice_buffer_offset;

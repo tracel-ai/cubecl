@@ -62,14 +62,14 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check(config, Ident::Lhs)?;
         RL::check(config, Ident::Rhs)?;
-        SMM::check_config(&config.to_smm_config())
+        SMM::check_config(&config.stage_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
+        SMM::check_availability::<R, MP>(client, &config.stage_config())?;
 
         if !client.properties().feature_enabled(Feature::Barrier) {
             return Err(MatmulAvailabilityError::BarrierUnavailable);
@@ -86,7 +86,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
+        let stage_config = SMM::make_config(
             input.stage_input,
             problem,
             line_sizes,
@@ -94,12 +94,12 @@ where
             cube_count,
             quantized,
         );
-        let stage_shape_m = smm_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = smm_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = smm_config.tiling_scheme().elements_in_stage_k();
+        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
+        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
+        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         Config::new(
-            smm_config,
+            stage_config,
             problem.m as u32 % stage_shape_m != 0,
             problem.n as u32 % stage_shape_n != 0,
             problem.k as u32 % stage_shape_k != 0,
@@ -160,8 +160,8 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
-        SMM::zero_accumulator(acc, config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        SMM::zero_accumulator(acc, config.stage_config());
 
         let barrier_level = LL::barrier_level();
         let barrier = Barrier::<MP::ES>::new(barrier_level);
@@ -193,14 +193,14 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -254,10 +254,10 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        SMM::init_accumulator(config.stage_config())
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.to_smm_config());
+        SMM::zero_accumulator(acc, config.stage_config());
     }
 }

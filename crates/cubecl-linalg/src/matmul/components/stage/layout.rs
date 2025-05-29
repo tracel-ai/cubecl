@@ -300,12 +300,12 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 config,
             );
 
-        Tile::new_contiguous::<S::TmmConfig>(
+        Tile::new_contiguous::<S::TileConfig>(
             stage_memory
                 .as_slice(stage_line_size)
                 .slice(start, start + tile_slice_length),
             ident,
-            config.to_tmm_config(),
+            config.tile_config(),
         )
     }
 }

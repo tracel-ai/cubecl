@@ -122,10 +122,10 @@ pub mod config {
     }
 
     impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
-        type SmmConfig = M::SmmConfig;
+        type StageConfig = M::StageConfig;
 
-        fn to_smm_config(&self) -> Self::SmmConfig {
-            self.matmul.to_smm_config()
+        fn stage_config(&self) -> Self::StageConfig {
+            self.matmul.stage_config()
         }
 
         fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {

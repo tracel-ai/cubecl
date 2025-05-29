@@ -128,10 +128,10 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Configuration for the Stage matmul (SMM) level
 pub trait StageConfig: MatmulConfig {
     /// Underlying Tile matmul config
-    type TmmConfig: TileConfig;
+    type TileConfig: TileConfig;
 
     /// Convert itself to the underlying tile matmul config
-    fn to_tmm_config(self) -> Self::TmmConfig;
+    fn tile_config(self) -> Self::TileConfig;
 
     /// Returns the line size for the given ident
     fn stage_line_size(&self, ident: Ident) -> u32;

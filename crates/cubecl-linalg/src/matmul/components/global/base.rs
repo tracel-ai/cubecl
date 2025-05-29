@@ -103,16 +103,16 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Configuration for the [global matmul](GlobalMatmul) level.
 pub trait GlobalConfig: MatmulConfig {
     /// Underlying Stage matmul config
-    type SmmConfig: stage::StageConfig;
+    type StageConfig: stage::StageConfig;
 
     /// Convert itself to the underlying stage matmul config
-    fn to_smm_config(&self) -> Self::SmmConfig;
+    fn stage_config(&self) -> Self::StageConfig;
 
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     fn tiling_scheme(&self) -> TilingScheme {
-        self.to_smm_config().tiling_scheme()
+        self.stage_config().tiling_scheme()
     }
 
     /// Returns the [MatrixLayout] for the given ident

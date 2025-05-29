@@ -163,12 +163,12 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             ),
         };
 
-        let tile = TO::to_row_col::<G::SmmConfig>(
+        let tile = TO::to_row_col::<G::StageConfig>(
             nth_tile_global,
             total_tile_count_row,
             total_tile_count_col,
             comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;

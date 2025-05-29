@@ -82,14 +82,14 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             ));
         }
 
-        TMM::check_config(&config.to_tmm_config())
+        TMM::check_config(&config.tile_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        TMM::check_availability::<R, MP>(client, &config.tmm_config)
+        TMM::check_availability::<R, MP>(client, &config.tile_config)
     }
 
     fn make_config(
@@ -104,12 +104,12 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             vectorization: stage_input.stage_vectorization,
             tile_size: stage_input.tiling_scheme.tile_size,
         };
-        let tmm_config = TMM::make_config(
+        let tile_config = TMM::make_config(
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
 
         CommonStageConfig::new(
-            tmm_config,
+            tile_config,
             stage_input.tiling_scheme,
             cube_dim.y,
             quantized,

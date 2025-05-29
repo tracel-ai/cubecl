@@ -56,7 +56,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         #[comptime] config: G,
     ) -> Self {
         let stage_memory =
-            StageMemory::new::<G::SmmConfig>(1u32, input_ident.as_ident(), config.to_smm_config());
+            StageMemory::new::<G::StageConfig>(1u32, input_ident.as_ident(), config.stage_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {

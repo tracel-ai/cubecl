@@ -120,11 +120,11 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
 ) {
     let window: Window<EG> =
         tensor_reader.load_window_in_stage::<G>(nth_slice, input_ident, config);
-    let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
+    let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::StageConfig>(
         stage,
         nth_slice,
         comptime!(input_ident.as_ident()),
-        config.to_smm_config(),
+        config.stage_config(),
     );
 
     CM::memcpy_async(

@@ -79,14 +79,14 @@ where
         let num_loops = (range + k_step - 1) / k_step;
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
         sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(
             &mut acc_loader,
             acc,
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
         for _ in 0..num_loops {
@@ -106,7 +106,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
@@ -115,7 +115,7 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -163,7 +163,7 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        SMM::init_accumulator(config.stage_config())
     }
 }
 
@@ -189,7 +189,7 @@ where
     type Input = GlobalInput<SMM::Input>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.to_smm_config())
+        SMM::check_config(&config.stage_config())
     }
 
     fn make_config<R: Runtime, MP: MatmulPrecision>(
@@ -200,7 +200,7 @@ where
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
+        let stage_config = SMM::make_config(
             input.stage_input,
             &problem.as_matmul_problem(),
             line_sizes,
@@ -208,11 +208,11 @@ where
             cube_count,
             false,
         );
-        let stage_k = smm_config.tiling_scheme().elements_in_stage_k();
+        let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
-                smm_config,
+                stage_config,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
@@ -239,7 +239,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
+        SMM::check_availability::<R, MP>(client, &config.stage_config())
     }
 }
 

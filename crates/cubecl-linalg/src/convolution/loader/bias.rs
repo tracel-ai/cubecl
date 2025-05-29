@@ -94,7 +94,7 @@ impl<MP: MatmulPrecision> BiasLoader<MP> {
 fn init_stage<ES: Numeric, G: GlobalConfig>(
     #[comptime] config: G,
 ) -> StageMemory<ES, ConvTilingLayout> {
-    let line_size = config.to_smm_config().stage_line_size(Ident::Out);
+    let line_size = config.stage_config().stage_line_size(Ident::Out);
 
     let smem = SharedMemory::new_lined(
         comptime!(config.tiling_scheme().elements_in_stage_n() / line_size),

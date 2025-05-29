@@ -89,7 +89,7 @@ where
     ) {
         // Arbitrarily using Lhs, they should be the same
         let num_stages = config.num_stages(InputIdent::Lhs);
-        let smm_config = config.to_smm_config();
+        let stage_config = config.stage_config();
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         #[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
@@ -106,10 +106,10 @@ where
 
         sync_cube();
 
-        SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, smm_config);
+        SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, stage_config);
 
         let mut barriers = Sequence::<Barrier<MP::ES>>::new();
-        let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(smm_config);
+        let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
 
         let mut stage = comptime![0u32];
 
@@ -120,7 +120,7 @@ where
             let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, stage, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, stage, smm_config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, stage, stage_config);
 
             arrive_tma::<MP::ES>(&barrier, total_stage_elems);
 
@@ -159,7 +159,7 @@ where
                         &mut tile_lhs,
                         &mut tile_rhs,
                         acc,
-                        config.to_smm_config(),
+                        config.stage_config(),
                     );
                     barrier.arrive();
 
@@ -169,7 +169,7 @@ where
 
                         // Refill stage and advance view
                         Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, stage, config);
-                        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, stage, smm_config);
+                        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, stage, stage_config);
 
                         arrive_tma::<MP::ES>(barrier, total_stage_elems);
 
@@ -184,7 +184,7 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -239,7 +239,7 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        SMM::init_accumulator(config.stage_config())
     }
 }
 
@@ -263,7 +263,7 @@ where
     type Input = GlobalInput<SMM::Input>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.to_smm_config())
+        SMM::check_config(&config.stage_config())
     }
 
     fn make_config<R: Runtime, MP: MatmulPrecision>(
@@ -281,7 +281,7 @@ where
         line_sizes.lhs = 1;
         line_sizes.rhs = 1;
 
-        let smm_config = SMM::make_config(
+        let stage_config = SMM::make_config(
             input.stage_input,
             &problem.as_matmul_problem(),
             &line_sizes,
@@ -290,18 +290,18 @@ where
             false,
         );
 
-        let stage_k = smm_config.tiling_scheme().elements_in_stage_k();
+        let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         let num_stages = num_stages::<R, MP>(
             client,
             problem,
-            smm_config.num_planes(),
-            &smm_config.tiling_scheme(),
+            stage_config.num_planes(),
+            &stage_config.tiling_scheme(),
         );
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
-                smm_config,
+                stage_config,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
@@ -336,7 +336,7 @@ where
             return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
-        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
+        SMM::check_availability::<R, MP>(client, &config.stage_config())
     }
 }
 

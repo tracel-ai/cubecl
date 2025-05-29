@@ -185,12 +185,12 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         ),
     };
 
-    let (tile_x_within_buffer, tile_y_within_buffer) = TO::to_row_col::<G::SmmConfig>(
+    let (tile_x_within_buffer, tile_y_within_buffer) = TO::to_row_col::<G::StageConfig>(
         tile_index,
         tile_count_row,
         tile_count_col,
         comptime!(job.input_ident.as_ident()),
-        comptime!(config.to_smm_config()),
+        comptime!(config.stage_config()),
     );
 
     let (tile_x, tile_y) = match comptime!(job.input_ident) {
@@ -212,13 +212,13 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         config,
     );
 
-    let nth_tile_in_stage = TO::to_nth_tile::<G::SmmConfig>(
+    let nth_tile_in_stage = TO::to_nth_tile::<G::StageConfig>(
         tile_x,
         tile_y,
         total_tile_count_row,
         total_tile_count_col,
         comptime!(job.input_ident.as_ident()),
-        config.to_smm_config(),
+        config.stage_config(),
     );
 
     let tile_start = nth_tile_in_stage * job.num_lines_per_tile;

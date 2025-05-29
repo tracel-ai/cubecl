@@ -59,14 +59,14 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         <LL as LoadingValidation>::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
-        SMM::check_config(&config.to_smm_config())
+        SMM::check_config(&config.stage_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.smm_config)
+        SMM::check_availability::<R, MP>(client, &config.stage_config)
     }
 
     fn make_config(
@@ -77,7 +77,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
+        let stage_config = SMM::make_config(
             input.stage_input,
             problem,
             line_sizes,
@@ -85,12 +85,12 @@ where
             cube_count,
             quantized,
         );
-        let stage_shape_m = smm_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = smm_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = smm_config.tiling_scheme().elements_in_stage_k();
+        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
+        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
+        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         OrderedDoubleBufferingGlobalConfig::new(
-            smm_config,
+            stage_config,
             problem.m as u32 % stage_shape_m != 0,
             problem.n as u32 % stage_shape_n != 0,
             problem.k as u32 % (2 * stage_shape_k) != 0,
@@ -160,9 +160,9 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        SMM::zero_accumulator(acc, config.to_smm_config());
+        SMM::zero_accumulator(acc, config.stage_config());
 
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
         let lhs_reader = Self::LhsLoader::reader(&lhs_loader);
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
@@ -184,7 +184,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
@@ -201,7 +201,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
@@ -218,7 +218,7 @@ where
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.to_smm_config(),
+            config.stage_config(),
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
@@ -231,10 +231,10 @@ where
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -288,11 +288,11 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        SMM::init_accumulator(config.stage_config())
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.to_smm_config());
+        SMM::zero_accumulator(acc, config.stage_config());
     }
 }
 
