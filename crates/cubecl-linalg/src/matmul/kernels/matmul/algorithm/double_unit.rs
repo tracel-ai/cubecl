@@ -68,7 +68,7 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_units_needed = selection.tiling_scheme().partitions_in_stage_total();
+        let num_units_needed = selection.tiling_scheme().partitions_in_stage_mn();
         let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
         CubeDim::new(selection.plane_dim, num_planes, 1)

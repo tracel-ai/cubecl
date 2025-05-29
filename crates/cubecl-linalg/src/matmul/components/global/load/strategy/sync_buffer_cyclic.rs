@@ -36,7 +36,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
             let max_task_id = num_tasks_per_unit - 1;
             let max_position_base = max_id * line_size;
             let max_position = max_position_base + max_task_id * jump_length;
-            let num_stage_elements = tiling_dimensions.total_size();
+            let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
             if max_position > num_stage_elements {
                 return Err(Box::new(
@@ -61,7 +61,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
     ) -> Job {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
-        let num_stage_elements = tiling_dimensions.total_size();
+        let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
         let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();

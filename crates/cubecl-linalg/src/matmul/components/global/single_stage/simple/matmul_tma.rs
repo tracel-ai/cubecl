@@ -1,4 +1,5 @@
 use crate::matmul::components::InputIdent;
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::load::arrive_tma;
@@ -8,7 +9,6 @@ use crate::matmul::components::global::{Quantization, load::TmaReader};
 use crate::matmul::components::problem::MatmulLineSizes;
 use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::{Ident, MatmulPrecision};
 use crate::matmul::kernels::matmul::GlobalInput;
 
 use barrier::Barrier;
@@ -159,8 +159,8 @@ where
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
-        let num_elems_stages = config.tiling_dimensions(Ident::Rhs).total_size()
-            + config.tiling_dimensions(Ident::Lhs).total_size();
+        let num_elems_stages = config.tiling_scheme().elements_in_stage_nk()
+            + config.tiling_scheme().elements_in_stage_mk();
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());

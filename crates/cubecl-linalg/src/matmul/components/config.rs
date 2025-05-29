@@ -162,9 +162,9 @@ pub struct TilingDimensions {
 
 impl TilingDimensions {
     /// Returns the total number of elements of the stage.
-    pub fn total_size(&self) -> u32 {
-        self.total_row() * self.total_col()
-    }
+    // pub fn total_size(&self) -> u32 {
+    //     self.total_row() * self.total_col()
+    // }
 
     /// Returns the total number of rows of the stage.
     pub fn total_row(&self) -> u32 {

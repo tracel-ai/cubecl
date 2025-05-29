@@ -99,8 +99,8 @@ where
         // so the stage index is comptime. This is needed to make `Sequence` work.
         let num_loops = (num_loops + num_stages - 1) / num_stages;
 
-        let total_stage_elems = config.tiling_dimensions(Ident::Rhs).total_size()
-            + config.tiling_dimensions(Ident::Lhs).total_size();
+        let total_stage_elems = config.tiling_scheme().elements_in_stage_mk()
+            + config.tiling_scheme().elements_in_stage_nk();
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
 

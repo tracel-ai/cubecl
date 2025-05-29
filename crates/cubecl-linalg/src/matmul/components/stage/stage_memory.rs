@@ -29,7 +29,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         let line_size = config.stage_line_size(ident);
 
         let smem = SharedMemory::new_lined(
-            comptime!(num_stages * config.tiling_dimensions(ident).total_size() / line_size),
+            comptime!(num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size),
             line_size,
         );
 
@@ -45,7 +45,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         let line_size = config.stage_line_size(ident);
 
         let smem = SharedMemory::new_aligned(
-            comptime!(config.tiling_dimensions(ident).total_size() / line_size),
+            comptime!(config.tiling_scheme().elements_in_stage(ident) / line_size),
             line_size,
             alignment,
         );
@@ -90,7 +90,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
-            self.num_stages * config.tiling_dimensions(ident.into()).total_size()
+            self.num_stages * config.tiling_scheme().elements_in_stage(ident)
                 / config.stage_line_size(ident.into())
         );
 
@@ -123,7 +123,9 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         // // Also assumes two buffers
         let tiling_dimensions = config.tiling_dimensions(ident.as_ident());
         let line_size = config.stage_line_size(ident.as_ident());
-        let smem_length = comptime!(self.num_stages * tiling_dimensions.total_size() / line_size);
+        let smem_length = comptime!(
+            self.num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size
+        );
         let buffer_length = smem_length / 2;
 
         let matrix_layout = config.matrix_layout(ident.as_ident());

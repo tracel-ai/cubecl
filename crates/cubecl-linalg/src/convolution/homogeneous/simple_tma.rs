@@ -80,8 +80,8 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        let total_stage_elems = config.tiling_dimensions(Ident::Rhs).total_size()
-            + config.tiling_dimensions(Ident::Lhs).total_size();
+        let total_stage_elems = config.tiling_scheme().elements_in_stage_mk()
+            + config.tiling_scheme().elements_in_stage_nk();
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());

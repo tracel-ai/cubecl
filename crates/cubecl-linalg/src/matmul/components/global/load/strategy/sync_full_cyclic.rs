@@ -23,10 +23,9 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
-            let tiling = config.tiling_dimensions(ident);
             let line_size = config.global_line_size(ident);
 
-            let num_stage_lines = tiling.total_size() / line_size;
+            let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
             let total_units = config.num_planes() * config.plane_dim();
 
             if num_stage_lines % total_units != 0 {
@@ -53,7 +52,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         let tiling = config.tiling_dimensions(input_ident);
         let tile_num_elements = tiling.tile_size();
         let line_size = config.global_line_size(input_ident);
-        let num_stage_elements = tiling.total_size();
+        let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_tasks_per_unit = comptime!(num_stage_elements.div_ceil(jump_length));
