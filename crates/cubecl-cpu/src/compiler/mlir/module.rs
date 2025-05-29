@@ -1,3 +1,54 @@
+/// This module emulate all CubeCL constant using the equivalent MLIR skeleton on top of the kernel
+/// ```
+/// let module = melior::ir::Module::parse(
+///     context,
+///     r#"
+///     module {
+///         func.func private @print_i(index)
+///
+///         func.func @kernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>, %arg2: memref<?xf32>, %cube_dim_x: index, %cube_dim_y: index, %cube_dim_z: index, %cube_count_x: index, %cube_count_y: index, %cube_count_z: index, %unit_pos_x: index, %unit_pos_y: index, %unit_pos_z: index) attributes {llvm.emit_c_interface} {
+///             %cc1 = arith.constant 1 : index
+///             %cc0 = arith.constant 0 : index
+///
+///             %absolute_pos_tmp0 = arith.muli %cube_count_x, %cube_dim_x : index
+///             %absolute_pos_tmp1 = arith.muli %cube_count_y, %cube_dim_y : index
+///             %absolute_pos_tmp2 = arith.muli %absolute_pos_tmp0, %absolute_pos_tmp1 : index
+///
+///             scf.for %cube_pos_x = %cc0 to %cube_count_x step %cc1 {
+///                 %absolute_pos_x0 = arith.muli %cube_pos_x, %cube_dim_x : index
+///                 %absolute_pos_x1 = arith.addi %absolute_pos_x0, %unit_pos_x : index
+///
+///                 scf.for %cube_pos_y = %cc0 to %cube_count_y step %cc1 {
+///                     %absolute_pos_y0 = arith.muli %cube_pos_y, %cube_dim_y : index
+///                     %absolute_pos_y1 = arith.addi %absolute_pos_y0, %unit_pos_y : index
+///                     %absolute_pos_tmp3 = arith.muli %absolute_pos_y1, %absolute_pos_tmp0 : index
+///
+///                     scf.for %cube_pos_z = %cc0 to %cube_count_z step %cc1 {
+///                         %absolute_pos_z0 = arith.muli %cube_pos_z, %cube_dim_z : index
+///                         %absolute_pos_z1 = arith.addi %absolute_pos_z0, %unit_pos_z : index
+///
+///                         %absolute_pos_tmp4 = arith.muli %absolute_pos_z1, %absolute_pos_tmp2 : index
+///
+///                         %absolute_pos_tmp5 = arith.muli %absolute_pos_tmp2, %absolute_pos_z1 : index
+///                         %absolute_pos_tmp6 = arith.addi %absolute_pos_x1, %absolute_pos_tmp3 : index
+///                         %absolute_pos = arith.addi %absolute_pos_tmp6, %absolute_pos_tmp4 : index
+///
+///                         %cc16 = arith.constant 16 : index
+///                         %absolute_pos_x16 = arith.muli %cc16, %absolute_pos : index
+///
+///                         %0 = vector.load %arg0[%absolute_pos_x16] : memref<?xf32>, vector<16xf32>
+///                         %1 = vector.load %arg1[%absolute_pos_x16] : memref<?xf32>, vector<16xf32>
+///                         %2 = arith.addf %0, %1 : vector<16xf32>
+///                         vector.store %2, %arg2[%absolute_pos_x16] : memref<?xf32>, vector<16xf32>
+///                     }
+///                 }
+///             }
+///             func.return
+///         }
+///     }
+///     "#,
+/// ).unwrap();
+/// ```
 use std::path::PathBuf;
 
 use cubecl_core::prelude::KernelDefinition;
@@ -22,27 +73,7 @@ pub(super) struct Module<'a> {
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context) -> Self {
         let location = Location::unknown(context);
-        let module = melior::ir::Module::parse(
-            context,
-            r#"
-            module {
-              func.func @kernel(%arg0: memref<?xvector<4xf32>>, %arg1: memref<?xvector<4xf32>>, %arg2: memref<?xvector<4xf32>>, %cube_dim_x: index, %cube_dim_y: index, %cube_dim_z: index, %cube_count_x: index, %cube_count_y: index, %cube_count_z: index, %cube_pos_x: index, %cube_pos_y: index, %cube_pos_z: index) -> index attributes {llvm.emit_c_interface} {
-                %cc1 = arith.constant 1 : index
-                %cc0 = arith.constant 0 : index
-                %cc64 = arith.constant 64 : index
-                scf.for %i = %cc0 to %cube_dim_x step %cc1 {
-                   %0 = vector.load %arg0[%i] : memref<?xvector<4xf32>>, vector<4xf32>
-                   %1 = vector.load %arg1[%i] : memref<?xvector<4xf32>>, vector<4xf32>
-                   %2 = arith.addf %0, %1 : vector<4xf32>
-                   vector.store %2, %arg2[%i] : memref<?xvector<4xf32>>, vector<4xf32>
-                   scf.yield
-                }
-                return %cube_dim_x : index
-              }
-            }
-            "#,
-        ).unwrap();
-        // let module = melior::ir::Module::new(location);
+        let module = melior::ir::Module::new(location);
         Self {
             module,
             context,
@@ -51,7 +82,7 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition, opt: &Optimizer) {
-        // Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module, opt);
+        Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module, opt);
     }
 
     pub(super) fn run_pass(&mut self) {
@@ -76,9 +107,10 @@ impl<'a> Module<'a> {
         pass_manager.add_pass(pass::conversion::create_func_to_llvm());
         pass_manager.add_pass(pass::transform::create_inliner());
         pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
+        pass_manager.add_pass(pass::transform::create_canonicalizer());
         pass_manager.add_pass(pass::transform::create_sccp());
         pass_manager.add_pass(pass::transform::create_mem_2_reg());
-        pass_manager.add_pass(pass::transform::create_remove_dead_values());
+        // pass_manager.add_pass(pass::transform::create_remove_dead_values()); // Needs this to be fixed before https://github.com/llvm/llvm-project/issues/82788
         pass_manager.add_pass(pass::transform::create_control_flow_sink());
         pass_manager.add_pass(pass::transform::create_cse());
         pass_manager.run(&mut self.module).unwrap();
@@ -86,8 +118,6 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn into_execution_engine(&self) -> ExecutionEngine {
-        let engine = ExecutionEngine::new(&self.module, 3, &[], true);
-        engine.dump_to_object_file("test.so");
-        engine
+        ExecutionEngine::new(&self.module, 0, &[], true)
     }
 }

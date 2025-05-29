@@ -1,10 +1,12 @@
 pub mod builtin;
+pub(super) mod external_function;
 pub(super) mod memref;
 pub mod module;
 pub(super) mod visitor;
 
 use builtin::Builtin;
 use cubecl_opt::Optimizer;
+use external_function::register_external_function;
 use memref::LineMemRef;
 pub use visitor::elem::register_supported_types;
 
@@ -14,7 +16,7 @@ use cubecl_core::prelude::KernelDefinition;
 use melior::{Context, ExecutionEngine, dialect::DialectRegistry, utility::register_all_dialects};
 use module::Module;
 
-const MAX_BUFFER_SIZE: usize = 128;
+const MAX_BUFFER_SIZE: usize = 256;
 
 pub struct MlirEngine {
     args_zero_indirection: Vec<LineMemRef>,
@@ -58,6 +60,7 @@ impl MlirEngine {
         let args_second_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
         let mut builtin = Builtin::default();
         builtin.set_cube_dim(kernel.cube_dim);
+        register_external_function(&execution_engine);
         Self {
             execution_engine,
             args_zero_indirection,
@@ -89,14 +92,10 @@ impl MlirEngine {
     }
 
     pub unsafe fn run_kernel(&mut self) {
-        let mut result = u64::MAX;
-        let mut t = self.args_second_indirection.clone();
-        t.push(&mut result as *mut u64 as *mut ());
         unsafe {
             self.execution_engine
-                .invoke_packed("kernel", t.as_mut())
+                .invoke_packed("kernel", &mut self.args_second_indirection)
                 .unwrap()
         }
-        println!("{:?}", result);
     }
 }

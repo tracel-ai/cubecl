@@ -29,6 +29,7 @@ static RUNTIME: ComputeRuntime<CpuDevice, Server, Channel> = ComputeRuntime::new
 pub type CpuCompiler = MlirCompiler;
 
 type Server = CpuServer;
+// Take a MSPC channel
 type Channel = MutexComputeChannel<Server>;
 
 fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {

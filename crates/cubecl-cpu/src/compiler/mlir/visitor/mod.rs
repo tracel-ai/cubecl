@@ -84,6 +84,7 @@ impl<'a> Visitor<'a> {
         let func_type = TypeAttribute::new(FunctionType::new(self.context, &inputs, &[]).into());
 
         let location = self.location;
+        self.add_external_function_to_module(module);
         module.body().append_operation(func::func(
             self.context,
             name,

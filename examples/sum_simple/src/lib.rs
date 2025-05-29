@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 
-const VECTORIZATION: u8 = 4;
+const VECTORIZATION: u8 = 16;
 
 #[cube(launch_unchecked)]
 /// A [Line] represents a contiguous series of elements where SIMD operations may be available.
@@ -24,8 +24,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     unsafe {
         sum_simple::launch_unchecked::<f32, R>(
             &client,
-            CubeCount::Static((input_a.len() / 8 / VECTORIZATION as usize) as u32, 1, 1),
-            CubeDim::new(8, 1, 1),
+            CubeCount::Static(2, 2, 2),
+            CubeDim::new(2, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&input_a_handle, input_a.len(), VECTORIZATION),
             ArrayArg::from_raw_parts::<f32>(&input_b_handle, input_a.len(), VECTORIZATION),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input_a.len(), VECTORIZATION),

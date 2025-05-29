@@ -1,5 +1,8 @@
 use cubecl_core::ir::{Operator, Variable};
-use melior::{dialect::ods::vector, ir::BlockLike};
+use melior::{
+    dialect::{ods::vector},
+    ir::{BlockLike},
+};
 
 use super::Visitor;
 
@@ -10,6 +13,7 @@ impl<'a> Visitor<'a> {
                 let memref = self.get_variable(index_operator.list);
                 let vector_type = self.item_to_type(index_operator.list.item);
                 let index = self.get_index(index_operator.index);
+                // let index = self.append_operation_with_result();
                 let operation =
                     vector::load(self.context, vector_type, memref, &[index], self.location).into();
                 let load_ssa = self

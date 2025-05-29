@@ -164,12 +164,12 @@ impl ComputeServer for CpuServer {
         execution_engine.builtin.set_cube_count(cube_count);
         let (cube_dim_x, cube_dim_y, cube_dim_z) = execution_engine.builtin.get_cube_dim();
         // Will be multithreaded later
-        for cube_pos_x in 0..cube_dim_x {
-            execution_engine.builtin.set_cube_pos_x(cube_pos_x);
-            for cube_pos_y in 0..cube_dim_y {
-                execution_engine.builtin.set_cube_pos_y(cube_pos_y);
-                for cube_pos_z in 0..cube_dim_z {
-                    execution_engine.builtin.set_cube_pos_z(cube_pos_z);
+        for unit_pos_x in 0..cube_dim_x {
+            execution_engine.builtin.set_unit_pos_x(unit_pos_x);
+            for unit_pos_y in 0..cube_dim_y {
+                execution_engine.builtin.set_unit_pos_y(unit_pos_y);
+                for unit_pos_z in 0..cube_dim_z {
+                    execution_engine.builtin.set_unit_pos_z(unit_pos_z);
                     unsafe {
                         execution_engine.run_kernel();
                     }
