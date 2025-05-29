@@ -7,7 +7,7 @@ macro_rules! testgen_matmul_tma_tile {
             $crate::testgen_matmul_tma_partition_shape!(
                 $algorithm,
                 $precision,
-                TileShape {
+                TileSize {
                     m: 16,
                     n: 16,
                     k: 16
