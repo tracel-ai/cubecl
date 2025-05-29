@@ -257,7 +257,7 @@ impl TilingScheme {
     count_1d_method!(tiles_in_stage_n, Tile, Stage, N);
     count_1d_method!(tiles_in_stage_k, Tile, Stage, K);
     count_1d_ident_row_method!(tiles_in_stage_row, Tile, Stage);
-    count_1d_ident_col_method!(tilesk_in_stage_col, Tile, Stage);
+    count_1d_ident_col_method!(tiles_in_stage_col, Tile, Stage);
     count_2d_method!(tiles_in_stage_mk, Tile, Stage, M, K);
     count_2d_method!(tiles_in_stage_nk, Tile, Stage, N, K);
     count_2d_method!(tiles_in_stage_mn, Tile, Stage, M, N);
