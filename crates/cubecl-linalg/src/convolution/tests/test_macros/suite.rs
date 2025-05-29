@@ -174,44 +174,23 @@ macro_rules! conv2d_standard_tests {
         }
     };
 
-    // ($tile:expr) => {
-    //     mod s1x1x1 {
-    //         use super::*;
-    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 1, n: 1, k: 1 });
-    //     }
-
-    //     mod s8x8x1 {
-    //         use super::*;
-    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 8, n: 8, k: 1 });
-    //     }
-
-    //     mod s2x2x2 {
-    //         use super::*;
-    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 2, n: 2, k: 2 });
-    //     }
-
-    //     mod s4x4x2 {
-    //         use super::*;
-    //         $crate::conv2d_standard_tests!($tile, MatmulSize { m: 4, n: 4, k: 2 });
-    //     }
-    // };
     ($tile:expr) => {
-        mod s1x1x1 {
+        mod p1x1x1 {
             use super::*;
             $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 1, k: 1 });
         }
 
-        mod s1x8x1 {
+        mod p1x8x1 {
             use super::*;
             $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 8, k: 1 });
         }
 
-        mod s1x2x2 {
+        mod p1x2x2 {
             use super::*;
             $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 2, k: 2 });
         }
 
-        mod s1x4x2 {
+        mod p1x4x2 {
             use super::*;
             $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 4, k: 2 });
         }
@@ -240,7 +219,7 @@ macro_rules! conv2d_standard_tests {
     };
 
     ($tile:expr, $partition:expr, $stage:expr) => {
-        mod p4x4x1x1 {
+        mod g4x4x1x1 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -255,7 +234,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p17x17x1x1 {
+        mod g17x17x1x1 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -270,7 +249,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p16x16x16x32 {
+        mod g16x16x16x32 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -285,7 +264,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p32x32x32x16 {
+        mod g32x32x32x16 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -300,7 +279,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p64x32x32x128 {
+        mod g64x32x32x128 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -315,7 +294,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p32x32x64x3 {
+        mod g32x32x64x3 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -330,7 +309,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p100x100x100x100 {
+        mod g100x100x100x100 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -345,7 +324,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p20x20x16x32 {
+        mod g20x20x16x32 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
@@ -360,7 +339,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod p23x10x17x20 {
+        mod g23x10x17x20 {
             use super::*;
             $crate::conv2d_standard_tests!(
                 $tile,
