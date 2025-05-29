@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self as gpu, BarrierLevel, ConstantScalarValue, Id};
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 
 use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
 
@@ -103,6 +103,7 @@ pub enum Variable<D: Dialect> {
         item: Item<D>,
         is_declared: bool,
         is_ptr: bool,
+        is_const: bool,
     },
 }
 
@@ -186,9 +187,13 @@ impl<D: Dialect> Component<D> for Variable<D> {
     }
 
     fn is_const(&self) -> bool {
+        if let Variable::Tmp { is_const, .. } = self {
+            return *is_const;
+        }
+
         matches!(
             self,
-            Variable::LocalConst { .. } | Variable::GlobalInputArray(..)
+            Variable::LocalConst { .. } | Variable::GlobalInputArray { .. }
         )
     }
 }
@@ -320,7 +325,36 @@ impl<D: Dialect> Variable<D> {
             item,
             is_declared: false,
             is_ptr: false,
+            is_const: false,
         }
+    }
+
+    pub fn to_const(&mut self) {
+        if let Variable::Tmp { is_const, .. } = self {
+            *is_const = true;
+        }
+    }
+
+    /// Create a temporary variable with a reinterpret_cast.
+    pub fn reinterpret_ptr(&self, f: &mut Formatter<'_>, item: Item<D>) -> Self {
+        let mut out = Self::tmp_ptr(item);
+
+        if self.is_const() {
+            out.to_const();
+        }
+
+        let elem = out.elem();
+        let qualifier = out.const_qualifier();
+        let addr_space = D::address_space_for_variable(self);
+        let out_fmt = out.fmt_left();
+
+        writeln!(
+            f,
+            "{out_fmt} = reinterpret_cast<{addr_space}{elem}{qualifier}*>({self});"
+        )
+        .unwrap();
+
+        out
     }
 
     /// Create a temporary pointer variable.
@@ -334,6 +368,7 @@ impl<D: Dialect> Variable<D> {
             item,
             is_declared: false,
             is_ptr: true,
+            is_const: false,
         }
     }
 
@@ -350,6 +385,7 @@ impl<D: Dialect> Variable<D> {
             item,
             is_declared: true,
             is_ptr: false,
+            is_const: false,
         }
     }
 
@@ -405,11 +441,13 @@ impl<D: Dialect> Variable<D> {
                 item,
                 is_declared,
                 is_ptr,
+                is_const,
             } => Variable::Tmp {
                 id: *id,
                 item: item.optimized(),
                 is_declared: *is_declared,
                 is_ptr: *is_ptr,
+                is_const: *is_const,
             },
             Variable::SharedMemory(id, item, size) => {
                 let before = item.vectorization;
@@ -538,15 +576,20 @@ impl<D: Dialect> FmtLeft for Variable<D> {
                 item,
                 is_declared,
                 is_ptr,
+                is_const,
                 ..
             } => {
                 if *is_declared {
-                    format!("{self}")
-                } else if *is_ptr {
-                    format!("{item} *{self}")
-                } else {
-                    format!("{item} {self}")
+                    return format!("{self}");
                 }
+                if *is_ptr {
+                    if *is_const {
+                        return format!("const {item} *{self}");
+                    }
+                    return format!("{item} *{self}");
+                }
+
+                format!("{item} {self}")
             }
             var => format!("{var}"),
         }
@@ -570,7 +613,7 @@ impl<D: Dialect> Component<D> for IndexedVariable<D> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(self.var, Variable::LocalConst { .. })
+        self.var.is_const()
     }
 }
 

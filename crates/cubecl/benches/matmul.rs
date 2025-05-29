@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_linalg::matmul::SyncBufferLoadingStrategy;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
+use cubecl_linalg::matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
@@ -112,11 +112,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     let client = R::client(&device);
 
     for (b, m, n, k) in [
-        // (1, 8192, 8192, 8192),
+        (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
-        // (1, 5000, 5000, 5000),
-        // (2, 4096, 4096, 4096),
-        // (32, 1024, 1024, 1024),
+        (1, 5000, 5000, 5000),
+        (2, 4096, 4096, 4096),
+        (32, 1024, 1024, 1024),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
@@ -138,15 +138,12 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Tilewise),
-    // );
-    // run::<R, MP>(
-    // Default::default(),
-    // matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
-    // );
+    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
@@ -157,7 +154,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // );
     // run::<R, MP>(
     //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
     // );
     run::<R, MP>(
         Default::default(),
@@ -191,8 +188,8 @@ fn main() {
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        // run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
-        run_benches::<cubecl::wgpu::WgpuRuntime, cubecl::flex32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, cubecl::flex32>();
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
