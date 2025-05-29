@@ -24,6 +24,13 @@ msl = ["cubecl-cpp/metal"]
 spirv = ["cubecl-spirv", "ash"]
 
 spirv-dump = ["sanitize-filename"]
+unit_matmul_tests = ["cubecl-linalg/unit_matmul_tests"]
+accelerated_matmul_tests = ["cubecl-linalg/accelerated_matmul_tests"]
+matmul_tests = [
+    "cubecl-linalg/matmul_tests",
+    "unit_matmul_tests",
+    "accelerated_matmul_tests",
+]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }

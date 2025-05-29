@@ -23,7 +23,7 @@ macro_rules! testgen_matmul_plane_accelerated {
             use super::*;
             type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-            #[cfg(feature = "ASDF")]
+            #[cfg(feature = "accelerated_matmul_tests")]
             $crate::testgen_matmul_plane_accelerated_algorithm!();
         }
     };
@@ -35,7 +35,7 @@ macro_rules! testgen_matmul_unit {
         mod matmul_unit {
             use super::*;
 
-            #[cfg(feature = "ASDF")]
+            #[cfg(feature = "unit_matmul_tests")]
             $crate::testgen_matmul_unit_algorithm!();
         }
     };
@@ -48,7 +48,7 @@ macro_rules! testgen_matmul_tma {
             use super::*;
             type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-            #[cfg(feature = "ASDF")]
+            #[cfg(feature = "matmul_tests")]
             $crate::testgen_matmul_tma_algorithm!();
         }
     };
@@ -61,7 +61,7 @@ macro_rules! testgen_matmul_quantized {
             use super::*;
             type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-            #[cfg(feature = "ASDF")]
+            #[cfg(feature = "matmul_tests")]
             $crate::testgen_matmul_quantized_algorithm!();
         }
     };
