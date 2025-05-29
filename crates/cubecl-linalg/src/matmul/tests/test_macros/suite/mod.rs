@@ -31,34 +31,34 @@ macro_rules! testgen_matmul_plane_accelerated {
 #[macro_export]
 macro_rules! testgen_matmul_unit {
     () => {
-        // mod matmul_unit {
-        //     use super::*;
+        mod matmul_unit {
+            use super::*;
 
-        //     $crate::testgen_matmul_unit_algorithm!();
-        // }
+            $crate::testgen_matmul_unit_algorithm!();
+        }
     };
 }
 
 #[macro_export]
 macro_rules! testgen_matmul_tma {
     () => {
-        // mod matmul_tma {
-        //     use super::*;
-        //     type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
+        mod matmul_tma {
+            use super::*;
+            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-        //     $crate::testgen_matmul_tma_algorithm!();
-        // }
+            $crate::testgen_matmul_tma_algorithm!();
+        }
     };
 }
 
 #[macro_export]
 macro_rules! testgen_matmul_quantized {
     () => {
-        // mod matmul_quantized {
-        //     use super::*;
-        //     type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
+        mod matmul_quantized {
+            use super::*;
+            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
 
-        //     $crate::testgen_matmul_quantized_algorithm!();
-        // }
+            $crate::testgen_matmul_quantized_algorithm!();
+        }
     };
 }

@@ -270,9 +270,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         writeln!(f, "__syncthreads();\n")
     }
 
-    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__syncthreads();\n")
-        // writeln!(f, "__syncwarp();\n")
+    fn compile_instruction_sync_warp(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        panic!("Sync warp is unimplemented on hip")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

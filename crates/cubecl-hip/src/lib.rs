@@ -14,10 +14,10 @@ pub use device::*;
 #[cfg(target_os = "linux")]
 pub use runtime::HipRuntime;
 
-#[cfg(not(feature = "roc-wmma"))]
+#[cfg(not(feature = "rocwmma"))]
 pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::mma::WmmaIntrinsicCompiler;
 
-#[cfg(feature = "roc-wmma")]
+#[cfg(feature = "rocwmma")]
 pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::mma::RocWmmaCompiler;
 
 #[cfg(target_os = "linux")]

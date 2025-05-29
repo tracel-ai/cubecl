@@ -364,15 +364,11 @@ pub fn test_simple_1_lined_offset<R: Runtime>(
     let rhs: Vec<f16> = (0..256i32 + (offset_rhs * line_size) as i32)
         .map(|i| f16::from_f32(((i - (offset_rhs * line_size) as i32) % 8) as f32))
         .collect();
-    println!("{lhs:?}");
-    println!("{rhs:?}");
 
     let lhs_len = lhs.len() / line_size;
     let rhs_len = rhs.len() / line_size;
     let out_len = (256 / line_size) + offset_out;
-    println!("Lhs len: {lhs_len}");
-    println!("Rhs len: {rhs_len}");
-    println!("Out len: {out_len}");
+
     let lhs = client.create(f16::as_bytes(&lhs));
     let rhs = client.create(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * line_size * out_len);
