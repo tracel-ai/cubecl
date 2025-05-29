@@ -10,9 +10,9 @@ pub struct Builtin {
     //  cube_count_x
     //  cube_count_y
     //  cube_count_z
-    //  cube_pos_x
-    //  cube_pos_y
-    //  cube_pos_z
+    //  unit_pos_x
+    //  unit_pos_y
+    //  unit_pos_z
     //]
 }
 
@@ -34,13 +34,13 @@ impl Builtin {
         self.dims[4] = cube_count.1 as u64;
         self.dims[5] = cube_count.2 as u64;
     }
-    pub fn set_cube_pos_x(&mut self, x: u32) {
+    pub fn set_unit_pos_x(&mut self, x: u32) {
         self.dims[6] = x as u64;
     }
-    pub fn set_cube_pos_y(&mut self, y: u32) {
+    pub fn set_unit_pos_y(&mut self, y: u32) {
         self.dims[7] = y as u64;
     }
-    pub fn set_cube_pos_z(&mut self, z: u32) {
+    pub fn set_unit_pos_z(&mut self, z: u32) {
         self.dims[8] = z as u64;
     }
 }
