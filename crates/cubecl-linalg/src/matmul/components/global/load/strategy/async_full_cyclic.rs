@@ -25,7 +25,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
 
-        let num_slices = tiling.tile_size_row() * tiling.tile_count();
+        let num_slices = config.tiling_scheme().elements_in_tile_row(ident) * tiling.tile_count();
         if num_slices >= total_units && num_slices % total_units != 0 {
             return Err(Box::new(format!(
                 "Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices"
@@ -51,12 +51,12 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
 
         let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (
-                stage_dim.tile_size_row(),
-                stage_dim.tile_size_col() / line_size,
+                config.tiling_scheme().elements_in_tile_row(input_ident),
+                config.tiling_scheme().elements_in_tile_col(input_ident) / line_size,
             ),
             MatrixLayout::ColMajor => (
-                stage_dim.tile_size_col(),
-                stage_dim.tile_size_row() / line_size,
+                config.tiling_scheme().elements_in_tile_col(input_ident),
+                config.tiling_scheme().elements_in_tile_row(input_ident) / line_size,
             ),
         };
 

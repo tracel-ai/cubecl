@@ -14,8 +14,8 @@ use crate::{
     },
     matmul::{
         components::{
-            EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError,
-            MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
+            EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
+            MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
             stage::{
                 FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
@@ -353,9 +353,8 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        let tiling_dims = config.tiling_dimensions(Ident::Lhs);
         let padded_channels =
-            (problem.channels as u32).next_multiple_of(tiling_dims.tile_size_col());
+            (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
 
         let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 

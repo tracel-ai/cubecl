@@ -239,6 +239,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
     ) -> Tile<ES> {
         let stage_line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
+        let tiling_scheme = config.tiling_scheme();
         let matrix_layout = config.matrix_layout(ident);
 
         let (row_buffer_offset, col_buffer_offset, total_tile_count_row, total_tile_count_col) =
@@ -273,16 +274,16 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 
         let (tile_size_x, tile_size_y, tile_slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = tiling_dimensions.tile_size_row();
-                let tile_size_y = tiling_dimensions.tile_size_col() / stage_line_size;
+                let tile_size_x = tiling_scheme.elements_in_tile_row(ident);
+                let tile_size_y = tiling_scheme.elements_in_tile_col(ident) / stage_line_size;
                 let stride_x = comptime!(tile_size_y * total_tile_count_col);
                 let length = (tile_size_x - 1) * stride_x + tile_size_y;
 
                 (tile_size_x, tile_size_y, length)
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = tiling_dimensions.tile_size_row() / stage_line_size;
-                let tile_size_y = tiling_dimensions.tile_size_col();
+                let tile_size_x = tiling_scheme.elements_in_tile_row(ident) / stage_line_size;
+                let tile_size_y = tiling_scheme.elements_in_tile_col(ident);
                 let stride_y = comptime!(tile_size_x * total_tile_count_row);
                 let length = (tile_size_y - 1) * stride_y + tile_size_x;
 
@@ -351,6 +352,7 @@ impl TilingLayout for StridedTilingLayout {
 
         let stage_line_size = config.stage_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
+        let tiling_scheme = config.tiling_scheme();
         let matrix_layout = config.matrix_layout(ident);
 
         let tile_count_x = tiling_dimensions.tile_count_row();
@@ -358,8 +360,8 @@ impl TilingLayout for StridedTilingLayout {
 
         match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = tiling_dimensions.tile_size_row();
-                let tile_size_y = tiling_dimensions.tile_size_col() / stage_line_size;
+                let tile_size_x = tiling_scheme.elements_in_tile_row(ident);
+                let tile_size_y = tiling_scheme.elements_in_tile_col(ident) / stage_line_size;
 
                 let stride = tile_count_y * tile_size_y;
                 let length = (tile_size_x - 1) * stride + tile_size_y;
@@ -372,8 +374,8 @@ impl TilingLayout for StridedTilingLayout {
                 )
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = tiling_dimensions.tile_size_row() / stage_line_size;
-                let tile_size_y = tiling_dimensions.tile_size_col();
+                let tile_size_x = tiling_scheme.elements_in_tile_row(ident) / stage_line_size;
+                let tile_size_y = tiling_scheme.elements_in_tile_col(ident);
 
                 let stride = tile_count_x * tile_size_x;
                 let length = (tile_size_y - 1) * stride + tile_size_x;

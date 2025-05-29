@@ -182,14 +182,14 @@ impl TilingDimensions {
     // }
 
     /// Returns the size of the row axis of a tile.
-    pub fn tile_size_row(&self) -> u32 {
-        self.tile_size_row
-    }
+    // pub fn tile_size_row(&self) -> u32 {
+    //     self.tile_size_row
+    // }
 
     /// Returns the size of the column axis of a tile.
-    pub fn tile_size_col(&self) -> u32 {
-        self.tile_size_col
-    }
+    // pub fn tile_size_col(&self) -> u32 {
+    //     self.tile_size_col
+    // }
 
     /// Returns the number of tiles within the stage.
     pub fn tile_count(&self) -> u32 {
