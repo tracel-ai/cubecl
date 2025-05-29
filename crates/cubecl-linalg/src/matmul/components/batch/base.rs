@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions, TilingScheme,
+    MatmulLaunch, MatmulPrecision, Quantized, TilingScheme,
     config::MatmulConfig,
     global::{
         self, GlobalConfig as _, Quantization,
@@ -57,9 +57,6 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Convert itself to the underlying global matmul config
     fn to_gmm_config(&self) -> Self::GmmConfig;
-
-    /// Returns the [StageDim] for the given ident
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the largest m dimension supported with these configs
     fn max_m(&self) -> u32;

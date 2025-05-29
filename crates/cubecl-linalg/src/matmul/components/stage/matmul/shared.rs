@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingDimensions, TilingScheme,
+    Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
     global::AccumulatorLoader,
     stage::{StageBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
@@ -35,10 +35,6 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
 
     fn stage_line_size(&self, ident: Ident) -> u32 {
         self.tmm_config.stage_line_size(ident)
-    }
-
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
-        TilingDimensions::new(&self.tiling_scheme, ident)
     }
 
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout {

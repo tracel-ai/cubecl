@@ -6,7 +6,7 @@ use std::hash::Hash;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
 use super::problem::MatmulLineSizes;
-use super::{MatmulPrecision, MatmulProblem, TilingScheme};
+use super::{MatmulPrecision, MatmulProblem};
 
 pub type InvalidConfigError = Box<dyn Display>;
 
@@ -124,40 +124,6 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
         MatrixLayout::RowMajor => cmma::MatrixLayout::RowMajor,
         MatrixLayout::ColMajor => cmma::MatrixLayout::ColMajor,
     }
-}
-
-impl TilingDimensions {
-    pub fn new(tiling_scheme: &TilingScheme, ident: Ident) -> TilingDimensions {
-        match ident {
-            Ident::Lhs => TilingDimensions {
-                tile_size_row: tiling_scheme.elements_in_tile_m(),
-                tile_size_col: tiling_scheme.elements_in_tile_k(),
-                tile_count_row: tiling_scheme.tiles_in_stage_m(),
-                tile_count_col: tiling_scheme.tiles_in_stage_k(),
-            },
-            Ident::Rhs => TilingDimensions {
-                tile_size_row: tiling_scheme.elements_in_tile_k(),
-                tile_size_col: tiling_scheme.elements_in_tile_n(),
-                tile_count_row: tiling_scheme.tiles_in_stage_k(),
-                tile_count_col: tiling_scheme.tiles_in_stage_n(),
-            },
-            Ident::Out => TilingDimensions {
-                tile_size_row: tiling_scheme.elements_in_tile_m(),
-                tile_size_col: tiling_scheme.elements_in_tile_n(),
-                tile_count_row: tiling_scheme.tiles_in_stage_m(),
-                tile_count_col: tiling_scheme.tiles_in_stage_n(),
-            },
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for stage.
-pub struct TilingDimensions {
-    pub tile_size_row: u32,
-    pub tile_size_col: u32,
-    pub tile_count_row: u32,
-    pub tile_count_col: u32,
 }
 
 pub trait TensorIdent:

@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Args, EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory,
-    MatmulLaunch, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
-    TilingDimensions,
+    Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory, MatmulLaunch,
+    MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
     batch::{self, shared::gmm_execute},
     config::MatmulConfig,
     global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
@@ -143,10 +142,6 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
         self.gmm_config
-    }
-
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
-        self.gmm_config.tiling_dimensions(ident)
     }
 
     fn max_m(&self) -> u32 {

@@ -95,7 +95,7 @@ pub mod config {
     use crate::{
         convolution::{ConvGemmConfig, base::Dimensionality},
         matmul::components::{
-            InputIdent, MatmulConfig, MatrixLayout, TilingDimensions, TilingScheme,
+            InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
             global::{GlobalConfig, load::LoaderMode},
         },
     };
@@ -130,10 +130,6 @@ pub mod config {
 
         fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
             self.matmul.global_line_size(ident)
-        }
-
-        fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
-            self.matmul.tiling_dimensions(ident)
         }
 
         fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {

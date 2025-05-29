@@ -8,7 +8,7 @@ use crate::matmul::components::{
     MatmulProblem, MatmulSpec, OutputRuntimeArg,
 };
 use crate::matmul::components::{
-    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
+    MatmulConfigFactory, MatmulLaunch, batch, config::MatmulConfig, global,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
@@ -166,10 +166,6 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
         self.gmm_config
-    }
-
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
-        self.gmm_config.tiling_dimensions(ident)
     }
 
     fn max_m(&self) -> u32 {

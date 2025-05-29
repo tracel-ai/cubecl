@@ -3,8 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
-    TilingScheme,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter},
     tile::TileConfig,
@@ -136,9 +135,6 @@ pub trait StageConfig: MatmulConfig {
 
     /// Returns the line size for the given ident
     fn stage_line_size(&self, ident: Ident) -> u32;
-
-    /// Returns the [StageTiling] for the given ident
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout;

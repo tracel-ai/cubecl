@@ -1,6 +1,6 @@
 use crate::matmul::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+        Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{GlobalConfig, load::LoaderMode},
         stage::{self},
     },
@@ -37,10 +37,6 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
             Ident::Rhs => self.rhs_line_size,
             Ident::Out => self.out_line_size,
         }
-    }
-
-    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
-        self.smm_config.tiling_dimensions(ident.into())
     }
 
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
