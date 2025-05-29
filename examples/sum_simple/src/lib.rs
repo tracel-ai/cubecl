@@ -15,8 +15,8 @@ fn sum_simple<F: Float>(
 
 pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
-    let input_a: [f32; 128] = std::array::from_fn(|i| i as f32);
-    let input_b: [f32; 128] = std::array::from_fn(|i| i as f32);
+    let input_a: [f32; 128] = std::array::from_fn(|i| i as f32 * 0.5);
+    let input_b: [f32; 128] = std::array::from_fn(|i| i as f32 * 0.5);
     let output_handle = client.empty(input_a.len() * core::mem::size_of::<f32>());
     let input_a_handle = client.create(f32::as_bytes(&input_a));
     let input_b_handle = client.create(f32::as_bytes(&input_b));
