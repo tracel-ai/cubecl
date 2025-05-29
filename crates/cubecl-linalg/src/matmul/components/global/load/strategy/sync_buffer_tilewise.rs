@@ -45,7 +45,8 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
         }
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
+        let num_lines_per_tile =
+            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_planes = config.plane_dim();
 
@@ -80,7 +81,8 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let plane_dim = config.plane_dim();
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
+        let num_lines_per_tile =
+            comptime!(config.tiling_scheme().elements_in_tile(input_ident) / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 

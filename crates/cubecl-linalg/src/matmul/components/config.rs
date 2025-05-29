@@ -177,9 +177,9 @@ impl TilingDimensions {
     // }
 
     /// Returns the number of elements within one tile.
-    pub fn tile_size(&self) -> u32 {
-        self.tile_size_row() * self.tile_size_col()
-    }
+    // pub fn tile_size(&self) -> u32 {
+    //     self.tile_size_row() * self.tile_size_col()
+    // }
 
     /// Returns the size of the row axis of a tile.
     pub fn tile_size_row(&self) -> u32 {

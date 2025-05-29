@@ -49,8 +49,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let tiling = config.tiling_dimensions(input_ident);
-        let tile_num_elements = tiling.tile_size();
+        let tile_num_elements = config.tiling_scheme().elements_in_tile(input_ident);
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
         let total_units = comptime!(config.num_planes() * config.plane_dim());

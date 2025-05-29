@@ -24,7 +24,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
             let tiling_dimensions = config.tiling_dimensions(ident);
-            let num_lines_per_tile = tiling_dimensions.tile_size() / line_size;
+            let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
             let num_tiles_in_buffer = tiling_dimensions.tile_count();
             let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
 
@@ -62,7 +62,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
-        let tile_size = tiling_dimensions.tile_size();
+        let tile_size = config.tiling_scheme().elements_in_tile(input_ident);
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();
 
@@ -168,7 +168,7 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         let tiling_dimensions = config.tiling_dimensions(job.input_ident);
         (
             config.global_line_size(job.input_ident),
-            tiling_dimensions.tile_size(),
+            config.tiling_scheme().elements_in_tile(job.input_ident),
             tiling_dimensions.tile_count_row(),
             tiling_dimensions.tile_count_col()
         )

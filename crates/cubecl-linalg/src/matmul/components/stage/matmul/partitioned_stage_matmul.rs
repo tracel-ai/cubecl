@@ -145,7 +145,7 @@ where
     ) {
         let out_smem_line_size = stage_config.stage_line_size(Ident::Out);
         let num_tile_lines =
-            stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
+            stage_config.tiling_scheme().elements_in_tile_mn() / out_smem_line_size;
         let m_iterations = global_config.tiling_scheme().tiles_in_partition_m();
         let n_iterations = global_config.tiling_scheme().tiles_in_partition_n();
 
