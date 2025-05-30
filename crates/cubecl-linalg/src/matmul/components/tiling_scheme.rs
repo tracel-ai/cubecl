@@ -344,7 +344,7 @@ macro_rules! define_3d_size_base {
             }
 
             pub fn k(&self) -> u32 {
-                self.get(MatmulDim::N)
+                self.get(MatmulDim::K)
             }
 
             pub fn mn(&self) -> u32 {
