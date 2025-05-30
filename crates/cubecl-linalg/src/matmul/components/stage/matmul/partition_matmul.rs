@@ -30,6 +30,7 @@ where
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn execute_with_listener<SEL: StageEventListener>(
         start_m: u32,
         start_n: u32,

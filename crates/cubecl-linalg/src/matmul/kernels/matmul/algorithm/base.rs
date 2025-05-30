@@ -83,7 +83,7 @@ pub trait Algorithm {
 
         GlobalInput {
             stage_input: StageInput {
-                tiling_scheme: selection.tiling_scheme().clone(),
+                tiling_scheme: *selection.tiling_scheme(),
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
