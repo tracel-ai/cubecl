@@ -1,25 +1,27 @@
 #[macro_export]
 macro_rules! testgen_matmul_accelerated_tile {
     ($algorithm: ty, $precision: ty) => {
+        use $crate::matmul::components::TileSize;
+
         #[cfg(target_os = "macos")]
-        mod tl8x8x8 {
+        mod t8x8x8 {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_partition_shape!(
+            $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 8, n: 8, k: 8 }
+                TileSize { m: 8, n: 8, k: 8 }
             );
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod tl16x16x16 {
+        mod t16x16x16 {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_partition_shape!(
+            $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize {
+                TileSize {
                     m: 16,
                     n: 16,
                     k: 16
@@ -28,35 +30,35 @@ macro_rules! testgen_matmul_accelerated_tile {
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod tl32x8x16 {
+        mod t32x8x16 {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_partition_shape!(
+            $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 32, n: 8, k: 16 }
+                TileSize { m: 32, n: 8, k: 16 }
             );
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod tl8x32x16 {
+        mod t8x32x16 {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_partition_shape!(
+            $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 8, n: 32, k: 16 }
+                TileSize { m: 8, n: 32, k: 16 }
             );
         }
 
         #[cfg(not(target_os = "macos"))]
-        mod tl16x16x8 {
+        mod t16x16x8 {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_partition_shape!(
+            $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 16, n: 16, k: 8 }
+                TileSize { m: 16, n: 16, k: 8 }
             );
         }
     };

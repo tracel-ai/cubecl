@@ -35,11 +35,10 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
+            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(input_ident),
+            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(input_ident),
         };
 
         Job {
@@ -74,11 +73,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(task_id, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 task_id,
                 comptime!(this.input_ident.as_ident()),
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
         CM::memcpy_async(

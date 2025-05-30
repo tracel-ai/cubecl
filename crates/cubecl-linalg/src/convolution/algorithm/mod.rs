@@ -3,7 +3,7 @@ use crate::{
         components::{
             InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
             global::{args::MatmulArgs, load::LoaderMode},
-            stage::{NumStages, StageBuffering, StageMatmulFamily, TilesPerPartition},
+            stage::{NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization},
             tile::TileMatmulFamily,
         },
         kernels::{
@@ -35,12 +35,32 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
-    fn num_stages() -> NumStages;
 
-    // TODO delete in favor of using selection directly
-    fn partition(selection: &Self::MatmulSelection) -> TilesPerPartition {
-        selection.tiles_per_partition()
+    fn global_input(selection: &Self::MatmulSelection) -> GlobalInput<StageInput> {
+        let partition_buffering = if selection.tiling_scheme().tiles_in_partition_n() > 1 {
+            Self::partition_buffering_strategy()
+        } else {
+            PartitionBuffering::Single
+        };
+
+        let stage_vectorization = StageVectorization {
+            stage_line_size: 0,
+            stage_elem_padding: 0,
+        };
+
+        GlobalInput {
+            stage_input: StageInput {
+                tiling_scheme: *selection.tiling_scheme(),
+                partition_buffering,
+                stage_vectorization,
+                num_stages: Self::num_stages(),
+            },
+            loading_precompute_strategy: Self::loading_precompute_strategy(),
+            loader_mode: Self::loader_mode(),
+        }
     }
+
+    fn num_stages() -> NumStages;
 
     fn multi_row_strategy() -> MultiRowStrategy {
         MultiRowStrategy::Never
@@ -54,8 +74,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Double
+    fn partition_buffering_strategy() -> PartitionBuffering {
+        PartitionBuffering::Double
     }
 
     /// Make a convolution config from a convolution problem, and launch options

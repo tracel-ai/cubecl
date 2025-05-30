@@ -69,7 +69,7 @@ impl<
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
         let stage_memory =
-            StageMemory::new::<S>(2u32, input_ident.as_ident(), config.to_smm_config());
+            StageMemory::new::<S>(2u32, input_ident.as_ident(), config.stage_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         comptime! {
@@ -146,6 +146,6 @@ impl<
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         this.stage_memory
-            .clear_buffer::<S>(buffer_id, this.input_ident, config.to_smm_config())
+            .clear_buffer::<S>(buffer_id, this.input_ident, config.stage_config())
     }
 }

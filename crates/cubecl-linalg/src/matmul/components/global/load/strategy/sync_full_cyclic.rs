@@ -23,10 +23,9 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
-            let tiling = config.tiling_dimensions(ident);
             let line_size = config.global_line_size(ident);
 
-            let num_stage_lines = tiling.total_size() / line_size;
+            let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
             let total_units = config.num_planes() * config.plane_dim();
 
             if num_stage_lines % total_units != 0 {
@@ -50,10 +49,9 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let tiling = config.tiling_dimensions(input_ident);
-        let tile_num_elements = tiling.tile_size();
+        let tile_num_elements = config.tiling_scheme().elements_in_tile(input_ident);
         let line_size = config.global_line_size(input_ident);
-        let num_stage_elements = tiling.total_size();
+        let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_tasks_per_unit = comptime!(num_stage_elements.div_ceil(jump_length));
@@ -151,10 +149,10 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
+    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
         nth_tile,
         comptime!(job.input_ident.as_ident()),
-        comptime!(config.to_smm_config()),
+        comptime!(config.stage_config()),
     );
 
     let line_read = tensor_reader.load_coalesced_in_tile::<G>(

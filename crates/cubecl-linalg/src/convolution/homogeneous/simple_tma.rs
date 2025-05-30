@@ -14,10 +14,13 @@ use crate::{
     },
     matmul::{
         components::{
-            EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
-            MatmulPrecision, MatmulSpec, OutputRuntimeArg,
+            EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+            MatmulSpec, OutputRuntimeArg,
             global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
-            stage::{FullReaderFamily, FullStageToTileReader, StageMatmul, StageMatmulFamily},
+            stage::{
+                FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
+                StageMatmulFamily,
+            },
         },
         kernels::{MatmulAvailabilityError, matmul::GlobalInput},
     },
@@ -77,18 +80,18 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        let total_stage_elems = config.tiling_dimensions(Ident::Rhs).total_size()
-            + config.tiling_dimensions(Ident::Lhs).total_size();
+        let total_stage_elems = config.tiling_scheme().elements_in_stage_mk()
+            + config.tiling_scheme().elements_in_stage_nk();
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
         sync_cube();
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(
             &mut acc_loader,
             acc,
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
@@ -97,7 +100,7 @@ where
             sync_cube();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.to_smm_config());
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.stage_config());
 
             arrive_tma::<MP::ES>(&barrier, total_stage_elems);
 
@@ -112,7 +115,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
@@ -121,7 +124,7 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -169,7 +172,7 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        SMM::init_accumulator(config.stage_config())
     }
 }
 
@@ -193,7 +196,7 @@ where
     type Input = GlobalInput<SMM::Input>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.to_smm_config())
+        SMM::check_config(&config.stage_config())
     }
 
     fn make_config<R: Runtime, MP: MatmulPrecision>(
@@ -211,7 +214,7 @@ where
         line_sizes.lhs = 1;
         line_sizes.rhs = 1;
 
-        let smm_config = SMM::make_config(
+        let stage_config = SMM::make_config(
             input.stage_input,
             &problem.as_matmul_problem(),
             &line_sizes,
@@ -219,11 +222,11 @@ where
             cube_count,
             false,
         );
-        let size = SMM::stage_shape(&smm_config);
+        let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
-                smm_config,
+                stage_config,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
@@ -233,7 +236,7 @@ where
                 line_sizes.lhs as u32,
                 line_sizes.rhs as u32,
                 line_sizes.out as u32,
-                size.k,
+                stage_k,
                 input.loading_precompute_strategy,
                 input.loader_mode,
             ),
@@ -258,7 +261,7 @@ where
             return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
-        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
+        SMM::check_availability::<R, MP>(client, &config.stage_config())
     }
 }
 
@@ -275,9 +278,8 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        let tiling_dims = config.tiling_dimensions(Ident::Lhs);
         let padded_channels =
-            (problem.channels as u32).next_multiple_of(tiling_dims.tile_shape_col());
+            (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
 
         let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::matmul::kernels::MatmulInvalidProblem;
 
-use super::{Ident, MatmulSize, MatrixLayout, batch};
+use super::{Ident, MatmulProblemSize, MatrixLayout, batch};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
@@ -174,8 +174,8 @@ pub enum MatmulKind {
     ScalarProduct,
 }
 
-impl From<MatmulSize> for MatmulKind {
-    fn from(matmul_size: MatmulSize) -> Self {
+impl From<MatmulProblemSize> for MatmulKind {
+    fn from(matmul_size: MatmulProblemSize) -> Self {
         enum DimKind {
             Scalar,
             Vector,
@@ -192,9 +192,9 @@ impl From<MatmulSize> for MatmulKind {
 
         use DimKind::*;
         match (
-            matmul_size.m.into(),
-            matmul_size.n.into(),
-            matmul_size.k.into(),
+            matmul_size.m().into(),
+            matmul_size.n().into(),
+            matmul_size.k().into(),
         ) {
             (Scalar, Scalar, Scalar) => MatmulKind::ScalarProduct,
             (Scalar, Scalar, Vector) => MatmulKind::InnerProduct,
@@ -208,35 +208,21 @@ impl From<MatmulSize> for MatmulKind {
     }
 }
 
-impl From<MatmulProblem> for MatmulSize {
+impl From<MatmulProblem> for MatmulProblemSize {
     fn from(problem: MatmulProblem) -> Self {
-        MatmulSize {
-            m: problem.m as u32,
-            n: problem.n as u32,
-            k: problem.k as u32,
-        }
+        MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32)
     }
 }
 
 impl From<MatmulProblem> for MatmulKind {
     fn from(problem: MatmulProblem) -> Self {
-        MatmulSize {
-            m: problem.m as u32,
-            n: problem.n as u32,
-            k: problem.k as u32,
-        }
-        .into()
+        MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32).into()
     }
 }
 
 impl From<&MatmulProblem> for MatmulKind {
     fn from(problem: &MatmulProblem) -> Self {
-        MatmulSize {
-            m: problem.m as u32,
-            n: problem.n as u32,
-            k: problem.k as u32,
-        }
-        .into()
+        MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32).into()
     }
 }
 

@@ -17,10 +17,9 @@ pub struct LoadingStrategy {}
 
 impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_lines = tiling.total_size() / line_size;
+        let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
         if num_stage_lines % total_units != 0 {
@@ -43,9 +42,8 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let tiling = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
-        let num_stage_lines = tiling.total_size() / line_size;
+        let num_stage_lines = config.tiling_scheme().elements_in_stage(input_ident) / line_size;
         let unit_count = config.num_planes() * config.plane_dim();
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 

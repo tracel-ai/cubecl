@@ -18,6 +18,10 @@ default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions"]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
 
+unit_matmul_tests = []
+accelerated_matmul_tests = []
+matmul_tests = ["unit_matmul_tests", "accelerated_matmul_tests"]
+
 [dependencies]
 bytemuck = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }

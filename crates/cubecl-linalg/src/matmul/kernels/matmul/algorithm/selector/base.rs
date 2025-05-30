@@ -1,14 +1,13 @@
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::matmul::components::stage::{StageVectorization, TilesPerPartition};
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSize, OutputRuntimeArg,
+    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg, TilingScheme,
 };
-use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, StageInput};
+use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::{
     components::{
-        CompleteStageTiling, InputArg, MatmulProblem, MatmulSpec, OutputArg,
+        InputArg, MatmulProblem, MatmulSpec, OutputArg,
         global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
     },
     kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
@@ -16,9 +15,7 @@ use crate::matmul::{
 use cubecl_core::frontend::CubePrimitive;
 
 pub trait MatmulSelection {
-    fn tile_shape(&self) -> MatmulSize;
-    fn tile_count(&self) -> MatmulSize;
-    fn tiles_per_partition(&self) -> TilesPerPartition;
+    fn tiling_scheme(&self) -> &TilingScheme;
 }
 
 /// Select which kernel to launch for the given Algorithm.
@@ -55,15 +52,6 @@ where
         &selection,
     ));
 
-    let tiling = CompleteStageTiling {
-        tile_shape: selection.tile_shape(),
-        tile_count: selection.tile_count(),
-    };
-
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         <InputArg<MS> as ConcreteInputsFactory>::create(
@@ -78,17 +66,7 @@ where
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
         problem,
         &line_sizes,
-        GlobalInput {
-            stage_input: StageInput {
-                tiling,
-                stage_buffering: A::stage_buffering_strategy(),
-                stage_vectorization: vectorization,
-                num_stages: A::num_stages(),
-                tiles_per_partition: selection.tiles_per_partition(),
-            },
-            loading_precompute_strategy: A::loading_precompute_strategy(),
-            loader_mode: A::loader_mode(),
-        },
+        A::global_input(&selection),
         selection,
     )
 }
@@ -117,31 +95,13 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         &selection,
     ));
 
-    let tiling = CompleteStageTiling {
-        tile_shape: selection.tile_shape(),
-        tile_count: selection.tile_count(),
-    };
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         input,
         output,
         problem,
         &line_sizes,
-        GlobalInput {
-            stage_input: StageInput {
-                tiling,
-                stage_buffering: A::stage_buffering_strategy(),
-                stage_vectorization: vectorization,
-                num_stages: A::num_stages(),
-                tiles_per_partition: selection.tiles_per_partition(),
-            },
-            loading_precompute_strategy: A::loading_precompute_strategy(),
-            loader_mode: A::loader_mode(),
-        },
+        A::global_input(&selection),
         selection,
     )
 }

@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_layouts {
-    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_shape: expr, $partition_count: expr, $stage_k: expr) => {
-        use $crate::matmul::components::{MatmulSize, MatrixLayout};
+    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr, $stage_size: expr) => {
+        use $crate::matmul::components::MatrixLayout;
 
         mod rr {
             use super::*;
@@ -11,9 +11,8 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition_shape,
-                $partition_count,
-                $stage_k,
+                $partition_size,
+                $stage_size,
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor)
             );
         }
@@ -26,9 +25,8 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition_shape,
-                $partition_count,
-                $stage_k,
+                $partition_size,
+                $stage_size,
                 (MatrixLayout::RowMajor, MatrixLayout::ColMajor)
             );
         }
@@ -41,9 +39,8 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition_shape,
-                $partition_count,
-                $stage_k,
+                $partition_size,
+                $stage_size,
                 (MatrixLayout::ColMajor, MatrixLayout::RowMajor)
             );
         }
@@ -56,9 +53,8 @@ macro_rules! testgen_matmul_layouts {
                 $algorithm,
                 $precision,
                 $tile,
-                $partition_shape,
-                $partition_count,
-                $stage_k,
+                $partition_size,
+                $stage_size,
                 (MatrixLayout::ColMajor, MatrixLayout::ColMajor)
             );
         }

@@ -12,10 +12,7 @@ use crate::{
     },
     matmul::components::{
         Ident, InputIdent, MatmulPrecision,
-        stage::{
-            ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageConfig,
-            StageMemory,
-        },
+        stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory},
     },
 };
 
@@ -46,10 +43,10 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::SmmConfig>(
+            stages.push(StageMemory::new_aligned::<G::StageConfig>(
                 Ident::Lhs,
                 128u32,
-                config.to_smm_config(),
+                config.stage_config(),
             ))
         }
 
@@ -71,13 +68,11 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         #[comptime] stage_idx: u32,
         #[comptime] config: G,
     ) {
-        let tmm = config.to_smm_config();
-        let tiling_dims = tmm.tiling_dimensions(Ident::Lhs);
         let stage = this.stages.index_mut(stage_idx);
 
         if UNIT_POS == 0 {
-            let m_size = tiling_dims.total_row();
-            let k_size = tiling_dims.tile_shape_col();
+            let m_size = config.tiling_scheme().elements_in_stage_m();
+            let k_size = config.tiling_scheme().elements_in_tile_k();
             let slice_size = m_size * k_size;
             let mut full_stage = stage.as_slice_mut(1u32);
             let tensor = this.map.tensor.try_cast_unchecked();
@@ -94,7 +89,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
             }
 
             #[unroll]
-            for tile_k in 0..tiling_dims.tile_count_col() {
+            for tile_k in 0..config.tiling_scheme().tiles_in_stage_k() {
                 let k = this.map.k_offset + tile_k * k_size;
                 let (k_idx, channel_start) = this.padded_channels.div_mod(k);
                 let slice_start = tile_k * slice_size;

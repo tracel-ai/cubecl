@@ -662,16 +662,25 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
-        let stage_m = selection.tile_count().m * selection.tile_shape().m;
-        let stage_n = selection.tile_count().n * selection.tile_shape().n;
-        let stage_k = selection.tile_count().k * selection.tile_shape().k;
+        let tiling_scheme = selection.tiling_scheme();
+        let stage_m = tiling_scheme.elements_in_stage_m();
+        let stage_n = tiling_scheme.elements_in_stage_n();
+        let stage_k = tiling_scheme.elements_in_stage_k();
         let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_m, selection.tile_shape().k],
-            components::MatrixLayout::ColMajor => vec![1, stage_k, selection.tile_shape().m],
+            components::MatrixLayout::RowMajor => {
+                vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
+            }
+            components::MatrixLayout::ColMajor => {
+                vec![1, stage_k, tiling_scheme.elements_in_tile_m()]
+            }
         };
         let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, selection.tile_shape().n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, selection.tile_shape().k],
+            components::MatrixLayout::RowMajor => {
+                vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
+            }
+            components::MatrixLayout::ColMajor => {
+                vec![1, stage_n, tiling_scheme.elements_in_tile_k()]
+            }
         };
 
         let elem_size = size_of::<EG>();

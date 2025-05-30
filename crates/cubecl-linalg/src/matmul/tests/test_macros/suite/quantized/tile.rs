@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! testgen_matmul_quantized_tile {
     ($algorithm: ty, $precision: ty) => {
+        use $crate::matmul::components::TileSize;
+
         #[cfg(target_os = "macos")]
         mod t8x8x8 {
             use super::*;
@@ -8,7 +10,7 @@ macro_rules! testgen_matmul_quantized_tile {
             $crate::testgen_matmul_quantized_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 8, n: 8, k: 8 }
+                TileSize { m: 8, n: 8, k: 8 }
             );
         }
 
@@ -19,7 +21,7 @@ macro_rules! testgen_matmul_quantized_tile {
             $crate::testgen_matmul_quantized_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize {
+                TileSize {
                     m: 16,
                     n: 16,
                     k: 16
@@ -34,7 +36,7 @@ macro_rules! testgen_matmul_quantized_tile {
             $crate::testgen_matmul_quantized_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 32, n: 8, k: 16 }
+                TileSize { m: 32, n: 8, k: 16 }
             );
         }
 
@@ -45,7 +47,7 @@ macro_rules! testgen_matmul_quantized_tile {
             $crate::testgen_matmul_quantized_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 8, n: 32, k: 16 }
+                TileSize { m: 8, n: 32, k: 16 }
             );
         }
 
@@ -56,7 +58,7 @@ macro_rules! testgen_matmul_quantized_tile {
             $crate::testgen_matmul_quantized_partition!(
                 $algorithm,
                 $precision,
-                MatmulSize { m: 16, n: 16, k: 8 }
+                TileSize { m: 16, n: 16, k: 8 }
             );
         }
     };

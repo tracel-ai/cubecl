@@ -28,10 +28,8 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
     fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G) {
         match this {
             BiasLoader::Some { tensor_view, stage } => {
-                let stage_tiling = config.tiling_dimensions(Ident::Rhs);
                 let line_size = config.global_line_size(Ident::Out);
-
-                let num_stage_elements = stage_tiling.total_col();
+                let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
 
                 let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
                 let unit_position_base = unit_id * line_size;
@@ -57,7 +55,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
         match this {
             BiasLoader::Some { stage, .. } => {
                 let line_size = config.stage_line_size(Ident::Out);
-                let tile_elems = config.tile_shape().n / line_size;
+                let tile_elems = config.tile_size().n() / line_size;
                 let start = tile_n * tile_elems;
                 let slice = stage
                     .as_slice_mut(line_size)
@@ -96,10 +94,10 @@ impl<MP: MatmulPrecision> BiasLoader<MP> {
 fn init_stage<ES: Numeric, G: GlobalConfig>(
     #[comptime] config: G,
 ) -> StageMemory<ES, ConvTilingLayout> {
-    let line_size = config.to_smm_config().stage_line_size(Ident::Out);
+    let line_size = config.stage_config().stage_line_size(Ident::Out);
 
     let smem = SharedMemory::new_lined(
-        comptime!(config.tiling_dimensions(Ident::Out).total_col() / line_size),
+        comptime!(config.tiling_scheme().elements_in_stage_n() / line_size),
         line_size,
     );
 

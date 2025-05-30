@@ -34,7 +34,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage = StageMemory::new::<G::SmmConfig>(1u32, Ident::Lhs, config.to_smm_config());
+        let stage = StageMemory::new::<G::StageConfig>(1u32, Ident::Lhs, config.stage_config());
 
         let shape_m = runtime_args.size_m;
         let shape_k = runtime_args.size_k;
@@ -89,10 +89,9 @@ impl SimpleIm2col {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_elements = stage_tiling.total_size();
+        let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_stage_elements / jump_length;
@@ -106,13 +105,13 @@ impl SimpleIm2col {
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
-            let tile_num_elements = stage_tiling.tile_size();
+            let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
             let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<
-                G::SmmConfig,
-            >(nth_tile, ident, config.to_smm_config());
+                G::StageConfig,
+            >(nth_tile, ident, config.stage_config());
 
             let line_read =
                 tensor_reader.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);

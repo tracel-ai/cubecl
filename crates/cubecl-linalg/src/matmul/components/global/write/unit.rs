@@ -35,8 +35,7 @@ impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
         tile_col: u32,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(Ident::Out);
-        let tile_size = tiling.tile_size();
+        let tile_size = config.tiling_scheme().elements_in_tile_mn();
         let output_line_size = config.global_line_size(Ident::Out);
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 

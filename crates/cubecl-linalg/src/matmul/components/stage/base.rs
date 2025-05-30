@@ -3,14 +3,13 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
-    TilingDimensions,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter},
     tile::TileConfig,
 };
 
-use super::{StageEventListener, StageToTileReader, TilesPerPartition, TilingLayout};
+use super::{StageEventListener, StageToTileReader, TilingLayout};
 
 pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
@@ -21,15 +20,6 @@ pub trait StageMatmulFamily:
 {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
-
-    /// Returns the shape of the stage. This is the number of elements per axis.
-    fn stage_shape(config: &Self::Config) -> MatmulSize;
-
-    /// Returns the number of tiles in each axis of the stage.
-    fn tile_count(config: &Self::Config) -> MatmulSize;
-
-    /// Returns the number of tiles in each axis of the stage.
-    fn tile_shape(config: &Self::Config) -> MatmulSize;
 
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
@@ -138,16 +128,13 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Configuration for the Stage matmul (SMM) level
 pub trait StageConfig: MatmulConfig {
     /// Underlying Tile matmul config
-    type TmmConfig: TileConfig;
+    type TileConfig: TileConfig;
 
     /// Convert itself to the underlying tile matmul config
-    fn to_tmm_config(self) -> Self::TmmConfig;
+    fn tile_config(self) -> Self::TileConfig;
 
     /// Returns the line size for the given ident
     fn stage_line_size(&self, ident: Ident) -> u32;
-
-    /// Returns the [StageTiling] for the given ident
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
@@ -158,19 +145,15 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 
-    fn tile_count(&self) -> &MatmulSize;
-
-    fn buffering(&self) -> StageBuffering;
+    fn partition_buffering(&self) -> PartitionBuffering;
 
     fn num_stages(&self, ident: InputIdent) -> u32;
 
-    /// Returns a pair stating the number of tile matmuls for one
-    /// execution primitive in m and n respectfully
-    fn tiles_per_partition(&self) -> TilesPerPartition;
+    fn tiling_scheme(&self) -> TilingScheme;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum StageBuffering {
+pub enum PartitionBuffering {
     Single,
     Double,
 }

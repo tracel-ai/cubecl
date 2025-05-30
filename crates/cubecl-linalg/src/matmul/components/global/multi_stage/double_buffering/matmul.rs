@@ -4,9 +4,9 @@ use crate::matmul::components::global::load::{
 };
 use crate::matmul::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::BufferStageToTileReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
+use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
@@ -53,14 +53,14 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
-        SMM::check_config(&config.to_smm_config())
+        SMM::check_config(&config.stage_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.smm_config)
+        SMM::check_availability::<R, MP>(client, &config.stage_config)
     }
 
     fn make_config(
@@ -71,7 +71,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
+        let stage_config = SMM::make_config(
             input.stage_input,
             problem,
             line_sizes,
@@ -79,13 +79,15 @@ where
             cube_count,
             quantized,
         );
-        let stage_shape = SMM::stage_shape(&smm_config);
+        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
+        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
+        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         DoubleBufferingGlobalConfig::new(
-            smm_config,
-            problem.m as u32 % stage_shape.m != 0,
-            problem.n as u32 % stage_shape.n != 0,
-            problem.k as u32 % (2 * stage_shape.k) != 0,
+            stage_config,
+            problem.m as u32 % stage_shape_m != 0,
+            problem.n as u32 % stage_shape_n != 0,
+            problem.k as u32 % (2 * stage_shape_k) != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             line_sizes.lhs as u32,
@@ -140,7 +142,7 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
+        let buffer_step = config.tiling_scheme().elements_in_stage_k();
         let loop_step = buffer_step * 2;
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = div_ceil(range, buffer_step);
@@ -149,8 +151,8 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        SMM::zero_accumulator(acc, config.to_smm_config());
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+        SMM::zero_accumulator(acc, config.stage_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
         let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
         let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
@@ -171,7 +173,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
@@ -190,7 +192,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.to_smm_config(),
+                config.stage_config(),
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
@@ -205,7 +207,7 @@ where
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.to_smm_config(),
+            config.stage_config(),
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
@@ -217,10 +219,10 @@ where
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.to_smm_config(), config);
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -274,11 +276,11 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        SMM::init_accumulator(config.stage_config())
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.to_smm_config());
+        SMM::zero_accumulator(acc, config.stage_config());
     }
 }
 
