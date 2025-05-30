@@ -2,9 +2,8 @@ use crate::convolution::{
     algorithm::Algorithm, args::ConvInputsLaunch, base::Dimensionality,
     tests::test_utils::TestPrecision,
 };
-use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
-use crate::matmul::kernels::matmul::{GlobalInput, PlaneMatmulSelection, StageInput};
+use crate::matmul::kernels::matmul::PlaneMatmulSelection;
 use crate::{
     convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
 };
@@ -89,8 +88,6 @@ pub fn test_algo<
         .with_tile_size(tile_size)
         .with_partition_size(partition_size)
         .with_stage_size(stage_size)
-        // .with_partition_size((1, tile_count.n, tile_count.k).into())
-        // .with_stage_size((tile_count.m, 1, 1).into())
         .build()
         .unwrap();
 
@@ -99,23 +96,10 @@ pub fn test_algo<
         tiling_scheme: tiling_scheme.clone(),
     };
 
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
     test_convolution_algorithm::<A, Args, P, R>(
         client,
         problem,
-        GlobalInput {
-            stage_input: StageInput {
-                tiling_scheme,
-                partition_buffering: A::partition_buffering_strategy(),
-                stage_vectorization: vectorization,
-                num_stages: A::num_stages(),
-            },
-            loading_precompute_strategy: A::loading_precompute_strategy(),
-            loader_mode: A::loader_mode(),
-        },
+        A::global_input(&selection),
         selection,
     );
 }

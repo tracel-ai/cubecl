@@ -78,7 +78,7 @@ where
             lhs.push(TMM::allocate_lhs(tile_config));
         }
 
-        let rhs = match config.buffering() {
+        let rhs = match config.partition_buffering() {
             PartitionBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tile_config)),
             PartitionBuffering::Double => RhsTile::new_Double((
                 TMM::allocate_rhs(tile_config),

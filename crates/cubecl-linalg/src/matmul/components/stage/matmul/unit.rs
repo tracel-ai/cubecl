@@ -70,7 +70,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             )));
         }
 
-        if config.buffering() == PartitionBuffering::Double
+        if config.partition_buffering() == PartitionBuffering::Double
             && config.tiling_scheme().tiles_in_partition_n() < 2
         {
             return Err(Box::new(

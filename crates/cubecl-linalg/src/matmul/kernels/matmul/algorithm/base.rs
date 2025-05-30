@@ -69,6 +69,30 @@ pub trait Algorithm {
         MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }
 
+    fn global_input(selection: &Self::MatmulSelection) -> GlobalInput<StageInput> {
+        let partition_buffering = if selection.tiling_scheme().tiles_in_partition_n() > 1 {
+            Self::partition_buffering_strategy()
+        } else {
+            PartitionBuffering::Single
+        };
+
+        let stage_vectorization = StageVectorization {
+            stage_line_size: 0,
+            stage_elem_padding: 0,
+        };
+
+        GlobalInput {
+            stage_input: StageInput {
+                tiling_scheme: selection.tiling_scheme().clone(),
+                partition_buffering,
+                stage_vectorization,
+                num_stages: Self::num_stages(),
+            },
+            loading_precompute_strategy: Self::loading_precompute_strategy(),
+            loader_mode: Self::loader_mode(),
+        }
+    }
+
     fn num_stages() -> NumStages {
         (1, 1).into()
     }

@@ -1,11 +1,10 @@
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{
     InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg, TilingScheme,
 };
-use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, StageInput};
+use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,
@@ -53,10 +52,6 @@ where
         &selection,
     ));
 
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         <InputArg<MS> as ConcreteInputsFactory>::create(
@@ -71,16 +66,7 @@ where
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
         problem,
         &line_sizes,
-        GlobalInput {
-            stage_input: StageInput {
-                tiling_scheme: selection.tiling_scheme().clone(),
-                partition_buffering: A::partition_buffering_strategy(),
-                stage_vectorization: vectorization,
-                num_stages: A::num_stages(),
-            },
-            loading_precompute_strategy: A::loading_precompute_strategy(),
-            loader_mode: A::loader_mode(),
-        },
+        A::global_input(&selection),
         selection,
     )
 }
@@ -109,26 +95,13 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         &selection,
     ));
 
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
     matmul_cube_preparation::<MS, R, A>(
         client,
         input,
         output,
         problem,
         &line_sizes,
-        GlobalInput {
-            stage_input: StageInput {
-                tiling_scheme: selection.tiling_scheme().clone(),
-                partition_buffering: A::partition_buffering_strategy(),
-                stage_vectorization: vectorization,
-                num_stages: A::num_stages(),
-            },
-            loading_precompute_strategy: A::loading_precompute_strategy(),
-            loader_mode: A::loader_mode(),
-        },
+        A::global_input(&selection),
         selection,
     )
 }

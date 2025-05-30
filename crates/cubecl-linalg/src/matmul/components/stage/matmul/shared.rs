@@ -14,7 +14,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub tiling_scheme: TilingScheme,
     pub num_planes: u32,
     pub quantized: bool,
-    pub buffering: PartitionBuffering,
+    pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
 }
 
@@ -49,8 +49,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tile_config.plane_dim()
     }
 
-    fn buffering(&self) -> PartitionBuffering {
-        self.buffering
+    fn partition_buffering(&self) -> PartitionBuffering {
+        self.partition_buffering
     }
 
     fn num_stages(&self, ident: InputIdent) -> u32 {
@@ -74,7 +74,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         tiling_scheme: TilingScheme,
         num_planes: u32,
         quantized: bool,
-        buffering: PartitionBuffering,
+        partition_buffering: PartitionBuffering,
         num_stages: NumStages,
     ) -> Self {
         Self {
@@ -82,7 +82,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             tiling_scheme,
             num_planes,
             quantized,
-            buffering,
+            partition_buffering,
             num_stages,
         }
     }

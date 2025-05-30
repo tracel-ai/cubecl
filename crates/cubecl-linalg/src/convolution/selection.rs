@@ -1,40 +1,13 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
-use super::{algorithm::Algorithm, base::ConvolutionProblem};
+use super::base::ConvolutionProblem;
 use crate::matmul::components::TilingScheme;
-use crate::matmul::kernels::matmul::{MatmulSelection, StageInput};
 use crate::matmul::{
-    components::{stage::StageVectorization, tile::TileMatmulFamily},
+    components::tile::TileMatmulFamily,
     kernels::matmul::{
         NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, PlaneMatmulSelection, find_instruction_size,
     },
 };
-
-pub fn select_matmul<A: Algorithm, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    problem: &ConvolutionProblem,
-    plane_dim: u32,
-    elem_stage: Elem,
-    elem_acc: Elem,
-) -> (A::MatmulSelection, StageInput) {
-    let selection = A::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc);
-    let tiling_scheme = selection.tiling_scheme().clone();
-
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
-
-    (
-        selection,
-        StageInput {
-            tiling_scheme,
-            partition_buffering: A::partition_buffering_strategy(),
-            stage_vectorization: vectorization,
-            num_stages: A::num_stages(),
-        },
-    )
-}
 
 /// A heuristic to find the number of tiles in the stage.
 ///

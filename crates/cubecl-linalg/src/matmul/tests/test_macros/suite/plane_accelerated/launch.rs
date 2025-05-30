@@ -1,7 +1,6 @@
-use crate::matmul::components::stage::StageVectorization;
 use crate::matmul::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
 use crate::matmul::components::{MatmulProblemSize, TilingScheme};
-use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, PlaneMatmulSelection, StageInput};
+use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection};
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
@@ -47,24 +46,5 @@ pub fn test_algo<
         plane_dim,
     };
 
-    let vectorization = StageVectorization {
-        stage_line_size: 0,
-        stage_elem_padding: 0,
-    };
-
-    test_matmul_algorithm::<A, P, R>(
-        client,
-        problem,
-        GlobalInput {
-            stage_input: StageInput {
-                tiling_scheme,
-                partition_buffering: A::partition_buffering_strategy(),
-                stage_vectorization: vectorization,
-                num_stages: A::num_stages(),
-            },
-            loading_precompute_strategy: A::loading_precompute_strategy(),
-            loader_mode: A::loader_mode(),
-        },
-        selection,
-    );
+    test_matmul_algorithm::<A, P, R>(client, problem, A::global_input(&selection), selection);
 }
