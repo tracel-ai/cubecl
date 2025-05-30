@@ -166,8 +166,9 @@ impl<'a> Visitor<'a> {
         ));
     }
 
+    // TODO: cleanup this abomination by refactoring melior to make it at least not as bulky and verbose
     pub fn insert_builtin_loop(&mut self, block: BlockRef<'a, 'a>, opt: &Optimizer) {
-        let block_ids = opt.node_ids();
+        let basic_block_id = opt.entry();
         let c0: Value<'_, '_> = block
             .append_operation(arith::constant(
                 self.context,
@@ -375,9 +376,9 @@ impl<'a> Visitor<'a> {
 
                                     region.append_block(block);
                                     let block = region.first_block().unwrap();
-                                    for basic_block_id in block_ids {
-                                        self.visit_basic_block(block, basic_block_id, opt);
-                                    }
+                                    self.block_stack.push(block);
+                                    self.visit_basic_block(basic_block_id, opt);
+                                    self.block_stack.pop();
                                     block.append_operation(scf::r#yield(&[], self.location).into());
                                     region
                                 },
