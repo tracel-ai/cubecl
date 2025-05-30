@@ -29,9 +29,8 @@
 ///
 ///                         %absolute_pos_tmp4 = arith.muli %absolute_pos_z1, %absolute_pos_tmp2 : index
 ///
-///                         %absolute_pos_tmp5 = arith.muli %absolute_pos_tmp2, %absolute_pos_z1 : index
-///                         %absolute_pos_tmp6 = arith.addi %absolute_pos_x1, %absolute_pos_tmp3 : index
-///                         %absolute_pos = arith.addi %absolute_pos_tmp6, %absolute_pos_tmp4 : index
+///                         %absolute_pos_tmp5 = arith.addi %absolute_pos_x1, %absolute_pos_tmp3 : index
+///                         %absolute_pos = arith.addi %absolute_pos_tmp5, %absolute_pos_tmp4 : index
 ///
 ///                         %cc16 = arith.constant 16 : index
 ///                         %absolute_pos_x16 = arith.muli %cc16, %absolute_pos : index
@@ -107,7 +106,6 @@ impl<'a> Module<'a> {
         pass_manager.add_pass(pass::conversion::create_func_to_llvm());
         pass_manager.add_pass(pass::transform::create_inliner());
         pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
-        pass_manager.add_pass(pass::transform::create_canonicalizer());
         pass_manager.add_pass(pass::transform::create_sccp());
         pass_manager.add_pass(pass::transform::create_mem_2_reg());
         // pass_manager.add_pass(pass::transform::create_remove_dead_values()); // Needs this to be fixed before https://github.com/llvm/llvm-project/issues/82788

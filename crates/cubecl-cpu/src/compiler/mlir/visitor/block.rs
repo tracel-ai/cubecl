@@ -16,5 +16,6 @@ impl<'a> Visitor<'a> {
         for (_, instruction) in ops.iter() {
             self.visit_instruction(instruction);
         }
+        self.block_stack.pop().unwrap();
     }
 }
