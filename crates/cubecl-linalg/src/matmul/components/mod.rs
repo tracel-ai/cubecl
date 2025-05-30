@@ -8,6 +8,7 @@ mod config;
 mod problem;
 mod spec;
 mod tiling_scheme;
+mod size;
 
 pub use base::*;
 pub use config::*;
@@ -15,3 +16,4 @@ pub use config::{Ident, MatmulConfig, MatrixLayout, as_cmma_layout};
 pub use problem::*;
 pub use spec::*;
 pub use tiling_scheme::*;
+pub use size::*;
