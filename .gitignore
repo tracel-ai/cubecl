@@ -14,3 +14,7 @@ Cargo.lock
 *.pdb
 **/out
 .clangd
+
+# Nix artifacts
+.direnv
+.envrc

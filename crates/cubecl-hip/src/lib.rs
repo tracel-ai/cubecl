@@ -33,7 +33,7 @@ mod tests {
     cubecl_linalg::testgen_matmul_plane_accelerated!();
     #[cfg(feature = "test-matmul")]
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32]);
-    #[cfg(feature = "test-matmul")]
+    //cubecl_linalg::testgen_matmul_accelerated!([f16]);
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);
     #[cfg(feature = "test-matmul")]
     cubecl_linalg::testgen_tensor_identity!([f32, u32]);
