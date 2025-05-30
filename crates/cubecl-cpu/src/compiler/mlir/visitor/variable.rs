@@ -1,4 +1,4 @@
-use cubecl_core::ir::{ConstantScalarValue, IntKind, Variable, VariableKind};
+use cubecl_core::ir::{Builtin, ConstantScalarValue, IntKind, Item, Variable, VariableKind};
 use melior::{
     dialect::ods::arith,
     ir::{Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
@@ -48,7 +48,7 @@ impl<'a> Visitor<'a> {
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
     }
-    pub fn get_index(&self, variable: Variable) -> Value<'a, 'a> {
+    pub fn get_index(&self, variable: Variable, target_item: Item) -> Value<'a, 'a> {
         let mut index = match variable.kind {
             VariableKind::ConstantScalar(constant_scalar_value) => {
                 let operation = match constant_scalar_value {
@@ -62,6 +62,7 @@ impl<'a> Visitor<'a> {
                 self.append_operation_with_result(operation)
             }
             VariableKind::Builtin(builtin) => match builtin {
+                Builtin::AbsolutePos => self.absolute_pos.unwrap(),
                 _ => {
                     let integer_type = Type::index(self.context);
                     let value = IntegerAttribute::new(integer_type, 0).into();
@@ -75,7 +76,7 @@ impl<'a> Visitor<'a> {
             },
             _ => todo!("{:?} is not yet implemented", variable.kind),
         };
-        if let Some(vectorization) = variable.item.vectorization {
+        if let Some(vectorization) = target_item.vectorization {
             let vectorization = vectorization.get() as i64;
             let shift = vectorization.ilog2() as i64;
             let constant = self.append_operation_with_result(arith::constant(

@@ -24,8 +24,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     unsafe {
         sum_simple::launch_unchecked::<f32, R>(
             &client,
-            CubeCount::Static(2, 2, 2),
-            CubeDim::new(2, 1, 1),
+            CubeCount::Static(1, 2, 2),
+            CubeDim::new(1, 4, 1),
             ArrayArg::from_raw_parts::<f32>(&input_a_handle, input_a.len(), VECTORIZATION),
             ArrayArg::from_raw_parts::<f32>(&input_b_handle, input_a.len(), VECTORIZATION),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input_a.len(), VECTORIZATION),
