@@ -1,7 +1,10 @@
-use cubecl_core::ir::{Arithmetic, Comparison, Operation, Variable};
+use cubecl_core::ir::{Arithmetic, Comparison, Metadata, Operation, Variable};
 use melior::{
-    dialect::arith::{self, CmpfPredicate, CmpiPredicate},
-    ir::BlockLike,
+    dialect::{
+        arith::{self, CmpfPredicate, CmpiPredicate},
+        memref,
+    },
+    ir::{Type, attribute::IntegerAttribute},
 };
 
 use super::Visitor;
@@ -18,24 +21,60 @@ impl<'a> Visitor<'a> {
             Operation::Comparison(comparison) => {
                 self.visit_comparison(comparison, out);
             }
-            _ => todo!("{} is not implemented yet.", operation),
+            Operation::Metadata(metadata) => {
+                self.visit_metadata(metadata, out);
+            }
+            _ => todo!("{:?} is not implemented yet.", operation),
+        }
+    }
+
+    pub fn visit_metadata(&mut self, metadata: &Metadata, out: Variable) {
+        match metadata {
+            Metadata::Length { var } => {
+                let constant = self.append_operation_with_result(arith::constant(
+                    self.context,
+                    IntegerAttribute::new(Type::index(self.context), 0).into(),
+                    self.location,
+                ));
+                let variable = self.get_variable(*var);
+                let value = self.append_operation_with_result(memref::dim(
+                    variable,
+                    constant,
+                    self.location,
+                ));
+                self.insert_variable(out, value);
+            }
+            Metadata::BufferLength { var } => {
+                let constant = self.append_operation_with_result(arith::constant(
+                    self.context,
+                    IntegerAttribute::new(Type::index(self.context), 0).into(),
+                    self.location,
+                ));
+                let variable = self.get_variable(*var);
+                let value = self.append_operation_with_result(memref::dim(
+                    variable,
+                    constant,
+                    self.location,
+                ));
+                self.insert_variable(out, value);
+            }
+            _ => todo!("This metadata is not yet implemented {}", metadata),
         }
     }
 
     pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: Variable) {
         match arithmetic {
             Arithmetic::Add(add) => {
-                let result = self
-                    .block()
-                    .append_operation(arith::addf(
-                        self.get_variable(add.lhs),
-                        self.get_variable(add.rhs),
-                        self.location,
-                    ))
-                    .result(0)
-                    .unwrap()
-                    .into();
+                let lhs = self.get_variable(add.lhs);
+                let rhs = self.get_variable(add.rhs);
+                let result =
+                    self.append_operation_with_result(arith::addf(lhs, rhs, self.location));
                 self.insert_variable(out, result);
+            }
+            Arithmetic::Dot(_dot) => {
+                todo!(
+                    "Dot product will needs to be implemented manually, because size are unknown at compilation."
+                );
             }
             _ => todo!("This arithmetic is not yet implemented: {}", arithmetic),
         }
