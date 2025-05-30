@@ -1,4 +1,6 @@
-use cubecl_core::ir::{Builtin, ConstantScalarValue, IntKind, Item, Variable, VariableKind};
+use cubecl_core::ir::{
+    Builtin, ConstantScalarValue, IntKind, Item, UIntKind, Variable, VariableKind,
+};
 use melior::{
     dialect::ods::arith,
     ir::{Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
@@ -25,9 +27,7 @@ impl<'a> Visitor<'a> {
                 .get(&id)
                 .expect("Variable should have been declared before")
                 .clone(),
-            VariableKind::Builtin(_builtin) => {
-                unreachable!("Builtin should have been removed by a pass before")
-            }
+            VariableKind::Builtin(builtin) => self.get_builtin(builtin),
             VariableKind::ConstantScalar(constant_scalar_value) => {
                 let operation = match constant_scalar_value {
                     ConstantScalarValue::Int(value, int_kind) => {
@@ -41,7 +41,18 @@ impl<'a> Visitor<'a> {
                         let value = IntegerAttribute::new(integer_type, value).into();
                         arith::constant(self.context, integer_type, value, self.location)
                     }
-                    _ => todo!("Operation is not implemented {}", constant_scalar_value),
+                    ConstantScalarValue::UInt(value, int_kind) => {
+                        let size = match int_kind {
+                            UIntKind::U8 => 8,
+                            UIntKind::U16 => 16,
+                            UIntKind::U32 => 32,
+                            UIntKind::U64 => 64,
+                        };
+                        let integer_type = IntegerType::new(self.context, size).into();
+                        let value = IntegerAttribute::new(integer_type, value as i64).into();
+                        arith::constant(self.context, integer_type, value, self.location)
+                    }
+                    _ => todo!("Operation is not implemented {:?}", constant_scalar_value),
                 };
                 self.append_operation_with_result(operation)
             }
@@ -61,19 +72,7 @@ impl<'a> Visitor<'a> {
                 };
                 self.append_operation_with_result(operation)
             }
-            VariableKind::Builtin(builtin) => match builtin {
-                Builtin::AbsolutePos => self.absolute_pos.unwrap(),
-                _ => {
-                    let integer_type = Type::index(self.context);
-                    let value = IntegerAttribute::new(integer_type, 0).into();
-                    self.append_operation_with_result(arith::constant(
-                        self.context,
-                        integer_type,
-                        value,
-                        self.location,
-                    ))
-                }
-            },
+            VariableKind::Builtin(builtin) => self.get_builtin(builtin),
             _ => todo!("{:?} is not yet implemented", variable.kind),
         };
         if let Some(vectorization) = target_item.vectorization {
@@ -93,5 +92,33 @@ impl<'a> Visitor<'a> {
             ));
         }
         index
+    }
+
+    pub fn get_builtin(&self, builtin: Builtin) -> Value<'a, 'a> {
+        match builtin {
+            Builtin::AbsolutePos => self.absolute_pos.unwrap(),
+            Builtin::AbsolutePosX => self.absolute_pos_x.unwrap(),
+            Builtin::AbsolutePosY => self.absolute_pos_y.unwrap(),
+            Builtin::AbsolutePosZ => self.absolute_pos_z.unwrap(),
+            Builtin::CubeDimX => self.cube_dim_x.unwrap(),
+            Builtin::CubeDimY => self.cube_dim_y.unwrap(),
+            Builtin::CubeDimZ => self.cube_dim_z.unwrap(),
+            Builtin::CubeCountX => self.cube_count_x.unwrap(),
+            Builtin::CubeCountY => self.cube_count_y.unwrap(),
+            Builtin::CubeCountZ => self.cube_count_z.unwrap(),
+            Builtin::CubePosX => self.cube_count_x.unwrap(),
+            Builtin::CubePosY => self.cube_count_y.unwrap(),
+            Builtin::CubePosZ => self.cube_count_z.unwrap(),
+            _ => {
+                let integer_type = Type::index(self.context);
+                let value = IntegerAttribute::new(integer_type, 0).into();
+                self.append_operation_with_result(arith::constant(
+                    self.context,
+                    integer_type,
+                    value,
+                    self.location,
+                ))
+            }
+        }
     }
 }
