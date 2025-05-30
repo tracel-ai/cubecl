@@ -8,7 +8,7 @@ use cubecl::{
 };
 use cubecl_linalg::{
     convolution::{self, ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm},
-    matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul},
+    matmul::components::{MatmulPrecision, tile::accelerated_matmul::PlaneAcceleratedMatmul},
     tensor::TensorHandle,
 };
 
@@ -65,7 +65,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let out: TensorHandle<R, MP::EO> =
             TensorHandle::empty(&client, vec![n, c_out, h_out, w_out]);
 
-        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<AcceleratedMatmul>, 2>(
+        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<PlaneAcceleratedMatmul>, 2>(
             &self.client,
             &input.as_ref(),
             &weight.as_ref(),

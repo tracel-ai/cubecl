@@ -1,5 +1,7 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
+use crate::matmul::components::tile::{
+    Tile, TileConfig, TileMatmul, TileMatmulConfigInput, TileMatmulFamily,
+};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatrixLayout, TileSize, as_cmma_layout,
@@ -9,12 +11,10 @@ use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 
-use super::{Tile, TileMatmulConfigInput};
+pub struct PlaneAcceleratedMatmul;
 
-pub struct AcceleratedMatmul;
-
-impl TileMatmulFamily for AcceleratedMatmul {
-    type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
+impl TileMatmulFamily for PlaneAcceleratedMatmul {
+    type Matmul<MP: MatmulPrecision> = PlaneAcceleratedMatmul;
 
     fn requires_tensor_cores() -> bool {
         true
@@ -22,7 +22,7 @@ impl TileMatmulFamily for AcceleratedMatmul {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
+impl<MP: MatmulPrecision> TileMatmul<MP> for PlaneAcceleratedMatmul {
     type Config = Config;
     type Lhs = cmma::Matrix<MP::ES>;
     type Rhs = cmma::Matrix<MP::ES>;
@@ -112,7 +112,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
     }
 }
 
-impl MatmulConfigFactory for AcceleratedMatmul {
+impl MatmulConfigFactory for PlaneAcceleratedMatmul {
     type Input = TileMatmulConfigInput;
     type Config = Config;
 

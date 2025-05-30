@@ -1,5 +1,5 @@
-pub mod accelerated_matmul;
-pub mod register_matmul;
+pub mod plane;
+pub mod unit;
 
 mod base;
 

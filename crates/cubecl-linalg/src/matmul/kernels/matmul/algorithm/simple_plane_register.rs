@@ -13,7 +13,7 @@ use crate::matmul::components::{
     tile,
 };
 
-pub struct SimpleUnitAlgorithm<
+pub struct SimplePlaneRegisterAlgorithm<
     LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
     RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
@@ -23,13 +23,13 @@ pub struct SimpleUnitAlgorithm<
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<LL, RL, Dispatch> base::Algorithm for SimpleUnitAlgorithm<LL, RL, Dispatch>
+impl<LL, RL, Dispatch> base::Algorithm for SimplePlaneRegisterAlgorithm<LL, RL, Dispatch>
 where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
-    type TileMatmul = tile::unit::register::RegisterMatmul;
+    type TileMatmul = tile::plane::register::PlaneRegisterMatmul;
     type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
@@ -70,9 +70,7 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_units_needed = selection.tiling_scheme().partitions_in_stage_mn();
-        let num_planes = num_units_needed.div_ceil(selection.plane_dim);
-
+        let num_planes = selection.tiling_scheme().partitions_in_stage_mn();
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 

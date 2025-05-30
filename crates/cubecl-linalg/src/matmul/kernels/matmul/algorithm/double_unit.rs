@@ -18,7 +18,7 @@ impl<Dispatch> base::Algorithm for DoubleUnitAlgorithm<Dispatch>
 where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
-    type TileMatmul = tile::register_matmul::RegisterMatmul;
+    type TileMatmul = tile::unit::register::RegisterMatmul;
     type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,

@@ -1,8 +1,11 @@
 use std::fmt::Display;
+use std::marker::PhantomData;
 
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::problem::MatmulLineSizes;
-use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
+use crate::matmul::components::tile::{
+    Tile, TileConfig, TileMatmul, TileMatmulConfigInput, TileMatmulFamily,
+};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
     TileSize,
@@ -12,10 +15,11 @@ use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 
-use super::{Tile, TileMatmulConfigInput};
+/// Uses one plane to perform a small matmul
+pub struct PlaneRegisterMatmul;
 
-/// Uses one unit to perform a small matmul entirely using its registers
-pub struct RegisterMatmul;
+// TODO get from config
+const PLANE_DIM: u32 = 32;
 
 pub enum ProductType {
     /// Needs lhs to be row major and rhs to be col major
@@ -26,8 +30,8 @@ pub enum ProductType {
     Outer,
 }
 
-impl TileMatmulFamily for RegisterMatmul {
-    type Matmul<MP: MatmulPrecision> = RegisterMatmul;
+impl TileMatmulFamily for PlaneRegisterMatmul {
+    type Matmul<MP: MatmulPrecision> = PlaneRegisterMatmul;
 
     fn requires_tensor_cores() -> bool {
         false
@@ -44,11 +48,67 @@ pub struct TileAccumulator<EA: Numeric> {
     cols: u32,
 }
 
+#[derive(CubeType)]
+/// Each unit i in [0, plane_dim[ owns the elements of the array at indices where (index % plane_dim) == i.
+/// The total array length is length_total, which is assumed to be divisible by plane_dim,
+/// so each unit owns exactly length_total / plane_dim elements.
+pub struct SharedArray<ES: Numeric> {
+    inner: Array<ES>,
+}
+
 #[cube]
-impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
+impl<ES: Numeric> SharedArray<ES> {
+    /// Create a new SharedArray given the total length (must be divisible by PLANE_DIM)
+    fn new(#[comptime] length_total: u32) -> SharedArray<ES> {
+        assert!(
+            length_total % PLANE_DIM == 0,
+            "length_total must be divisible by PLANE_DIM"
+        );
+        let inner_len = comptime!(length_total / PLANE_DIM);
+
+        SharedArray::<ES> {
+            inner: Array::<ES>::new(inner_len),
+        }
+    }
+
+    fn get_plane_wide(&self, index: u32) -> ES {
+        let data_owner = index % PLANE_DIM;
+        let local_index = index / PLANE_DIM;
+        let value = if UNIT_POS_X == data_owner {
+            self.get_local(local_index)
+        } else {
+            plane_broadcast(self.get_local(local_index), data_owner)
+        };
+
+        value
+    }
+
+    fn get_local(&self, index: u32) -> ES {
+        self.inner[index]
+    }
+
+    /// Setter for the local element owned by this unit
+    fn set_local(&mut self, index: u32, value: ES) {
+        self.inner[index] = value;
+    }
+
+    /// Set the element at global index `index`.
+    /// Only the unit owning this element writes it; other units do nothing.
+    fn set_plane_wide(&mut self, index: u32, value: ES) {
+        let data_owner = index % PLANE_DIM;
+        let local_index = index / PLANE_DIM;
+
+        if UNIT_POS_X == data_owner {
+            self.set_local(local_index, value);
+        }
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision> TileMatmul<MP> for PlaneRegisterMatmul {
     type Config = Config;
-    type Lhs = Array<MP::ES>;
-    type Rhs = Array<MP::ES>;
+    type Lhs = SharedArray<MP::ES>;
+    type Rhs = SharedArray<MP::ES>;
     type Accumulator = TileAccumulator<MP::EA>;
 
     fn execute(
@@ -64,11 +124,11 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
-        Array::new(config.size.mk())
+        SharedArray::new(config.size.mk())
     }
 
     fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
-        Array::new(config.size.nk())
+        SharedArray::new(config.size.nk())
     }
 
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
@@ -166,9 +226,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] _config: Config,
     ) {
-        #[unroll]
+        // #[unroll]
         for i in 0..comptime!(acc.rows) {
-            #[unroll]
+            // #[unroll]
             for j in 0..comptime!(acc.cols) {
                 acc.data[i * acc.cols + j] =
                     tile.slice.with_line_size(1u32)[i * tile.stride + j][0];
@@ -182,10 +242,10 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         #[comptime] config: Config,
     ) {
         let out_line_size = config.out_line_size;
-        #[unroll]
+        // #[unroll]
         for i in 0..comptime!(acc.rows * acc.cols / out_line_size) {
             let mut line = Line::empty(out_line_size);
-            #[unroll]
+            // #[unroll]
             for j in 0..comptime!(out_line_size) {
                 line[j] = acc.data[i * out_line_size + j];
             }
@@ -213,23 +273,23 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 }
 
 #[cube]
-impl RegisterMatmul {
+impl PlaneRegisterMatmul {
     fn inner_product<ES: Numeric, EA: Numeric>(
-        lhs: &Array<ES>,
-        rhs: &Array<ES>,
+        lhs: &SharedArray<ES>,
+        rhs: &SharedArray<ES>,
         acc: &mut TileAccumulator<EA>,
         #[comptime] config: Config,
     ) {
         let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.size.into(); (m, n, k)};
 
-        #[unroll]
+        // #[unroll]
         for m_ in 0..m {
-            #[unroll]
+            // #[unroll]
             for n_ in 0..n {
-                #[unroll]
+                // #[unroll]
                 for k_ in 0..k {
-                    let lhs_elem = EA::cast_from(lhs[m_ * k + k_]);
-                    let rhs_elem = EA::cast_from(rhs[n_ * k + k_]);
+                    let lhs_elem = EA::cast_from(lhs.get_plane_wide(m_ * k + k_));
+                    let rhs_elem = EA::cast_from(rhs.get_plane_wide(n_ * k + k_));
                     acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
                 }
             }
@@ -237,21 +297,21 @@ impl RegisterMatmul {
     }
 
     fn outer_product<ES: Numeric, EA: Numeric>(
-        lhs: &Array<ES>,
-        rhs: &Array<ES>,
+        lhs: &SharedArray<ES>,
+        rhs: &SharedArray<ES>,
         acc: &mut TileAccumulator<EA>,
         #[comptime] config: Config,
     ) {
         let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.size.into(); (m, n, k)};
 
-        #[unroll]
+        // #[unroll]
         for k_ in 0..k {
-            #[unroll]
+            // #[unroll]
             for m_ in 0..m {
-                let lhs_elem = EA::cast_from(lhs[k_ * m + m_]);
-                #[unroll]
+                let lhs_elem = EA::cast_from(lhs.get_plane_wide(k_ * m + m_));
+                // #[unroll]
                 for n_ in 0..n {
-                    let rhs_elem = EA::cast_from(rhs[k_ * n + n_]);
+                    let rhs_elem = EA::cast_from(rhs.get_plane_wide(k_ * n + n_));
                     acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
                 }
             }
@@ -260,23 +320,24 @@ impl RegisterMatmul {
 
     fn fill_plain<ES: Numeric>(
         tile: &Tile<ES>,
-        array: &mut Array<ES>,
+        array: &mut SharedArray<ES>,
         #[comptime] num_segments: u32,
         #[comptime] segment_size: u32,
         #[comptime] line_size: u32,
     ) {
         let num_lines_per_segment = segment_size / line_size;
 
-        #[unroll]
+        // #[unroll]
         for segment in 0..num_segments {
-            #[unroll]
+            // #[unroll]
             for line_within_segment in 0..num_lines_per_segment {
                 let line = tile.get_line(segment, line_within_segment);
-                #[unroll]
+                // #[unroll]
                 for pos_within_line in 0..line_size {
-                    array[segment * segment_size
-                        + line_within_segment * line_size
-                        + pos_within_line] = line[pos_within_line];
+                    array.set_plane_wide(
+                        segment * segment_size + line_within_segment * line_size + pos_within_line,
+                        line[pos_within_line],
+                    );
                 }
             }
         }
@@ -284,7 +345,7 @@ impl RegisterMatmul {
 
     fn fill_transposed<ES: Numeric>(
         tile: &Tile<ES>,
-        array: &mut Array<ES>,
+        array: &mut SharedArray<ES>,
         #[comptime] num_segments: u32,
         #[comptime] segment_size: u32,
         #[comptime] line_size: u32,
@@ -298,8 +359,11 @@ impl RegisterMatmul {
                 let line = tile.get_line(segment, line_within_segment);
                 #[unroll]
                 for pos_within_line in 0..line_size {
-                    array[(line_within_segment * line_size + pos_within_line) * num_segments
-                        + segment] = line[pos_within_line];
+                    array.set_plane_wide(
+                        (line_within_segment * line_size + pos_within_line) * num_segments
+                            + segment,
+                        line[pos_within_line],
+                    );
                 }
             }
         }
@@ -325,7 +389,7 @@ impl Display for RegisterMatmulConfigError {
         write!(f, "{string}")
     }
 }
-impl MatmulConfigFactory for RegisterMatmul {
+impl MatmulConfigFactory for PlaneRegisterMatmul {
     type Input = TileMatmulConfigInput;
     type Config = Config;
 
@@ -333,16 +397,6 @@ impl MatmulConfigFactory for RegisterMatmul {
         let m = config.size.m();
         let n = config.size.n();
         let k = config.size.k();
-
-        // 128 a bit arbitrary, but accepts 4x4x4 and rejects 8x8x8
-        if m * n * k > 128 {
-            return Err(RegisterMatmulConfigError::new(move || {
-                format!(
-                    "Tile size m-n-k={:?}-{:?}-{:?} is too large for register matmul",
-                    m, n, k
-                )
-            }));
-        }
 
         let lhs = config.stage_line_size(Ident::Lhs);
         let rhs = config.stage_line_size(Ident::Rhs);
@@ -462,7 +516,7 @@ impl MatmulConfigFactory for RegisterMatmul {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for Register instruction
+/// Configuration for plane instruction
 pub struct Config {
     size: TileSize,
     plane_dim: u32,

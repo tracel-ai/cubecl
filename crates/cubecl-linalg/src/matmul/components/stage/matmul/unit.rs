@@ -61,12 +61,12 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_units_needed = config.tiling_scheme().partitions_in_stage_mn();
-        let num_units = config.plane_dim() * config.num_planes();
+        let num_planes_needed = config.tiling_scheme().partitions_in_stage_mn();
+        let num_planes = config.num_planes();
 
-        if num_units != num_units_needed {
+        if num_planes != num_planes_needed {
             return Err(Box::new(format!(
-                "Error: Number of units {num_units} should be {num_units_needed}."
+                "Error: Number of planes {num_planes} should be {num_planes_needed}."
             )));
         }
 

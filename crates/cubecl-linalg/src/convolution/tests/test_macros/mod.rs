@@ -8,7 +8,7 @@ macro_rules! testgen_conv2d_accelerated {
         #[allow(non_snake_case)]
         mod conv2d_accelerated {
             use super::*;
-            type TMM = $crate::matmul::components::tile::accelerated_matmul::AcceleratedMatmul;
+            type TMM = $crate::matmul::components::tile::plane::accelerated::PlaneAcceleratedMatmul;
 
             ::paste::paste! {
                 $(mod [<$float _ty>] {
