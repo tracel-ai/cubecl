@@ -1,11 +1,10 @@
-use crate::matmul::components::{MatmulKind, MatmulProblem, PartitionSize, TilingScheme};
+use crate::matmul::components::{MatmulKind, MatmulProblem, TilingScheme};
 
 use super::MatmulSelection;
 
 const NUM_PLANES_APPROX: u32 = 2;
 const TILE_DIM: u32 = 4;
-const PARTITION_SIZE_APPROX: PartitionSize = PartitionSize { m: 1, n: 1, k: 4 };
-const NUM_STAGES: u32 = 1;
+const PARTITION_K_APPROX: u32 = 4;
 
 #[derive(Debug, Clone)]
 pub struct UnitMatmulSelection {
@@ -38,8 +37,8 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmul
     let (stage_size_m, stage_size_n) = closest_factor_pair(num_units);
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, TILE_DIM, TILE_DIM).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((stage_size_m, stage_size_n, NUM_STAGES).into())
+        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
+        .with_stage_size((stage_size_m, stage_size_n, 1).into())
         .build()
         .unwrap();
 
@@ -54,8 +53,8 @@ fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, 1, TILE_DIM).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((num_units, 1, NUM_STAGES).into())
+        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
+        .with_stage_size((num_units, 1, 1).into())
         .build()
         .unwrap();
 
@@ -70,8 +69,8 @@ fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulS
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, TILE_DIM, TILE_DIM).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((1, num_units, NUM_STAGES).into())
+        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
+        .with_stage_size((1, num_units, 1).into())
         .build()
         .unwrap();
 
@@ -86,8 +85,8 @@ fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, TILE_DIM, 1).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((1, num_units, NUM_STAGES).into())
+        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
+        .with_stage_size((1, num_units, 1).into())
         .build()
         .unwrap();
 
@@ -102,8 +101,8 @@ fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
     let num_units = NUM_PLANES_APPROX * plane_dim;
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, 1, 1).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((num_units, 1, NUM_STAGES).into())
+        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
+        .with_stage_size((num_units, 1, 1).into())
         .build()
         .unwrap();
 
@@ -117,8 +116,8 @@ fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatm
 fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> UnitMatmulSelection {
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((1, 1, TILE_DIM).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((1, 1, NUM_STAGES).into())
+        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
+        .with_stage_size((1, 1, 1).into())
         .build()
         .unwrap();
 
@@ -134,8 +133,8 @@ fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Unit
     let (stage_size_m, stage_size_n) = closest_factor_pair(num_units);
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size((TILE_DIM, TILE_DIM, 1).into())
-        .with_partition_size(PARTITION_SIZE_APPROX)
-        .with_stage_size((stage_size_m, stage_size_n, NUM_STAGES).into())
+        .with_partition_size((1, 1, 1).into())
+        .with_stage_size((stage_size_m, stage_size_n, 1).into())
         .build()
         .unwrap();
 

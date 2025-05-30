@@ -64,29 +64,24 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
         tensor_cores_channels,
-        tile_size.m as usize,
-        tile_size.n as usize,
+        tile_size.m() as usize,
+        tile_size.n() as usize,
     );
 
     let (rows_per_plane, stage_size_m) = change_rows_per_plane(
         multi_row_strategy,
         partition_shape_n,
-        tile_size.m as usize,
+        tile_size.m() as usize,
         problem.m,
     );
 
-    let tiles_per_partition = PartitionSize {
-        m: rows_per_plane as u32,
-        n: partition_shape_n as u32,
-        // Makes all rows the length of plane_dim
-        k: plane_dim / tile_size.k,
-    };
+    let tiles_per_partition = PartitionSize::new(
+        rows_per_plane as u32,
+        partition_shape_n as u32,
+        plane_dim / tile_size.k(),
+    );
 
-    let partitions_per_stage = StageSize {
-        m: stage_size_m as u32,
-        n: 1,
-        k: 1,
-    };
+    let partitions_per_stage = StageSize::new(stage_size_m as u32, 1, 1);
 
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size(tile_size)

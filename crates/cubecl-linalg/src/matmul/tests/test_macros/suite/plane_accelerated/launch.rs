@@ -15,7 +15,7 @@ pub fn test_algo<
     tile_size: TileSize,
     tiles_per_partition: PartitionSize,
     partitions_per_stage: StageSize,
-    problem: MatmulProblemSize,
+    problem_size: MatmulProblemSize,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client.properties().hardware.defined_plane_size() {
@@ -27,9 +27,9 @@ pub fn test_algo<
     };
 
     let problem = MatmulProblem {
-        m: problem.m as usize,
-        n: problem.n as usize,
-        k: problem.k as usize,
+        m: problem_size.m() as usize,
+        n: problem_size.n() as usize,
+        k: problem_size.k() as usize,
         batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,

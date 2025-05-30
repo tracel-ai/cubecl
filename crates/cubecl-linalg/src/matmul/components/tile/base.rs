@@ -135,12 +135,12 @@ impl<ES: Numeric> Tile<ES> {
         let stride = comptime! {
             (match ident.as_input_ident() {
             InputIdent::Lhs => match layout {
-                MatrixLayout::RowMajor => config.tile_size().k,
-                MatrixLayout::ColMajor => config.tile_size().m,
+                MatrixLayout::RowMajor => config.tile_size().k(),
+                MatrixLayout::ColMajor => config.tile_size().m(),
             },
             InputIdent::Rhs => match layout {
-                MatrixLayout::RowMajor => config.tile_size().n,
-                MatrixLayout::ColMajor => config.tile_size().k,
+                MatrixLayout::RowMajor => config.tile_size().n(),
+                MatrixLayout::ColMajor => config.tile_size().k(),
             },
         }) / config.stage_line_size(ident)};
 

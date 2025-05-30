@@ -133,8 +133,8 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
         num_sm as usize,
         max_tensor_cores as usize,
-        tile_size.m as usize,
-        tile_size.n as usize,
+        tile_size.m() as usize,
+        tile_size.n() as usize,
         stage_k as usize,
     );
 

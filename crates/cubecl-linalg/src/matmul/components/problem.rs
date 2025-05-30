@@ -192,9 +192,9 @@ impl From<MatmulProblemSize> for MatmulKind {
 
         use DimKind::*;
         match (
-            matmul_size.m.into(),
-            matmul_size.n.into(),
-            matmul_size.k.into(),
+            matmul_size.m().into(),
+            matmul_size.n().into(),
+            matmul_size.k().into(),
         ) {
             (Scalar, Scalar, Scalar) => MatmulKind::ScalarProduct,
             (Scalar, Scalar, Vector) => MatmulKind::InnerProduct,
@@ -210,33 +210,19 @@ impl From<MatmulProblemSize> for MatmulKind {
 
 impl From<MatmulProblem> for MatmulProblemSize {
     fn from(problem: MatmulProblem) -> Self {
-        MatmulProblemSize {
-            m: problem.m as u32,
-            n: problem.n as u32,
-            k: problem.k as u32,
-        }
+        MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32)
     }
 }
 
 impl From<MatmulProblem> for MatmulKind {
     fn from(problem: MatmulProblem) -> Self {
-        MatmulProblemSize {
-            m: problem.m as u32,
-            n: problem.n as u32,
-            k: problem.k as u32,
-        }
-        .into()
+        MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32).into()
     }
 }
 
 impl From<&MatmulProblem> for MatmulKind {
     fn from(problem: &MatmulProblem) -> Self {
-        MatmulProblemSize {
-            m: problem.m as u32,
-            n: problem.n as u32,
-            k: problem.k as u32,
-        }
-        .into()
+        MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32).into()
     }
 }
 

@@ -43,9 +43,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         unsafe {
             cmma::Matrix::<MP::ES>::uninitialized(
                 cmma::MatrixIdent::A,
-                size.m,
-                size.n,
-                size.k,
+                size.m(),
+                size.n(),
+                size.k(),
                 as_cmma_layout(layout),
             )
         }
@@ -57,9 +57,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         unsafe {
             cmma::Matrix::<MP::ES>::uninitialized(
                 cmma::MatrixIdent::B,
-                size.m,
-                size.n,
-                size.k,
+                size.m(),
+                size.n(),
+                size.k(),
                 as_cmma_layout(layout),
             )
         }
@@ -91,7 +91,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         #[comptime] config: Config,
     ) {
         let acc = cmma::cast::<MP::EA, MP::EO>(out);
-        cmma::store(slice, &acc, config.size.n, cmma::MatrixLayout::RowMajor);
+        cmma::store(slice, &acc, config.size.n(), cmma::MatrixLayout::RowMajor);
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -99,9 +99,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         unsafe {
             cmma::Matrix::<MP::EA>::uninitialized(
                 cmma::MatrixIdent::Accumulator,
-                size.m,
-                size.n,
-                size.k,
+                size.m(),
+                size.n(),
+                size.k(),
                 cmma::MatrixLayout::Undefined,
             )
         }
@@ -155,18 +155,14 @@ impl MatmulConfigFactory for AcceleratedMatmul {
             a: es,
             b: es,
             c: ea,
-            m: size.m as u8,
-            k: size.k as u8,
-            n: size.n as u8,
+            m: size.m() as u8,
+            k: size.k() as u8,
+            n: size.n() as u8,
         }) {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input: es,
                 output: ea,
-                shape: Some(TileSize {
-                    m: size.m,
-                    n: size.n,
-                    k: size.k,
-                }),
+                size: Some(TileSize::new(size.m(), size.n(), size.k())),
             });
         }
 

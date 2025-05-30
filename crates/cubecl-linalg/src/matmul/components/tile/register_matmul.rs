@@ -64,11 +64,11 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
-        Array::new(config.size.m * config.size.k)
+        Array::new(config.size.mk())
     }
 
     fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
-        Array::new(config.size.k * config.size.n)
+        Array::new(config.size.nk())
     }
 
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
@@ -78,8 +78,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_plain(
                         tile,
                         lhs,
-                        config.size.m,
-                        config.size.k,
+                        config.size.m(),
+                        config.size.k(),
                         config.lhs_line_size,
                     );
                 }
@@ -87,8 +87,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_transposed(
                         tile,
                         lhs,
-                        config.size.k,
-                        config.size.m,
+                        config.size.k(),
+                        config.size.m(),
                         config.lhs_line_size,
                     );
                 }
@@ -98,8 +98,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_transposed(
                         tile,
                         lhs,
-                        config.size.m,
-                        config.size.k,
+                        config.size.m(),
+                        config.size.k(),
                         config.lhs_line_size,
                     );
                 }
@@ -107,8 +107,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_plain(
                         tile,
                         lhs,
-                        config.size.k,
-                        config.size.m,
+                        config.size.k(),
+                        config.size.m(),
                         config.lhs_line_size,
                     );
                 }
@@ -123,8 +123,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_transposed(
                         tile,
                         rhs,
-                        config.size.k,
-                        config.size.n,
+                        config.size.k(),
+                        config.size.n(),
                         config.rhs_line_size,
                     );
                 }
@@ -132,8 +132,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_plain(
                         tile,
                         rhs,
-                        config.size.n,
-                        config.size.k,
+                        config.size.n(),
+                        config.size.k(),
                         config.rhs_line_size,
                     );
                 }
@@ -143,8 +143,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_plain(
                         tile,
                         rhs,
-                        config.size.k,
-                        config.size.n,
+                        config.size.k(),
+                        config.size.n(),
                         config.rhs_line_size,
                     );
                 }
@@ -152,8 +152,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
                     Self::fill_transposed(
                         tile,
                         rhs,
-                        config.size.n,
-                        config.size.k,
+                        config.size.n(),
+                        config.size.k(),
                         config.rhs_line_size,
                     );
                 }
@@ -194,8 +194,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let rows = config.size.m;
-        let cols = config.size.n;
+        let rows = config.size.m();
+        let cols = config.size.n();
 
         TileAccumulator::<MP::EA> {
             data: Array::<MP::EA>::new(rows * cols),
@@ -220,7 +220,7 @@ impl RegisterMatmul {
         acc: &mut TileAccumulator<EA>,
         #[comptime] config: Config,
     ) {
-        let (m, n, k) = comptime! {let (m, n, k) = config.size.into(); (m, n, k)};
+        let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.size.into(); (m, n, k)};
 
         #[unroll]
         for m_ in 0..m {
@@ -242,7 +242,7 @@ impl RegisterMatmul {
         acc: &mut TileAccumulator<EA>,
         #[comptime] config: Config,
     ) {
-        let (m, n, k) = comptime! {let (m, n, k) = config.size.into(); (m, n, k)};
+        let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.size.into(); (m, n, k)};
 
         #[unroll]
         for k_ in 0..k {
@@ -330,9 +330,9 @@ impl MatmulConfigFactory for RegisterMatmul {
     type Config = Config;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let m = config.size.m;
-        let n = config.size.n;
-        let k = config.size.k;
+        let m = config.size.m();
+        let n = config.size.n();
+        let k = config.size.k();
 
         // 128 a bit arbitrary, but accepts 4x4x4 and rejects 8x8x8
         if m * n * k > 128 {

@@ -55,7 +55,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
         match this {
             BiasLoader::Some { stage, .. } => {
                 let line_size = config.stage_line_size(Ident::Out);
-                let tile_elems = config.tile_size().n / line_size;
+                let tile_elems = config.tile_size().n() / line_size;
                 let start = tile_n * tile_elems;
                 let slice = stage
                     .as_slice_mut(line_size)

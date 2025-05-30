@@ -32,21 +32,21 @@ struct MatmulProblemDefinition {
 
 impl From<MatmulProblemDefinition> for MatmulProblemSize {
     fn from(problem_definition: MatmulProblemDefinition) -> Self {
-        MatmulProblemSize {
-            m: problem_definition.m as u32,
-            n: problem_definition.n as u32,
-            k: problem_definition.k as u32,
-        }
+        MatmulProblemSize::new(
+            problem_definition.m as u32,
+            problem_definition.n as u32,
+            problem_definition.k as u32,
+        )
     }
 }
 
 impl From<&MatmulProblemDefinition> for MatmulKind {
     fn from(problem_definition: &MatmulProblemDefinition) -> Self {
-        let matmul_size = MatmulProblemSize {
-            m: problem_definition.m as u32,
-            n: problem_definition.n as u32,
-            k: problem_definition.k as u32,
-        };
+        let matmul_size = MatmulProblemSize::new(
+            problem_definition.m as u32,
+            problem_definition.n as u32,
+            problem_definition.k as u32,
+        );
         matmul_size.into()
     }
 }
