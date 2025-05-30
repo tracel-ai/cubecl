@@ -1,9 +1,13 @@
 use cubecl_core::ir::{
-    Builtin, ConstantScalarValue, IntKind, Item, UIntKind, Variable, VariableKind,
+    Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, Variable, VariableKind,
 };
 use melior::{
     dialect::ods::arith,
-    ir::{Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
+    ir::{
+        Type, Value,
+        attribute::{FloatAttribute, IntegerAttribute},
+        r#type::IntegerType,
+    },
 };
 
 use super::Visitor;
@@ -52,6 +56,18 @@ impl<'a> Visitor<'a> {
                         let value = IntegerAttribute::new(integer_type, value as i64).into();
                         arith::constant(self.context, integer_type, value, self.location)
                     }
+                    ConstantScalarValue::Float(value, float_kind) => {
+                        let float_type = match float_kind {
+                            FloatKind::F16 => Type::float16(self.context),
+                            FloatKind::BF16 => Type::bfloat16(self.context),
+                            FloatKind::F32 => Type::float32(self.context),
+                            FloatKind::F64 => Type::float64(self.context),
+                            _ => panic!("Type is not supported in LLVM"),
+                        };
+                        let float_attribute =
+                            FloatAttribute::new(self.context, float_type, value).into();
+                        arith::constant(self.context, float_type, float_attribute, self.location)
+                    }
                     _ => todo!("Operation is not implemented {:?}", constant_scalar_value),
                 };
                 self.append_operation_with_result(operation)
@@ -62,15 +78,19 @@ impl<'a> Visitor<'a> {
     pub fn get_index(&self, variable: Variable, target_item: Item) -> Value<'a, 'a> {
         let mut index = match variable.kind {
             VariableKind::ConstantScalar(constant_scalar_value) => {
-                let operation = match constant_scalar_value {
-                    ConstantScalarValue::Int(value, _) => {
-                        let integer_type = Type::index(self.context);
-                        let value = IntegerAttribute::new(integer_type, value).into();
-                        arith::constant(self.context, integer_type, value, self.location)
-                    }
+                let value = match constant_scalar_value {
+                    ConstantScalarValue::Int(value, _) => value,
+                    ConstantScalarValue::UInt(value, _) => value as i64,
                     _ => todo!("Operation is not implemented {}", constant_scalar_value),
                 };
-                self.append_operation_with_result(operation)
+                let integer_type = Type::index(self.context);
+                let value = IntegerAttribute::new(integer_type, value).into();
+                self.append_operation_with_result(arith::constant(
+                    self.context,
+                    integer_type,
+                    value,
+                    self.location,
+                ))
             }
             VariableKind::Builtin(builtin) => self.get_builtin(builtin),
             _ => todo!("{:?} is not yet implemented", variable.kind),
