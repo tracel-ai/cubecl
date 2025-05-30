@@ -68,9 +68,9 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         let num_planes = config.num_planes();
 
         if num_planes != num_planes_needed {
-            return Err(Box::new(
-                "Error: Number of planes {num_planes} should be {num_planes_needed}.".to_string(),
-            ));
+            return Err(Box::new(format!(
+                "Error: Number of planes {num_planes} should be {num_planes_needed}."
+            )));
         }
 
         // TODO we should allow buffering on m dimension

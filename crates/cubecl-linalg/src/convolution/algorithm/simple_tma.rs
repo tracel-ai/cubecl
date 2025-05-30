@@ -46,7 +46,11 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type Args = TensorMapArgs;
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        CubeDim::new(selection.plane_dim, selection.tiling_scheme().tiles_in_stage_m(), 1)
+        CubeDim::new(
+            selection.plane_dim,
+            selection.tiling_scheme().tiles_in_stage_m(),
+            1,
+        )
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {

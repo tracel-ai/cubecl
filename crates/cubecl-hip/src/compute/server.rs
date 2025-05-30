@@ -226,7 +226,7 @@ impl ComputeServer for HipServer {
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
-            // TODO: CUDA doesn't have an exact equivalen of dynamic dispatch. Instead, kernels are free to launch other kernels.
+            // TODO: HIP doesn't have an exact equivalen of dynamic dispatch. Instead, kernels are free to launch other kernels.
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
@@ -401,7 +401,12 @@ impl HipContext {
         let include_option_cstr = CString::new(include_option).unwrap();
         // needed for rocWMMA extension to compile
         let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
-        let mut options = vec![cpp_std_option_cstr.as_ptr(), include_option_cstr.as_ptr()];
+        let optimization_level = CString::new("-o=3").unwrap();
+        let mut options = vec![
+            cpp_std_option_cstr.as_ptr(),
+            include_option_cstr.as_ptr(),
+            optimization_level.as_ptr(),
+        ];
         unsafe {
             let options_ptr = options.as_mut_ptr();
             let status =

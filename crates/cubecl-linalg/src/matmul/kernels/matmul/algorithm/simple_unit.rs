@@ -9,7 +9,7 @@ use crate::matmul::components::{
         self,
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
     },
-    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, PartitionBuffering},
+    stage::{self, ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, RowMajorTilingOrder},
     tile,
 };
 

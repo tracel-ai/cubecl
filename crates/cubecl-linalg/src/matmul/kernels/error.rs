@@ -163,7 +163,11 @@ impl Debug for MatmulAvailabilityError {
             } => writeln!(
                 f,
                 "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
-                input, output, size.m(), size.n(), size.k()
+                input,
+                output,
+                size.m(),
+                size.n(),
+                size.k()
             ),
             MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input,

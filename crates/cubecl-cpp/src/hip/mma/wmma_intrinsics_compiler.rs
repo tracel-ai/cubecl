@@ -1,7 +1,10 @@
+use std::fmt::Formatter;
+
 use crate::{
+    Dialect,
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, Fragment, FragmentIdent,
+        Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
         FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
@@ -105,7 +108,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                 value,
                 layout,
                 offset,
-                stride: _stride,
+                stride,
             } => {
                 // Matrix A must be in column major layout (so fragments correspond to a row)
                 // Matrices B, C and D must be in row major layout (so fragments correspond to a column)
@@ -131,15 +134,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                 // --------------------------------------------------------------------------------------------------------------
                 // VGPR7      | 15,1 | 15,2 | 15,3 | 15,4 | ...  | 15,13| 15,14| 15,15| ...  | 16,1 | 16,2 | ...  | 16,15| 16,16|
                 // --------------------------------------------------------------------------------------------------------------
-                let item = value.item();
-                let mut value_ident = format!("{value} + {offset}");
-                if item.vectorization > 1 {
-                    writeln!(
-                        f,
-                        "__half* {value}_half = reinterpret_cast<__half*>({value} + {offset});"
-                    )?;
-                    value_ident = format!("{value}_half");
-                }
+                let value_ptr = frag_as_ptr(f, value, offset);
                 // TODO: support iu8 and iu4
                 let (index, length, step) = match frag {
                     Variable::WmmaFragment { frag: inner, .. } => {
@@ -154,9 +149,9 @@ for (uint i = 0; i < uint(8); ++i) {{
                                     || (inner.ident == FragmentIdent::B
                                         && inner.layout.unwrap() == FragmentLayout::RowMajor)
                                 {
-                                    "i * uint(16) + wmmaLane"
+                                    format!("i * {stride} + wmmaLane")
                                 } else {
-                                    "i + wmmaLane * uint(16)"
+                                    format!("i + wmmaLane * {stride}")
                                 };
                                 (index, length, step)
                             }
@@ -165,10 +160,14 @@ for (uint i = 0; i < uint(8); ++i) {{
                                 let step = get_output_accumulator_index_step(value, inner);
                                 let index = match layout {
                                     Some(FragmentLayout::ColMajor) => {
-                                        "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * uint(16)"
+                                        format!(
+                                            "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * {stride}"
+                                        )
                                     }
                                     Some(FragmentLayout::RowMajor) => {
-                                        "(i * uint(2) + threadIdx.x / uint(16)) * uint(16) + wmmaLane"
+                                        format!(
+                                            "(i * uint(2) + threadIdx.x / uint(16)) * {stride} + wmmaLane"
+                                        )
                                     }
                                     _ => panic!(
                                         "cannot load data to an accumulator without knowing the layout of the data"
@@ -185,7 +184,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                     f,
                     "// load
 for (uint i = 0; i < uint({length}); ++i) {{
-  {frag}[i * {step}] = {value_ident}[{index}];
+  {frag}[i * {step}] = {value_ptr}[{index}];
 }}
 "
                 )
@@ -257,17 +256,9 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 frag,
                 layout,
                 offset,
-                stride: _stride,
+                stride,
             } => {
-                let item = output.item();
-                let mut output_ident = format!("{output} + {offset}");
-                if item.vectorization > 1 {
-                    writeln!(
-                        f,
-                        "float* {output}_float = reinterpret_cast<float*>({output} + {offset});"
-                    )?;
-                    output_ident = format!("{output}_float");
-                }
+                let output_ptr = frag_as_ptr(f, output, offset);
                 // frag holds a result column where threads 0-15 of the wavefront have the even rows and threads 16-31 the odd rows
                 // moreover, since we use OPSEL to false in the Execute instruction in f16 output format, the output elements are
                 // stored in even indexes (0, 2, 4, ...) (low 16-bits of the VGPR) in frag
@@ -283,16 +274,16 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 };
                 // FragmentLayout here represents the desired layout of the matrix C
                 let output_idx = match layout {
-                    FragmentLayout::ColMajor => "wmmaLane * uint(16) + rowIdx",
-                    FragmentLayout::RowMajor => "wmmaLane + rowIdx * uint(16)",
-                    FragmentLayout::_Dialect(_) => "",
+                    FragmentLayout::ColMajor => format!("wmmaLane * {stride} + rowIdx"),
+                    FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * {stride}"),
+                    FragmentLayout::_Dialect(_) => String::new(),
                 };
                 write!(
                     f,
                     "// store
 for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
   const uint rowIdx = elemIdx * uint(2) + threadIdx.x / uint(16);
-  {output_ident}[{output_idx}] = {frag}[{frag_idx}];
+  {output_ptr}[{output_idx}] = {frag}[{frag_idx}];
 }}
  "
                 )
@@ -343,7 +334,6 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                //                                  i  o  c
                 .map(|(m, n, k)| (m, n, k, vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
@@ -379,5 +369,27 @@ fn get_output_accumulator_index_step(
             }
         }
         other => panic!("unsupported format {other} for {input}"),
+    }
+}
+
+fn frag_as_ptr<D: Dialect>(
+    f: &mut Formatter<'_>,
+    frag: &Variable<D>,
+    offset: &Variable<D>,
+) -> Variable<D> {
+    let item = frag.item();
+    let mut frag_ptr = Variable::tmp_ptr(item);
+    if frag.is_const() {
+        frag_ptr.to_const();
+    }
+    let frag_ptr_out = frag_ptr.fmt_left();
+    writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
+
+    if item.vectorization > 1 {
+        let mut item_value = item;
+        item_value.vectorization = 1;
+        frag_ptr.reinterpret_ptr(f, item_value)
+    } else {
+        frag_ptr
     }
 }
