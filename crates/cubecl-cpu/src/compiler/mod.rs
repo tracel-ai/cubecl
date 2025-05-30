@@ -22,6 +22,7 @@ impl Compiler for MlirCompiler {
         mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
         let opt = OptimizerBuilder::default().optimize(kernel.body.clone(), kernel.cube_dim, mode);
+        println!("{}", opt);
         MlirEngine::from_cubecl_ir(kernel, &opt)
     }
 

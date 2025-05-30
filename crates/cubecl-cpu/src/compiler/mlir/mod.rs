@@ -13,7 +13,11 @@ pub use visitor::elem::register_supported_types;
 use std::fmt::{Debug, Display};
 
 use cubecl_core::prelude::KernelDefinition;
-use melior::{Context, ExecutionEngine, dialect::DialectRegistry, utility::register_all_dialects};
+use melior::{
+    Context, ExecutionEngine,
+    dialect::DialectRegistry,
+    utility::{register_all_dialects, register_all_llvm_translations, register_all_passes},
+};
 use module::Module;
 
 const MAX_BUFFER_SIZE: usize = 256;
@@ -42,8 +46,10 @@ impl MlirEngine {
     pub fn from_cubecl_ir(kernel: KernelDefinition, opt: &Optimizer) -> Self {
         let registry = DialectRegistry::new();
         register_all_dialects(&registry);
+        register_all_passes();
 
         let context = Context::new();
+        register_all_llvm_translations(&context);
         context.enable_multi_threading(false);
         context.append_dialect_registry(&registry);
         context.load_all_available_dialects();
