@@ -1,3 +1,6 @@
+#![cfg_attr(nightly, feature(proc_macro_span))]
+#![allow(clippy::large_enum_variant)]
+
 use core::panic;
 
 use darling::FromDeriveInput;
@@ -8,11 +11,11 @@ use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
     cube_type::CubeType,
     helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::{from_tokens, Launch},
+    kernel::{Launch, from_tokens},
 };
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{visit_mut::VisitMut, Item};
+use syn::{Item, visit_mut::VisitMut};
 
 mod error;
 mod expression;
@@ -73,14 +76,22 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         }
         Item::Impl(item_impl) => {
             if item_impl.trait_.is_some() {
-                let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl)?;
+                let mut expand_impl = CubeTraitImpl::from_item_impl(
+                    item_impl,
+                    args.src_file,
+                    args.debug_symbols.is_present(),
+                )?;
                 let expand_impl = expand_impl.to_tokens_mut();
 
                 Ok(TokenStream::from(quote! {
                     #expand_impl
                 }))
             } else {
-                let mut expand_impl = CubeImpl::from_item_impl(item_impl)?;
+                let mut expand_impl = CubeImpl::from_item_impl(
+                    item_impl,
+                    args.src_file,
+                    args.debug_symbols.is_present(),
+                )?;
                 let expand_impl = expand_impl.to_tokens_mut();
 
                 Ok(TokenStream::from(quote! {
@@ -107,7 +118,6 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 /// Derive macro to define a cube type that is launched with a kernel
 #[proc_macro_derive(CubeLaunch, attributes(expand, cube))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
-    // panic!("{gen}");
     gen_cube_type(input, true)
 }
 
@@ -133,6 +143,18 @@ fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
     cube_type.generate(with_launch).into()
 }
 
+/// Attribute macro to define a type that can be used as a kernel comptime argument
+/// This derive Debug, Hash, PartialEq, Eq, Clone, Copy
+#[proc_macro_attribute]
+pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> TokenStream {
+    let input: proc_macro2::TokenStream = input.into();
+    quote! {
+        #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+        #input
+    }
+    .into()
+}
+
 /// Mark the contents of this macro as compile time values, turning off all expansion for this code
 /// and using it verbatim
 ///
@@ -150,6 +172,43 @@ fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
 pub fn comptime(input: TokenStream) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
     quote![{ #tokens }].into()
+}
+
+/// Mark the contents of this macro as an intrinsic, turning off all expansion for this code
+/// and calling it with the scope
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn do_stuff(input: u32) -> u32 {
+///     let comptime_value = intrinsic! { |scope| u32::elem_size(scope) };
+///     input + comptime_value
+/// }
+/// ```
+#[proc_macro]
+pub fn intrinsic(_input: TokenStream) -> TokenStream {
+    quote![{ cubecl::unexpanded!() }].into()
+}
+
+/// Makes the function return a compile time value
+/// Useful in a cube trait to have a part of the trait return comptime values
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn do_stuff(#[comptime] input: u32) -> comptime_type!(u32) {
+///     input + 5   
+/// }
+/// ```
+///
+/// TODO: calling a trait method returning comptime_type from
+/// within another trait method does not work
+#[proc_macro]
+pub fn comptime_type(input: TokenStream) -> TokenStream {
+    let tokens: proc_macro2::TokenStream = input.into();
+    quote![ #tokens ].into()
 }
 
 /// Insert a literal comment into the kernel source code.
@@ -188,12 +247,16 @@ pub fn terminate(input: TokenStream) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
     quote![{ #tokens }].into()
 }
+
 /// Implements display and initialization for autotune keys.
 ///
 /// # Helper
 ///
-/// Use the `#[autotune]` helper attribute to anchor fields to the next power of two, or rename
-/// the fields for the display implementation.
+/// Use the `#[autotune(anchor)]` helper attribute to anchor a numerical value.
+/// This groups multiple numerical values into the same bucket.
+///
+/// For now, only an exponential function is supported, and it can be modified with `exp`.
+/// By default, the base is '2' and there are no `min` or `max` provided.
 ///
 /// # Example
 /// ```ignore
@@ -202,7 +265,7 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 ///     #[autotune(name = "Batch Size")]
 ///     batch_size: usize,
 ///     channels: usize,
-///     #[autotune(anchor(max = 1024))]
+///     #[autotune(anchor(exp(min = 16, max = 1024, base = 2)))]
 ///     height: usize,
 ///     #[autotune(anchor)]
 ///     width: usize,

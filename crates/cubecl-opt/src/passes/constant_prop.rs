@@ -3,10 +3,7 @@ use cubecl_ir::{
     Operator, UIntKind, Variable, VariableKind,
 };
 
-use crate::{
-    analyses::const_len::{Slice, Slices},
-    AtomicCounter, Optimizer,
-};
+use crate::{AtomicCounter, Optimizer};
 
 use super::OptimizerPass;
 
@@ -16,8 +13,6 @@ pub struct ConstOperandSimplify;
 
 impl OptimizerPass for ConstOperandSimplify {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let slices = opt.analysis::<Slices>();
-
         for node in opt.program.node_indices().collect::<Vec<_>>() {
             let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
 
@@ -130,17 +125,6 @@ impl OptimizerPass for ConstOperandSimplify {
                         | VariableKind::LocalArray { length, .. } => {
                             op.operation = Operation::Copy(length.into());
                             changes.inc();
-                        }
-                        VariableKind::Slice { id } => {
-                            let slice = slices.get(&id);
-                            if let Some(Slice {
-                                const_len: Some(len),
-                                ..
-                            }) = slice
-                            {
-                                op.operation = Operation::Copy((*len).into());
-                                changes.inc();
-                            }
                         }
                         _ => {}
                     },
@@ -314,6 +298,25 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
+        Arithmetic::MulHi(op) => {
+            use ConstantScalarValue::*;
+            if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
+                let rhs = rhs.cast_to(lhs.elem());
+                Some(match (lhs, rhs) {
+                    (Int(lhs, kind), Int(rhs, _)) => {
+                        let mul = (lhs * rhs) >> 32;
+                        ConstantScalarValue::Int(mul as i32 as i64, kind)
+                    }
+                    (UInt(lhs, kind), UInt(rhs, _)) => {
+                        let mul = (lhs * rhs) >> 32;
+                        ConstantScalarValue::UInt(mul as u32 as u64, kind)
+                    }
+                    _ => unreachable!(),
+                })
+            } else {
+                None
+            }
+        }
         Arithmetic::Max(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
@@ -488,12 +491,11 @@ fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
         | Operator::Index(_)
         | Operator::CopyMemory(_)
         | Operator::CopyMemoryBulk(_)
-        | Operator::Slice(_)
         | Operator::UncheckedIndex(_)
         | Operator::IndexAssign(_)
         | Operator::InitLine(_)
         | Operator::UncheckedIndexAssign(_)
-        | Operator::Bitcast(_)
+        | Operator::Reinterpret(_)
         | Operator::Select(_) => None,
     }
 }

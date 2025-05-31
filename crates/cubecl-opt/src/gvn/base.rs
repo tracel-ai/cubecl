@@ -7,9 +7,9 @@ use float_ord::FloatOrd;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
-use crate::{passes::OptimizerPass, AtomicCounter, Optimizer, PhiInstruction};
+use crate::{AtomicCounter, Optimizer, PhiInstruction, passes::OptimizerPass};
 
-use super::{convert::value_of_var, GlobalValues};
+use super::{GlobalValues, convert::value_of_var};
 
 #[derive(Debug, Clone, Default)]
 pub struct GvnPass;
@@ -25,9 +25,9 @@ impl GvnPass {
     /// 1. Build forward and backward dominator trees
     /// 2. Run `build_sets` step to annotate the tree with value information
     /// 3. Insert expressions where they're needed to make partially redundant expressions fully
-    ///     redundant
+    ///    redundant
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
-    ///     expression to `out`
+    ///    expression to `out`
     pub fn run(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
         let analysis = opt.analysis::<GlobalValues>();
 
@@ -95,7 +95,6 @@ pub enum Value {
     Builtin(Builtin),
     // Metadata only
     Output(Id, Item),
-    Slice(Id, Item),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -142,7 +141,6 @@ impl Value {
             Value::ConstArray(_, item, _) => *item,
             Value::Builtin(_) => Item::new(Elem::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
-            Value::Slice(_, item) => *item,
         }
     }
 }

@@ -1,44 +1,119 @@
+use crate::matmul::components::global::load::LoaderMode;
+use crate::matmul::components::stage::{
+    NumStages, StageBuffering, StageVectorization, TilesPerPartition,
+};
+use crate::matmul::components::{
+    CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    batch, global, stage, tile,
+};
+use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{
-    batch, global, stage, tile, CompleteStageTiling, MatmulConfigFactory, MatmulPrecision,
-    MatmulProblem,
-};
-use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError, MatmulLaunchError};
+use super::MatmulSelection;
+
+pub struct GlobalInput<SI> {
+    pub stage_input: SI,
+    pub loading_precompute_strategy: LoadingPrecomputeStrategy,
+    pub loader_mode: LoaderMode,
+}
+
+pub struct StageInput {
+    pub tiling: CompleteStageTiling,
+    pub stage_buffering: stage::StageBuffering,
+    pub stage_vectorization: StageVectorization,
+    pub num_stages: NumStages,
+    pub tiles_per_partition: TilesPerPartition,
+}
+
+pub enum MultiRowStrategy {
+    /// Always one row per plane
+    Never,
+    /// Always multiple rows per plane
+    Always,
+    /// Uses multiple rows if the `m` dimension of the matmul implies at least the minimum number of stages along `m`
+    Adaptive { minimum_stage_count: usize },
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum LoadingPrecomputeStrategy {
+    /// Don't precompute anything in loading jobs
+    Never,
+    /// Precompute values that are shared across tasks
+    Always,
+}
+
+impl From<LoadingPrecomputeStrategy> for bool {
+    fn from(strategy: LoadingPrecomputeStrategy) -> Self {
+        match strategy {
+            LoadingPrecomputeStrategy::Always => true,
+            LoadingPrecomputeStrategy::Never => false,
+        }
+    }
+}
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
-    type StageMatmul: stage::StageMatmulFamily<Input = CompleteStageTiling>;
-    type GlobalMatmul: global::GlobalMatmulFamily;
-    type BatchMatmul: batch::BatchMatmulFamily<Input = CompleteStageTiling>;
-    type Selection;
+    type StageMatmul: stage::StageMatmulFamily<Input = StageInput>;
+    type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput<StageInput>>;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
+    type MatmulSelection: MatmulSelection;
 
-    fn cube_dim(selection: &Self::Selection) -> CubeDim;
-    fn cube_count(selection: &Self::Selection, problem: &MatmulProblem) -> CubeCount;
+    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount;
 
-    #[allow(clippy::type_complexity)]
+    fn line_sizes(
+        problem: &MatmulProblem,
+        in_available: impl Iterator<Item = u8> + Clone,
+        out_available: impl Iterator<Item = u8> + Clone,
+        _selection: &Self::MatmulSelection,
+    ) -> MatmulLineSizes {
+        MatmulLineSizes::new_maximized(problem, in_available, out_available)
+    }
+
+    fn num_stages() -> NumStages {
+        (1, 1).into()
+    }
+
+    fn loading_precompute_strategy() -> LoadingPrecomputeStrategy {
+        LoadingPrecomputeStrategy::Never
+    }
+
+    fn loader_mode() -> LoaderMode {
+        LoaderMode::Relaxed
+    }
+
+    fn stage_buffering_strategy() -> StageBuffering {
+        StageBuffering::Double
+    }
+
+    #[allow(clippy::type_complexity, clippy::result_large_err)]
     fn make_config(
         input: <Self::BatchMatmul as MatmulConfigFactory>::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
+        #[cfg(target_os = "macos")]
+        if cube_dim.num_elems() >= 512 {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::CubeDimTooBig(*cube_dim),
+            ));
+        }
+
         let config = Self::BatchMatmul::make_config(
-            input,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
+            input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
         problem.check_config(&config)?;
+        problem.check_line_sizes(line_sizes)?;
         Self::BatchMatmul::check_config(&config)?;
         Ok(config)
     }
 
+    #[allow(clippy::result_large_err)]
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &<Self::BatchMatmul as MatmulConfigFactory>::Config,
@@ -46,7 +121,11 @@ pub trait Algorithm {
         Self::BatchMatmul::check_availability::<R, MP>(client, config)
     }
 
-    fn advanced_config() -> AdvancedConfig {
-        AdvancedConfig::default()
-    }
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> Self::MatmulSelection;
 }

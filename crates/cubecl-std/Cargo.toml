@@ -14,6 +14,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-std"
 version.workspace = true
 
+[features]
+export_tests = []
+
 [dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false }
+half.workspace = true
+serde = { workspace = true }

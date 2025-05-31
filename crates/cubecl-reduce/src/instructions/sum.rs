@@ -1,46 +1,63 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceInstruction};
+use crate::precision::ReducePrecision;
 
-#[derive(Debug)]
-pub struct Sum;
+use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction, ReduceRequirements};
 
-impl Reduce for Sum {
-    type Instruction<In: Numeric> = Self;
+#[derive(Debug, CubeType, Clone)]
+pub struct Sum {}
+
+impl ReduceFamily for Sum {
+    type Instruction<P: ReducePrecision> = Self;
+    type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for Sum {
-    type AccumulatorItem = Line<In>;
-    type SharedAccumulator = SharedMemory<Line<In>>;
+impl<P: ReducePrecision> ReduceInstruction<P> for Sum {
+    type AccumulatorItem = Line<P::EA>;
+    type SharedAccumulator = SharedMemory<Line<P::EA>>;
+    type Config = ();
 
-    fn null_input(#[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::from_int(0))
+    fn requirements(_this: &Self) -> ReduceRequirements {
+        ReduceRequirements { coordinates: false }
     }
 
-    fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
-        Self::null_input(line_size)
+    fn from_config(_config: Self::Config) -> Self {
+        Sum {}
+    }
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
+        Line::empty(line_size).fill(P::EI::from_int(0))
     }
 
-    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+    fn null_accumulator(_this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
+        Line::empty(line_size).fill(P::EA::from_int(0))
+    }
+
+    fn assign_accumulator(
+        _this: &Self,
+        destination: &mut Self::AccumulatorItem,
+        source: &Self::AccumulatorItem,
+    ) {
         *destination = *source;
     }
 
     fn reduce(
+        _this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
-        _coordinate: Line<u32>,
+        item: Line<P::EI>,
+        _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
-            *accumulator + plane_sum(item)
+            *accumulator + plane_sum(Line::cast_from(item))
         } else {
-            *accumulator + item
+            *accumulator + Line::cast_from(item)
         }
     }
 
     fn fuse_accumulators(
+        _this: &Self,
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
@@ -48,10 +65,11 @@ impl<In: Numeric> ReduceInstruction<In> for Sum {
     }
 
     fn merge_line<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut sum = In::from_int(0);
+        let mut sum = P::EA::from_int(0);
         #[unroll]
         for k in 0..accumulator.size() {
             sum += accumulator[k];
@@ -60,6 +78,7 @@ impl<In: Numeric> ReduceInstruction<In> for Sum {
     }
 
     fn to_output_perpendicular<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {

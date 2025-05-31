@@ -8,6 +8,9 @@ use crate::{
 
 use super::Numeric;
 
+mod fp4;
+mod fp6;
+mod fp8;
 mod relaxed;
 mod tensor_float;
 mod typemap;
@@ -86,8 +89,8 @@ macro_rules! impl_float {
 
         impl IntoRuntime for $primitive {
             fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, scope)
+                let elem: ExpandElementTyped<Self> = self.into();
+                into_runtime_expand_element(scope, elem).into()
             }
         }
 
@@ -100,9 +103,15 @@ macro_rules! impl_float {
             }
         }
 
-        impl ExpandElementBaseInit for $primitive {
-            fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(scope, elem)
+        impl ExpandElementIntoMut for $primitive {
+            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                into_mut_expand_element(scope, elem)
+            }
+        }
+
+        impl IntoMut for $primitive {
+            fn into_mut(self, _scope: &mut Scope) -> Self {
+                self
             }
         }
 
@@ -132,7 +141,7 @@ macro_rules! impl_float {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem(&builder.context)).into()
+                builder.scalar($primitive::as_elem(&builder.scope)).into()
             }
         }
     };

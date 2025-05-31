@@ -23,6 +23,8 @@
 //! `value` to it in each relevant `block`.
 //!
 
+#![allow(unknown_lints, unnecessary_transmutes)]
+
 use std::{
     collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
@@ -30,19 +32,26 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
+use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable, VariableKind,
+    self as core, Allocator, Branch, Id, Item, Operation, Operator, Processor, Scope, Variable,
+    VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
-    EmptyBranchToSelect, InBoundsToUnchecked, InlineAssignments, MergeBlocks, MergeSameExpressions,
-    OptimizerPass, ReduceStrength, RemoveIndexScalar,
+    EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
+    ReduceStrength, RemoveIndexScalar,
 };
-use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
+use petgraph::{
+    Direction,
+    dot::{Config, Dot},
+    prelude::StableDiGraph,
+    visit::EdgeRef,
+};
 
 mod analyses;
 mod block;
@@ -99,12 +108,12 @@ pub struct ConstArray {
 struct Program {
     pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<Id, Item>,
-    pub graph: StableDiGraph<BasicBlock, ()>,
+    pub graph: StableDiGraph<BasicBlock, u32>,
     root: NodeIndex,
 }
 
 impl Deref for Program {
-    type Target = StableDiGraph<BasicBlock, ()>;
+    type Target = StableDiGraph<BasicBlock, u32>;
 
     fn deref(&self) -> &Self::Target {
         &self.graph
@@ -227,7 +236,7 @@ impl Optimizer {
         *self.program[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
         self.parse_scope(scope);
         if let Some(current_block) = self.current_block {
-            self.program.add_edge(current_block, self.ret, ());
+            self.program.add_edge(current_block, self.ret, 0);
         }
         // Analyses shouldn't have run at this point, but just in case they have, invalidate
         // all analyses that depend on the graph
@@ -274,11 +283,6 @@ impl Optimizer {
             if counter.get() == 0 {
                 break;
             }
-        }
-
-        // Only replace indexing when checked, since all indexes are unchecked anyways in unchecked
-        if matches!(self.mode, ExecutionMode::Checked) {
-            InBoundsToUnchecked.apply_post_ssa(self, AtomicCounter::new(0));
         }
     }
 
@@ -345,7 +349,8 @@ impl Optimizer {
 
     /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
-        let processed = scope.process();
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.mode));
+        let processed = scope.process([checked_io]);
 
         for var in processed.variables {
             if let VariableKind::LocalMut { id } = var.kind {
@@ -365,9 +370,9 @@ impl Optimizer {
             });
         }
 
-        let is_break = processed.operations.contains(&Branch::Break.into());
+        let is_break = processed.instructions.contains(&Branch::Break.into());
 
-        for mut instruction in processed.operations {
+        for mut instruction in processed.instructions {
             let mut removed = false;
             for transform in self.transformers.iter() {
                 match transform.maybe_transform(&mut scope, &instruction) {
@@ -411,7 +416,7 @@ impl Optimizer {
     pub(crate) fn ret(&mut self) -> NodeIndex {
         if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
             let new_ret = self.program.add_node(BasicBlock::default());
-            self.program.add_edge(new_ret, self.ret, ());
+            self.program.add_edge(new_ret, self.ret, 0);
             self.ret = new_ret;
             self.invalidate_structure();
             new_ret
@@ -422,6 +427,10 @@ impl Optimizer {
 
     pub fn const_arrays(&self) -> Vec<ConstArray> {
         self.program.const_arrays.clone()
+    }
+
+    pub fn dot_viz(&self) -> Dot<'_, &StableDiGraph<BasicBlock, u32>> {
+        Dot::with_config(&self.program, &[Config::EdgeNoLabel])
     }
 }
 

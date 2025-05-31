@@ -8,10 +8,10 @@ license.workspace = true
 name = "cubecl"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl"
-rust-version = "1.80"
 version.workspace = true
 
 [features]
+autotune-checks = ["cubecl-runtime/autotune-checks"]
 default = [
     "std",
     "linalg",
@@ -23,30 +23,52 @@ default = [
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 linalg = ["dep:cubecl-linalg"]
 reduce = ["dep:cubecl-reduce"]
+random = ["dep:cubecl-random"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 
 # Runtimes
 cuda = ["cubecl-cuda"]
+cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
-hip-intrinsic = ["hip", "cubecl-hip/wmma-intrinsics"]
+hip-rocwmma = ["cubecl-hip?/rocwmma"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
+wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
+
+compilation-cache = [
+    "cubecl-cuda?/compilation-cache",
+    "cubecl-hip?/compilation-cache",
+]
 
 [dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
-cubecl-cuda = { path = "../cubecl-cuda", version = "0.5.0", default-features = false, optional = true }
-cubecl-hip = { path = "../cubecl-hip", version = "0.5.0", default-features = false, optional = true }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.5.0", default-features = false, optional = true }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.5.0", default-features = false, optional = true }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.5.0", default-features = false, optional = true }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-cuda = { path = "../cubecl-cuda", version = "0.6.0", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "0.6.0", default-features = false, optional = true }
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", default-features = false, optional = true }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", default-features = false, optional = true }
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", default-features = false, optional = true }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false }
+cubecl-std = { version = "0.6.0", path = "../cubecl-std" }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.6.0", default-features = false, optional = true }
 half = { workspace = true }
 
 [[bench]]
 harness = false
 name = "matmul"
+required-features = ["random"]
+
+[[bench]]
+harness = false
+name = "conv2d"
+required-features = ["random"]
+
+[[bench]]
+harness = false
+name = "memcpy_async"
+required-features = ["random"]
 
 [[bench]]
 harness = false
 name = "unary"
+required-features = ["random"]

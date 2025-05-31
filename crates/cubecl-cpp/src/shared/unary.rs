@@ -7,31 +7,31 @@ pub trait Unary<D: Dialect> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let item = out.item();
+        let out_item = out.item();
 
-        if item.vectorization == 1 {
+        if out_item.vectorization == 1 {
             write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, item.elem)?;
+            Self::format_scalar(f, *input, out_item.elem)?;
             f.write_str(";\n")
         } else {
-            Self::unroll_vec(f, input, out, item.elem, item.vectorization)
+            Self::unroll_vec(f, input, out, out_item.elem, out_item.vectorization)
         }
     }
 
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        elem: Elem<D>,
+        out_elem: Elem<D>,
     ) -> std::fmt::Result;
 
     fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<D>,
         out: &Variable<D>,
-        elem: Elem<D>,
+        out_elem: Elem<D>,
         index: usize,
     ) -> std::fmt::Result {
-        let mut write_op = |index, elem, input: &Variable<D>, out: &Variable<D>| {
+        let mut write_op = |index, out_elem, input: &Variable<D>, out: &Variable<D>| {
             let out_item = out.item();
             let out = out.fmt_left();
             writeln!(f, "{out} = {out_item}{{")?;
@@ -39,7 +39,7 @@ pub trait Unary<D: Dialect> {
             for i in 0..index {
                 let inputi = input.index(i);
 
-                Self::format_scalar(f, inputi, elem)?;
+                Self::format_scalar(f, inputi, out_elem)?;
                 f.write_str(",")?;
             }
 
@@ -53,26 +53,27 @@ pub trait Unary<D: Dialect> {
             let item_out_original = out.item();
             let item_out_optimized = out_optimized.item();
 
-            let (index, elem) = match optimized.optimization_factor {
+            let (index, out_elem) = match optimized.optimization_factor {
                 Some(factor) => (index / factor, out_optimized.elem()),
-                None => (index, elem),
+                None => (index, out_elem),
             };
 
             if item_out_original != item_out_optimized {
                 let out_tmp = Variable::tmp(item_out_optimized);
 
-                write_op(index, elem, &input, &out_tmp)?;
+                write_op(index, out_elem, &input, &out_tmp)?;
                 let qualifier = out.const_qualifier();
+                let addr_space = D::address_space_for_variable(out);
                 let out_fmt = out.fmt_left();
                 writeln!(
                     f,
-                    "{out_fmt} = reinterpret_cast<{item_out_original}{qualifier}&>({out_tmp});\n"
+                    "{out_fmt} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
                 )
             } else {
-                write_op(index, elem, &input, &out_optimized)
+                write_op(index, out_elem, &input, &out_optimized)
             }
         } else {
-            write_op(index, elem, input, out)
+            write_op(index, out_elem, input, out)
         }
     }
 
@@ -85,14 +86,15 @@ pub trait FunctionFmt<D: Dialect> {
     fn base_function_name() -> &'static str;
     fn function_name(elem: Elem<D>) -> String {
         if Self::half_support() {
-            match elem {
-                Elem::F16 | Elem::BF16 => return format!("h{}", Self::base_function_name()),
-                Elem::F162 | Elem::BF162 => return format!("h2{}", Self::base_function_name()),
-                _ => (),
+            let prefix = match elem {
+                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
+                _ => "",
             };
+            format!("{prefix}{}", Self::base_function_name())
+        } else {
+            Self::base_function_name().into()
         }
-
-        Self::base_function_name().into()
     }
     fn format_unary<Input: Display>(
         f: &mut std::fmt::Formatter<'_>,
@@ -100,14 +102,14 @@ pub trait FunctionFmt<D: Dialect> {
         elem: Elem<D>,
     ) -> std::fmt::Result {
         if Self::half_support() {
-            return write!(f, "{}({input})", Self::function_name(elem));
-        }
-
-        match elem {
-            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+            write!(f, "{}({input})", Self::function_name(elem))
+        } else {
+            match elem {
+                Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
             }
-            _ => write!(f, "{}({input})", Self::function_name(elem)),
         }
     }
 
@@ -147,7 +149,6 @@ macro_rules! function {
 }
 
 function!(Log, "log");
-function!(Log1p, "log1p", false);
 function!(Cos, "cos");
 function!(Sin, "sin");
 function!(Sqrt, "sqrt");
@@ -156,11 +157,42 @@ function!(Ceil, "ceil");
 function!(Floor, "floor");
 function!(Round, "rint");
 
-function!(Tanh, "tanh", false);
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
 
-fn zero_extend<D: Dialect>(input: impl Component<D>) -> String {
+pub struct Log1p;
+
+impl<D: Dialect> Unary<D> for Log1p {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_log1p_scalar(f, input)
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct Tanh;
+
+impl<D: Dialect> Unary<D> for Tanh {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_tanh_scalar(f, input)
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub fn zero_extend<D: Dialect>(input: impl Component<D>) -> String {
     match input.elem() {
         Elem::I8 => format!("{}({}({input}))", Elem::<D>::U32, Elem::<D>::U8),
         Elem::I16 => format!("{}({}({input}))", Elem::<D>::U32, Elem::<D>::U16),
@@ -176,13 +208,9 @@ impl<D: Dialect> Unary<D> for CountBits {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
-            _ => write!(f, "__popc({})", zero_extend(input)),
-        }
+        D::compile_instruction_popcount_scalar(f, input, elem)
     }
 }
 
@@ -194,16 +222,7 @@ impl<D: Dialect> Unary<D> for ReverseBits {
         input: Input,
         elem: Elem<D>,
     ) -> std::fmt::Result {
-        match elem {
-            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
-            _ => write!(
-                f,
-                "{elem}(__brev({}) >> {})",
-                zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
+        D::compile_instruction_reverse_bits_scalar(f, input, elem)
     }
 }
 
@@ -213,18 +232,9 @@ impl<D: Dialect> Unary<D> for LeadingZeros {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
-            elem => write!(
-                f,
-                "__clz({}) - {}",
-                zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
+        D::compile_instruction_leading_zeros_scalar(f, input, elem)
     }
 }
 
@@ -234,13 +244,9 @@ impl<D: Dialect> Unary<D> for FindFirstSet {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        out_elem: Elem<D>,
     ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
-            _ => write!(f, "__ffs({}({input}))", Elem::<D>::U32,),
-        }
+        D::compile_instruction_find_first_set(f, input, out_elem)
     }
 }
 
@@ -250,7 +256,7 @@ impl<D: Dialect> Unary<D> for BitwiseNot {
     fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        _out_elem: Elem<D>,
     ) -> std::fmt::Result
     where
         Input: Component<D>,
@@ -265,7 +271,7 @@ impl<D: Dialect> Unary<D> for Not {
     fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        _out_elem: Elem<D>,
     ) -> std::fmt::Result
     where
         Input: Component<D>,

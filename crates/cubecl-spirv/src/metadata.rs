@@ -3,9 +3,9 @@ use cubecl_core::ir::Metadata;
 use rspirv::spirv::{StorageClass, Word};
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::{Globals, Variable},
-    SpirvCompiler, SpirvTarget,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -132,7 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let position = match var {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
-            _ => panic!("Only Input and Output have a buffer length, got: {:?}", var),
+            _ => panic!("Only Input and Output have a buffer length, got: {var:?}"),
         };
         let offset = self.metadata.buffer_len_index(position);
         let id = self.load_const_metadata(offset, out_id);
@@ -149,7 +149,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let int = Item::Scalar(Elem::Int(32, false));
             let int_ty = int.id(b);
             let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(b);
-            let info = b.state.named["info"];
+            let info = b.state.info;
             let zero = b.const_u32(0);
             let index = b.const_u32(index);
             let info_ptr = b
@@ -162,7 +162,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn load_dyn_metadata(&mut self, index: &Variable, out: &Variable) -> Word {
         let int_ty = Item::Scalar(Elem::Int(32, false));
         let info = Variable::Named {
-            id: self.state.named["info"],
+            id: self.state.info,
             item: int_ty,
             is_array: false,
         };

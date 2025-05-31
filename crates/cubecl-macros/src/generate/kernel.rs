@@ -1,17 +1,18 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound};
 
 use crate::{
-    parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
-    paths::{core_type, frontend_type, prelude_path, prelude_type},
+    parse::kernel::{
+        KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch, strip_ref,
+    },
+    paths::{frontend_type, prelude_path, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
-        let debug_source = frontend_type("debug_source_expand");
 
         let vis = &self.vis;
         let sig = &self.sig;
@@ -20,13 +21,45 @@ impl KernelFn {
             KernelBody::Verbatim(tokens) => tokens,
         };
         let name = &self.full_name;
-        let debug_source = quote_spanned! {self.span=>
-            #debug_source(context, #name, file!(), line!(), column!())
+
+        let (debug_source, debug_params) = if cfg!(debug_symbols) || self.debug_symbols {
+            let debug_source = frontend_type("debug_source_expand");
+            let cube_debug = frontend_type("CubeDebug");
+            let src_file = self.src_file.as_ref().map(|file| file.value());
+            #[cfg(nightly)]
+            let src_file = {
+                src_file.or_else(|| {
+                    let span: proc_macro::Span = self.span.unwrap();
+                    let source_path = span.source().local_file();
+                    let source_file = source_path.as_ref().and_then(|path| path.file_name());
+                    source_file.map(|file| file.to_string_lossy().into())
+                })
+            };
+            let source_text = match src_file {
+                Some(file) => quote![include_str!(#file)],
+                None => quote![""],
+            };
+
+            let debug_source = quote_spanned! {self.span=>
+                #debug_source(scope, #name, file!(), #source_text, line!(), column!())
+            };
+            let debug_params = sig
+                .runtime_params()
+                .map(|it| &it.name)
+                .map(|name| {
+                    let name_str = name.to_string();
+                    quote! [#cube_debug::set_debug_name(&#name, scope, #name_str);]
+                })
+                .collect();
+            (debug_source, debug_params)
+        } else {
+            (TokenStream::new(), Vec::new())
         };
 
         let out = quote! {
             #vis #sig {
                 #debug_source;
+                #(#debug_params)*
                 use #prelude_path::IntoRuntime as _;
 
                 #body
@@ -45,7 +78,12 @@ impl ToTokens for KernelSignature {
         let name = &self.name;
         let generics = &self.generics;
         let return_type = match &self.returns {
-            KernelReturns::ExpandType(ty) => quote![<#ty as #cube_type>::ExpandType],
+            KernelReturns::ExpandType(ty) => {
+                let mut is_mut = false;
+                let mut is_ref = false;
+                let ty = strip_ref(ty.clone(), &mut is_ref, &mut is_mut);
+                quote![<#ty as #cube_type>::ExpandType]
+            }
             KernelReturns::Plain(ty) => quote![#ty],
         };
         let out = if self
@@ -59,7 +97,7 @@ impl ToTokens for KernelSignature {
             quote! {
                 fn #name #generics(
                     self, // Always owned during expand.
-                    context: &mut #scope,
+                    scope: &mut #scope,
                     #(#args),*
                 ) -> #return_type
             }
@@ -67,7 +105,7 @@ impl ToTokens for KernelSignature {
             let args = &self.parameters;
             quote! {
                 fn #name #generics(
-                    context: &mut #scope,
+                    scope: &mut #scope,
                     #(#args),*
                 ) -> #return_type
             }
@@ -179,20 +217,12 @@ impl Launch {
                 let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
-        for input in self.runtime_inputs() {
-            define.extend(expand_fn(
-                &input.name,
-                format_ident!("expand"),
-                input.ty_owned(),
-            ));
-        }
-
-        for output in self.runtime_outputs() {
-            define.extend(expand_fn(
-                &output.name,
-                format_ident!("expand_output"),
-                output.ty_owned(),
-            ));
+        for param in self.runtime_params() {
+            let expand_name = match param.is_mut {
+                true => format_ident!("expand_output"),
+                false => format_ident!("expand"),
+            };
+            define.extend(expand_fn(&param.name, expand_name, param.ty_owned()));
         }
 
         quote! {
@@ -212,7 +242,7 @@ impl Launch {
             let mut builder = #kernel_builder::default();
             #register_type
             #io_map
-            expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
+            expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())
         }
     }
@@ -248,8 +278,8 @@ impl Launch {
 
         // Inspect all generics for the bounds of interest in order to
         // determine if a suffix should be added
-        for typ in generics.type_params() {
-            for bound in &typ.bounds {
+        for ty in generics.type_params() {
+            for bound in &ty.bounds {
                 let TypeParamBound::Trait(t) = bound else {
                     continue;
                 };
@@ -264,7 +294,7 @@ impl Launch {
                 // type name
                 if suffix_producing_bounds.contains(&generic_trailing.ident) {
                     // E.g. the `F` in `F: Float` or `N` in `N: Numeric`
-                    matching_generics.push(typ.ident.clone());
+                    matching_generics.push(ty.ident.clone());
                     continue;
                 }
             }
@@ -301,10 +331,11 @@ impl Launch {
 
     pub fn kernel_definition(&self) -> TokenStream {
         if self.args.is_launch() {
-            let kernel = core_type("Kernel");
+            let kernel_metadata = prelude_type("KernelMetadata");
+            let cube_kernel = prelude_type("CubeKernel");
             let kernel_settings = prelude_type("KernelSettings");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
-            let kernel_id = core_type("KernelId");
+            let kernel_id = prelude_type("KernelId");
 
             let kernel_name = self.kernel_name();
             let define = self.define_body();
@@ -331,6 +362,9 @@ impl Launch {
             if let Some(mode) = &self.args.fast_math {
                 settings.extend(quote![.fp_math_mode(#mode)]);
             }
+            if let Some(cluster_dim) = &self.args.cluster_dim {
+                settings.extend(quote![.cluster_dim(#cluster_dim)]);
+            }
 
             quote! {
                 #[doc = #kernel_doc]
@@ -353,15 +387,17 @@ impl Launch {
                     }
                 }
 
-                impl #generics #kernel for #kernel_name #generic_names #where_clause {
-                    fn define(&self) -> #kernel_definition {
-                        #define
-                    }
-
+                impl #generics #kernel_metadata for #kernel_name #generic_names #where_clause {
                     fn id(&self) -> #kernel_id {
                         // We don't use any other kernel settings with the macro.
                         let cube_dim = self.settings.cube_dim.clone();
                         #kernel_id::new::<Self>().info((cube_dim, #(self.#info.clone()),* ))
+                    }
+                }
+
+                impl #generics #cube_kernel for #kernel_name #generic_names #where_clause {
+                    fn define(&self) -> #kernel_definition {
+                        #define
                     }
                 }
             }

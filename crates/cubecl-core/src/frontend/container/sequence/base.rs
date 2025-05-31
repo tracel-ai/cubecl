@@ -1,8 +1,9 @@
 use cubecl_ir::{ExpandElement, Scope};
 use serde::{Deserialize, Serialize};
 
-use crate::frontend::{
-    branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init, IntoRuntime,
+use crate::{
+    frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable, indexation::Index},
+    prelude::CubeDebug,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -24,11 +25,12 @@ impl<T: CubeType> Default for Sequence<T> {
     }
 }
 
-impl<T: CubeType> Init for Sequence<T> {
-    fn init(self, _scope: &mut Scope) -> Self {
+impl<T: CubeType> IntoMut for Sequence<T> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
+impl<T: CubeType> CubeDebug for Sequence<T> {}
 
 impl<T: CubeType + Clone> Sequence<T> {
     pub fn rev(&self) -> Self {
@@ -139,11 +141,18 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType> Init for SequenceExpand<T> {
-    fn init(self, _scope: &mut Scope) -> Self {
+impl<T: CubeType> IntoMut for SequenceExpand<T> {
+    fn into_mut(self, scope: &mut Scope) -> Self {
+        let mut values = self.values.borrow_mut();
+        values.iter_mut().for_each(|v| {
+            *v = IntoMut::into_mut(v.clone(), scope);
+        });
+        core::mem::drop(values);
+
         self
     }
 }
+impl<T: CubeType> CubeDebug for SequenceExpand<T> {}
 
 impl<T: CubeType> Clone for SequenceExpand<T> {
     fn clone(&self) -> Self {
@@ -240,10 +249,9 @@ impl<T: CubeType> SequenceExpand<T> {
         let values = self.values.borrow();
         values.len() as u32
     }
-}
 
-impl<T: CubeType> IntoRuntime for Sequence<T> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> SequenceExpand<T> {
-        unimplemented!("Sequence doesn't exist at compile time");
+    pub fn __expand_rev_method(self, _scope: &mut Scope) -> Self {
+        self.values.borrow_mut().reverse();
+        self
     }
 }

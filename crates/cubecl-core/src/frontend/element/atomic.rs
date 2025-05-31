@@ -1,8 +1,8 @@
 use cubecl_ir::{AtomicOp, ExpandElement};
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Int, IntoRuntime,
-    LaunchArgExpand, Numeric,
+    ExpandElementIntoMut, ExpandElementTyped, Int, LaunchArgExpand, Numeric,
+    into_mut_expand_element,
 };
 use crate::{
     frontend::{CubePrimitive, CubeType},
@@ -290,12 +290,6 @@ impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<Inner: CubePrimitive> IntoRuntime for Atomic<Inner> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Atomics don't exist at compile time")
-    }
-}
-
 impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     fn as_elem_native() -> Option<Elem> {
         match Inner::as_elem_native() {
@@ -334,9 +328,9 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> ExpandElementBaseInit for Atomic<Inner> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+impl<Inner: CubePrimitive> ExpandElementIntoMut for Atomic<Inner> {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        into_mut_expand_element(scope, elem)
     }
 }
 

@@ -3,12 +3,12 @@ use std::{marker::PhantomData, num::NonZero};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, Item, Vectorization},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
     },
-    Runtime,
 };
 
 use super::Tensor;
@@ -74,7 +74,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
     ) -> ExpandElementTyped<Tensor<C>> {
         builder
             .input_tensor(Item::vectorized(
-                C::as_elem(&builder.context),
+                C::as_elem(&builder.scope),
                 arg.vectorisation,
             ))
             .into()
@@ -87,7 +87,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
                 .output_tensor(Item::vectorized(
-                    C::as_elem(&builder.context),
+                    C::as_elem(&builder.scope),
                     arg.vectorisation,
                 ))
                 .into(),
@@ -173,7 +173,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
 
 impl<R: Runtime> ArgSettings<R> for TensorArg<'_, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_tensor(self)
+        launcher.register_tensor(self);
     }
 }
 

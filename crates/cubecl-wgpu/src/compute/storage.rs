@@ -6,7 +6,6 @@ use wgpu::BufferUsages;
 /// Buffer storage for wgpu.
 pub struct WgpuStorage {
     memory: HashMap<StorageId, wgpu::Buffer>,
-    deallocations: Vec<StorageId>,
     device: wgpu::Device,
     buffer_usages: BufferUsages,
 }
@@ -18,11 +17,10 @@ impl core::fmt::Debug for WgpuStorage {
 }
 
 /// The memory resource that can be allocated for wgpu.
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct WgpuResource {
     /// The wgpu buffer.
-    pub buffer: wgpu::Buffer,
-
+    buffer: wgpu::Buffer,
     offset: u64,
     size: u64,
 }
@@ -38,6 +36,10 @@ impl WgpuResource {
             ),
         };
         wgpu::BindingResource::Buffer(binding)
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
     }
 
     /// Return the buffer size.
@@ -57,18 +59,8 @@ impl WgpuStorage {
     pub fn new(device: wgpu::Device, usages: BufferUsages) -> Self {
         Self {
             memory: HashMap::new(),
-            deallocations: Vec::new(),
             device,
             buffer_usages: usages,
-        }
-    }
-
-    /// Actually deallocates buffers tagged to be deallocated.
-    pub fn perform_deallocations(&mut self) {
-        for id in self.deallocations.drain(..) {
-            if let Some(buffer) = self.memory.remove(&id) {
-                buffer.destroy()
-            }
         }
     }
 }
@@ -102,6 +94,6 @@ impl ComputeStorage for WgpuStorage {
     }
 
     fn dealloc(&mut self, id: StorageId) {
-        self.deallocations.push(id);
+        self.memory.remove(&id);
     }
 }

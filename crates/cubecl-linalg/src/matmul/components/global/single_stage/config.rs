@@ -1,7 +1,10 @@
-use crate::matmul::components::{
-    global::{self, LoadMode},
-    stage::{self, TilingOrderConfig},
-    Ident, MatmulConfig, MatrixLayout, StageTiling,
+use crate::matmul::{
+    components::{
+        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+        global::{self, load::LoaderMode},
+        stage,
+    },
+    kernels::matmul::LoadingPrecomputeStrategy,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -17,7 +20,8 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     pub k_step: u32,
-    load_mode: LoadMode,
+    precompute_job: LoadingPrecomputeStrategy,
+    loader_mode: LoaderMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -27,27 +31,23 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config
     }
 
-    fn global_line_size(&self, ident: Ident) -> u32 {
-        match ident {
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+        match ident.into() {
             Ident::Lhs => self.lhs_line_size,
             Ident::Rhs => self.rhs_line_size,
             Ident::Out => self.out_line_size,
         }
     }
 
-    fn stage_line_size(&self, ident: Ident) -> u32 {
-        self.smm_config.line_size(ident)
+    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
+        self.smm_config.tiling_dimensions(ident.into())
     }
 
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.smm_config.tiling(ident)
-    }
-
-    fn layout(&self, ident: Ident) -> MatrixLayout {
-        match ident {
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
+        match ident.into() {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.layout(Ident::Out),
+            Ident::Out => self.smm_config.matrix_layout(Ident::Out),
         }
     }
 
@@ -59,32 +59,36 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.plane_dim()
     }
 
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
-        self.smm_config.tiling_order(ident)
-    }
-
-    fn check_row_bounds(&self, ident: Ident) -> bool {
-        match ident {
+    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+        match ident.into() {
             Ident::Lhs => self.check_m_bounds,
             Ident::Rhs => self.check_k_bounds,
             Ident::Out => self.check_m_bounds,
         }
     }
 
-    fn check_col_bounds(&self, ident: Ident) -> bool {
-        match ident {
+    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+        match ident.into() {
             Ident::Lhs => self.check_k_bounds,
             Ident::Rhs => self.check_n_bounds,
             Ident::Out => self.check_n_bounds,
         }
     }
 
-    fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.layout(ident)
+    fn check_k_bounds(&self) -> bool {
+        self.check_k_bounds
     }
 
-    fn load_mode(&self) -> LoadMode {
-        self.load_mode
+    fn num_stages(&self, _ident: InputIdent) -> u32 {
+        1
+    }
+
+    fn precompute_job(&self) -> bool {
+        self.precompute_job.into()
+    }
+
+    fn loader_mode(&self) -> LoaderMode {
+        self.loader_mode
     }
 }
 
@@ -103,7 +107,8 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         k_step: u32,
-        load_mode: LoadMode,
+        precompute_job: LoadingPrecomputeStrategy,
+        loader_mode: LoaderMode,
     ) -> Self {
         Self {
             smm_config,
@@ -116,7 +121,8 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             k_step,
-            load_mode,
+            precompute_job,
+            loader_mode,
         }
     }
 }

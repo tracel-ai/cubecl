@@ -1,6 +1,6 @@
 use super::{
-    base::{Item, Variable},
     Elem, Subgroup,
+    base::{Item, Variable},
 };
 use std::fmt::Display;
 
@@ -64,18 +64,11 @@ pub enum Instruction {
     },
     // Index assign handles casting to correct output variable.
     IndexAssign {
-        lhs: Variable,
+        index: Variable,
         rhs: Variable,
         out: Variable,
     },
     // Index handles casting to correct local variable.
-    CheckedIndex {
-        len: Variable,
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    // Assign handle casting to correct output variable.
     Assign {
         input: Variable,
         out: Variable,
@@ -469,74 +462,20 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = !{input};")
             }
-            Instruction::Index { lhs, rhs, out } => match lhs {
-                Variable::Slice { item, .. } => {
-                    let offset = Variable::Named {
-                        name: format!("{lhs}_offset"),
-                        item: Item::Scalar(Elem::U32),
-                        is_array: false,
-                    };
-                    let lhs = Variable::Named {
-                        name: format!("(*{lhs}_ptr)"),
-                        item: *item,
-                        is_array: true,
-                    };
-                    index(f, &lhs, rhs, out, Some(offset), None)
-                }
-                _ => index(f, lhs, rhs, out, None, None),
-            },
-            Instruction::IndexAssign { lhs, rhs, out } => {
-                if let Variable::Slice { item, .. } = out {
-                    let offset = Variable::Named {
-                        name: format!("{out}_offset"),
-                        item: Item::Scalar(Elem::U32),
-                        is_array: false,
-                    };
-                    let out = Variable::Named {
-                        name: format!("(*{out}_ptr)"),
-                        item: *item,
-                        is_array: true,
-                    };
-
-                    index_assign(f, lhs, rhs, &out, Some(offset))
-                } else {
-                    index_assign(f, lhs, rhs, out, None)
-                }
-            }
-            Instruction::CheckedIndex { len, lhs, rhs, out } => match lhs {
-                Variable::Slice { item, .. } => {
-                    let offset = Variable::Named {
-                        name: format!("{lhs}_offset"),
-                        item: Item::Scalar(Elem::U32),
-                        is_array: false,
-                    };
-                    let lhs = Variable::Named {
-                        name: format!("(*{lhs}_ptr)"),
-                        item: *item,
-                        is_array: true,
-                    };
-                    index(f, &lhs, rhs, out, Some(offset), Some(len))
-                }
-                _ => index(f, lhs, rhs, out, None, Some(len)),
-            },
+            Instruction::Index { lhs, rhs, out } => index(f, lhs, rhs, out, None, None),
+            Instruction::IndexAssign {
+                index: lhs,
+                rhs,
+                out,
+            } => index_assign(f, lhs, rhs, out, None),
             Instruction::Copy {
                 input,
                 in_index,
                 out,
                 out_index,
             } => {
-                let rhs = match input {
-                    Variable::Slice { .. } => {
-                        format!("(*{input}_ptr)[{in_index} + {input}_offset]")
-                    }
-                    _ => format!("{input}[{in_index}]"),
-                };
-                let lhs = match out {
-                    Variable::Slice { .. } => {
-                        format!("(*{out}_ptr)[{out_index} + {out}_offset]")
-                    }
-                    _ => format!("{out}[{out_index}]"),
-                };
+                let rhs = format!("{input}[{in_index}]");
+                let lhs = format!("{out}[{out_index}]");
                 writeln!(f, "{lhs} = {rhs};")
             }
             Instruction::CopyBulk {
@@ -547,18 +486,8 @@ impl Display for Instruction {
                 len,
             } => {
                 for i in 0..*len {
-                    let rhs = match input {
-                        Variable::Slice { .. } => {
-                            format!("(*{input}_ptr)[{in_index} + {input}_offset + {i}]")
-                        }
-                        _ => format!("{input}[{in_index} + {i}]"),
-                    };
-                    let lhs = match out {
-                        Variable::Slice { .. } => {
-                            format!("(*{out}_ptr)[{out_index} + {out}_offset + {i}]")
-                        }
-                        _ => format!("{out}[{out_index} + {i}]"),
-                    };
+                    let rhs = format!("{input}[{in_index} + {i}]");
+                    let lhs = format!("{out}[{out_index} + {i}]");
                     writeln!(f, "{lhs} = {rhs};")?;
                 }
                 Ok(())
@@ -668,8 +597,13 @@ impl Display for Instruction {
             Instruction::Assign { input, out } => {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
+
                 if out.elem().is_atomic() {
-                    writeln!(f, "let {out} = &{input};")
+                    if !input.is_atomic() {
+                        writeln!(f, "let {out} = {input};")
+                    } else {
+                        writeln!(f, "let {out} = &{input};")
+                    }
                 } else if vec_left != vec_right {
                     if vec_right == 1 {
                         let input = input.fmt_cast_to(out.item());
@@ -774,7 +708,6 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                         writeln!(f, "select({or_elsei}, {theni}, {condi}),")?;
                     }
-
                     writeln!(f, ");")
                 } else {
                     writeln!(f, "{out} = select({or_else}, {then}, {cond});")
@@ -805,9 +738,20 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::StorageBarrier => f.write_str("storageBarrier();\n"),
             Instruction::Length { var, out } => {
                 let out = out.fmt_left();
+
                 match var {
-                    Variable::Slice { .. } => writeln!(f, "{out} = {var}_length;"),
-                    _ => writeln!(f, "{out} = arrayLength({var});"),
+                    Variable::ConstantArray(_, _, length) => {
+                        writeln!(f, "{out} = {length}u;")
+                    }
+                    Variable::LocalArray(_, _, length) => {
+                        writeln!(f, "{out} = {length}u;")
+                    }
+                    Variable::SharedMemory(_, _, length) => {
+                        writeln!(f, "{out} = {length}u;")
+                    }
+                    _ => {
+                        writeln!(f, "{out} = arrayLength({var});")
+                    }
                 }
             }
             Instruction::Loop { instructions } => {
@@ -834,7 +778,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 match input.elem() == *out_item.elem() {
                     true => writeln!(f, "{out} = countOneBits({input});"),
-                    false => writeln!(f, "{out} = {}(countOneBits({input}));", out_item),
+                    false => writeln!(f, "{out} = {out_item}(countOneBits({input}));"),
                 }
             }
             Instruction::ReverseBits { input, out } => {
@@ -1120,6 +1064,7 @@ fn index(
     let is_scalar = match lhs {
         Variable::LocalMut { item, .. } => item.vectorization_factor() == 1,
         Variable::LocalConst { item, .. } => item.vectorization_factor() == 1,
+        Variable::ConstantScalar(..) => true,
         _ => false,
     };
 
@@ -1205,7 +1150,6 @@ fn index_assign(
                 Variable::GlobalInputArray(_, _)
                 | Variable::GlobalOutputArray(_, _)
                 | Variable::SharedMemory(_, _, _)
-                | Variable::Slice { .. }
                 | Variable::LocalArray(_, _, _) => true,
                 Variable::Named { is_array, .. } => *is_array,
                 _ => false,

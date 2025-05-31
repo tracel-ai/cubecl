@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, IntKind};
+use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, UIntKind};
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,10 +20,7 @@ pub enum Variable {
         item: Item,
         is_array: bool,
     },
-    Slice {
-        id: Id,
-        item: Item,
-    },
+    // TODO: Potential cleanup, seems that variable is not used at all
     LocalScalar {
         id: Id,
         elem: Elem,
@@ -57,11 +54,15 @@ pub enum Variable {
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Elem {
+    F16,
     F32,
+    F64,
     AtomicF32,
     I32,
+    I64,
     AtomicI32,
     U32,
+    U64,
     AtomicU32,
     Bool,
 }
@@ -99,7 +100,6 @@ impl Variable {
             Variable::LocalMut { .. } => false,
             Variable::LocalConst { .. } => false,
             Variable::Named { .. } => false,
-            Variable::Slice { .. } => false,
             Variable::WorkgroupIdX => true,
             Variable::WorkgroupIdY => true,
             Variable::WorkgroupIdZ => true,
@@ -132,7 +132,6 @@ impl Variable {
             Variable::GlobalScalar(_, elem, _) => elem.is_atomic(),
             Variable::LocalMut { item, .. } => item.elem().is_atomic(),
             Variable::Named { item, .. } => item.elem().is_atomic(),
-            Variable::Slice { item, .. } => item.elem().is_atomic(),
             Variable::LocalScalar { elem, .. } => elem.is_atomic(),
             Variable::SharedMemory(_, item, _) => item.elem().is_atomic(),
             Variable::LocalArray(_, item, _) => item.elem().is_atomic(),
@@ -149,7 +148,6 @@ impl Variable {
             Self::LocalArray(_, e, _) => *e,
             Self::LocalMut { item, .. } => *item,
             Self::LocalConst { item, .. } => *item,
-            Self::Slice { item, .. } => *item,
             Self::Named { item, .. } => *item,
             Self::ConstantScalar(_, e) => Item::Scalar(*e),
             Self::GlobalScalar(_, e, _) => Item::Scalar(*e),
@@ -222,11 +220,15 @@ impl Item {
 impl Elem {
     pub fn size(&self) -> usize {
         match self {
+            Self::F16 => core::mem::size_of::<half::f16>(),
             Self::F32 => core::mem::size_of::<f32>(),
+            Self::F64 => core::mem::size_of::<f64>(),
             Self::AtomicF32 => core::mem::size_of::<f32>(),
             Self::I32 => core::mem::size_of::<i32>(),
+            Self::I64 => core::mem::size_of::<i64>(),
             Self::AtomicI32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
+            Self::U64 => core::mem::size_of::<u64>(),
             Self::AtomicU32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
         }
@@ -240,11 +242,15 @@ impl Elem {
 impl Display for Elem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::F16 => f.write_str("f16"),
             Self::F32 => f.write_str("f32"),
+            Self::F64 => f.write_str("f64"),
             Self::AtomicF32 => f.write_str("atomic<f32>"),
             Self::I32 => f.write_str("i32"),
+            Self::I64 => f.write_str("i64"),
             Self::AtomicI32 => f.write_str("atomic<i32>"),
             Self::U32 => f.write_str("u32"),
+            Self::U64 => f.write_str("u64"),
             Self::AtomicU32 => f.write_str("atomic<u32>"),
             Self::Bool => f.write_str("bool"),
         }
@@ -262,25 +268,24 @@ impl Display for Item {
     }
 }
 
-fn format_number(num: f64) -> String {
-    let formatted = format!("{:.34}", num);
+fn format_number(num: f64, suffix: &str) -> String {
+    let formatted = format!("{num:.34}");
     let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string() + "f"
+    trimmed.to_string() + suffix
 }
 
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => {
-                write!(f, "input_{number}_global")
+                write!(f, "buffer_{number}_global")
             }
             Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
-            Variable::Slice { id, .. } => write!(f, "slice_{id}"),
             Variable::GlobalOutputArray(number, _) => {
-                write!(f, "output_{number}_global")
+                write!(f, "buffer_{number}_global")
             }
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
@@ -288,20 +293,26 @@ impl Display for Variable {
             // We do the conversion in Rust and then render the number to avoid overflow or other
             // precision related problems.
             Variable::ConstantScalar(number, _elem) => match number {
-                ConstantScalarValue::Int(val, kind) => match kind {
-                    IntKind::I32 => write!(f, "{}", *val as i32),
-                    _ => unimplemented!("{:?} not supported in WGSL", kind),
-                },
+                ConstantScalarValue::Int(val, _) => write!(f, "{}", *val),
                 ConstantScalarValue::Float(val, kind) => match kind {
-                    FloatKind::F16 | FloatKind::BF16 | FloatKind::TF32 => {
+                    FloatKind::BF16
+                    | FloatKind::TF32
+                    | FloatKind::E2M1
+                    | FloatKind::E2M3
+                    | FloatKind::E3M2
+                    | FloatKind::E4M3
+                    | FloatKind::E5M2
+                    | FloatKind::UE8M0 => {
                         todo!("Unsupported")
                     }
-                    FloatKind::F32 | FloatKind::Flex32 | FloatKind::F64 => {
-                        f.write_str(&format_number(*val))
-                    }
+                    FloatKind::F16 => f.write_str(&format_number(*val, "h")),
+                    FloatKind::F32 | FloatKind::Flex32 => f.write_str(&format_number(*val, "f")),
+                    FloatKind::F64 => f.write_str(&format_number(*val, "lf")),
                 },
-                ConstantScalarValue::UInt(val, _) => write!(f, "{}u", *val as u32),
-                ConstantScalarValue::Bool(val) => write!(f, "{}", val),
+                ConstantScalarValue::UInt(val, UIntKind::U32) => write!(f, "{val}u"),
+                ConstantScalarValue::UInt(val, UIntKind::U64) => write!(f, "{val}lu"),
+                ConstantScalarValue::UInt(_, _) => unimplemented!("Unsupported"),
+                ConstantScalarValue::Bool(val) => write!(f, "{val}"),
             },
             Variable::SharedMemory(number, _, _) => {
                 write!(f, "shared_memory_{number}")
@@ -356,8 +367,12 @@ impl Variable {
             Variable::LocalConst { .. } => {
                 format!("let {self}")
             }
-            var => format!("{}", var),
+            var => format!("{var}"),
         }
+    }
+
+    pub fn is_const(&self) -> bool {
+        matches!(self, Variable::LocalConst { .. })
     }
 }
 

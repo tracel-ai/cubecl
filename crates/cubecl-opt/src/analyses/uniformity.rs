@@ -74,8 +74,12 @@ impl Uniformity {
                     }
                 },
                 Operation::Synchronization(sync) => match sync {
-                    Synchronization::SyncUnits | Synchronization::SyncStorage => {
+                    Synchronization::SyncCube | Synchronization::SyncStorage => {
                         block_uniform = true;
+                    }
+                    Synchronization::SyncProxyShared => {}
+                    Synchronization::SyncPlane => {
+                        // TODO: not sure
                     }
                 },
                 op => {
@@ -199,7 +203,6 @@ impl Uniformity {
             | VariableKind::GlobalOutputArray(_)
             | VariableKind::GlobalScalar(_)
             | VariableKind::ConstantScalar(_) => true,
-
             VariableKind::Builtin(builtin) => match builtin {
                 Builtin::UnitPosPlane
                 | Builtin::AbsolutePos
@@ -214,27 +217,34 @@ impl Uniformity {
                 | Builtin::CubePosX
                 | Builtin::CubePosY
                 | Builtin::CubePosZ
+                | Builtin::CubePosCluster
+                | Builtin::CubePosClusterX
+                | Builtin::CubePosClusterY
+                | Builtin::CubePosClusterZ
                 | Builtin::CubeDim
                 | Builtin::CubeDimX
                 | Builtin::CubeDimY
                 | Builtin::CubeDimZ
+                | Builtin::CubeClusterDim
+                | Builtin::CubeClusterDimX
+                | Builtin::CubeClusterDimY
+                | Builtin::CubeClusterDimZ
                 | Builtin::CubeCount
                 | Builtin::CubeCountX
                 | Builtin::CubeCountY
                 | Builtin::CubeCountZ
                 | Builtin::PlaneDim => true,
             },
-
             VariableKind::LocalMut { .. } => false,
-
             VariableKind::LocalArray { .. }
             | VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
-            | VariableKind::Slice { .. }
+            | VariableKind::Barrier { .. }
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
+            VariableKind::TensorMap(_) => true,
         }
     }
 

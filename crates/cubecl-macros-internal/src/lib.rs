@@ -49,7 +49,7 @@ pub fn derive_operation(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Generates an opcode enum for an operation, without implemention `OperationReflect`. Allows for
+/// Generates an opcode enum for an operation, without implementation `OperationReflect`. Allows for
 /// manual implementation.
 ///
 /// Use `self.__match_opcode()` to get the opcode for an operation.

@@ -1,7 +1,7 @@
 use core::num::NonZero;
 use core::{fmt::Display, hash::Hash};
 
-use crate::TypeHash;
+use crate::{BarrierLevel, TypeHash};
 
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use float_ord::FloatOrd;
@@ -49,17 +49,46 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
-    LocalArray { id: Id, length: u32 },
-    LocalMut { id: Id },
-    LocalConst { id: Id },
-    Versioned { id: Id, version: u16 },
+    TensorMap(Id),
+    LocalArray {
+        id: Id,
+        length: u32,
+    },
+    LocalMut {
+        id: Id,
+    },
+    LocalConst {
+        id: Id,
+    },
+    Versioned {
+        id: Id,
+        version: u16,
+    },
     ConstantScalar(ConstantScalarValue),
-    ConstantArray { id: Id, length: u32 },
-    SharedMemory { id: Id, length: u32 },
-    Matrix { id: Id, mat: Matrix },
-    Slice { id: Id },
+    ConstantArray {
+        id: Id,
+        length: u32,
+    },
+    SharedMemory {
+        id: Id,
+        length: u32,
+        alignment: Option<u32>,
+    },
+    Matrix {
+        id: Id,
+        mat: Matrix,
+    },
     Builtin(Builtin),
-    Pipeline { id: Id, item: Item, num_stages: u8 },
+    Pipeline {
+        id: Id,
+        item: Item,
+        num_stages: u8,
+    },
+    Barrier {
+        id: Id,
+        item: Item,
+        level: BarrierLevel,
+    },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -69,6 +98,10 @@ pub enum Builtin {
     UnitPosX,
     UnitPosY,
     UnitPosZ,
+    CubePosCluster,
+    CubePosClusterX,
+    CubePosClusterY,
+    CubePosClusterZ,
     CubePos,
     CubePosX,
     CubePosY,
@@ -77,6 +110,10 @@ pub enum Builtin {
     CubeDimX,
     CubeDimY,
     CubeDimZ,
+    CubeClusterDim,
+    CubeClusterDimX,
+    CubeClusterDimY,
+    CubeClusterDimZ,
     CubeCount,
     CubeCountX,
     CubeCountY,
@@ -95,10 +132,10 @@ impl Variable {
     pub fn is_immutable(&self) -> bool {
         match self.kind {
             VariableKind::GlobalOutputArray { .. } => false,
+            VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
-            VariableKind::Slice { .. } => false,
             VariableKind::LocalArray { .. } => false,
             VariableKind::GlobalInputArray { .. } => false,
             VariableKind::GlobalScalar { .. } => true,
@@ -108,6 +145,7 @@ impl Variable {
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
+            VariableKind::Barrier { .. } => false,
         }
     }
 
@@ -122,16 +160,13 @@ impl Variable {
                 | VariableKind::SharedMemory { .. }
                 | VariableKind::LocalArray { .. }
                 | VariableKind::Matrix { .. }
-                | VariableKind::Slice { .. }
         )
     }
 
     pub fn has_length(&self) -> bool {
         matches!(
             self.kind,
-            VariableKind::GlobalInputArray { .. }
-                | VariableKind::GlobalOutputArray { .. }
-                | VariableKind::Slice { .. }
+            VariableKind::GlobalInputArray { .. } | VariableKind::GlobalOutputArray { .. }
         )
     }
 
@@ -386,6 +421,12 @@ impl Display for ConstantScalarValue {
             ConstantScalarValue::Int(val, IntKind::I16) => write!(f, "{val}i16"),
             ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
+            ConstantScalarValue::Float(val, FloatKind::E2M1) => write!(f, "{val}e2m1"),
+            ConstantScalarValue::Float(val, FloatKind::E2M3) => write!(f, "{val}e2m3"),
+            ConstantScalarValue::Float(val, FloatKind::E3M2) => write!(f, "{val}e3m2"),
+            ConstantScalarValue::Float(val, FloatKind::E4M3) => write!(f, "{val}e4m3"),
+            ConstantScalarValue::Float(val, FloatKind::E5M2) => write!(f, "{val}e5m2"),
+            ConstantScalarValue::Float(val, FloatKind::UE8M0) => write!(f, "{val}ue8m0"),
             ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),
             ConstantScalarValue::Float(val, FloatKind::F16) => write!(f, "{val}f16"),
             ConstantScalarValue::Float(val, FloatKind::TF32) => write!(f, "{val}tf32"),
@@ -409,12 +450,12 @@ impl Variable {
     pub fn index(&self) -> Option<Id> {
         match self.kind {
             VariableKind::GlobalInputArray(id)
+            | VariableKind::GlobalOutputArray(id)
+            | VariableKind::TensorMap(id)
             | VariableKind::GlobalScalar(id)
             | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
-            | VariableKind::Slice { id, .. }
-            | VariableKind::GlobalOutputArray(id)
             | VariableKind::ConstantArray { id, .. }
             | VariableKind::SharedMemory { id, .. }
             | VariableKind::LocalArray { id, .. }
@@ -437,6 +478,7 @@ impl Display for Variable {
             VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
+            VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
             VariableKind::LocalMut { id } => write!(f, "local({id})"),
             VariableKind::Versioned { id, version } => {
@@ -447,9 +489,9 @@ impl Display for Variable {
             VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
-            VariableKind::Slice { id } => write!(f, "slice({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
+            VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),
         }
     }
 }

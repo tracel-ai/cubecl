@@ -1,11 +1,11 @@
 use core::fmt::Display;
 
-use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
-use crate::TypeHash;
+use super::{Branch, CoopMma, Item, NonSemantic, Plane, Synchronization, Variable};
 use crate::{
-    comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
-    OperationReflect, Operator,
+    Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator, TmaOps,
+    comparison::Comparison,
 };
+use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
     format,
     string::{String, ToString},
@@ -49,7 +49,9 @@ pub enum Operation {
     #[operation(nested)]
     CoopMma(CoopMma),
     #[operation(nested)]
-    Pipeline(PipelineOps),
+    Barrier(BarrierOps),
+    #[operation(nested)]
+    Tma(TmaOps),
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
@@ -60,6 +62,7 @@ pub enum Operation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
 pub struct Instruction {
     pub out: Option<Variable>,
+    pub source_loc: Option<SourceLoc>,
     pub operation: Operation,
 }
 
@@ -68,6 +71,15 @@ impl Instruction {
         Instruction {
             out: Some(out),
             operation: operation.into(),
+            source_loc: None,
+        }
+    }
+
+    pub fn no_out(operation: impl Into<Operation>) -> Self {
+        Instruction {
+            out: None,
+            operation: operation.into(),
+            source_loc: None,
         }
     }
 
@@ -101,15 +113,15 @@ impl Display for Instruction {
                 op.len
             ),
             Operation::Operator(Operator::IndexAssign(op)) => {
-                write!(f, "{}[{}] = {}", self.out(), op.lhs, op.rhs)
+                write!(f, "{}[{}] = {}", self.out(), op.index, op.value)
             }
             Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
-                write!(f, "unchecked {}[{}] = {}", self.out(), op.lhs, op.rhs)
+                write!(f, "unchecked {}[{}] = {}", self.out(), op.index, op.value)
             }
             Operation::Operator(Operator::Cast(op)) => {
                 write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
             }
-            Operation::Operator(Operator::Bitcast(op)) => {
+            Operation::Operator(Operator::Reinterpret(op)) => {
                 write!(f, "{} = bitcast<{}>({})", self.out(), self.item(), op.input)
             }
             _ => {
@@ -136,9 +148,10 @@ impl Display for Operation {
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Copy(variable) => write!(f, "{}", variable),
+            Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
-            Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
+            Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
+            Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
         }
     }
 }
@@ -159,6 +172,25 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
+pub struct IndexOperator {
+    pub list: Variable,
+    pub index: Variable,
+    pub line_size: u32, // 0 == same as list.
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct IndexAssignOperator {
+    // list is out.
+    pub index: Variable,
+    pub value: Variable,
+    pub line_size: u32, // 0 == same as list.
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
 pub struct BinaryOperator {
     pub lhs: Variable,
     pub rhs: Variable,
@@ -173,27 +205,18 @@ pub struct UnaryOperator {
 
 impl From<Branch> for Instruction {
     fn from(value: Branch) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
+        Instruction::no_out(value)
     }
 }
 
 impl From<Synchronization> for Instruction {
     fn from(value: Synchronization) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
+        Instruction::no_out(value)
     }
 }
 
 impl From<NonSemantic> for Instruction {
     fn from(value: NonSemantic) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
+        Instruction::no_out(value)
     }
 }

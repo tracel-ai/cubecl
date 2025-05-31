@@ -1,51 +1,20 @@
-use cubecl_core::ir::{self as gpu};
 use cubecl_core::Feature;
+use cubecl_core::ir::{self as gpu};
 use cubecl_runtime::DeviceProperties;
 use std::fmt::Display;
-use std::hash::Hash;
-use std::str::FromStr;
 use std::{fmt::Debug, marker::PhantomData};
 
 use super::{Component, Dialect, Elem, Variable};
 
 pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
 
-pub trait Architecture: FromStr<Err = String> {
+pub trait Architecture {
     fn warp_size(&self) -> u32;
     fn is_wmma_capable(&self) -> bool;
     fn is_mfma_capable(&self) -> bool;
-}
-
-pub trait WmmaCompiler<D: Dialect>:
-    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
-{
-    type Architecture: Architecture;
-
-    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-
-    fn compile_fragment_ident(
-        ident: &FragmentIdent<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn compile_fragment_layout(
-        layout: &FragmentLayout<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn compile_fragment(
-        fragment: &Fragment<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn compile_instruction(
-        instruction: &WmmaInstruction<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations;
+    fn get_version(&self) -> u32 {
+        0
+    }
 }
 
 pub fn register_wmma_features(
@@ -103,6 +72,7 @@ pub enum WmmaInstruction<D: Dialect> {
     Load {
         frag: Variable<D>,
         value: Variable<D>,
+        offset: Variable<D>,
         stride: Variable<D>,
         layout: Option<FragmentLayout<D>>,
     },
@@ -121,6 +91,7 @@ pub enum WmmaInstruction<D: Dialect> {
         output: Variable<D>,
         frag: Variable<D>,
         stride: Variable<D>,
+        offset: Variable<D>,
         layout: FragmentLayout<D>,
     },
     /// Cast
@@ -132,35 +103,45 @@ pub enum WmmaInstruction<D: Dialect> {
 
 impl<D: Dialect> Display for FragmentLayout<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_fragment_layout(self, f)
+        D::compile_wmma_fragment_layout(f, self)
     }
 }
 
 impl<D: Dialect> Display for FragmentIdent<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_fragment_ident(self, f)
+        D::compile_wwma_fragment_ident(f, self)
     }
 }
 
 impl<D: Dialect> Display for Fragment<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_fragment(self, f)
+        D::compile_wmma_fragment(f, self)
     }
 }
 
 impl<D: Dialect> Display for WmmaInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_instruction(self, f)
+        D::compile_wmma_instruction(f, self)
     }
 }
 
 pub mod wmma_api_base {
     use super::*;
 
+    pub fn compile_fragment_declaration<D: Dialect>(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &Variable<D>,
+    ) -> std::fmt::Result {
+        match var {
+            Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
+            _ => panic!("variable must be a fragment"),
+        }
+    }
+
     pub fn compile_fragment_ident<D: Dialect>(
+        f: &mut std::fmt::Formatter<'_>,
         namespace: &str,
         ident: &FragmentIdent<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match ident {
             FragmentIdent::A => write!(f, "{namespace}::matrix_a"),
@@ -171,9 +152,9 @@ pub mod wmma_api_base {
     }
 
     pub fn compile_fragment_layout<D: Dialect>(
+        f: &mut std::fmt::Formatter<'_>,
         namespace: &str,
         layout: &FragmentLayout<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match layout {
             FragmentLayout::ColMajor => f.write_str(format!("{namespace}::col_major").as_str()),
@@ -183,9 +164,9 @@ pub mod wmma_api_base {
     }
 
     pub fn compile_fragment<D: Dialect>(
+        f: &mut std::fmt::Formatter<'_>,
         namespace: &str,
         fragment: &Fragment<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         let elem = match fragment.elem {
             Elem::TF32 => format!("{namespace}::precision::tf32"),
@@ -213,9 +194,9 @@ pub mod wmma_api_base {
     }
 
     pub fn compile_instruction<D: Dialect>(
+        f: &mut std::fmt::Formatter<'_>,
         namespace: &str,
         instruction: &WmmaInstruction<D>,
-        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
@@ -226,16 +207,20 @@ pub mod wmma_api_base {
                 frag,
                 value,
                 stride,
+                offset,
                 layout: None,
             } => {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    writeln!(f, "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});")
+                    writeln!(
+                        f,
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride});"
+                    )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, {value}, {stride});"
+                        "{namespace}::load_matrix_sync({frag}, {value} + {offset}, {stride});"
                     )
                 }
             }
@@ -243,6 +228,7 @@ pub mod wmma_api_base {
             WmmaInstruction::Load {
                 frag,
                 value,
+                offset,
                 stride,
                 layout: Some(layout),
             } => {
@@ -254,11 +240,14 @@ pub mod wmma_api_base {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    writeln!(f, "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride}, {layout});")
+                    writeln!(
+                        f,
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride}, {layout});"
+                    )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, {value}, {stride}, {layout});"
+                        "{namespace}::load_matrix_sync({frag}, {value} + {offset}, {stride}, {layout});"
                     )
                 }
             }
@@ -278,6 +267,7 @@ pub mod wmma_api_base {
                 output,
                 frag,
                 stride,
+                offset,
                 layout,
             } => {
                 let layout = match layout {
@@ -298,12 +288,12 @@ pub mod wmma_api_base {
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
+                        "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({output} + {offset}), {frag}, {stride}, {layout});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::store_matrix_sync({output}, {frag}, {stride}, {layout});"
+                        "{namespace}::store_matrix_sync({output} + {offset}, {frag}, {stride}, {layout});"
                     )
                 }
             }
@@ -315,18 +305,22 @@ pub mod wmma_api_base {
                 match ty {
                     Elem::BF16 => {
                         let elem = Elem::<D>::F16;
-                        writeln!(
+                        write!(
                             f,
-                            "for(int t=0; t<{input}.num_elements; t++) {{
-                                {ty} elem = {ty}({input}.x[t]);
-                                {output}.x[t] = *reinterpret_cast<{elem} *>(&elem);
-                            }}"
+                            "// cast
+for(int t=0; t<{input}.num_elements; t++) {{
+  {ty} elem = {ty}({input}.x[t]);
+  {output}.x[t] = *reinterpret_cast<{elem} *>(&elem);
+}}
+"
                         )
                     }
                     _ => {
-                        writeln!(
+                        write!(
                             f,
-                            "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]); }}"
+                            "// cast
+for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]); }}
+"
                         )
                     }
                 }

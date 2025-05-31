@@ -1,7 +1,7 @@
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
-use syn::{parse_quote, Ident};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Ident, parse_quote};
 
 use crate::{
     parse::kernel::{KernelParam, Launch},
@@ -112,12 +112,7 @@ impl Launch {
     fn launch_body(&self) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
 
-        let registers_in = self.runtime_inputs().map(|arg| {
-            let name = &arg.name;
-            quote![#name.register(&mut launcher);]
-        });
-
-        let registers_out = self.runtime_outputs().map(|arg| {
+        let registers = self.runtime_params().map(|arg| {
             let name = &arg.name;
             quote![#name.register(&mut launcher);]
         });
@@ -140,8 +135,7 @@ impl Launch {
 
             let mut launcher = #kernel_launcher::<__R>::default();
 
-            #(#registers_in)*
-            #(#registers_out)*
+            #(#registers)*
         }
     }
 
@@ -202,7 +196,7 @@ impl Launch {
     }
 
     pub fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {
-        self.func.sig.parameters.iter().filter(|it| !it.is_const)
+        self.func.sig.runtime_params()
     }
 
     fn launch_args(&self) -> Vec<KernelParam> {

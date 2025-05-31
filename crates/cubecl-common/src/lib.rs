@@ -15,6 +15,16 @@ pub mod rand;
 /// Stub module contains types for stubs for non-std environments and for std environments.
 pub mod stub;
 
+/// Stream id related utilities.
+pub mod stream_id;
+
+/// Cache module for an efficient in-memory and persistent database.
+#[cfg(feature = "cache")]
+pub mod cache;
+
+#[cfg(feature = "cache")]
+pub(crate) mod cache_file;
+
 /// Module for benchmarking any executable part
 pub mod benchmark;
 
@@ -25,6 +35,7 @@ pub mod reader;
 /// Future utils with a compatible API for native, non-std and wasm environments.
 pub mod future;
 
+/// Various utilities to create ID's.
 extern crate alloc;
 
 /// Custom float implementations

@@ -1,22 +1,19 @@
-use std::num::NonZero;
-
 use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
-use crate::compute::KernelLauncher;
-use crate::ir::{Item, Scope, Variable};
-use crate::prelude::Clamp;
 use crate::Runtime;
+use crate::compute::KernelLauncher;
+use crate::frontend::{CubePrimitive, CubeType};
+use crate::ir::{Scope, Variable};
+use crate::prelude::Clamp;
 use crate::{
-    frontend::{index_assign, Abs, Max, Min, Remainder},
+    frontend::{Abs, Max, Min, Remainder},
     unexpanded,
 };
-use crate::{
-    frontend::{CubePrimitive, CubeType},
-    prelude::CubeIndexMut,
-};
 
-use super::{ArgSettings, ExpandElementBaseInit, ExpandElementTyped, LaunchArg, LaunchArgExpand};
+use super::{
+    ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg, LaunchArgExpand,
+};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -28,12 +25,11 @@ pub trait Numeric:
     + Clamp
     + Remainder
     + CubePrimitive
+    + IntoRuntime
     + LaunchArgExpand<CompilationArg = ()>
     + ScalarArgSettings
-    + ExpandElementBaseInit
+    + ExpandElementIntoMut
     + Into<ExpandElementTyped<Self>>
-    + CubeIndexMut<u32, Output = Self>
-    + CubeIndexMut<ExpandElementTyped<u32>, Output = Self>
     + num_traits::NumCast
     + std::ops::AddAssign
     + std::ops::SubAssign
@@ -88,31 +84,6 @@ pub trait Numeric:
 
         ExpandElement::Plain(var).into()
     }
-
-    fn __expand_from_vec<const D: usize>(
-        scope: &mut Scope,
-        vec: [u32; D],
-    ) -> <Self as CubeType>::ExpandType {
-        let new_var = scope.create_local(Item::vectorized(
-            Self::as_elem(scope),
-            NonZero::new(vec.len() as u8),
-        ));
-        let elem = Self::as_elem(scope);
-
-        for (i, element) in vec.iter().enumerate() {
-            let var: Variable = elem.constant_from_i64(*element as i64);
-            let expand = ExpandElement::Plain(var);
-
-            index_assign::expand::<u32>(
-                scope,
-                new_var.clone().into(),
-                ExpandElementTyped::from_lit(scope, i),
-                expand.into(),
-            );
-        }
-
-        new_var.into()
-    }
 }
 
 /// Similar to [ArgSettings], however only for scalar types that don't depend on the [Runtime]
@@ -124,11 +95,11 @@ pub trait ScalarArgSettings: Send + Sync {
 
 #[derive(new)]
 pub struct ScalarArg<T: Numeric> {
-    elem: T,
+    pub elem: T,
 }
 
 impl<T: Numeric, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(&self, launcher: &mut crate::compute::KernelLauncher<R>) {
+    fn register(&self, launcher: &mut KernelLauncher<R>) {
         self.elem.register(launcher);
     }
 }

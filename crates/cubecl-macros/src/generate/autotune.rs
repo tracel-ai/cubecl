@@ -1,7 +1,7 @@
 use darling::FromDeriveInput;
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{DeriveInput, Index, Member};
 
 use crate::{
@@ -132,7 +132,10 @@ fn field_init(field: &AutotuneKeyField, member: Member) -> TokenStream {
         .as_ref()
         .map(|anchor| {
             let max = anchor.max();
-            quote![#anchor_fn(#member, #max)]
+            let min = anchor.min();
+            let base = anchor.base();
+
+            quote![#anchor_fn(#member, #max, #min, #base)]
         })
         .unwrap_or_else(|| member.to_token_stream())
 }

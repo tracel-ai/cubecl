@@ -1,25 +1,26 @@
 use super::Subgroup;
-use super::{shader::ComputeShader, ConstantArray};
+use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
+use cubecl_core::ir::{ConstantScalarValue, Processor, UIntKind};
+use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_core::prelude::*;
 use cubecl_core::{
-    compute,
+    Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},
-    prelude::{expand_checked_index_assign, expand_erf},
-    Metadata, WgpuCompilationOptions,
+    prelude::expand_erf,
 };
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
 pub struct WgslCompiler {
-    num_inputs: usize,
-    num_outputs: usize,
     metadata: Metadata,
     ext_meta_pos: Vec<u32>,
     local_invocation_index: bool,
     local_invocation_id: bool,
+    // TODO: possible cleanup, this bool seems to not be used
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,
@@ -36,6 +37,7 @@ pub struct WgslCompiler {
     compilation_options: WgpuCompilationOptions,
     strategy: ExecutionMode,
     subgroup_instructions_used: bool,
+    f16_used: bool,
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -59,7 +61,11 @@ impl cubecl_core::Compiler for WgslCompiler {
     }
 
     fn elem_size(&self, elem: cube::Elem) -> usize {
-        Self::compile_elem(elem).size()
+        elem.size()
+    }
+
+    fn extension(&self) -> &'static str {
+        "wgsl"
     }
 }
 
@@ -71,14 +77,12 @@ impl WgslCompiler {
     ) -> wgsl::ComputeShader {
         self.strategy = mode;
 
-        self.num_inputs = value.inputs.len();
-        self.num_outputs = value.outputs.len();
-        let num_meta = value.inputs.len() + value.outputs.len();
+        let num_meta = value.buffers.len();
 
         self.ext_meta_pos = Vec::new();
         let mut num_ext = 0;
 
-        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+        for binding in value.buffers.iter() {
             self.ext_meta_pos.push(num_ext);
             if binding.has_extended_meta {
                 num_ext += 1;
@@ -95,24 +99,20 @@ impl WgslCompiler {
         };
 
         wgsl::ComputeShader {
-            inputs: value
-                .inputs
+            buffers: value
+                .buffers
                 .into_iter()
-                .map(Self::compile_binding)
+                .map(|it| self.compile_binding(it))
                 .collect(),
-            outputs: value
-                .outputs
+            scalars: value
+                .scalars
                 .into_iter()
-                .map(Self::compile_binding)
-                .collect(),
-            named: value
-                .named
-                .into_iter()
-                .map(|(name, binding)| (name, Self::compile_binding(binding)))
+                .map(|binding| (self.compile_elem(binding.elem), binding.count))
                 .collect(),
             shared_memories: self.shared_memories.clone(),
             constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
+            has_metadata: self.metadata.static_len() > 0,
             workgroup_size: value.cube_dim,
             global_invocation_id: self.global_invocation_id || self.id,
             local_invocation_index: self.local_invocation_index,
@@ -130,12 +130,13 @@ impl WgslCompiler {
             workgroup_id_no_axis: self.workgroup_id_no_axis,
             workgroup_size_no_axis: self.workgroup_size_no_axis,
             subgroup_instructions_used: self.subgroup_instructions_used,
+            f16_used: self.f16_used,
             kernel_name: value.options.kernel_name,
         }
     }
 
-    fn compile_item(item: cube::Item) -> Item {
-        let elem = Self::compile_elem(item.elem);
+    fn compile_item(&mut self, item: cube::Item) -> Item {
+        let elem = self.compile_elem(item.elem);
         match item.vectorization.map(|it| it.get()).unwrap_or(1) {
             1 => wgsl::Item::Scalar(elem),
             2 => wgsl::Item::Vec2(elem),
@@ -145,22 +146,33 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_elem(value: cube::Elem) -> wgsl::Elem {
+    fn compile_elem(&mut self, value: cube::Elem) -> wgsl::Elem {
         match value {
             cube::Elem::Float(f) => match f {
-                cube::FloatKind::F16 => panic!("f16 is not yet supported"),
+                cube::FloatKind::E2M1
+                | cube::FloatKind::E2M3
+                | cube::FloatKind::E3M2
+                | cube::FloatKind::E4M3
+                | cube::FloatKind::E5M2
+                | cube::FloatKind::UE8M0 => panic!("Minifloat is not a valid WgpuElement"),
+                cube::FloatKind::F16 => {
+                    self.f16_used = true;
+                    wgsl::Elem::F16
+                }
                 cube::FloatKind::BF16 => panic!("bf16 is not a valid WgpuElement"),
                 cube::FloatKind::TF32 => panic!("tf32 is not a valid WgpuElement"),
                 cube::FloatKind::Flex32 => wgsl::Elem::F32,
                 cube::FloatKind::F32 => wgsl::Elem::F32,
-                cube::FloatKind::F64 => panic!("f64 is not a valid WgpuElement"),
+                cube::FloatKind::F64 => wgsl::Elem::F64,
             },
             cube::Elem::Int(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::I32,
+                cube::IntKind::I64 => wgsl::Elem::I64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::UInt(kind) => match kind {
                 cube::UIntKind::U32 => wgsl::Elem::U32,
+                cube::UIntKind::U64 => wgsl::Elem::U64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::Bool => wgsl::Elem::Bool,
@@ -180,57 +192,53 @@ impl WgslCompiler {
     }
 
     fn ext_meta_pos(&self, var: &cube::Variable) -> u32 {
-        let pos = match var.kind {
-            cube::VariableKind::GlobalInputArray(id) => id as usize,
-            cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-            _ => panic!("Only global arrays have metadata"),
-        };
-        self.ext_meta_pos[pos]
+        let pos = var.index().expect("Variable should have index");
+        self.ext_meta_pos[pos as usize]
     }
 
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         let item = value.item;
         match value.kind {
             cube::VariableKind::GlobalInputArray(id) => {
-                wgsl::Variable::GlobalInputArray(id, Self::compile_item(item))
+                wgsl::Variable::GlobalInputArray(id, self.compile_item(item))
             }
             cube::VariableKind::GlobalScalar(id) => {
-                wgsl::Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
+                wgsl::Variable::GlobalScalar(id, self.compile_elem(item.elem), item.elem)
             }
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 wgsl::Variable::LocalMut {
                     id,
-                    item: Self::compile_item(item),
+                    item: self.compile_item(item),
                 }
             }
             cube::VariableKind::LocalConst { id } => wgsl::Variable::LocalConst {
                 id,
-                item: Self::compile_item(item),
-            },
-            cube::VariableKind::Slice { id } => wgsl::Variable::Slice {
-                id,
-                item: Self::compile_item(item),
+                item: self.compile_item(item),
             },
             cube::VariableKind::GlobalOutputArray(id) => {
-                wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
+                wgsl::Variable::GlobalOutputArray(id, self.compile_item(item))
             }
             cube::VariableKind::ConstantScalar(value) => {
-                wgsl::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
+                wgsl::Variable::ConstantScalar(value, self.compile_elem(value.elem()))
             }
-            cube::VariableKind::SharedMemory { id, length } => {
-                let item = Self::compile_item(item);
+            cube::VariableKind::SharedMemory {
+                id,
+                length,
+                alignment,
+            } => {
+                let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
-                        .push(SharedMemory::new(id, item, length));
+                        .push(SharedMemory::new(id, item, length, alignment));
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }
             cube::VariableKind::ConstantArray { id, length } => {
-                let item = Self::compile_item(item);
+                let item = self.compile_item(item);
                 wgsl::Variable::ConstantArray(id, item, length)
             }
             cube::VariableKind::LocalArray { id, length } => {
-                let item = Self::compile_item(item);
+                let item = self.compile_item(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
                     self.local_arrays.push(LocalArray::new(id, item, length));
                 }
@@ -269,6 +277,10 @@ impl WgslCompiler {
                     self.workgroup_id = true;
                     wgsl::Variable::WorkgroupIdZ
                 }
+                cube::Builtin::CubePosCluster
+                | cube::Builtin::CubePosClusterX
+                | cube::Builtin::CubePosClusterY
+                | cube::Builtin::CubePosClusterZ => self.constant_var(1),
                 cube::Builtin::AbsolutePosX => {
                     self.global_invocation_id = true;
                     wgsl::Variable::GlobalInvocationIdX
@@ -284,6 +296,10 @@ impl WgslCompiler {
                 cube::Builtin::CubeDimX => wgsl::Variable::WorkgroupSizeX,
                 cube::Builtin::CubeDimY => wgsl::Variable::WorkgroupSizeY,
                 cube::Builtin::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
+                cube::Builtin::CubeClusterDim
+                | cube::Builtin::CubeClusterDimX
+                | cube::Builtin::CubeClusterDimY
+                | cube::Builtin::CubeClusterDimZ => self.constant_var(1),
                 cube::Builtin::CubeCountX => {
                     self.num_workgroups = true;
                     wgsl::Variable::NumWorkgroupsX
@@ -323,7 +339,16 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
+            cube::VariableKind::Barrier { .. } => {
+                panic!("Barrier not supported.")
+            }
+            cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
+    }
+
+    fn constant_var(&mut self, value: u32) -> wgsl::Variable {
+        let var = cube::Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32));
+        self.compile_variable(var)
     }
 
     fn compile_scope(&mut self, scope: &mut cube::Scope) -> Vec<wgsl::Instruction> {
@@ -334,7 +359,7 @@ impl WgslCompiler {
             .drain(..)
             .map(|(var, values)| ConstantArray {
                 index: var.index().unwrap(),
-                item: Self::compile_item(var.item),
+                item: self.compile_item(var.item),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -344,21 +369,17 @@ impl WgslCompiler {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let processing = scope.process();
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
+        let processing = scope.process([checked_io]);
 
         for var in processing.variables {
-            // We don't declare slices.
-            if let cube::VariableKind::Slice { .. } = var.kind {
-                continue;
-            }
-
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
             });
         }
 
         processing
-            .operations
+            .instructions
             .into_iter()
             .for_each(|op| self.compile_operation(&mut instructions, op.operation, op.out, scope));
 
@@ -382,7 +403,7 @@ impl WgslCompiler {
             }
             cube::Operation::Comparison(op) => self.compile_cmp(op, out, instructions),
             cube::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
-            cube::Operation::Operator(op) => self.compile_operator(op, out, instructions, scope),
+            cube::Operation::Operator(op) => self.compile_operator(op, out, instructions),
             cube::Operation::Atomic(op) => instructions.push(self.compile_atomic(op, out)),
             cube::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             cube::Operation::Branch(val) => self.compile_branch(instructions, val),
@@ -396,11 +417,11 @@ impl WgslCompiler {
             cube::Operation::NonSemantic(cube::NonSemantic::Comment { content }) => {
                 self.compile_comment(instructions, content)
             }
-            // No good way to attach debug info
             cube::Operation::NonSemantic(_) => {}
-            cube::Operation::Pipeline(_) => {
-                panic!("Pipeline isn't supported on wgpu.")
+            cube::Operation::Barrier(_) => {
+                panic!("Barrier isn't supported on wgpu.")
             }
+            cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
         }
     }
 
@@ -517,12 +538,16 @@ impl WgslCompiler {
         synchronization: cube::Synchronization,
     ) {
         match synchronization {
-            cube::Synchronization::SyncUnits => {
+            cube::Synchronization::SyncCube => {
                 instructions.push(wgsl::Instruction::WorkgroupBarrier)
+            }
+            cube::Synchronization::SyncPlane => {
+                panic!("Synchronization within a plane is not supported in WGSL")
             }
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
+            cube::Synchronization::SyncProxyShared => panic!("TMA is not supported in WGSL"),
         };
     }
 
@@ -572,7 +597,7 @@ impl WgslCompiler {
                     }
                 }
                 cube::VariableKind::GlobalOutputArray(id) => {
-                    let offset = self.metadata.len_index(self.num_inputs as u32 + id);
+                    let offset = self.metadata.len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
                         info_offset: self.compile_variable(offset.into()),
@@ -592,7 +617,6 @@ impl WgslCompiler {
                     }
                 }
                 cube::VariableKind::GlobalOutputArray(id) => {
-                    let id = self.num_inputs as u32 + id;
                     let offset = self.metadata.buffer_len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
@@ -709,6 +733,14 @@ impl WgslCompiler {
             cube::Arithmetic::Erf(op) => {
                 let mut scope = scope.child();
                 expand_erf(&mut scope, op.input, out);
+                instructions.extend(self.compile_scope(&mut scope));
+            }
+            cube::Arithmetic::MulHi(op) => {
+                let mut scope = scope.child();
+                match self.compilation_options.supports_u64 {
+                    true => expand_himul_64(&mut scope, op.lhs, op.rhs, out),
+                    false => expand_himul_sim(&mut scope, op.lhs, op.rhs, out),
+                }
                 instructions.extend(self.compile_scope(&mut scope));
             }
             cube::Arithmetic::Recip(op) => instructions.push(wgsl::Instruction::Recip {
@@ -850,7 +882,6 @@ impl WgslCompiler {
         value: cube::Operator,
         out: Option<cube::Variable>,
         instructions: &mut Vec<wgsl::Instruction>,
-        scope: &mut cube::Scope,
     ) {
         let out = out.unwrap();
         match value {
@@ -858,57 +889,17 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
-                    let array_len =
-                        *scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
-
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match lhs.has_buffer_length() {
-                        true => cube::Metadata::BufferLength { var: lhs },
-                        false => cube::Metadata::Length { var: lhs },
-                    };
-                    instructions.push(self.compile_metadata(length, Some(array_len)));
-                    instructions.push(wgsl::Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
-                        out: self.compile_variable(out),
-                    });
-                } else {
-                    instructions.push(wgsl::Instruction::Index {
-                        lhs: self.compile_variable(op.lhs),
-                        rhs: self.compile_variable(op.rhs),
-                        out: self.compile_variable(out),
-                    });
-                }
-            }
-            cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(out),
-            }),
-            cube::Operator::IndexAssign(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if out.has_length() {
-                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
-                instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
+            cube::Operator::Index(op) | cube::Operator::UncheckedIndex(op) => {
+                instructions.push(wgsl::Instruction::Index {
+                    lhs: self.compile_variable(op.list),
+                    rhs: self.compile_variable(op.index),
                     out: self.compile_variable(out),
-                })
+                });
             }
-            cube::Operator::UncheckedIndexAssign(op) => {
+            cube::Operator::IndexAssign(op) | cube::Operator::UncheckedIndexAssign(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
+                    index: self.compile_variable(op.index),
+                    rhs: self.compile_variable(op.value),
                     out: self.compile_variable(out),
                 })
             }
@@ -926,36 +917,7 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::Slice(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
-                    let input = op.input;
-                    let input_len = *scope
-                        .create_local_mut(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match input.has_buffer_length() {
-                        true => cube::Metadata::BufferLength { var: input },
-                        false => cube::Metadata::Length { var: input },
-                    };
-
-                    instructions.push(self.compile_metadata(length, Some(input_len)));
-                    instructions.push(wgsl::Instruction::CheckedSlice {
-                        input: self.compile_variable(input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                        len: self.compile_variable(input_len),
-                    });
-                } else {
-                    instructions.push(wgsl::Instruction::Slice {
-                        input: self.compile_variable(op.input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                    });
-                }
-            }
-            cube::Operator::Bitcast(op) => instructions.push(wgsl::Instruction::Bitcast {
+            cube::Operator::Reinterpret(op) => instructions.push(wgsl::Instruction::Bitcast {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
@@ -1060,11 +1022,12 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_binding(value: compute::Binding) -> wgsl::Binding {
+    fn compile_binding(&mut self, value: compute::Binding) -> wgsl::Binding {
         wgsl::Binding {
+            id: value.id,
             visibility: value.visibility,
             location: Self::compile_location(value.location),
-            item: Self::compile_item(value.item),
+            item: self.compile_item(value.item),
             size: value.size,
         }
     }

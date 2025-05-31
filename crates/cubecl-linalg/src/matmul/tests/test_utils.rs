@@ -1,65 +1,82 @@
 use std::fmt::Display;
 
 use cubecl_core::{
+    CubeElement, Feature, Runtime,
     client::ComputeClient,
     flex32,
-    prelude::{Float, Numeric},
-    server::Handle,
-    tf32, CubeElement, Feature, Runtime,
+    prelude::{CubePrimitive, Float, Numeric},
+    server::{self},
+    tf32,
 };
 
-pub use cubecl_std::Q8;
+pub use cubecl_std::SymQ8;
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem, MatmulSelection, MatrixLayout},
-        kernels::matmul::Algorithm,
+        components::{Ident, MatmulPrecision, MatmulProblem},
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
 };
 
+pub struct QuantizationParams<N: Numeric> {
+    pub scaling: Vec<N>, // This is the bit cast of an f32 into the appropriate numbers of N.
+    pub zero_offset: N,
+}
+
 pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
-    type ES: Numeric + CubeElement + Display + CastInto<Self::EA>;
-    type EA: Numeric + CubeElement + Display + CastInto<Self::EG>;
+    type ES: Numeric + Display + CastInto<Self::EA>;
+    type EA: Numeric + Display + CastInto<Self::EG>;
+    type MP: MatmulPrecision;
     const QUANTIZED: bool;
 
+    fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
+
+    #[allow(clippy::too_many_arguments)]
     fn assert_result<R: Runtime>(
         lhs: &[Self::EG],
+        lhs_quant: Option<(f32, i32)>,
         rhs: &[Self::EG],
+        rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::Handle,
+        out_quant: Option<(f32, i32)>,
+        shape: &[usize],
+        strides: &[usize],
     );
-
-    // TODO: This is a temporary hack to not run some quantized matmul test during development.
-    //       This avoids breaking the CI with incomplete implementations.
-    //       Remove when quantization is fully supported.
-    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
-        layouts: (MatrixLayout, MatrixLayout),
-    ) -> bool;
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
 where
-    EG: Float + CubeElement + Display + CastInto<ES> + Sample,
-    ES: Float + CubeElement + Display + CastInto<f32>,
+    EG: Float + CubeElement + Display + CastInto<ES> + Sample + MatmulPrecision,
+    ES: Numeric + Display + CastInto<f32>,
     f32: CastInto<EG>,
 {
     type EG = EG;
     type ES = ES;
     type EA = f32;
+    type MP = EG;
     const QUANTIZED: bool = false;
+
+    fn quantization_params(_: Ident) -> Option<QuantizationParams<Self::EG>> {
+        None
+    }
 
     fn assert_result<R: Runtime>(
         lhs: &[EG],
+        _lhs_quant: Option<(f32, i32)>,
         rhs: &[EG],
+        _rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::Handle,
+        _out_quant: Option<(f32, i32)>,
+        shape: &[usize],
+        strides: &[usize],
     ) {
-        let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
+        let maybe_f16 = client.properties().feature_enabled(Feature::Cmma {
             a: ES::as_elem_native().expect("To be a native type"),
             b: ES::as_elem_native().expect("To be a native type"),
             c: EG::as_elem_native().expect("To be a native type"),
@@ -67,9 +84,17 @@ where
             k: 16,
             n: 16,
         });
+        let maybe_tf32 = client.properties().feature_enabled(Feature::Cmma {
+            a: ES::as_elem_native().expect("To be a native type"),
+            b: ES::as_elem_native().expect("To be a native type"),
+            c: EG::as_elem_native().expect("To be a native type"),
+            m: 16,
+            k: 8,
+            n: 16,
+        });
 
         // Need to compensate for the temporary conversion to f16/tf32
-        let epsilon = match maybe_cmma {
+        let epsilon = match maybe_f16 || maybe_tf32 {
             true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
             false => 10e-5,
         };
@@ -79,84 +104,150 @@ where
             .map(|x| x.cast_into())
             .collect::<Vec<EG>>();
 
-        if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
+        if let Err(e) =
+            assert_equals_approx::<R, EG>(client, out, shape, strides, &expected, epsilon)
+        {
             panic!("{}", e);
         }
-    }
-
-    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
-        _layouts: (MatrixLayout, MatrixLayout),
-    ) -> bool {
-        true
     }
 }
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle,
+    output: server::Handle,
+    shape: &[usize],
+    strides: &[usize],
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one_tensor(output.binding_with_meta(
+        shape.to_vec(),
+        strides.to_vec(),
+        size_of::<F>(),
+    ));
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
-    // println!("{:?}", expected.len());
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
-        // println!("Index={:?} Actual={:?} Expected={:?}", i, a, e);
 
-        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
+        if f32::is_nan(a.to_f32().unwrap())
+            || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
+        {
             return Err(format!(
-            "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-            i,
-            *a,
-            *e,
-            f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-            epsilon
+                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+                i,
+                *a,
+                *e,
+                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
+                epsilon
             ));
         }
     }
-
-    // return Err("".to_string());
 
     Ok(())
 }
 
 // TODO:
 //   - Add different conversions from i32 to u8.
-//   - Add support for multipliers (zero_offsets).
-impl TestPrecision for Q8 {
+//   - Fix with proper types for precision
+impl TestPrecision for SymQ8 {
     type EG = u8;
     type ES = u16;
     type EA = i32;
+    type MP = SymQ8;
 
     const QUANTIZED: bool = true;
 
-    fn assert_result<R: Runtime>(
-        lhs: &[u8],
-        rhs: &[u8],
-        problem: &MatmulProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
-    ) {
-        let expected = matmul_cpu_reference_quantized(lhs, rhs, 1, 1, problem) // TODO: Use different zero_offsets != 1.
-            .into_iter()
-            .map(|x| x.cast_into()) // TODO: Improve with different conversions.
-            .collect::<Vec<u8>>();
-        let actual = client.read_one(out.binding());
-        let actual = u8::from_bytes(&actual);
-        assert_eq!(actual, expected);
+    fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>> {
+        // These are somewhat arbitrary values. I try to use f32 that are exactly representable
+        // to avoid some rounding issues.
+        Some(match ident {
+            Ident::Lhs => QuantizationParams {
+                scaling: f32::to_be_bytes(0.6).to_vec(),
+                zero_offset: 15,
+            },
+            Ident::Rhs => QuantizationParams {
+                scaling: f32::to_be_bytes(0.1).to_vec(),
+                zero_offset: 20,
+            },
+            Ident::Out => QuantizationParams {
+                scaling: f32::to_be_bytes(0.4).to_vec(),
+                zero_offset: 50,
+            },
+        })
     }
 
-    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
-        _layouts: (MatrixLayout, MatrixLayout),
-    ) -> bool {
-        false
+    fn assert_result<R: Runtime>(
+        lhs: &[u8],
+        lhs_quant: Option<(f32, i32)>,
+        rhs: &[u8],
+        rhs_quant: Option<(f32, i32)>,
+        problem: &MatmulProblem,
+        client: &ComputeClient<R::Server, R::Channel>,
+        out: server::Handle,
+        out_quant: Option<(f32, i32)>,
+        shape: &[usize],
+        strides: &[usize],
+    ) {
+        let out = client.read_one_tensor(out.binding_with_meta(
+            shape.to_vec(),
+            strides.to_vec(),
+            size_of::<Self::EG>(),
+        ));
+        let out = u8::from_bytes(&out);
+
+        let (lhs_scaling, lhs_offset) = lhs_quant.unwrap();
+        let (rhs_scaling, rhs_offset) = rhs_quant.unwrap();
+        let (out_scaling, out_offset) = out_quant.unwrap();
+
+        // TODO Move to some better place and wrap into a function.
+        let scaling_factor = (lhs_scaling * rhs_scaling) / out_scaling;
+        let approx_scaling = ApproxScaling::from_f32(scaling_factor);
+
+        let expected = matmul_cpu_reference_quantized(
+            lhs,
+            rhs,
+            problem,
+            lhs_offset,
+            rhs_offset,
+            out_offset,
+            approx_scaling,
+        );
+        assert_eq!(out, expected);
+    }
+}
+
+struct ApproxScaling {
+    multiplier: i64,
+    rounding: i64,
+    shift: u32,
+}
+
+impl ApproxScaling {
+    fn from_f32(x: f32) -> Self {
+        let log = x.log2().ceil() as i32;
+        let multiplier = (x * 2.0_f32.powi(31 - log)).round() as i64;
+        let rounding: i64 = 1 << (30 - log as i64);
+        let shift = (31 - log) as u32;
+        Self {
+            multiplier,
+            rounding,
+            shift,
+        }
+    }
+
+    fn scale(&self, x: i32) -> i32 {
+        if self.multiplier == i32::MIN as i64 && x == i32::MIN {
+            return i32::MAX; // sature on overflow. (while multiplier is in the range of an i32 even if it is a i64)
+        }
+        let prod = (x as i64) * self.multiplier;
+        let prod_with_rounding = prod + self.rounding;
+        (prod_with_rounding >> self.shift) as i32
     }
 }
 
@@ -230,6 +321,18 @@ impl CastInto<flex32> for f32 {
     }
 }
 
+impl CastInto<f32> for tf32 {
+    fn cast_into(self) -> f32 {
+        self.to_f32()
+    }
+}
+
+impl CastInto<tf32> for f32 {
+    fn cast_into(self) -> tf32 {
+        tf32::from_f32(self)
+    }
+}
+
 impl CastInto<u16> for u8 {
     fn cast_into(self) -> u16 {
         self as u16
@@ -248,8 +351,12 @@ impl CastInto<u8> for i32 {
     }
 }
 
-pub trait Sample: Sized {
-    fn sample(num_elements: usize, seed: u64) -> Vec<Self>;
+pub trait Sample: Sized + CubePrimitive {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self>;
 }
 
 macro_rules! sample_float {
@@ -257,17 +364,13 @@ macro_rules! sample_float {
         $(
             impl Sample for $t
             {
-                fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
-                    fn lcg(seed: &mut u64) -> f32 {
-                        const A: u64 = 1664525;
-                        const C: u64 = 1013904223;
-                        const M: f64 = 2u64.pow(32) as f64;
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
+                    cubecl_random::seed(seed);
+                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                        *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
-                        (*seed as f64 / M * 2.0 - 1.0) as f32
-                    }
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
 
-                    (0..num_elements).map(|_| <$t as Float>::new(lcg(&mut seed))).collect()
+                    output
                 }
             }
         )*
@@ -276,23 +379,47 @@ macro_rules! sample_float {
 
 sample_float!(half::f16);
 sample_float!(half::bf16);
-sample_float!(flex32);
 sample_float!(f32);
-sample_float!(tf32);
 sample_float!(f64);
+sample_float!(u8);
 
-impl Sample for u8 {
-    fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
-        fn lcg(seed: &mut u64) -> u8 {
-            const A: u64 = 1664525;
-            const C: u64 = 1013904223;
-            const M: u64 = 2u64.pow(32);
+impl Sample for flex32 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
 
-            *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % M;
-            (*seed % 4) as u8
-        }
+        cubecl_random::random_uniform::<R, f32>(
+            client,
+            f32::from_int(-1),
+            f32::from_int(1),
+            output.as_ref(),
+        );
 
-        (0..num_elements).map(|_| lcg(&mut seed)).collect()
+        output
+    }
+}
+
+impl Sample for tf32 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+
+        cubecl_random::random_uniform::<R, f32>(
+            client,
+            f32::from_int(-1),
+            f32::from_int(1),
+            output.as_ref(),
+        );
+
+        output
     }
 }
 
@@ -313,7 +440,10 @@ where
     let num_batches = problem.num_batches();
 
     let (b_lhs, b_rhs) = problem.batches.clone();
-    assert!(b_lhs.len() == b_rhs.len(), "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning.");
+    assert!(
+        b_lhs.len() == b_rhs.len(),
+        "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
+    );
 
     let lhs_strides = strides(problem, Ident::Lhs);
     let rhs_strides = strides(problem, Ident::Rhs);
@@ -351,13 +481,15 @@ where
     out
 }
 
-pub(crate) fn matmul_cpu_reference_quantized(
+fn matmul_cpu_reference_quantized(
     lhs: &[u8],
     rhs: &[u8],
+    problem: &MatmulProblem,
     lhs_zero_offset: i32,
     rhs_zero_offset: i32,
-    problem: &MatmulProblem,
-) -> Vec<i32>
+    out_zero_offset: i32,
+    approx_scaling: ApproxScaling,
+) -> Vec<u8>
 where
 {
     let m = problem.m;
@@ -366,7 +498,10 @@ where
     let num_batches = problem.num_batches();
 
     let (b_lhs, b_rhs) = problem.batches.clone();
-    assert!(b_lhs.len() == b_rhs.len(), "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning.");
+    assert!(
+        b_lhs.len() == b_rhs.len(),
+        "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
+    );
 
     let lhs_strides = strides(problem, Ident::Lhs);
     let rhs_strides = strides(problem, Ident::Rhs);
@@ -387,48 +522,26 @@ where
         // Perform matmul
         for row in 0..m {
             for col in 0..n {
+                let mut elem = 0;
                 for middle in 0..k {
                     let lhs_index = row * k + middle;
                     let rhs_index = middle * n + col;
-                    let out_index = row * n + col;
 
-                    let l = lhs[batch_lhs + lhs_index] as u16;
-                    let r = rhs[batch_rhs + rhs_index] as u16;
+                    let l = lhs[batch_lhs + lhs_index] as i32 - lhs_zero_offset;
+                    let r = rhs[batch_rhs + rhs_index] as i32 - rhs_zero_offset;
                     let prod = l * r;
-
-                    out[batch_out + out_index] += prod as i32;
+                    elem += prod;
                 }
-            }
-        }
-
-        // Substract rhs_zero_offset * sum_rows(lhs)
-        for row in 0..m {
-            let mut sum = 0;
-            for col in 0..k {
-                sum += lhs[batch_lhs + row * k + col] as i32;
-            }
-            sum *= rhs_zero_offset;
-            for col in 0..n {
-                out[batch_out + row * n + col] -= sum;
-            }
-        }
-
-        // Substract lhs_zero_offset * sum_cols(rhs)
-        for col in 0..n {
-            let mut sum = 0;
-            for row in 0..k {
-                sum += rhs[batch_lhs + row * n + col] as i32;
-            }
-            sum *= lhs_zero_offset;
-            for row in 0..m {
-                out[batch_out + row * n + col] -= sum;
-            }
-        }
-
-        // Add final constant term
-        for row in 0..m {
-            for col in 0..n {
-                out[batch_out + row * n + col] += (k as i32) * lhs_zero_offset * rhs_zero_offset;
+                elem = approx_scaling.scale(elem);
+                elem += out_zero_offset;
+                let out_index = row * n + col;
+                out[batch_out + out_index] = if elem < 0 {
+                    0
+                } else if elem > 255 {
+                    255
+                } else {
+                    elem as u8
+                };
             }
         }
     }
@@ -452,8 +565,16 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read_one(lhs.handle.clone().binding());
-        let rhs_binding = &client.read_one(rhs.handle.clone().binding());
+        let lhs_binding = &client.read_one_tensor(lhs.handle.clone().binding_with_meta(
+            lhs.shape.clone(),
+            lhs.strides.clone(),
+            size_of::<F>(),
+        ));
+        let rhs_binding = &client.read_one_tensor(rhs.handle.clone().binding_with_meta(
+            rhs.shape.clone(),
+            rhs.strides.clone(),
+            size_of::<F>(),
+        ));
 
         let lhs = F::from_bytes(lhs_binding);
         let rhs = F::from_bytes(rhs_binding);
@@ -503,10 +624,7 @@ impl MatmulTestCase {
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
-        TensorHandle::new_contiguous(
-            vec![self.batch, self.m, self.n],
-            self.create_empty::<R>(client, self.batch * self.m, self.n),
-        )
+        TensorHandle::empty(client, vec![self.batch, self.m, self.n])
     }
 
     pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(
@@ -514,17 +632,6 @@ impl MatmulTestCase {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = F::sample(shape.iter().product(), 999);
-        let handle = client.create(bytemuck::cast_slice(&data));
-        TensorHandle::new_contiguous(shape, handle)
-    }
-
-    pub(crate) fn create_empty<R: Runtime>(
-        &self,
-        client: &ComputeClient<R::Server, R::Channel>,
-        x: usize,
-        y: usize,
-    ) -> Handle {
-        client.empty(x * y * core::mem::size_of::<f32>())
+        F::sample::<R>(client, &shape, 999)
     }
 }

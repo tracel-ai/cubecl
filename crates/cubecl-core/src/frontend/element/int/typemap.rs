@@ -1,18 +1,21 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::*;
 use cubecl_ir::{Elem, ExpandElement, IntKind, Scope, Variable};
-use derive_more::derive::*;
+use derive_more::derive::{
+    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
+    DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
+    SubAssign,
+};
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 
 use crate::{
-    compute::{KernelBuilder, KernelLauncher},
-    prelude::Index,
-    prelude::*,
     Runtime,
+    compute::{KernelBuilder, KernelLauncher},
+    prelude::*,
 };
 
-use super::{init_expand_element, Int};
+use super::{Int, into_mut_expand_element};
 
 #[repr(transparent)]
 #[derive(
@@ -166,8 +169,8 @@ impl<const POS: u8> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> 
 
 impl<const POS: u8> IntoRuntime for IntExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
-        Init::init(expand, scope)
+        let elem: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
+        into_runtime_expand_element(scope, elem).into()
     }
 }
 
@@ -180,9 +183,9 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementBaseInit for IntExpand<POS> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+impl<const POS: u8> ExpandElementIntoMut for IntExpand<POS> {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        into_mut_expand_element(scope, elem)
     }
 }
 
@@ -191,17 +194,13 @@ impl<const POS: u8> Abs for IntExpand<POS> {}
 impl<const POS: u8> Max for IntExpand<POS> {}
 impl<const POS: u8> Min for IntExpand<POS> {}
 impl<const POS: u8> Clamp for IntExpand<POS> {}
+impl<const POS: u8> MulHi for IntExpand<POS> {}
 
 impl<const POS: u8> BitwiseNot for IntExpand<POS> {}
 impl<const POS: u8> ReverseBits for IntExpand<POS> {}
 impl<const POS: u8> CountOnes for IntExpand<POS> {}
 impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
 impl<const POS: u8> LeadingZeros for IntExpand<POS> {}
-
-impl<T: Index, const POS: u8> CubeIndex<T> for IntExpand<POS> {
-    type Output = Self;
-}
-impl<T: Index, const POS: u8> CubeIndexMut<T> for IntExpand<POS> {}
 
 impl<const POS: u8> Int for IntExpand<POS> {
     const BITS: u32 = 32;
@@ -216,7 +215,7 @@ impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(IntExpand::<POS>::as_elem(&builder.context))
+            .scalar(IntExpand::<POS>::as_elem(&builder.scope))
             .into()
     }
 }

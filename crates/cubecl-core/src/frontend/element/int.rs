@@ -1,18 +1,18 @@
 use cubecl_ir::ExpandElement;
 
+use crate::Runtime;
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{Elem, IntKind, Scope};
 use crate::prelude::BitwiseNot;
 use crate::prelude::{FindFirstSet, LeadingZeros};
-use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
 };
 
 use super::{
-    init_expand_element, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init,
-    IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
+    __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
 };
 
 mod typemap;
@@ -72,8 +72,14 @@ macro_rules! impl_int {
 
         impl IntoRuntime for $type {
             fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, scope)
+                let elem: ExpandElementTyped<Self> = self.into();
+                into_runtime_expand_element(scope, elem).into()
+            }
+        }
+
+        impl IntoMut for $type {
+            fn into_mut(self, _scope: &mut Scope) -> Self {
+                self
             }
         }
 
@@ -86,9 +92,9 @@ macro_rules! impl_int {
             }
         }
 
-        impl ExpandElementBaseInit for $type {
-            fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(scope, elem)
+        impl ExpandElementIntoMut for $type {
+            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                into_mut_expand_element(scope, elem)
             }
         }
 
@@ -107,7 +113,7 @@ macro_rules! impl_int {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($type::as_elem(&builder.context)).into()
+                builder.scalar($type::as_elem(&builder.scope)).into()
             }
         }
     };

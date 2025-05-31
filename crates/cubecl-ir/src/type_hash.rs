@@ -108,6 +108,7 @@ impl_type_hash!(
     core::time::Duration,
     alloc::vec::Vec<T>,
     hashbrown::HashMap<K, V>,
+    hashbrown::HashSet<T>,
     portable_atomic::AtomicBool,
     portable_atomic::AtomicI16,
     portable_atomic::AtomicI32,

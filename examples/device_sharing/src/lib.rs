@@ -1,6 +1,6 @@
 #[cfg(feature = "wgpu")]
 mod device_sharing_wgpu {
-    use cubecl::wgpu::{WgpuDevice, WgpuSetup};
+    use cubecl::wgpu::{AutoGraphicsApi, GraphicsApi, WgpuDevice, WgpuSetup};
 
     pub fn create_wgpu_setup_from_raw() -> WgpuSetup {
         cubecl::future::block_on(create_wgpu_setup_from_raw_async())
@@ -13,15 +13,15 @@ mod device_sharing_wgpu {
             .await
             .expect("Failed to create wgpu adapter from instance");
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Raw"),
-                    required_features: adapter.features(),
-                    required_limits: adapter.limits(),
-                    memory_hints: wgpu::MemoryHints::MemoryUsage,
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("Raw"),
+                required_features: adapter
+                    .features()
+                    .difference(Features::MAPPABLE_PRIMARY_BUFFERS),
+                required_limits: adapter.limits(),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+            })
             .await
             .expect("Failed to create wgpu device from adapter");
 
@@ -30,6 +30,7 @@ mod device_sharing_wgpu {
             adapter,
             device,
             queue,
+            backend: AutoGraphicsApi::backend(),
         }
     }
 

@@ -6,6 +6,7 @@ pub use base::*;
 
 /// Dynamic memory management strategy.
 mod memory_manage;
+use cubecl_common::CubeDim;
 pub use memory_manage::*;
 
 #[cfg(not(feature = "std"))]
@@ -105,24 +106,33 @@ pub struct HardwareProperties {
     pub max_bindings: u32,
     /// Maximum amount of shared memory, in bytes
     pub max_shared_memory_size: usize,
+    /// Maximum `CubeCount` in x, y and z dimensions
+    pub max_cube_count: CubeDim,
+    /// Maximum number of total units in a cube
+    pub max_units_per_cube: u32,
+    /// Maximum `CubeDim` in x, y, and z dimensions
+    pub max_cube_dim: CubeDim,
+    /// Number of streaming multiprocessors (SM), if available
+    pub num_streaming_multiprocessors: Option<u32>,
+    /// Number of tensor cores per SM, if any
+    pub num_tensor_cores: Option<u32>,
+    /// The minimum tiling dimension for a single axis in tensor cores.
+    ///
+    /// For a backend that only supports 16x16x16, the value would be 16.
+    /// For a backend that also supports 32x8x16, the value would be 8.
+    pub min_tensor_cores_dim: Option<u32>,
 }
 
 impl HardwareProperties {
     /// Plane size that is defined for the device.
     pub fn defined_plane_size(&self) -> Option<u32> {
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
         if self.plane_size_min == self.plane_size_max {
+            Some(self.plane_size_min)
+        } else if self.plane_size_min == 32 {
+            // Normally 32 is chosen by default when it's the min plane size.
             Some(self.plane_size_min)
         } else {
             None
-        }
-
-        // On Apple Silicon, the plane size is 32,
-        // though the minimum and maximum differ.
-        // https://github.com/gpuweb/gpuweb/issues/3950
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            Some(32)
         }
     }
 }

@@ -2,6 +2,7 @@ use cubecl_core::{
     channel::ComputeChannel, prelude::*, server::ComputeServer, tensor_line_size_parallel,
     tensor_line_size_perpendicular,
 };
+use cubecl_std::tensor::is_contiguous;
 
 use crate::ReduceStrategy;
 
@@ -15,13 +16,30 @@ pub enum LineMode {
     Perpendicular,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// How bound checks is handled for inner reductions.
+pub enum BoundChecksInner {
+    /// No bound check is necessary.
+    None,
+    /// Using a mask is enough for bound checks.
+    /// This will still read the memory in an out-of-bound location,
+    /// but will replace the value by the null value.
+    Mask,
+    /// Branching is necessary for bound checks.
+    ///
+    /// Probably the right setting when performing fuse on read.
+    Branch,
+}
+
 #[derive(Debug, Clone)]
-pub(crate) struct ReduceConfig {
-    pub(crate) cube_count: CubeCount,
-    pub(crate) cube_dim: CubeDim,
-    pub(crate) line_mode: LineMode,
-    pub(crate) line_size: u32,
-    pub(crate) bound_checks: bool,
+pub struct ReduceConfig {
+    pub cube_count: CubeCount,
+    pub cube_dim: CubeDim,
+    pub line_mode: LineMode,
+    pub line_size_input: u32,
+    pub line_size_output: u32,
+    pub bound_checks: bool,
+    pub bound_checks_inner: BoundChecksInner,
 }
 
 impl ReduceConfig {
@@ -46,8 +64,10 @@ impl ReduceConfig {
             cube_count: CubeCount::new_single(),
             cube_dim: CubeDim::new_single(),
             line_mode: LineMode::Parallel,
-            line_size: 1,
+            line_size_input: 1,
+            line_size_output: 1,
             bound_checks: true,
+            bound_checks_inner: BoundChecksInner::Mask,
         }
     }
 
@@ -69,7 +89,7 @@ impl ReduceConfig {
     ) -> Self {
         let elem = In::as_elem_native_unchecked();
         let supported_line_sizes = R::line_size_elem(&elem);
-        self.line_size = match self.line_mode {
+        self.line_size_input = match self.line_mode {
             LineMode::Parallel => {
                 tensor_line_size_parallel(supported_line_sizes, input.shape, input.strides, axis)
                     as u32
@@ -96,7 +116,7 @@ impl ReduceConfig {
                 // contiguous in the input and output. This is obtained by taking the head of each list until they are different.
                 // In the above example, only the 0 axis is contiguous in both tensor, but it output sorted axis were [0, 1, 3, 2] instead,
                 // both the 0 and 3 axes would be contiguous in the two tensors.
-                // The corresponding number of entries is the product of the shape for the contigous axes.
+                // The corresponding number of entries is the product of the shape for the contiguous axes.
                 // In the example, it is simply 2.
                 //
                 // This gives us an upper bound on the line size we can used.
@@ -132,16 +152,29 @@ impl ReduceConfig {
                 ) as u32
             }
         };
+
+        if self.line_size_input > 1 && self.line_mode == LineMode::Perpendicular {
+            // TODO that this can be improved
+            let rank = output.strides.len();
+            let is_contiguous =
+                is_contiguous(&output.shape[axis..rank], &output.strides[axis..rank])
+                    && output.strides[rank - 1] == 1;
+            let shape = output.shape.get(axis + 1).cloned().unwrap_or(1) as u32;
+
+            if is_contiguous && shape % self.line_size_input == 0 {
+                self.line_size_output = self.line_size_input;
+            }
+        }
         self
     }
 
-    fn generate_cube_dim<S: ComputeServer, C: ComputeChannel<S>>(
+    pub fn generate_cube_dim<S: ComputeServer, C: ComputeChannel<S>>(
         mut self,
         client: &ComputeClient<S, C>,
         use_planes: bool,
     ) -> Self {
         self.cube_dim = if use_planes {
-            let plane_dim = client.properties().hardware_properties().plane_size_min;
+            let plane_dim = client.properties().hardware.plane_size_min;
             CubeDim::new_2d(plane_dim, DEFAULT_PLANE_COUNT)
         } else {
             DEFAULT_CUBE_DIM
@@ -149,7 +182,7 @@ impl ReduceConfig {
         self
     }
 
-    fn generate_cube_count<R: Runtime>(
+    pub fn generate_cube_count<R: Runtime>(
         mut self,
         reduce_count: u32,
         strategy: &ReduceStrategy,
@@ -162,7 +195,7 @@ impl ReduceConfig {
             };
         let reduce_count_per_cube = match self.line_mode {
             LineMode::Parallel => agent_count_per_cube,
-            LineMode::Perpendicular => agent_count_per_cube * self.line_size,
+            LineMode::Perpendicular => agent_count_per_cube * self.line_size_input,
         };
 
         let cube_count = reduce_count.div_ceil(reduce_count_per_cube);

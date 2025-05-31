@@ -1,14 +1,17 @@
 use std::num::NonZero;
 
-use crate::frontend::{
-    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
+use crate as cubecl;
+use crate::{
+    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
+    prelude::MulHi,
 };
 use crate::{
-    ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
-    prelude::{binary_expand_fixed_output, Dot, Numeric},
+    ir::{Arithmetic, BinaryOperator, Elem, Instruction, Item, Scope},
+    prelude::{Dot, Numeric, binary_expand_fixed_output},
     unexpanded,
 };
 use cubecl_ir::{Comparison, ExpandElement};
+use cubecl_macros::{cube, intrinsic};
 use derive_more::derive::Neg;
 /// A contiguous list of elements that supports auto-vectorized operations.
 
@@ -17,6 +20,8 @@ pub struct Line<P> {
     // Comptime lines only support 1 element.
     pub(crate) val: P,
 }
+
+type LineExpand<P> = ExpandElementTyped<Line<P>>;
 
 impl<P: CubePrimitive> Clone for Line<P> {
     fn clone(&self) -> Self {
@@ -28,18 +33,32 @@ impl<P: CubePrimitive> Copy for Line<P> {}
 
 /// Module that contains the implementation details of the new function.
 mod new {
+    use cubecl_macros::comptime_type;
+
     use super::*;
 
+    #[cube]
     impl<P: CubePrimitive> Line<P> {
         /// Create a new line of size 1 using the given value.
+        #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
-            Self { val }
+            intrinsic!(|_| {
+                let elem: ExpandElementTyped<P> = val;
+                elem.expand.into()
+            })
         }
 
-        /// Expand function of [Self::new].
-        pub fn __expand_new(_scope: &mut Scope, val: P::ExpandType) -> ExpandElementTyped<Self> {
-            let elem: ExpandElementTyped<P> = val;
-            elem.expand.into()
+        #[allow(unused_variables)]
+        /// Get the length of the current line.
+        pub fn line_size(&self) -> comptime_type!(u32) {
+            intrinsic!(|_| {
+                let elem: ExpandElementTyped<Line<P>> = self;
+                elem.expand
+                    .item
+                    .vectorization
+                    .map(|a| a.get() as u32)
+                    .unwrap_or(1)
+            })
         }
     }
 }
@@ -50,6 +69,7 @@ mod fill {
 
     use super::*;
 
+    #[cube]
     impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
         /// Fill the line with the given value.
         ///
@@ -62,68 +82,43 @@ mod fill {
         /// line[1] = 2;
         /// ```
         #[allow(unused_variables)]
-        pub fn fill(mut self, value: P) -> Self {
-            self.val = value;
-            self
-        }
+        pub fn fill(self, value: P) -> Self {
+            intrinsic!(|scope| {
+                let length = self.expand.item.vectorization;
+                let output = scope.create_local(Item::vectorized(P::as_elem(scope), length));
 
-        /// Expand function of [fill](Self::fill).
-        pub fn __expand_fill(
-            scope: &mut Scope,
-            line: ExpandElementTyped<Self>,
-            value: ExpandElementTyped<P>,
-        ) -> ExpandElementTyped<Self> {
-            line.__expand_fill_method(scope, value)
-        }
-    }
+                cast::expand::<P>(scope, value, output.clone().into());
 
-    impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
-        /// Expand method of [fill](Line::fill).
-        pub fn __expand_fill_method(self, scope: &mut Scope, value: ExpandElementTyped<P>) -> Self {
-            let length = self.expand.item.vectorization;
-            let output = scope.create_local(Item::vectorized(P::as_elem(scope), length));
-
-            cast::expand::<P>(scope, value, output.clone().into());
-
-            output.into()
+                output.into()
+            })
         }
     }
 }
 
 /// Module that contains the implementation details of the empty function.
 mod empty {
+    use crate::prelude::Cast;
+
     use super::*;
 
-    impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
+    #[cube]
+    impl<P: CubePrimitive> Line<P> {
         /// Create an empty line of the given size.
         ///
         /// Note that a line can't change in size once it's fixed.
         #[allow(unused_variables)]
-        pub fn empty(size: u32) -> Self {
-            unexpanded!()
-        }
-
-        /// Expand function of [empty](Self::empty).
-        pub fn __expand_empty(
-            scope: &mut Scope,
-            length: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<Self> {
-            let length = match length.expand.as_const() {
-                Some(val) => match val {
-                    ConstantScalarValue::Int(val, _) => NonZero::new(val)
-                        .map(|val| val.get() as u8)
-                        .map(|val| NonZero::new(val).unwrap()),
-                    ConstantScalarValue::Float(val, _) => NonZero::new(val as i64)
-                        .map(|val| val.get() as u8)
-                        .map(|val| NonZero::new(val).unwrap()),
-                    ConstantScalarValue::UInt(val, _) => NonZero::new(val as u8),
-                    ConstantScalarValue::Bool(_) => None,
-                },
-                None => None,
-            };
-            scope
-                .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
-                .into()
+        pub fn empty(#[comptime] size: u32) -> Self {
+            let zero = Line::<P>::cast_from(0);
+            intrinsic!(|scope| {
+                let length = NonZero::new(size as u8);
+                // We don't declare const variables in our compilers, only mut variables.
+                // So we need to create the variable as mut here.
+                let var: ExpandElementTyped<Line<P>> = scope
+                    .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
+                    .into();
+                cubecl::frontend::assign::expand(scope, zero, var.clone());
+                var
+            })
         }
     }
 }
@@ -179,45 +174,29 @@ macro_rules! impl_line_comparison {
 
                 use super::*;
 
+                #[cube]
                 impl<P: CubePrimitive> Line<P> {
                     #[doc = concat!(
                         "Return a new line with the element-wise comparison of the first line being ",
                         $comment,
                         " the second line."
                     )]
-                    pub fn $name(self, _other: Self) -> Line<bool> {
-                        unexpanded!()
-                    }
+                    #[allow(unused_variables)]
+                    pub fn $name(self, other: Self) -> Line<bool> {
+                        intrinsic!(|scope| {
+                            let size = self.expand.item.vectorization;
+                            let lhs = self.expand.into();
+                            let rhs = other.expand.into();
 
-                    /// Expand function of [$name](Self::$name).
-                    pub fn [< __expand_ $name >](
-                        scope: &mut Scope,
-                        lhs: ExpandElementTyped<Self>,
-                        rhs: ExpandElementTyped<Self>,
-                    ) -> ExpandElementTyped<Line<bool>> {
-                        lhs.[< __expand_ $name _method >](scope, rhs)
-                    }
-                }
+                            let output = scope.create_local_mut(Item::vectorized(bool::as_elem(scope), size));
 
-                impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
-                    /// Expand method of [equal](Line::equal).
-                    pub fn [< __expand_ $name _method >](
-                        self,
-                        scope: &mut Scope,
-                        rhs: Self,
-                    ) -> ExpandElementTyped<Line<bool>> {
-                        let size = self.expand.item.vectorization;
-                        let lhs = self.expand.into();
-                        let rhs = rhs.expand.into();
+                            scope.register(Instruction::new(
+                                Comparison::$operator(BinaryOperator { lhs, rhs }),
+                                output.clone().into(),
+                            ));
 
-                        let output = scope.create_local_mut(Item::vectorized(bool::as_elem(scope), size));
-
-                        scope.register(Instruction::new(
-                            Comparison::$operator(BinaryOperator { lhs, rhs }),
-                            output.clone().into(),
-                        ));
-
-                        output.into()
+                            output.into()
+                        })
                     }
                 }
             }
@@ -240,30 +219,14 @@ mod bool_and {
 
     use super::*;
 
+    #[cube]
     impl Line<bool> {
         /// Return a new line with the element-wise and of the lines
-        pub fn and(self, _other: Self) -> Line<bool> {
-            unexpanded!()
-        }
-
-        /// Expand function of [and](Self::and).
-        pub fn __expand_and(
-            scope: &mut Scope,
-            lhs: ExpandElementTyped<Self>,
-            rhs: ExpandElementTyped<Self>,
-        ) -> ExpandElementTyped<Line<bool>> {
-            lhs.__expand_and_method(scope, rhs)
-        }
-    }
-
-    impl ExpandElementTyped<Line<bool>> {
-        /// Expand method of [equal](Line::equal).
-        pub fn __expand_and_method(
-            self,
-            scope: &mut Scope,
-            rhs: Self,
-        ) -> ExpandElementTyped<Line<bool>> {
-            binary_expand(scope, self.expand, rhs.expand, Operator::And).into()
+        #[allow(unused_variables)]
+        pub fn and(self, other: Self) -> Line<bool> {
+            intrinsic!(
+                |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
+            )
         }
     }
 }
@@ -275,30 +238,12 @@ mod bool_or {
 
     use super::*;
 
+    #[cube]
     impl Line<bool> {
         /// Return a new line with the element-wise and of the lines
-        pub fn or(self, _other: Self) -> Line<bool> {
-            unexpanded!()
-        }
-
-        /// Expand function of [and](Self::and).
-        pub fn __expand_or(
-            scope: &mut Scope,
-            lhs: ExpandElementTyped<Self>,
-            rhs: ExpandElementTyped<Self>,
-        ) -> ExpandElementTyped<Line<bool>> {
-            lhs.__expand_and_method(scope, rhs)
-        }
-    }
-
-    impl ExpandElementTyped<Line<bool>> {
-        /// Expand method of [equal](Line::equal).
-        pub fn __expand_or_method(
-            self,
-            scope: &mut Scope,
-            rhs: Self,
-        ) -> ExpandElementTyped<Line<bool>> {
-            binary_expand(scope, self.expand, rhs.expand, Operator::Or).into()
+        #[allow(unused_variables)]
+        pub fn or(self, other: Self) -> Line<bool> {
+            intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
         }
     }
 }
@@ -307,15 +252,9 @@ impl<P: CubePrimitive> CubeType for Line<P> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
-    fn init_elem(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
-        P::init_elem(scope, elem)
-    }
-}
-
-impl<P: CubePrimitive> IntoRuntime for Line<P> {
-    fn __expand_runtime_method(self, scope: &mut crate::ir::Scope) -> Self::ExpandType {
-        self.val.__expand_runtime_method(scope).expand.into()
+impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
+    fn elem_into_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+        P::elem_into_mut(scope, elem)
     }
 }
 
@@ -349,3 +288,5 @@ impl<N: Numeric> Dot for Line<N> {
         binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }
+
+impl<N: MulHi + CubePrimitive> MulHi for Line<N> {}

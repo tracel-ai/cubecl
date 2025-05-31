@@ -3,7 +3,7 @@ use std::mem::take;
 use cubecl_ir::{Instruction, Operator, Select};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
-use crate::{passes::update_references, AtomicCounter, ControlFlow, Optimizer};
+use crate::{AtomicCounter, ControlFlow, Optimizer, passes::update_references};
 
 use super::OptimizerPass;
 
@@ -80,7 +80,7 @@ impl OptimizerPass for EmptyBranchToSelect {
                         opt.program.remove_node(or_else);
                         opt.program.remove_node(merge);
                         for merge_successor in merge_successors {
-                            opt.program.add_edge(block, merge_successor, ());
+                            opt.program.add_edge(block, merge_successor, 0);
                         }
                         *opt.program[block].control_flow.borrow_mut() = merge_control;
                         opt.invalidate_structure();

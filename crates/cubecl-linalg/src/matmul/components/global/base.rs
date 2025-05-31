@@ -1,15 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use pipeline::Pipeline;
 
-use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
-use crate::matmul::components::{config::MatmulConfig, tile};
-use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
-use crate::matmul::components::{MatmulPrecision, StageTiling};
-use crate::tensor::{ReadWrite, VirtualTensor};
+use crate::matmul::components::{
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
+    config::MatmulConfig, stage,
+};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
-use super::LoadMode;
+use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -35,26 +36,26 @@ pub trait GlobalMatmulFamily:
 /// # Safety
 ///
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
-/// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
+/// It is therefore important that Loaders and Writers perform checks to avoid out-of-bounds
 /// before loading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
-    type LhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
-    type RhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
+    type LhsLoader: CubeType;
+    type RhsLoader: CubeType;
     type AccumulatorLoader: CubeType;
-    type Out: OutputLoader<MP::EG>;
+    type Writer: GlobalWriter<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
-    /// using the output unloader.
+    /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
-        unloader: Self::Out,
+        writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -62,92 +63,40 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         m_offset: u32,
         k_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         k_offset: u32,
         n_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
-
-    /// Initialize the unloader at row m and column n
-    fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
-        m_offset: u32,
-        n_offset: u32,
-        batch_offset: u32,
-    ) -> Self::Out;
 
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
-}
 
-#[cube]
-/// Input to the global matmul, responsible of filling the stage and providing a reader for it.
-/// Advances along the k-dimension to fill the stage with further data.
-pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    CubeType + 'static + Send + Sync
-{
-    /// The stage reader which matches the input of the underlying stage matmul.
-    type StageReader: CubeType;
-
-    /// Fills the stage at the current k offset.
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
-
-    /// Fills the stage at the current k offset.
-    fn fill_stage_window(this: &mut Self, pipeline: Pipeline<ES>, #[comptime] config: G);
-
-    /// Returns a reader for the stage at the current k offset
-    fn as_stage_reader(this: &Self) -> Self::StageReader;
-
-    /// Move the k offset by k_offset
-    fn advance_view(this: &mut Self, k_offset: u32);
-}
-
-#[cube]
-/// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
-/// for it.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::StageConfig>:
-    CubeType + 'static + Send + Sync
-{
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
-
-    /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
-    /// for the underlying tile.
-    fn load<I: Numeric, Tile: tile::TileMatmul<I, Acc>>(
-        this: &mut Self,
-        acc: &mut Tile::Accumulator,
-        tile_n: u32,
-        #[comptime] config: Tile::Config,
-    );
-}
-
-#[cube]
-/// Output to the global matmul
-///
-/// # Note
-///
-/// It is only a wrapper over the stage writer because there is no K for the output.
-/// Could be deleted in favor of having only the StageWriter
-pub trait OutputLoader<EG: Numeric>: CubeType + 'static + Send + Sync {
-    type StageWriter: StageWriter<EG>;
-
-    fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
-}
-
-pub trait LoadingValidation {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
+    /// Initialize the writer at row m and column n
+    fn init_writer(
+        out: VirtualTensor<MP::EO, ReadWrite>,
+        m_offset: u32,
+        n_offset: u32,
+        nth_batch: u32,
+        batch_offset: u32,
+    ) -> Self::Writer;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -159,16 +108,13 @@ pub trait GlobalConfig: MatmulConfig {
     fn to_smm_config(&self) -> Self::SmmConfig;
 
     /// Returns the line size for the global memory corresponding to the given ident
-    fn global_line_size(&self, ident: Ident) -> u32;
-
-    /// Returns the line size for the stage of the given ident
-    fn stage_line_size(&self, ident: Ident) -> u32;
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the [StageTiling] for the given ident
-    fn stage_tiling(&self, ident: Ident) -> StageTiling;
+    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
@@ -176,17 +122,20 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 
-    /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
-
     /// Whether to check if accessing a row would exceed bounds.
-    fn check_row_bounds(&self, ident: Ident) -> bool;
+    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool;
 
     /// Whether to check if accessing a col would exceed bounds.
-    fn check_col_bounds(&self, ident: Ident) -> bool;
+    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool;
 
-    /// Whether we transpose data when loading to the stage
-    fn transpose_load(&self, ident: Ident) -> bool;
+    /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
+    fn check_k_bounds(&self) -> bool;
 
-    fn load_mode(&self) -> LoadMode;
+    fn precompute_job(&self) -> bool;
+
+    fn num_stages(&self, ident: InputIdent) -> u32;
+
+    /// Whether to check loader is balanced in comptime or runtime.
+    /// Not supported by all loading strategies
+    fn loader_mode(&self) -> LoaderMode;
 }

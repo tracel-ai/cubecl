@@ -1,13 +1,16 @@
-use cubecl_common::ExecutionMode;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
-use std::future::Future;
+use cubecl_common::future::DynFut;
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_runtime::id::KernelId;
+use cubecl_runtime::kernel::KernelMetadata;
+use cubecl_runtime::kernel_timestamps::KernelTimestamps;
+use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfilingToken};
 use std::sync::Arc;
-use std::time::Instant;
 
 use super::DummyKernel;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
-use cubecl_runtime::storage::{BindingResource, ComputeStorage};
+use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{Binding, ComputeServer, Handle},
@@ -22,34 +25,36 @@ pub struct DummyServer {
     timestamps: KernelTimestamps,
 }
 
-#[derive(Debug)]
-enum KernelTimestamps {
-    Inferred { start_time: Instant },
-    Disabled,
+#[derive(Debug, Clone)]
+pub struct KernelTask {
+    kernel: Arc<dyn DummyKernel>,
 }
 
-impl KernelTimestamps {
-    fn enable(&mut self) {
-        if !matches!(self, Self::Disabled) {
-            return;
-        }
+impl KernelMetadata for KernelTask {
+    fn id(&self) -> KernelId {
+        self.kernel.id()
+    }
+}
 
-        *self = Self::Inferred {
-            start_time: Instant::now(),
-        };
+impl KernelTask {
+    pub fn new(kernel: impl DummyKernel) -> Self {
+        Self {
+            kernel: Arc::new(kernel),
+        }
     }
 
-    fn disable(&mut self) {
-        *self = Self::Disabled;
+    pub fn compute(&self, resources: &mut [&BytesResource]) {
+        self.kernel.compute(resources);
     }
 }
 
 impl ComputeServer for DummyServer {
-    type Kernel = Arc<dyn DummyKernel>;
+    type Kernel = KernelTask;
     type Storage = BytesStorage;
+    type Info = ();
     type Feature = ();
 
-    fn read(&mut self, bindings: Vec<Binding>) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
         let bytes: Vec<_> = bindings
             .into_iter()
             .map(|b| {
@@ -58,10 +63,19 @@ impl ComputeServer for DummyServer {
             })
             .collect();
 
-        async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() }
+        Box::pin(async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() })
     }
 
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
+        self.read(bindings)
+    }
+
+    fn sync(&mut self) -> DynFut<()> {
+        Box::pin(async move {})
+    }
+
+    fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
         let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
@@ -77,28 +91,82 @@ impl ComputeServer for DummyServer {
         handle
     }
 
+    fn create_tensors(
+        &mut self,
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        _elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        data.into_iter()
+            .zip(shape)
+            .map(|(data, shape)| {
+                let rank = shape.len();
+                let mut strides = vec![1; rank];
+                for i in (0..rank - 1).rev() {
+                    strides[i] = strides[i + 1] * shape[i + 1];
+                }
+                let handle = self.create(data);
+
+                (handle, strides)
+            })
+            .collect()
+    }
+
     fn empty(&mut self, size: usize) -> Handle {
         Handle::new(
-            self.memory_management.reserve(size as u64),
+            self.memory_management.reserve(size as u64, None),
             None,
             None,
             size as u64,
         )
     }
 
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        shape
+            .into_iter()
+            .zip(elem_size)
+            .map(|(shape, elem_size)| {
+                let rank = shape.len();
+                let mut strides = vec![1; rank];
+                for i in (0..rank - 1).rev() {
+                    strides[i] = strides[i + 1] * shape[i + 1];
+                }
+                let size = (shape.iter().product::<usize>() * elem_size) as u64;
+                let handle =
+                    Handle::new(self.memory_management.reserve(size, None), None, None, size);
+                (handle, strides)
+            })
+            .collect()
+    }
+
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         _mode: ExecutionMode,
+        _logger: Arc<ServerLogger>,
     ) {
-        let bind_resources = bindings
+        let mut resources: Vec<_> = bindings
+            .buffers
             .into_iter()
-            .map(|binding| self.get_resource(binding))
-            .collect::<Vec<_>>();
+            .map(|b| self.get_resource(b))
+            .collect();
+        let metadata = self.create(bytemuck::cast_slice(&bindings.metadata.data));
+        resources.push(self.get_resource(metadata.binding()));
 
-        let mut resources: Vec<_> = bind_resources.iter().map(|x| x.resource()).collect();
+        let scalars = bindings
+            .scalars
+            .into_values()
+            .map(|s| self.create(s.data()))
+            .collect::<Vec<_>>();
+        resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
+
+        let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
 
         kernel.compute(&mut resources);
     }
@@ -107,35 +175,20 @@ impl ComputeServer for DummyServer {
         // Nothing to do with dummy backend.
     }
 
-    #[allow(clippy::manual_async_fn)]
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        async move {}
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
-        let duration = match &mut self.timestamps {
-            KernelTimestamps::Inferred { start_time } => {
-                let duration = start_time.elapsed();
-                *start_time = Instant::now();
-                Ok(duration)
-            }
-            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
-        };
-
-        async move { duration }
-    }
-
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
     }
 
-    fn enable_timestamps(&mut self) {
-        self.timestamps.enable();
+    fn memory_cleanup(&mut self) {
+        self.memory_management.cleanup(true);
     }
 
-    fn disable_timestamps(&mut self) {
-        self.timestamps.disable();
+    fn start_profile(&mut self) -> ProfilingToken {
+        self.timestamps.start()
+    }
+
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+        self.timestamps.stop(token)
     }
 }
 
@@ -143,7 +196,7 @@ impl DummyServer {
     pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
         Self {
             memory_management,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: KernelTimestamps::default(),
         }
     }
 }

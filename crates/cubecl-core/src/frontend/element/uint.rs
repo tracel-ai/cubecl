@@ -1,13 +1,13 @@
 use cubecl_ir::{ExpandElement, Scope, UIntKind};
 
+use crate::Runtime;
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
-use crate::Runtime;
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings,
+    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, LaunchArgExpand,
+    ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
 };
 
 macro_rules! declare_uint {
@@ -16,28 +16,28 @@ macro_rules! declare_uint {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
-        impl ExpandElementBaseInit for $primitive {
-            fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(scope, elem)
-            }
-        }
-
         impl CubePrimitive for $primitive {
             fn as_elem_native() -> Option<Elem> {
                 Some(Elem::UInt(UIntKind::$kind))
             }
         }
 
-        impl Init for $primitive {
-            fn init(self, _scope: &mut Scope) -> Self {
+        impl IntoRuntime for $primitive {
+            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+                let elem: ExpandElementTyped<Self> = self.into();
+                into_runtime_expand_element(scope, elem).into()
+            }
+        }
+
+        impl IntoMut for $primitive {
+            fn into_mut(self, _scope: &mut Scope) -> Self {
                 self
             }
         }
 
-        impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, scope)
+        impl ExpandElementIntoMut for $primitive {
+            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                into_mut_expand_element(scope, elem)
             }
         }
 
@@ -48,7 +48,7 @@ macro_rules! declare_uint {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem(&builder.context)).into()
+                builder.scalar($primitive::as_elem(&builder.scope)).into()
             }
         }
 

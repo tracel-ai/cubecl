@@ -1,8 +1,9 @@
-use cubecl_core::{prelude::*, Feature};
+use cubecl_core::{Feature, prelude::*};
+use serde::{Deserialize, Serialize};
 
 use crate::ReduceError;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]
 pub struct ReduceStrategy {
     /// If true and the compute client support plane instructions,
     /// then try using them in the kernel. It could still be impossible to use
@@ -31,10 +32,10 @@ impl ReduceStrategy {
         Ok(self)
     }
 
-    pub fn fallback_strategy<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> Self {
+    pub fn new<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shared: bool) -> Self {
         Self {
             use_planes: support_plane::<R>(client) && precise_plane_dim::<R>(client),
-            shared: true,
+            shared,
         }
     }
 }
@@ -44,6 +45,6 @@ fn support_plane<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> b
 }
 
 fn precise_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {
-    let hw_props = client.properties().hardware_properties();
+    let hw_props = &client.properties().hardware;
     hw_props.plane_size_min == hw_props.plane_size_max
 }

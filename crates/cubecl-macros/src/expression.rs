@@ -1,8 +1,8 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
-    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
-    PathSegment, Type,
+    AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    PathSegment, QSelf, Type,
 };
 
 use crate::{
@@ -33,6 +33,7 @@ pub enum Expression {
     },
     Path {
         path: Path,
+        qself: Option<QSelf>,
     },
     Literal {
         value: Lit,
@@ -47,7 +48,7 @@ pub enum Expression {
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
-        associated_type: Option<(Path, PathSegment)>,
+        associated_type: Option<(Path, Option<QSelf>, PathSegment)>,
         span: Span,
     },
     CompilerIntrinsic {
@@ -142,21 +143,30 @@ pub enum Expression {
         fields: Vec<(Member, Expression)>,
     },
     Keyword {
-        name: syn::Ident,
+        name: Ident,
     },
-    ConstMatch {
-        const_expr: syn::Expr,
-        arms: Vec<ConstMatchArm>,
+    Match {
+        // True implies that discriminants are matched at comptime,
+        // but the values of the variants are only known at runtime.
+        // False implies that both the discriminants and the variant's values are known at comptime.
+        runtime_variants: bool,
+
+        expr: Expr,
+        arms: Vec<MatchArm>,
     },
     Comment {
         content: LitStr,
+    },
+    RustMacro {
+        ident: Ident,
+        tokens: TokenStream,
     },
     Terminate,
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstMatchArm {
-    pub pat: syn::Pat,
+pub struct MatchArm {
+    pub pat: Pat,
     pub expr: Box<Expression>,
 }
 
@@ -179,7 +189,7 @@ impl Expression {
             Expression::ExpressionMacro { .. } => None,
             Expression::Block(block) => block.ty.clone(),
             Expression::FunctionCall { .. } => None,
-            Expression::Break { .. } => None,
+            Expression::Break => None,
             Expression::Cast { to, .. } => Some(to.clone()),
             Expression::Continue { .. } => None,
             Expression::Return { .. } => None,
@@ -202,8 +212,9 @@ impl Expression {
             Expression::Closure { .. } => None,
             Expression::Keyword { .. } => None,
             Expression::CompilerIntrinsic { .. } => None,
-            Expression::ConstMatch { .. } => None,
+            Expression::Match { .. } => None,
             Expression::Comment { .. } => None,
+            Expression::RustMacro { .. } => None,
             Expression::Terminate => None,
         }
     }

@@ -1,10 +1,10 @@
 use darling::{
+    FromDeriveInput, FromField, FromVariant,
     ast::{Data, Fields},
     util::Flag,
-    FromDeriveInput, FromField, FromVariant,
 };
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{DeriveInput, Expr, Generics, Ident, Path, Type};
 
 #[derive(FromDeriveInput)]

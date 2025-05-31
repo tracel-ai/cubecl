@@ -1,0 +1,147 @@
+use cubecl_core::prelude::TensorHandleRef;
+use cubecl_core::{Runtime, client::ComputeClient};
+
+use crate::matmul::components::stage::{StageVectorization, TilesPerPartition};
+use crate::matmul::components::{
+    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSize, OutputRuntimeArg,
+};
+use crate::matmul::kernels::matmul::{Algorithm, GlobalInput, StageInput};
+use crate::matmul::{
+    components::{
+        CompleteStageTiling, InputArg, MatmulProblem, MatmulSpec, OutputArg,
+        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+    },
+    kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
+};
+use cubecl_core::frontend::CubePrimitive;
+
+pub trait MatmulSelection {
+    fn tile_shape(&self) -> MatmulSize;
+    fn tile_count(&self) -> MatmulSize;
+    fn tiles_per_partition(&self) -> TilesPerPartition;
+}
+
+/// Select which kernel to launch for the given Algorithm.
+///
+/// Only works for concrete tensor inputs and output.
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: &TensorHandleRef<'_, R>,
+    lhs_scale: &Option<TensorHandleRef<'_, R>>,
+    rhs: &TensorHandleRef<'_, R>,
+    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    out: &TensorHandleRef<'_, R>,
+    problem: MatmulProblem,
+    line_sizes: Option<MatmulLineSizes>,
+    plane_dim: u32,
+) -> Result<(), MatmulLaunchError>
+where
+    InputArg<MS>: ConcreteInputsFactory,
+    OutputArg<MS>: ConcreteOutputFactory,
+{
+    let selection = A::selection::<R>(
+        client,
+        &problem,
+        plane_dim,
+        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
+        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
+    );
+
+    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
+        &problem,
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
+        &selection,
+    ));
+
+    let tiling = CompleteStageTiling {
+        tile_shape: selection.tile_shape(),
+        tile_count: selection.tile_count(),
+    };
+
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
+    matmul_cube_preparation::<MS, R, A>(
+        client,
+        <InputArg<MS> as ConcreteInputsFactory>::create(
+            lhs,
+            lhs_scale,
+            rhs,
+            rhs_scale,
+            &selection,
+            &problem,
+            &line_sizes,
+        ),
+        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
+        problem,
+        &line_sizes,
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                tiles_per_partition: selection.tiles_per_partition(),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
+        selection,
+    )
+}
+
+/// Select which kernel to launch for the given Algorithm.
+pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
+    problem: MatmulProblem,
+    line_sizes: Option<MatmulLineSizes>,
+    plane_dim: u32,
+) -> Result<(), MatmulLaunchError> {
+    let selection = A::selection::<R>(
+        client,
+        &problem,
+        plane_dim,
+        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
+        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
+    );
+
+    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
+        &problem,
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
+        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
+        &selection,
+    ));
+
+    let tiling = CompleteStageTiling {
+        tile_shape: selection.tile_shape(),
+        tile_count: selection.tile_count(),
+    };
+    let vectorization = StageVectorization {
+        stage_line_size: 0,
+        stage_elem_padding: 0,
+    };
+    matmul_cube_preparation::<MS, R, A>(
+        client,
+        input,
+        output,
+        problem,
+        &line_sizes,
+        GlobalInput {
+            stage_input: StageInput {
+                tiling,
+                stage_buffering: A::stage_buffering_strategy(),
+                stage_vectorization: vectorization,
+                num_stages: A::num_stages(),
+                tiles_per_partition: selection.tiles_per_partition(),
+            },
+            loading_precompute_strategy: A::loading_precompute_strategy(),
+            loader_mode: A::loader_mode(),
+        },
+        selection,
+    )
+}

@@ -9,15 +9,22 @@ use crate::{OperationReflect, TypeHash};
 #[allow(missing_docs)]
 pub enum Synchronization {
     // Synchronizize units in a cube.
-    SyncUnits,
+    SyncCube,
+    // Synchronize units within their plane
+    SyncPlane,
     SyncStorage,
+    /// Sync CTA proxy.
+    /// Experimental, CUDA only, SM 9.0+ only
+    SyncProxyShared,
 }
 
 impl Display for Synchronization {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Synchronization::SyncUnits => write!(f, "sync_units()"),
+            Synchronization::SyncCube => write!(f, "sync_cube()"),
             Synchronization::SyncStorage => write!(f, "sync_storage()"),
+            Synchronization::SyncProxyShared => write!(f, "sync_proxy_shared()"),
+            Synchronization::SyncPlane => write!(f, "sync_plane()"),
         }
     }
 }

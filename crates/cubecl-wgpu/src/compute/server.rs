@@ -1,25 +1,22 @@
-use std::{future::Future, time::Duration};
-
-use super::{
-    stream::{PipelineDispatch, WgpuStream},
-    WgpuStorage,
-};
-use crate::{timestamps::KernelTimestamps, AutoGraphicsApi};
-use crate::{AutoCompiler, GraphicsApi};
+use super::WgpuResource;
+use super::{WgpuStorage, stream::WgpuStream};
+use crate::AutoCompiler;
 use alloc::sync::Arc;
-use cubecl_common::future;
+use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::compute::{CubeTask, DebugInformation};
+use cubecl_core::future::DynFut;
+use cubecl_core::server::ProfilingToken;
 use cubecl_core::{
-    compute::DebugInformation,
+    Feature, MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
-    server::{Binding, Handle},
-    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
+    server::{Binding, BindingWithMeta, Bindings, Handle},
 };
+use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::{
-    debug::{DebugLogger, ProfileLevel},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
-    TimestampsError, TimestampsResult,
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
@@ -29,8 +26,6 @@ use wgpu::ComputePipeline;
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
-    logger: DebugLogger,
-    duration_profiled: Option<Duration>,
     stream: WgpuStream,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
@@ -38,6 +33,7 @@ pub struct WgpuServer {
 
 impl WgpuServer {
     /// Create a new server.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
@@ -45,20 +41,13 @@ impl WgpuServer {
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
+        backend: wgpu::Backend,
     ) -> Self {
-        let logger = DebugLogger::default();
-        let mut timestamps = KernelTimestamps::Disabled;
-
-        if logger.profile_level().is_some() {
-            timestamps.enable(&device);
-        }
-
         let stream = WgpuStream::new(
             device.clone(),
             queue.clone(),
             memory_properties,
             memory_config,
-            timestamps,
             tasks_max,
         );
 
@@ -66,10 +55,8 @@ impl WgpuServer {
             compilation_options,
             device,
             pipelines: HashMap::new(),
-            logger,
-            duration_profiled: None,
             stream,
-            backend: AutoGraphicsApi::backend(),
+            backend,
         }
     }
 
@@ -77,6 +64,7 @@ impl WgpuServer {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) -> Arc<ComputePipeline> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
@@ -88,13 +76,36 @@ impl WgpuServer {
         let mut compiler = compiler(self.backend);
         let mut compile = compiler.compile(self, kernel, mode);
 
-        if self.logger.is_activated() {
-            compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
+        if logger.compilation_activated() {
+            compile.debug_info = Some(DebugInformation::new(
+                compiler.lang_tag(),
+                kernel_id.clone(),
+            ));
         }
-
-        let compile = self.logger.debug(compile);
+        logger.log_compilation(&compile);
+        // /!\ Do not delete the following commented code.
+        // This is useful while working on the metal compiler.
+        // Also the errors are printed nicely which is not the case when this is the runtime
+        // that does it.
+        // println!("SOURCE:\n{}", compile.source);
+        // {
+        //     // Write shader in metal file then compile it for error
+        //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
+        //     let _status = std::process::Command::new("xcrun")
+        //         .args(vec![
+        //             "-sdk",
+        //             "macosx",
+        //             "metal",
+        //             "-o",
+        //             "shader.ir",
+        //             "-c",
+        //             "shader.metal",
+        //         ])
+        //         .status()
+        //         .expect("should launch the command");
+        //     // std::process::exit(status.code().unwrap());
+        // }
         let pipeline = self.create_pipeline(compile, mode);
-
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
@@ -105,31 +116,14 @@ impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type Feature = Feature;
+    type Info = wgpu::Backend;
 
-    fn read(
-        &mut self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
-        let resources = bindings
-            .into_iter()
-            .map(|binding| {
-                let rb = self.get_resource(binding);
-                let resource = rb.resource();
-
-                (resource.buffer.clone(), resource.offset(), resource.size())
-            })
-            .collect();
-
-        // Clear compute pass.
-        self.stream.read_buffers(resources)
+    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+        self.stream.read_buffers(bindings)
     }
 
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
-        let resource = self.stream.get_resource(
-            binding.clone().memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+    fn get_resource(&mut self, binding: Binding) -> BindingResource<WgpuResource> {
+        let resource = self.stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
 
@@ -139,87 +133,23 @@ impl ComputeServer for WgpuServer {
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        Handle::new(self.stream.create(data), None, None, data.len() as u64)
+        self.stream.create(data)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
-        Handle::new(self.stream.empty(size as u64), None, None, size as u64)
+        self.stream.empty(size as u64)
     }
 
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
-        // Check for any profiling work to be done before execution.
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel.id()))
-        } else {
-            None
-        };
-
-        if profile_level.is_some() {
-            let fut = self.stream.sync_elapsed();
-            if let Ok(duration) = future::block_on(fut) {
-                if let Some(profiled) = &mut self.duration_profiled {
-                    *profiled += duration;
-                } else {
-                    self.duration_profiled = Some(duration);
-                }
-            }
-        }
-
-        // Start execution.
-        let pipeline = self.pipeline(kernel, mode);
-
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources: Vec<_> = bindings
-            .iter()
-            .map(|binding| self.get_resource(binding.clone()).into_resource())
-            .collect();
-
-        // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
-        // needs to be longer than the compute pass, so we can't do this just before dispatching.
-        let dispatch = match count.clone() {
-            CubeCount::Dynamic(binding) => {
-                PipelineDispatch::Dynamic(self.get_resource(binding).into_resource())
-            }
-            CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
-        };
-
-        self.stream.register(pipeline, resources, dispatch);
-
-        // If profiling, write out results.
-        if let Some(level) = profile_level {
-            let (name, kernel_id) = profile_info.unwrap();
-
-            // Execute the task.
-            if let Ok(duration) = future::block_on(self.stream.sync_elapsed()) {
-                if let Some(profiled) = &mut self.duration_profiled {
-                    *profiled += duration;
-                } else {
-                    self.duration_profiled = Some(duration);
-                }
-
-                let info = match level {
-                    ProfileLevel::Basic | ProfileLevel::Medium => {
-                        if let Some(val) = name.split("<").next() {
-                            val.split("::").last().unwrap_or(name).to_string()
-                        } else {
-                            name.to_string()
-                        }
-                    }
-                    ProfileLevel::Full => {
-                        format!("{name}: {kernel_id} CubeCount {count:?}")
-                    }
-                };
-                self.logger.register_profiled(info, duration);
-            }
-        }
+        let pipeline = self.pipeline(kernel, mode, logger);
+        self.stream.register(pipeline, bindings, &count);
     }
 
     fn flush(&mut self) {
@@ -228,51 +158,86 @@ impl ComputeServer for WgpuServer {
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        self.logger.profile_summary();
+    fn sync(&mut self) -> DynFut<()> {
         self.stream.sync()
     }
 
-    /// Returns the total time of GPU work this sync completes.
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
-        self.logger.profile_summary();
+    fn start_profile(&mut self) -> ProfilingToken {
+        self.stream.start_profile()
+    }
 
-        let fut = self.stream.sync_elapsed();
+    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+        let profile = self.stream.stop_profile(token);
 
-        let profiled = self.duration_profiled;
-        self.duration_profiled = None;
-
-        async move {
-            match fut.await {
-                Ok(duration) => match profiled {
-                    Some(profiled) => Ok(duration + profiled),
-                    None => Ok(duration),
-                },
-                Err(err) => match err {
-                    TimestampsError::Disabled => Err(err),
-                    TimestampsError::Unavailable => match profiled {
-                        Some(profiled) => Ok(profiled),
-                        None => Err(err),
-                    },
-                    TimestampsError::Unknown(_) => Err(err),
-                },
-            }
-        }
+        ProfileDuration::from_future(async move { profile.resolve().await })
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
-        self.stream.memory_usage()
+        self.stream.mem_manage.memory_usage()
     }
 
-    fn enable_timestamps(&mut self) {
-        self.stream.timestamps.enable(&self.device);
+    fn memory_cleanup(&mut self) {
+        self.stream.mem_manage.memory_cleanup(true);
     }
 
-    fn disable_timestamps(&mut self) {
-        // Only disable timestamps if profiling isn't enabled.
-        if self.logger.profile_level().is_none() {
-            self.stream.timestamps.disable();
+    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let expected_sizes = bindings
+            .iter()
+            .map(|it| it.shape.iter().product::<usize>() * it.elem_size)
+            .collect::<Vec<_>>();
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
+        let data = self.read(bindings);
+        Box::pin(async move {
+            let mut data = data.await;
+
+            for (data, expected_size) in data.iter_mut().zip(expected_sizes) {
+                data.truncate(expected_size);
+            }
+
+            data
+        })
+    }
+
+    fn create_tensors(
+        &mut self,
+        data: Vec<&[u8]>,
+        shapes: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_size);
+
+        for i in 0..data.len() {
+            let data = data[i];
+            let (handle, _) = &handles_strides[i];
+
+            self.stream.copy_to_handle(handle.clone(), data);
         }
+
+        handles_strides
+    }
+
+    fn empty_tensors(
+        &mut self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
+        let strides = shape
+            .iter()
+            .map(|shape| contiguous_strides(shape))
+            .collect::<Vec<_>>();
+        let sizes = shape
+            .iter()
+            .map(|it| it.iter().product::<usize>())
+            .zip(elem_size)
+            .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
+            .collect::<Vec<_>>();
+        let total_size = sizes.iter().sum::<usize>();
+
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
+
+        handles.into_iter().zip(strides).collect()
     }
 }
 
@@ -280,6 +245,17 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     match backend {
         #[cfg(feature = "spirv")]
         wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        #[cfg(feature = "msl")]
+        wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
+}
+
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
 }

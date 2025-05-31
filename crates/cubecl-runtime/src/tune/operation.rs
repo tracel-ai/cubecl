@@ -5,13 +5,13 @@ use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
 use super::{
+    AutotuneError,
     input_generator::{InputGenerator, IntoInputGenerator},
     key_generator::{IntoKeyGenerator, KeyGenerator},
-    AutotuneError,
 };
 
 /// Default checksum for an operation set
-#[cfg(autotune_persistent_cache)]
+#[cfg(std_io)]
 pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
     autotunables: &[Arc<dyn Tunable<Inputs = In, Output = Out>>],
 ) -> String {
@@ -26,15 +26,26 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
 #[derive(Clone)]
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>>,
+    should_autotune: Vec<ShouldAutotuneFn<K>>,
     key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
     input_gen: Arc<dyn InputGenerator<K, Inputs>>,
     #[allow(clippy::type_complexity)]
     checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
 
+type ShouldAutotuneFn<K> = Option<Arc<dyn Fn(&K) -> bool>>;
+
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
 {
+    /// The number of tunables in the set.
+    pub fn len(&self) -> usize {
+        self.tunables.len()
+    }
+    /// If the tunable set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.tunables.len() == 0
+    }
     /// Create a tunable set from a key generator and an input generator
     pub fn new<KMarker, IMarker>(
         key_gen: impl IntoKeyGenerator<K, Inputs, KMarker>,
@@ -42,6 +53,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     ) -> Self {
         Self {
             tunables: Default::default(),
+            should_autotune: Default::default(),
             input_gen: Arc::new(input_gen.into_input_gen()),
             key_gen: Arc::new(key_gen.into_key_gen()),
             checksum_override: None,
@@ -54,6 +66,19 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         tunable: impl IntoTunable<Inputs, Output, Marker>,
     ) -> Self {
         self.tunables.push(Arc::new(tunable.into_tunable()));
+        self.should_autotune.push(None);
+        self
+    }
+
+    /// Register a tunable with this tunable set alongside a function that calculates
+    /// if the function should be used based on the autotune key.
+    pub fn with_tunable_optional<Marker>(
+        mut self,
+        tunable: impl IntoTunable<Inputs, Output, Marker>,
+        should_autotune: impl Fn(&K) -> bool + 'static,
+    ) -> Self {
+        self.tunables.push(Arc::new(tunable.into_tunable()));
+        self.should_autotune.push(Some(Arc::new(should_autotune)));
         self
     }
 
@@ -72,6 +97,17 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         self.tunables.clone()
     }
 
+    /// Returns a vector of all candidates that should run during autotuning.
+    pub fn should_autotune(&self, key: &K) -> Vec<bool> {
+        self.should_autotune
+            .iter()
+            .map(|func| match func.as_ref() {
+                Some(func) => func(key),
+                None => true,
+            })
+            .collect()
+    }
+
     /// Returns the operation for the given index, matching the order
     /// returned by autotunables. Operation obtained here runs on original tensors
     /// Nb: The 0 index is used a "good default".
@@ -83,7 +119,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     }
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
-    #[cfg(autotune_persistent_cache)]
+    #[cfg(std_io)]
     pub fn compute_checksum(&self) -> String {
         if let Some(checksum_override) = &self.checksum_override {
             checksum_override(self)
@@ -144,7 +180,7 @@ impl<T: Tunable> IntoTunable<T::Inputs, T::Output, IsIdentity> for T {
     }
 }
 
-#[cfg(autotune_persistent_cache)]
+#[cfg(std_io)]
 /// Trait alias with support for persistent caching
 pub trait AutotuneKey:
     Clone
@@ -160,7 +196,7 @@ pub trait AutotuneKey:
     + 'static
 {
 }
-#[cfg(not(autotune_persistent_cache))]
+#[cfg(not(std_io))]
 /// Trait alias
 pub trait AutotuneKey:
     Clone + Debug + PartialEq + Eq + Hash + Display + Send + Sync + 'static

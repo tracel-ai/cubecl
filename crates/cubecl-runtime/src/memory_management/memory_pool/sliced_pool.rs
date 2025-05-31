@@ -1,7 +1,7 @@
 use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::memory_pool::calculate_padding;
-use crate::memory_management::MemoryUsage;
+use crate::memory_management::{MemoryUsage, StorageExclude};
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -94,8 +94,29 @@ impl MemoryPool for SlicedPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
-        self.get_free_slice(size)
+    fn try_reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> Option<SliceHandle> {
+        let padding = calculate_padding(size, self.alignment);
+        let effective_size = size + padding;
+        let slice_id = self.ring.find_free_slice(
+            effective_size,
+            &mut self.pages,
+            &mut self.slices,
+            exclude,
+        )?;
+
+        let slice = self.slices.get_mut(&slice_id).unwrap();
+        let old_slice_size = slice.effective_size();
+        let offset = slice.storage.utilization.offset;
+        slice.storage.utilization = StorageUtilization { offset, size };
+        let new_padding = old_slice_size - size;
+        slice.padding = new_padding;
+        assert_eq!(
+            slice.effective_size(),
+            old_slice_size,
+            "new and old slice should have the same size"
+        );
+
+        Some(slice.handle.clone())
     }
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
@@ -147,7 +168,12 @@ impl MemoryPool for SlicedPool {
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, _storage: &mut Storage, _alloc_nr: u64) {
+    fn cleanup<Storage: ComputeStorage>(
+        &mut self,
+        _storage: &mut Storage,
+        _alloc_nr: u64,
+        _explicit: bool,
+    ) {
         // This pool doesn't do any shrinking currently.
     }
 }
@@ -167,30 +193,6 @@ impl SlicedPool {
             page_size,
             max_alloc_size,
         }
-    }
-
-    /// Finds a free slice that can contain the given size
-    fn get_free_slice(&mut self, size: u64) -> Option<SliceHandle> {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
-
-        let slice_id =
-            self.ring
-                .find_free_slice(effective_size, &mut self.pages, &mut self.slices)?;
-
-        let slice = self.slices.get_mut(&slice_id).unwrap();
-        let old_slice_size = slice.effective_size();
-        let offset = slice.storage.utilization.offset;
-        slice.storage.utilization = StorageUtilization { offset, size };
-        let new_padding = old_slice_size - size;
-        slice.padding = new_padding;
-        assert_eq!(
-            slice.effective_size(),
-            old_slice_size,
-            "new and old slice should have the same size"
-        );
-
-        Some(slice.handle.clone())
     }
 
     /// Creates a slice of size `size` upon the given page with the given offset.

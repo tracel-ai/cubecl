@@ -12,24 +12,25 @@ version.workspace = true
 
 [features]
 default = [
-  "cubecl-runtime/default",
-  "cubecl-common/default",
-  "cubecl-core/default",
-  "cubecl-hip-sys/rocm__6_3_1",
-  "is_hip",
+    "cubecl-runtime/default",
+    "cubecl-common/default",
+    "cubecl-core/default",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-wmma-intrinsics = []
-is_hip = []
+rocwmma = []
+compilation-cache = ["cubecl-common/cache", "serde"]
+test-matmul = []
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.5.0" }
-cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "0.5.0", default-features = false, features = ["hip"] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false, features = [
-  "channel-mutex",
+cubecl-common = { path = "../cubecl-common", version = "0.6.0" }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.6.0", default-features = false, features = [
+    "hip",
 ] }
-cubecl-hip-sys = { version = "6.3.1000", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
+    "channel-mutex",
+] }
+cubecl-hip-sys = { version = "6.4.4348200" }
 
 bytemuck = { workspace = true }
 
@@ -37,15 +38,22 @@ derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.5.0", features = [
-  "export_tests",
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
+    "export_tests",
 ] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.5.0", features = [
-  "export_tests",
+cubecl-std = { path = "../cubecl-std", version = "0.6.0", features = [
+    "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.5.0", features = [
-  "export_tests",
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
+    "export_tests",
 ] }
 pretty_assertions = { workspace = true }

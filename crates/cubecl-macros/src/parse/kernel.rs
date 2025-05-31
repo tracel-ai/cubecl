@@ -1,11 +1,17 @@
-use crate::{expression::Block, paths::prelude_type, scope::Context, statement::Pattern};
-use darling::{ast::NestedMeta, util::Flag, FromMeta};
+use crate::{
+    expression::{Block, Expression},
+    paths::{frontend_type, prelude_type},
+    scope::Context,
+    statement::{Pattern, Statement},
+};
+use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use std::{collections::HashMap, iter};
 use syn::{
-    parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, Expr, FnArg,
-    Generics, Ident, ItemFn, ReturnType, Signature, TraitItemFn, Type, Visibility,
+    Expr, FnArg, Generics, Ident, ItemFn, LitStr, ReturnType, Signature, TraitItemFn, Type,
+    TypeMacro, Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned,
+    visit_mut::VisitMut,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -18,6 +24,8 @@ pub(crate) struct KernelArgs {
     pub fast_math: Option<Expr>,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
+    pub cluster_dim: Option<Expr>,
+    pub src_file: Option<LitStr>,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
@@ -68,7 +76,7 @@ impl GenericAnalysis {
         for (name, ty) in self.map.iter() {
             output.extend(quote! {
                 builder
-                    .context
+                    .scope
                     .register_elem::<#ty>(#name::as_elem_native_unchecked());
             });
         }
@@ -183,10 +191,13 @@ pub struct KernelFn {
     pub sig: KernelSignature,
     pub body: KernelBody,
     pub full_name: String,
+    pub debug_symbols: bool,
     pub span: Span,
     pub context: Context,
+    pub src_file: Option<LitStr>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum KernelBody {
     Block(Block),
@@ -199,6 +210,12 @@ pub struct KernelSignature {
     pub parameters: Vec<KernelParam>,
     pub returns: KernelReturns,
     pub generics: Generics,
+}
+
+impl KernelSignature {
+    pub fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {
+        self.parameters.iter().filter(|it| !it.is_const)
+    }
 }
 
 #[derive(Clone)]
@@ -295,8 +312,19 @@ impl KernelSignature {
         let name = sig.ident;
         let generics = sig.generics;
         let returns = match sig.output {
-            syn::ReturnType::Default => parse_quote![()],
-            syn::ReturnType::Type(_, ty) => *ty,
+            syn::ReturnType::Default => KernelReturns::ExpandType(parse_quote![()]),
+            syn::ReturnType::Type(_, ty) => match *ty.clone() {
+                Type::Macro(TypeMacro { mac }) => {
+                    if mac.path.is_ident("comptime_type") {
+                        let inner_type = parse::<Type>(mac.tokens.into())
+                            .expect("Interior of comptime_type macro should be a valid type.");
+                        KernelReturns::Plain(inner_type)
+                    } else {
+                        panic!("Only comptime_type macro supported on return type")
+                    }
+                }
+                _ => KernelReturns::ExpandType(*ty),
+            },
         };
         let parameters = sig
             .inputs
@@ -308,30 +336,12 @@ impl KernelSignature {
             generics,
             name,
             parameters,
-            returns: KernelReturns::ExpandType(returns),
+            returns,
         })
     }
 
     pub fn from_trait_fn(function: TraitItemFn) -> syn::Result<Self> {
-        let name = function.sig.ident;
-        let generics = function.sig.generics;
-        let returns = match function.sig.output {
-            syn::ReturnType::Default => parse_quote![()],
-            syn::ReturnType::Type(_, ty) => *ty,
-        };
-        let parameters = function
-            .sig
-            .inputs
-            .into_iter()
-            .map(KernelParam::from_param)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            generics,
-            name,
-            parameters,
-            returns: KernelReturns::ExpandType(returns),
-        })
+        Self::from_signature(function.sig)
     }
 
     /// If the type is self, we set the returns type to plain instead of expand type.
@@ -355,15 +365,19 @@ impl KernelFn {
         sig: Signature,
         mut block: syn::Block,
         full_name: String,
+        src_file: Option<LitStr>,
+        debug_symbols: bool,
     ) -> syn::Result<Self> {
-        // Use span of first token since we only care about the start line/col
-        let span = vis.span();
+        let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig)?;
+        let mut context = Context::new(sig.returns.ty(), debug_symbols);
+        context.extend(sig.parameters.clone());
+
         Desugar.visit_block_mut(&mut block);
 
-        let mut context = Context::new(sig.returns.ty());
-        context.extend(sig.parameters.clone());
-        let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
+        let (mut block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
+
+        Self::patch_mut_owned_inputs(&mut block, &sig);
 
         Ok(KernelFn {
             vis,
@@ -371,8 +385,42 @@ impl KernelFn {
             body: KernelBody::Block(block),
             full_name,
             span,
+            src_file,
             context,
+            debug_symbols,
         })
+    }
+
+    /// We need to call IntoMut::into_mut on mutable owned inputs since their local variables need to be
+    /// identified as mut, which is done at initialization.
+    ///
+    /// However, we don't specify mutability during initialization when we don't need to mutate the
+    /// type in the current scope; it is done in the function that receives the mutable parameter
+    /// as input. Therefore, we need to adjust the mutability here.
+    fn patch_mut_owned_inputs(block: &mut Block, sig: &KernelSignature) {
+        let mut mappings = Vec::new();
+        let into_mut = frontend_type("IntoMut");
+
+        for s in sig.parameters.iter() {
+            if !s.is_ref && s.is_mut {
+                let name = s.name.clone();
+                let expression = Expression::Verbatim {
+                    tokens: quote! {
+                        let mut #name = #into_mut::into_mut(#name, scope);
+                    },
+                };
+                let stmt = Statement::Expression {
+                    expression: Box::new(expression),
+                    terminated: false,
+                };
+                mappings.push(stmt);
+            }
+        }
+
+        if !mappings.is_empty() {
+            mappings.append(&mut block.inner);
+            block.inner = mappings;
+        }
     }
 }
 
@@ -392,6 +440,8 @@ impl Launch {
             function.sig,
             *function.block,
             full_name,
+            args.src_file.clone(),
+            args.debug_symbols.is_present(),
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.
@@ -439,7 +489,7 @@ fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref: &mut bool, is_mut: &mut
     }
 }
 
-fn strip_ref(ty: Type, is_ref: &mut bool, is_mut: &mut bool) -> Type {
+pub fn strip_ref(ty: Type, is_ref: &mut bool, is_mut: &mut bool) -> Type {
     match ty {
         Type::Reference(reference) => {
             *is_ref = true;

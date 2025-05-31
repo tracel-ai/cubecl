@@ -1,18 +1,34 @@
+use core::fmt::Display;
+
 use alloc::vec::Vec;
 
-use crate::{AtomicOp, Bitwise, Comparison, Operator};
+use crate::{Allocator, AtomicOp, Bitwise, Comparison, Operator};
 
 use super::{
     Arithmetic, Branch, CoopMma, Elem, Instruction, Metadata, Operation, UIntKind, Variable,
     VariableKind,
 };
 
+pub trait Processor {
+    fn transform(&self, processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing;
+}
+
 /// Information necessary when compiling a scope.
 pub struct ScopeProcessing {
     /// The variable declarations.
     pub variables: Vec<Variable>,
     /// The operations.
-    pub operations: Vec<Instruction>,
+    pub instructions: Vec<Instruction>,
+}
+
+impl Display for ScopeProcessing {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for inst in self.instructions.iter() {
+            f.write_fmt(format_args!("{inst}\n"))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl ScopeProcessing {
@@ -30,7 +46,7 @@ impl ScopeProcessing {
     /// Make sure constant scalars are of the correct type so compilers don't have to do conversion
     /// and handle edge cases such as indexing with a signed integer.
     fn sanitize_constant_scalars(mut self) -> Self {
-        self.operations
+        self.instructions
             .iter_mut()
             .for_each(|inst| match &mut inst.operation {
                 Operation::Copy(op) => {
@@ -55,6 +71,10 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
                     Arithmetic::Div(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Arithmetic::MulHi(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
@@ -194,26 +214,21 @@ impl ScopeProcessing {
                     }
                 },
                 Operation::Operator(op) => match op {
-                    Operator::Slice(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt(UIntKind::U32));
-                    }
                     Operator::Index(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_var(&mut op.list, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
                     }
                     Operator::UncheckedIndex(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_var(&mut op.list, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
                     }
                     Operator::IndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_var(&mut op.value, &inst.out.unwrap());
                     }
                     Operator::UncheckedIndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_var(&mut op.value, &inst.out.unwrap());
                     }
                     Operator::And(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
@@ -257,7 +272,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
                     }
                     Operator::Cast(_) => {}
-                    Operator::Bitcast(_) => {}
+                    Operator::Reinterpret(_) => {}
                 },
                 Operation::Atomic(op) => match op {
                     AtomicOp::Load(_) => {}
@@ -349,7 +364,10 @@ impl ScopeProcessing {
                 Operation::NonSemantic(_) => {
                     // Nothing to do.
                 }
-                Operation::Pipeline(_) => {
+                Operation::Barrier(_) => {
+                    // Nothing to do
+                }
+                Operation::Tma(_) => {
                     // Nothing to do
                 }
             });

@@ -1,10 +1,10 @@
 use std::fmt::Display;
 
-use cubecl_core::{prelude::Float, CubeElement, Runtime};
+use cubecl_core::{CubeElement, Runtime, prelude::Float};
 
 use crate::{matmul::kernels::naive, tensor::TensorHandle};
 
-use super::test_utils::{assert_equals_approx, MatmulTestCase, Sample};
+use super::test_utils::{MatmulTestCase, Sample, assert_equals_approx};
 
 pub fn test_small<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {
@@ -67,7 +67,14 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
     let out: TensorHandle<R, F> = case.empty_out(&client);
     naive::launch::<R, F>(&client, lhs, rhs, &out.as_ref()).unwrap();
 
-    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 10e-4) {
+    if let Err(e) = assert_equals_approx::<R, F>(
+        &client,
+        out.handle,
+        &out.shape,
+        &out.strides,
+        &expected,
+        10e-4,
+    ) {
         panic!("{}", e);
     }
 }

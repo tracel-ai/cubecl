@@ -1,11 +1,14 @@
-pub mod multi_buffer;
-pub mod single_buffer;
+mod matmul;
 
 mod base;
-pub(super) mod shared;
-mod staging;
-mod tiling_order;
+mod event_listener;
+mod layout;
+mod reader;
+mod stage_memory;
 
 pub use base::*;
-pub use staging::Stage;
-pub use tiling_order::*;
+pub use event_listener::*;
+pub use layout::*;
+pub use matmul::*;
+pub use reader::*;
+pub use stage_memory::StageMemory;

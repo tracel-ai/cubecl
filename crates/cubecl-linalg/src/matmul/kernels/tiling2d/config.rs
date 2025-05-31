@@ -1,7 +1,6 @@
 use cubecl_core::{
-    self as cubecl,
-    prelude::{Init, Scope},
-    CubeDim,
+    self as cubecl, CubeDim,
+    prelude::{IntoMut, Scope},
 };
 use cubecl_core::{CubeCount, CubeType};
 
@@ -61,8 +60,8 @@ pub struct CubeTiling2dConfig {
     pub rhs_transposed: bool,
 }
 
-impl Init for CubeTiling2dConfig {
-    fn init(self, _scope: &mut Scope) -> Self {
+impl IntoMut for CubeTiling2dConfig {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }

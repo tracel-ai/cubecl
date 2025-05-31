@@ -6,14 +6,14 @@ use crate::ReduceError;
 /// Sum all the elements of the input tensor distributed over `cube_count` cubes.
 ///
 /// This is an optimized version for summing large tensors using multiple cubes.
-/// For summing a single axis, the regular [reduce] entry point is prefered.
+/// For summing a single axis, the regular [reduce] entry point is preferred.
 ///
 /// Return an error if atomic addition is not supported for the type `N`.
 ///
 /// # Important
 ///
 /// This doesn't set the value of output to 0 before computing the sums.
-/// It is the responsability of the caller to ensure that ouput is set to
+/// It is the responsibility of the caller to ensure that output is set to
 /// the proper value. Basically, the behavior of this kernel is akin to the AddAssign operator
 /// as it update the output instead of overwriting it.
 ///
@@ -131,15 +131,16 @@ fn shared_sum_kernel<N: Numeric>(
     let line = sum_shared_memory(&mut shared_memory);
 
     // Sum all the elements within the line.
-    let mut sum = N::from_int(0);
+    let sum = RuntimeCell::<N>::new(N::from_int(0));
     #[unroll]
     for k in 0..line_size {
-        sum += line[k];
+        let update = line[k] + sum.read();
+        sum.store(update);
     }
 
     // Add the sum for the current cube to the output.
     if UNIT_POS == 0 {
-        Atomic::add(&output[0], sum);
+        Atomic::add(&output[0], sum.consume());
     }
 }
 
@@ -148,7 +149,7 @@ fn shared_sum_kernel<N: Numeric>(
 // Here we assume that `CUBE_DIM` is always a power of two.
 #[cube]
 fn sum_shared_memory<N: Numeric>(accumulator: &mut SharedMemory<Line<N>>) -> Line<N> {
-    sync_units();
+    sync_cube();
     let mut num_active_units = CUBE_DIM;
     let mut jump = 1;
     while num_active_units > 1 {
@@ -160,7 +161,7 @@ fn sum_shared_memory<N: Numeric>(accumulator: &mut SharedMemory<Line<N>>) -> Lin
             accumulator[destination] += element;
         }
         jump *= 2;
-        sync_units();
+        sync_cube();
     }
     accumulator[0]
 }

@@ -4,6 +4,8 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
+use crate::BarrierLevel;
+
 use super::{Item, Matrix, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
@@ -20,7 +22,7 @@ use super::{Item, Matrix, Variable, VariableKind};
 ///
 /// In order, prefer immutable local variables, then mutable, then restricted.
 ///
-/// To enable many compiler optimizations, it is prefered to use the [static single-assignment] strategy for immutable variables.
+/// To enable many compiler optimizations, it is preferred to use the [static single-assignment] strategy for immutable variables.
 /// That is, each variable must be declared and used exactly once.
 ///
 /// [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)
@@ -79,13 +81,6 @@ impl Allocator {
         ExpandElement::Plain(local_array)
     }
 
-    /// Create a slice variable
-    pub fn create_slice(&self, item: Item) -> ExpandElement {
-        let id = self.new_local_index();
-        let variable = Variable::new(VariableKind::Slice { id }, item);
-        ExpandElement::Plain(variable)
-    }
-
     /// Create a matrix variable
     pub fn create_matrix(&self, matrix: Matrix) -> ExpandElement {
         let id = self.new_local_index();
@@ -106,6 +101,12 @@ impl Allocator {
             },
             item,
         );
+        ExpandElement::Plain(variable)
+    }
+
+    pub fn create_barrier(&self, item: Item, level: BarrierLevel) -> ExpandElement {
+        let id = self.new_local_index();
+        let variable = Variable::new(VariableKind::Barrier { id, item, level }, item);
         ExpandElement::Plain(variable)
     }
 
@@ -151,7 +152,7 @@ use cubecl_macros_internal::TypeHash;
 pub use expand_element::*;
 
 mod expand_element {
-    use cubecl_common::{flex32, tf32};
+    use cubecl_common::{e2m1, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
     use half::{bf16, f16};
 
     use super::*;
@@ -222,6 +223,12 @@ mod expand_element {
     impl_into_expand_element!(u64);
     impl_into_expand_element!(usize);
     impl_into_expand_element!(bool);
+    impl_into_expand_element!(e2m1);
+    impl_into_expand_element!(e2m3);
+    impl_into_expand_element!(e3m2);
+    impl_into_expand_element!(e4m3);
+    impl_into_expand_element!(e5m2);
+    impl_into_expand_element!(ue8m0);
     impl_into_expand_element!(flex32);
     impl_into_expand_element!(f16);
     impl_into_expand_element!(bf16);

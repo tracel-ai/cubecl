@@ -1,12 +1,12 @@
 use proc_macro2::Span;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Path, PathSegment, RangeLimits,
-    Type, UnOp,
+    Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, QSelf, RangeLimits, Type, UnOp,
+    parse_quote, spanned::Spanned,
 };
 
 use crate::{
-    expression::{is_intrinsic, Block, ConstMatchArm, Expression},
+    expression::{Block, Expression, MatchArm, is_intrinsic},
     operator::Operator,
     scope::Context,
 };
@@ -14,6 +14,7 @@ use crate::{
 use super::{
     branch::{expand_for_loop, expand_if, expand_loop, numeric_match},
     operator::{parse_binop, parse_unop},
+    statement::parse_macros,
 };
 
 impl Expression {
@@ -74,7 +75,10 @@ impl Expression {
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
                     // external value like a Rust `const`.
-                    Expression::Path { path: path.path }
+                    Expression::Path {
+                        path: path.path,
+                        qself: path.qself,
+                    }
                 }
             }
             Expr::Unary(unary) => {
@@ -102,7 +106,7 @@ impl Expression {
                     .map(|arg| Expression::from_expr(arg, context))
                     .collect::<Result<Vec<_>, _>>()?;
                 match *func {
-                    Expression::Path { path } if is_intrinsic(&path) => {
+                    Expression::Path { path, .. } if is_intrinsic(&path) => {
                         Expression::CompilerIntrinsic { func: path, args }
                     }
                     func => {
@@ -277,41 +281,46 @@ impl Expression {
                 }
             }
             Expr::Match(mat) => {
-                let span = mat.span();
                 let elem = Expression::from_expr(*mat.expr.clone(), context)?;
-
                 if elem.is_const() {
                     let mut arms = Vec::new();
 
                     for arm in mat.arms.iter() {
-                        arms.push(ConstMatchArm {
+                        arms.push(MatchArm {
                             pat: arm.pat.clone(),
                             expr: Box::new(Self::from_expr(arm.body.as_ref().clone(), context)?),
                         });
                     }
 
-                    Expression::ConstMatch {
-                        const_expr: mat.expr.as_ref().clone(),
+                    Expression::Match {
+                        runtime_variants: false,
+                        expr: mat.expr.as_ref().clone(),
                         arms,
                     }
-                } else if let Some(switch) = numeric_match(mat, context) {
+                } else if let Some(switch) = numeric_match(mat.clone(), context) {
                     switch
                 } else {
-                    Err(syn::Error::new(
-                        span,
-                        "Only numeric match expression is supported at runtime",
-                    ))?
+                    let mut arms = Vec::new();
+
+                    for arm in mat.arms.iter() {
+                        let (expr, _) = context.in_scope(|context| {
+                            add_variables_from_pat(&arm.pat, context);
+                            Self::from_expr(arm.body.as_ref().clone(), context)
+                        })?;
+                        arms.push(MatchArm {
+                            pat: arm.pat.clone(),
+                            expr: Box::new(expr),
+                        });
+                    }
+
+                    Expression::Match {
+                        runtime_variants: true,
+                        expr: mat.expr.as_ref().clone(),
+                        arms,
+                    }
                 }
             }
-            Expr::Macro(mac) if is_comptime_macro(&mac.mac.path) => {
-                let tokens = mac.mac.tokens;
-                Expression::Verbatim {
-                    tokens: quote![{ #tokens }],
-                }
-            }
-            Expr::Macro(mac) => Expression::Verbatim {
-                tokens: quote![#mac],
-            },
+            Expr::Macro(mac) => parse_macros(mac.mac, context)?,
             Expr::Struct(init) => {
                 let fields = init
                     .fields
@@ -369,6 +378,31 @@ impl Expression {
             ))?,
         };
         Ok(result)
+    }
+}
+
+fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
+    match pat {
+        Pat::Ident(pat) => {
+            context.push_variable(
+                pat.ident.clone(),
+                None,
+                false,
+                pat.by_ref.is_some(),
+                pat.mutability.is_some(),
+            );
+        }
+        Pat::Or(pat) => pat
+            .cases
+            .iter()
+            .for_each(|pat| add_variables_from_pat(pat, context)),
+        Pat::Struct(pat) => pat.fields.iter().for_each(|f| {
+            add_variables_from_pat(f.pat.as_ref(), context);
+        }),
+        Pat::TupleStruct(pat) => pat.elems.iter().for_each(|pat| {
+            add_variables_from_pat(pat, context);
+        }),
+        _ => {}
     }
 }
 
@@ -444,16 +478,18 @@ fn is_slice(index: &Expression) -> bool {
     }
 }
 
-fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
+fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {
     // All supported primitives. Primitives don't start with an uppercase letter
     const PRIMITIVES: &[&str] = &[
         "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
+        "flex32", "e2m1", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0",
     ];
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }
+
     match path {
-        Expression::Path { path, .. } => {
+        Expression::Path { path, qself } => {
             let second_last = path.segments.iter().nth_back(1)?;
             let name = second_last.ident.to_string();
             let ch = name.chars().next();
@@ -463,16 +499,11 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
                 let mut path = path.clone();
                 let name = path.segments.pop().unwrap().into_value();
                 path.segments.pop_punct();
-                Some((path, name))
+                Some((path, qself.clone(), name))
             } else {
                 None
             }
         }
         _ => None,
     }
-}
-
-fn is_comptime_macro(path: &Path) -> bool {
-    let path = path.to_token_stream().to_string();
-    "::cubecl::comptime".ends_with(&path)
 }

@@ -3,8 +3,10 @@ use cubecl_core::prelude::*;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
+use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::matmul::kernels::matmul::MatmulSelection;
 
+use super::problem::MatmulLineSizes;
 use super::{MatmulPrecision, MatmulProblem, MatmulSize};
 
 pub type InvalidConfigError = Box<dyn Display>;
@@ -39,6 +41,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError>;
 
     /// Checks if the client can handle the features used in this computation
+    #[allow(clippy::result_large_err)]
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         _client: &ComputeClient<R::Server, R::Channel>,
         _config: &Self::Config,
@@ -48,9 +51,9 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config;
 }
@@ -74,7 +77,7 @@ pub enum Ident {
 }
 
 impl Ident {
-    pub fn as_input(&self) -> InputIdent {
+    pub fn as_input_ident(&self) -> InputIdent {
         match self {
             Ident::Lhs => InputIdent::Lhs,
             Ident::Rhs => InputIdent::Rhs,
@@ -83,9 +86,28 @@ impl Ident {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+/// Identifier for the two input tensors in a matmul.
+///
+/// Useful to specialize some functions depending on the tensor
 pub enum InputIdent {
     Lhs,
     Rhs,
+}
+
+impl InputIdent {
+    pub fn as_ident(&self) -> Ident {
+        match self {
+            InputIdent::Lhs => Ident::Lhs,
+            InputIdent::Rhs => Ident::Rhs,
+        }
+    }
+}
+
+impl From<InputIdent> for Ident {
+    fn from(value: InputIdent) -> Self {
+        value.as_ident()
+    }
 }
 
 #[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -112,22 +134,31 @@ pub struct CompleteStageTiling {
     pub tile_count: MatmulSize,
 }
 
+impl<M: MatmulSelection> From<&M> for CompleteStageTiling {
+    fn from(matmul_selection: &M) -> Self {
+        CompleteStageTiling {
+            tile_shape: matmul_selection.tile_shape(),
+            tile_count: matmul_selection.tile_count(),
+        }
+    }
+}
+
 impl CompleteStageTiling {
-    pub fn get(&self, ident: Ident) -> StageTiling {
+    pub fn get(&self, ident: Ident) -> TilingDimensions {
         match ident {
-            Ident::Lhs => StageTiling {
+            Ident::Lhs => TilingDimensions {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.k,
                 tile_count_row: self.tile_count.m,
                 tile_count_col: self.tile_count.k,
             },
-            Ident::Rhs => StageTiling {
+            Ident::Rhs => TilingDimensions {
                 tile_shape_row: self.tile_shape.k,
                 tile_shape_col: self.tile_shape.n,
                 tile_count_row: self.tile_count.k,
                 tile_count_col: self.tile_count.n,
             },
-            Ident::Out => StageTiling {
+            Ident::Out => TilingDimensions {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.n,
                 tile_count_row: self.tile_count.m,
@@ -147,14 +178,14 @@ impl CompleteStageTiling {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
-pub struct StageTiling {
+pub struct TilingDimensions {
     pub tile_shape_row: u32,
     pub tile_shape_col: u32,
     pub tile_count_row: u32,
     pub tile_count_col: u32,
 }
 
-impl StageTiling {
+impl TilingDimensions {
     /// Returns the total number of elements of the stage.
     pub fn total_size(&self) -> u32 {
         self.total_row() * self.total_col()
@@ -199,12 +230,29 @@ impl StageTiling {
     pub fn tile_count_col(&self) -> u32 {
         self.tile_count_col
     }
+}
 
-    /// Number of elements in a buffer.
-    pub fn buffer_size(&self, ident: InputIdent) -> u32 {
-        match ident {
-            InputIdent::Lhs => self.tile_count_row() * self.tile_size(),
-            InputIdent::Rhs => self.tile_count_col() * self.tile_size(),
-        }
-    }
+pub trait TensorIdent:
+    Clone + Copy + Debug + Hash + PartialEq + Eq + Send + Sync + 'static
+{
+    const IDENT: Ident;
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Lhs;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Rhs;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Out;
+
+impl TensorIdent for Lhs {
+    const IDENT: Ident = Ident::Lhs;
+}
+
+impl TensorIdent for Rhs {
+    const IDENT: Ident = Ident::Rhs;
+}
+
+impl TensorIdent for Out {
+    const IDENT: Ident = Ident::Out;
 }

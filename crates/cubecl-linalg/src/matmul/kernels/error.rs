@@ -1,17 +1,19 @@
-use cubecl_core::{ir::Elem, CubeCount};
+use cubecl_core::{CubeCount, CubeDim, ir::Elem};
 use std::fmt::Debug;
 
-use crate::matmul::components::InvalidConfigError;
+use crate::matmul::components::{InvalidConfigError, MatmulSize};
 
 pub enum MatmulLaunchError {
     Unavailable(MatmulAvailabilityError),
     InvalidProblem(MatmulInvalidProblem),
     InvalidConfig(InvalidConfigError),
+    Unimplemented(MatmulUnimplementedError),
 }
 
 pub enum MatmulAvailabilityError {
     PlaneDimUnknown,
     CubeCountTooBig(CubeCount),
+    CubeDimTooBig(CubeDim),
     PlaneDimUnsupported {
         plane_dim: u32,
     },
@@ -23,11 +25,12 @@ pub enum MatmulAvailabilityError {
     CmmaInstructionUnavailable {
         input: Elem,
         output: Elem,
-        m: u32,
-        n: u32,
-        k: u32,
+        shape: Option<MatmulSize>,
     },
     PipelineUnavailable,
+    BarrierUnavailable,
+    TmaUnavailable,
+    DynamicLineSizeUnavailable,
 }
 
 pub enum MatmulInvalidProblem {
@@ -57,21 +60,25 @@ impl From<InvalidConfigError> for MatmulLaunchError {
     }
 }
 
+impl From<MatmulUnimplementedError> for MatmulLaunchError {
+    fn from(value: MatmulUnimplementedError) -> Self {
+        Self::Unimplemented(value)
+    }
+}
+
 impl Debug for MatmulLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MatmulLaunchError::Unavailable(err) => {
                 writeln!(
                     f,
-                    "Unable to launch matmul because a required feature is unavailable: {:?}",
-                    err
+                    "Unable to launch matmul because a required feature is unavailable: {err:?}"
                 )
             }
             MatmulLaunchError::InvalidProblem(err) => {
                 writeln!(
                     f,
-                    "Unable to launch matmul because the problem isn't correctly defined: {:?}",
-                    err
+                    "Unable to launch matmul because the problem isn't correctly defined: {err:?}"
                 )
             }
             MatmulLaunchError::InvalidConfig(err) => {
@@ -79,6 +86,12 @@ impl Debug for MatmulLaunchError {
                     f,
                     "Unable to launch matmul because the config is invalid: {:?}",
                     err.to_string()
+                )
+            }
+            MatmulLaunchError::Unimplemented(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because the feature is not ready: {err:?}"
                 )
             }
         }
@@ -90,18 +103,15 @@ impl Debug for MatmulInvalidProblem {
         match self {
             MatmulInvalidProblem::ExceededMSize { m, max_m } => write!(
                 f,
-                "Problem has m={} but these configs can only have m<={}",
-                m, max_m
+                "Problem has m={m} but these configs can only have m<={max_m}"
             ),
             MatmulInvalidProblem::ExceededNSize { n, max_n } => write!(
                 f,
-                "Problem has n={} but these configs can only have n<={}",
-                n, max_n,
+                "Problem has n={n} but these configs can only have n<={max_n}",
             ),
             MatmulInvalidProblem::ExceededBatchSize { b, max_b } => write!(
                 f,
-                "Problem has {} batches but these configs can only have batches<={}",
-                b, max_b,
+                "Problem has {b} batches but these configs can only have batches<={max_b}",
             ),
             MatmulInvalidProblem::InvalidLineSizeLhs { size, line_size } => write!(
                 f,
@@ -128,34 +138,64 @@ impl Debug for MatmulAvailabilityError {
             MatmulAvailabilityError::CubeCountTooBig(count) => {
                 writeln!(f, "Cube count too big {count:?}")
             }
+            MatmulAvailabilityError::CubeDimTooBig(dim) => {
+                writeln!(f, "Cube dim too big {dim:?}")
+            }
             MatmulAvailabilityError::PlaneDimUnknown => {
                 writeln!(f, "Plane dimension unknown.")
-            },
-            MatmulAvailabilityError::PlaneDimUnsupported{plane_dim} => {
-                writeln!(f, "Plane dimension unsupported: {plane_dim}. Only 32 & 64 are supported.")
-            },
+            }
+            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim } => {
+                writeln!(
+                    f,
+                    "Plane dimension unsupported: {plane_dim}. Only 32 & 64 are supported."
+                )
+            }
             MatmulAvailabilityError::TypesUnavailable { input, output } => {
                 writeln!(
                     f,
-                    "Types input={:?} and/or output={:?} not supported.",
-                    input, output,
+                    "Types input={input:?} and/or output={output:?} not supported.",
                 )
             }
             MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input,
                 output,
-                m,
-                n,
-                k,
+                shape: Some(shape),
             } => writeln!(
                 f,
                 "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
-                input,
-                output, m, n, k
+                input, output, shape.m, shape.n, shape.k
             ),
+            MatmulAvailabilityError::CmmaInstructionUnavailable {
+                input,
+                output,
+                shape: None,
+            } => writeln!(f, "Cmma on inputs {input:?} and outputs {output:?}.",),
             MatmulAvailabilityError::PipelineUnavailable => {
                 writeln!(f, "Pipeline is not available.")
-            },
+            }
+            MatmulAvailabilityError::BarrierUnavailable => {
+                writeln!(f, "Barrier is not available.")
+            }
+            MatmulAvailabilityError::TmaUnavailable => {
+                writeln!(f, "TMA is not available.")
+            }
+            MatmulAvailabilityError::DynamicLineSizeUnavailable => {
+                writeln!(f, "Dynamic line size is not available.")
+            }
+        }
+    }
+}
+
+pub enum MatmulUnimplementedError {
+    Quantization,
+}
+
+impl Debug for MatmulUnimplementedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MatmulUnimplementedError::Quantization => {
+                writeln!(f, "Quantization")
+            }
         }
     }
 }

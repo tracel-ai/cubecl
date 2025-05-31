@@ -1,10 +1,10 @@
 use std::fmt::Display;
 
-use cubecl_core::{prelude::Float, CubeElement, Runtime};
+use cubecl_core::{CubeElement, Runtime, prelude::Float};
 
 use crate::matmul::kernels::tiling2d;
 
-use super::test_utils::{assert_equals_approx, MatmulTestCase, Sample};
+use super::test_utils::{MatmulTestCase, Sample, assert_equals_approx};
 
 pub fn test_one_cube<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {
@@ -74,7 +74,14 @@ fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display + Sample>(
         Default::default(),
     );
 
-    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01) {
+    if let Err(e) = assert_equals_approx::<R, F>(
+        &client,
+        out.handle,
+        &out.shape,
+        &out.strides,
+        &expected,
+        0.01,
+    ) {
         panic!("{}", e);
     }
 }

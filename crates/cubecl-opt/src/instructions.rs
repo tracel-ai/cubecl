@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, AtomicOp, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction, Metadata,
-    Operation, Operator, PipelineOps, Plane, UnaryOperator, Variable,
+    Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
+    Metadata, NonSemantic, Operation, Operator, Plane, TmaOps, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -45,11 +45,15 @@ impl Optimizer {
             Operation::Atomic(atomic) => self.visit_atomic(atomic, out, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
-            Operation::Synchronization(_) | Operation::NonSemantic(_) => {}
+            Operation::Synchronization(_) => {}
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
-            Operation::Pipeline(pipeline_ops) => self.visit_pipeline(pipeline_ops, visit_read),
+            Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
+            Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
+            Operation::NonSemantic(non_semantic) => {
+                self.visit_nonsemantic(non_semantic, visit_read)
+            }
         }
     }
 
@@ -75,7 +79,8 @@ impl Optimizer {
             | Arithmetic::Max(binary_operator)
             | Arithmetic::Min(binary_operator)
             | Arithmetic::Remainder(binary_operator)
-            | Arithmetic::Dot(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            | Arithmetic::Dot(binary_operator)
+            | Arithmetic::MulHi(binary_operator) => self.visit_binop(binary_operator, visit_read),
 
             Arithmetic::Abs(unary_operator)
             | Arithmetic::Exp(unary_operator)
@@ -151,21 +156,19 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
-            Operator::UncheckedIndex(binary_operator)
-            | Operator::UncheckedIndexAssign(binary_operator)
-            | Operator::Index(binary_operator)
-            | Operator::IndexAssign(binary_operator)
-            | Operator::And(binary_operator)
-            | Operator::Or(binary_operator) => self.visit_binop(binary_operator, visit_read),
-
+            Operator::And(binary_operator) | Operator::Or(binary_operator) => {
+                self.visit_binop(binary_operator, visit_read)
+            }
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
-            | Operator::Bitcast(unary_operator) => self.visit_unop(unary_operator, visit_read),
-
-            Operator::Slice(slice_operator) => {
-                visit_read(self, &mut slice_operator.start);
-                visit_read(self, &mut slice_operator.end);
-                visit_read(self, &mut slice_operator.input);
+            | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            Operator::Index(index_operator) | Operator::UncheckedIndex(index_operator) => {
+                visit_read(self, &mut index_operator.list);
+                visit_read(self, &mut index_operator.index);
+            }
+            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
+                visit_read(self, &mut op.index);
+                visit_read(self, &mut op.value);
             }
             Operator::InitLine(line_init_operator) => {
                 for input in &mut line_init_operator.inputs {
@@ -297,25 +300,117 @@ impl Optimizer {
         }
     }
 
-    fn visit_pipeline(
+    fn visit_barrier(
         &mut self,
-        pipeline_ops: &mut PipelineOps,
+        barrier_ops: &mut BarrierOps,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
-        match pipeline_ops {
-            PipelineOps::MemCopyAsync {
-                pipeline,
-                source,
-                destination,
-            } => {
-                visit_read(self, pipeline);
-                visit_read(self, source);
-                visit_read(self, destination);
+        match barrier_ops {
+            BarrierOps::Init { barrier, .. } => {
+                visit_read(self, barrier);
             }
-            PipelineOps::ProducerAcquire { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ProducerCommit { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ConsumerWait { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ConsumerRelease { pipeline } => visit_read(self, pipeline),
+            BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
+            BarrierOps::TmaLoad {
+                barrier,
+                offset_out,
+                tensor_map,
+                indices,
+            } => {
+                visit_read(self, offset_out);
+                visit_read(self, barrier);
+                visit_read(self, tensor_map);
+                for index in indices {
+                    visit_read(self, index);
+                }
+            }
+            BarrierOps::TmaLoadIm2col {
+                barrier,
+                tensor_map,
+                indices,
+                offset_out,
+                offsets,
+            } => {
+                visit_read(self, offset_out);
+                visit_read(self, barrier);
+                visit_read(self, tensor_map);
+                for index in indices {
+                    visit_read(self, index);
+                }
+                for offset in offsets {
+                    visit_read(self, offset);
+                }
+            }
+            BarrierOps::ArriveAndWait { barrier } => visit_read(self, barrier),
+            BarrierOps::Arrive { barrier } => visit_read(self, barrier),
+            BarrierOps::ArriveTx {
+                barrier,
+                arrive_count_update,
+                transaction_count_update,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, arrive_count_update);
+                visit_read(self, transaction_count_update);
+            }
+            BarrierOps::ExpectTx {
+                barrier,
+                transaction_count_update,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, transaction_count_update);
+            }
+            BarrierOps::Wait { barrier } => {
+                visit_read(self, barrier);
+            }
+        }
+    }
+
+    fn visit_tma(
+        &mut self,
+        tma_ops: &mut TmaOps,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match tma_ops {
+            TmaOps::TmaStore {
+                source,
+                coordinates,
+                offset_source,
+            } => {
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                for coord in coordinates {
+                    visit_read(self, coord)
+                }
+            }
+            TmaOps::CommitGroup | TmaOps::WaitGroup { .. } | TmaOps::WaitGroupRead { .. } => {}
+        }
+    }
+
+    fn visit_nonsemantic(
+        &mut self,
+        non_semantic: &mut NonSemantic,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match non_semantic {
+            NonSemantic::Comment { .. }
+            | NonSemantic::EnterDebugScope
+            | NonSemantic::ExitDebugScope => {}
+            NonSemantic::Print { args, .. } => {
+                for arg in args {
+                    visit_read(self, arg);
+                }
+            }
         }
     }
 

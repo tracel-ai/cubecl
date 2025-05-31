@@ -59,7 +59,6 @@ impl Value {
             ),
             Value::Builtin(builtin) => Variable::builtin(*builtin),
             Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
-            Value::Slice(id, item) => Variable::new(VariableKind::Slice { id: *id }, *item),
         }
     }
 }
@@ -83,9 +82,10 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         | VariableKind::SharedMemory { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
-        VariableKind::Slice { id } => Value::Slice(id, item),
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
+        VariableKind::Barrier { .. } => panic!("Barrier is not supported"),
+        VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
     };
     Some(val)
 }

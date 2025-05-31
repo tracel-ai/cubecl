@@ -1,5 +1,5 @@
 use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
-use cubecl_runtime::TimestampsResult;
+use cubecl_random::random_uniform;
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
@@ -27,9 +27,13 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
-        let lhs = TensorHandle::zeros(&client, self.shape.clone());
-        let rhs = TensorHandle::zeros(&client, self.shape.clone());
-        let out = TensorHandle::zeros(&client, self.shape.clone());
+
+        let lhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), lhs.as_ref());
+        let rhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), rhs.as_ref());
+        let out = TensorHandle::<R, E>::empty(&client, self.shape.clone());
+        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), out.as_ref());
 
         (lhs, rhs, out)
     }
@@ -52,9 +56,11 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn name(&self) -> String {
+        let client = R::client(&self.device);
+
         format!(
             "unary-{}-{}-{:?}",
-            R::name(),
+            R::name(&client),
             E::as_elem_native_unchecked(),
             self.vectorization
         )
@@ -65,8 +71,8 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn sync_elapsed(&self) -> TimestampsResult {
-        future::block_on(self.client.sync_elapsed())
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+        self.client.profile(|| self.execute(args))
     }
 }
 
@@ -82,8 +88,6 @@ struct UnaryBench<R: Runtime, E> {
 #[allow(dead_code)]
 fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
     let client = R::client(&device);
-    client.enable_timestamps();
-
     let bench = UnaryBench::<R, E> {
         shape: vec![32, 512, 2048],
         vectorization,
@@ -92,7 +96,7 @@ fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::DeviceOnly));
+    println!("{}", bench.run(TimingMethod::Device));
 }
 
 fn main() {

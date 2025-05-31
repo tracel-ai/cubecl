@@ -1,7 +1,7 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{ir as core, prelude::FastMath, Metadata, WgpuCompilationOptions};
+use cubecl_core::{Metadata, WgpuCompilationOptions, ir as core, prelude::FastMath};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
-use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 use std::{
     collections::HashSet,
     fmt::Debug,
@@ -10,24 +10,24 @@ use std::{
     rc::Rc,
 };
 
-use cubecl_core::{compute::KernelDefinition, Compiler};
+use cubecl_core::{Compiler, compute::KernelDefinition};
 use rspirv::{
-    dr::{Builder, InsertPoint, Instruction, Module, Operand},
+    dr::{self, Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
 use crate::{
+    SpirvKernel,
     debug::DebugInfo,
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
     transformers::{BitwiseTransform, ErfTransform},
-    SpirvKernel,
 };
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
-    builder: Builder,
+    pub(crate) builder: Builder,
 
     pub mode: ExecutionMode,
     pub debug_symbols: bool,
@@ -41,6 +41,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub visited: HashSet<NodeIndex>,
 
     pub capabilities: HashSet<Capability>,
+    pub float_controls: bool,
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
     pub metadata: Metadata,
@@ -65,6 +66,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             current_block: self.current_block,
 
             capabilities: self.capabilities.clone(),
+            float_controls: false,
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
             fp_math_mode: self.fp_math_mode,
@@ -77,6 +79,13 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
     }
 }
 
+fn debug_symbols_activated() -> bool {
+    matches!(
+        GlobalConfig::get().compilation.logger.level,
+        CompilationLogLevel::Full
+    )
+}
+
 impl<T: SpirvTarget> Default for SpirvCompiler<T> {
     fn default() -> Self {
         Self {
@@ -86,12 +95,13 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             global_invocation_id: Default::default(),
             num_workgroups: Default::default(),
             capabilities: Default::default(),
+            float_controls: Default::default(),
             state: Default::default(),
             setup_block: Default::default(),
             opt: Default::default(),
             uniformity: Default::default(),
             current_block: Default::default(),
-            debug_symbols: DebugLogger::default().is_activated(),
+            debug_symbols: debug_symbols_activated(),
             fp_math_mode: FPFastMathMode::NONE,
             visited: Default::default(),
             metadata: Default::default(),
@@ -126,20 +136,28 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
-        let bindings = value
-            .inputs
-            .clone()
-            .into_iter()
-            .chain(value.outputs.clone())
-            .chain(value.named.clone().into_iter().map(|it| it.1))
+        let bindings = value.buffers.clone();
+        let scalars = value
+            .scalars
+            .iter()
+            .map(|s| (self.compile_elem(s.elem), s.count))
             .collect();
-        let num_meta = value.inputs.len() + value.outputs.len();
         let mut ext_meta_pos = Vec::new();
         let mut num_ext = 0;
 
-        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+        let mut all_meta: Vec<_> = value
+            .buffers
+            .iter()
+            .map(|buf| (buf.id, buf.has_extended_meta))
+            .chain(value.tensor_maps.iter().map(|id| (*id, true)))
+            .collect();
+        all_meta.sort_by_key(|(id, _)| *id);
+
+        let num_meta = all_meta.len();
+
+        for (_, has_extended_meta) in all_meta.iter() {
             ext_meta_pos.push(num_ext);
-            if binding.has_extended_meta {
+            if *has_extended_meta {
                 num_ext += 1;
             }
         }
@@ -154,11 +172,17 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             module,
             optimizer,
             bindings,
+            scalars,
+            has_metadata: self.metadata.static_len() > 0,
         }
     }
 
     fn elem_size(&self, elem: core::Elem) -> usize {
         elem.size()
+    }
+
+    fn extension(&self) -> &'static str {
+        "spv"
     }
 }
 
@@ -172,21 +196,25 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
         let options = kernel.options.clone();
 
-        self.debug_symbols = DebugLogger::default().is_activated() || options.debug_symbols;
+        self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
         self.fp_math_mode = match self.compilation_options.supports_fp_fast_math {
             true => convert_math_mode(options.fp_math_mode),
             false => FPFastMathMode::NONE,
         };
 
         if self.fp_math_mode != FPFastMathMode::NONE {
-            self.capabilities.insert(Capability::FloatControls2);
+            let inst = dr::Instruction::new(
+                spirv::Op::Capability,
+                None,
+                None,
+                vec![dr::Operand::LiteralBit32(6029)],
+            );
+            self.module_mut().capabilities.push(inst);
         }
 
         self.set_version(1, 6);
 
         let mut target = self.target.clone();
-        let extensions = target.extensions(self);
-        self.state.extensions = extensions;
 
         self.init_state(kernel.clone());
 
@@ -194,10 +222,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
             .optimize(kernel.body, kernel.cube_dim, self.mode);
-        self.init_debug(options.kernel_name.clone(), &opt);
 
         self.uniformity = opt.analysis::<Uniformity>();
         self.opt = Rc::new(opt);
+
+        self.init_debug();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -241,8 +270,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 id
             })
             .collect::<Vec<_>>();
-
-        self.finish_debug();
 
         target.set_modes(self, main, builtins, cube_dims);
 
@@ -291,7 +318,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.begin_block(Some(label)).unwrap();
         let block_id = self.selected_block().unwrap();
 
-        self.debug_scope();
+        self.debug_start_block();
 
         let operations = self.current_block().ops.borrow().clone();
         for (_, operation) in operations {
@@ -343,18 +370,12 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn declare_shared_memories(&mut self) {
         let shared_memories = self.state.shared_memories.clone();
-        for (id, memory) in shared_memories {
+        for (_, memory) in shared_memories {
             let arr_ty = Item::Array(Box::new(memory.item), memory.len);
             let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
 
-            self.debug_name(memory.id, format!("shared({id})"));
+            self.debug_var_name(memory.id, memory.var);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
-    }
-
-    pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
-        if self.debug_symbols {
-            self.name(var, name);
         }
     }
 
@@ -368,7 +389,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
             .collect::<Vec<_>>();
         for ty in scalars {
-            self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+            let operands = vec![
+                dr::Operand::IdRef(main),
+                dr::Operand::LiteralBit32(6028),
+                dr::Operand::LiteralBit32(ty),
+                dr::Operand::LiteralBit32(mode),
+            ];
+
+            let inst = dr::Instruction::new(spirv::Op::ExecutionModeId, None, None, operands);
+            self.module_mut().execution_modes.push(inst);
         }
     }
 
@@ -387,12 +416,12 @@ fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
             FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
             FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
             FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-            FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
-            FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+            FastMath::AllowContraction => flags |= FPFastMathMode::from_bits_retain(0x10000),
+            FastMath::AllowReassociation => flags |= FPFastMathMode::from_bits_retain(0x20000),
             FastMath::AllowTransform => {
-                flags |= FPFastMathMode::ALLOW_CONTRACT
-                    | FPFastMathMode::ALLOW_REASSOC
-                    | FPFastMathMode::ALLOW_TRANSFORM
+                flags |= FPFastMathMode::from_bits_retain(0x10000)
+                    | FPFastMathMode::from_bits_retain(0x20000)
+                    | FPFastMathMode::from_bits_retain(0x40000)
             }
             _ => {}
         }

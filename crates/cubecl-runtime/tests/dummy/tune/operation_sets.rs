@@ -1,19 +1,18 @@
-#[cfg(autotune_persistent_cache)]
-use rand::{distr::Alphanumeric, Rng};
-use std::sync::Arc;
+#[cfg(std_io)]
+use rand::{Rng, distr::Alphanumeric};
 
 use cubecl_runtime::{
-    server::{Binding, CubeCount},
+    server::{Binding, Bindings, CubeCount},
     tune::{AsFunctionTunable, TunableSet},
 };
 
 use crate::{
+    DummyKernel,
     dummy::{
         CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
-        DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong,
+        DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong, KernelTask,
         OneKernelAutotuneOperation,
     },
-    DummyKernel,
 };
 
 use super::DummyElementwiseAdditionSlowWrong;
@@ -34,11 +33,11 @@ pub fn addition_set(
         clone_bindings,
     )
     .with_tunable(OneKernelAutotuneOperation::new(
-        Arc::new(DummyElementwiseAddition),
+        KernelTask::new(DummyElementwiseAddition),
         client.clone(),
     ))
     .with_tunable(OneKernelAutotuneOperation::new(
-        Arc::new(DummyElementwiseAdditionSlowWrong),
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
     ))
 }
@@ -49,11 +48,11 @@ pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestS
         clone_bindings,
     )
     .with_tunable(OneKernelAutotuneOperation::new(
-        Arc::new(DummyElementwiseMultiplicationSlowWrong),
+        KernelTask::new(DummyElementwiseMultiplicationSlowWrong),
         client.clone(),
     ))
     .with_tunable(OneKernelAutotuneOperation::new(
-        Arc::new(DummyElementwiseMultiplication),
+        KernelTask::new(DummyElementwiseMultiplication),
         client.clone(),
     ))
 }
@@ -69,9 +68,13 @@ pub fn cache_test_set(
         kernel: impl DummyKernel,
         bindings: Vec<Binding>,
     ) -> impl Fn(Vec<Binding>) {
-        let kernel = Arc::new(kernel);
+        let kernel = KernelTask::new(kernel);
         move |_| {
-            client.execute(kernel.clone(), CubeCount::Static(1, 1, 1), bindings.clone());
+            client.execute(
+                kernel.clone(),
+                CubeCount::Static(1, 1, 1),
+                Bindings::new().with_buffers(bindings.clone()),
+            );
         }
     }
     let mut set = TestSet::new(

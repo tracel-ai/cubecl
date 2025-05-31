@@ -1,5 +1,5 @@
-use super::{Body, Extension, Item, Variable};
-use cubecl_core::{compute::Visibility, ir::Id, CubeDim};
+use super::{Body, Elem, Extension, Item, Variable};
+use cubecl_core::{CubeDim, compute::Visibility, ir::Id};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -10,6 +10,7 @@ pub enum Location {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding {
+    pub id: Id,
     pub location: Location,
     pub visibility: Visibility,
     pub item: Item,
@@ -22,15 +23,17 @@ pub struct SharedMemory {
     pub index: Id,
     item: Item,
     size: u32,
+    alignment: Option<u32>,
 }
 
 impl SharedMemory {
-    pub fn new(index: Id, item: Item, size: u32) -> Self {
+    pub fn new(index: Id, item: Item, size: u32, alignment: Option<u32>) -> Self {
         Self {
             location: Location::Workgroup,
             index,
             item,
             size,
+            alignment,
         }
     }
 }
@@ -58,12 +61,12 @@ impl LocalArray {
 
 #[derive(Debug, Clone)]
 pub struct ComputeShader {
-    pub inputs: Vec<Binding>,
-    pub outputs: Vec<Binding>,
-    pub named: Vec<(String, Binding)>,
+    pub buffers: Vec<Binding>,
+    pub scalars: Vec<(Elem, usize)>,
     pub shared_memories: Vec<SharedMemory>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
+    pub has_metadata: bool,
     pub workgroup_size: CubeDim,
     pub global_invocation_id: bool,
     pub local_invocation_index: bool,
@@ -79,6 +82,7 @@ pub struct ComputeShader {
     pub extensions: Vec<Extension>,
     pub kernel_name: String,
     pub subgroup_instructions_used: bool,
+    pub f16_used: bool,
 }
 
 impl Display for ComputeShader {
@@ -90,15 +94,25 @@ impl Display for ComputeShader {
             f.write_str("enable subgroups;")?;
         }
 
-        Self::format_bindings(f, "input", &self.inputs, 0)?;
-        Self::format_bindings(f, "output", &self.outputs, self.inputs.len())?;
+        if self.f16_used {
+            f.write_str("enable f16;")?;
+        }
 
-        for (i, (name, binding)) in self.named.iter().enumerate() {
-            Self::format_binding(
+        Self::format_bindings(f, "buffer", &self.buffers, 0)?;
+
+        let mut offset = self.buffers.len();
+        if self.has_metadata {
+            Self::format_scalar_binding(f, "info", Elem::U32, None, offset)?;
+            offset += 1;
+        }
+
+        for (i, (elem, len)) in self.scalars.iter().enumerate() {
+            Self::format_scalar_binding(
                 f,
-                name.as_str(),
-                binding,
-                self.inputs.len() + self.outputs.len() + i,
+                &format!("scalars_{elem}"),
+                *elem,
+                Some(*len),
+                offset + i,
             )?;
         }
 
@@ -248,6 +262,34 @@ impl ComputeShader {
 var<{}, {}> {}: {};
 \n",
             num_entry, binding.location, visibility, name, ty
+        )?;
+
+        Ok(())
+    }
+
+    fn format_scalar_binding(
+        f: &mut core::fmt::Formatter<'_>,
+        name: &str,
+        elem: Elem,
+        len: Option<usize>,
+        num_entry: usize,
+    ) -> core::fmt::Result {
+        let ty = match len {
+            Some(size) => format!("array<{elem}, {size}>"),
+            None => format!("array<{elem}>"),
+        };
+        let location = Location::Storage;
+        #[cfg(exclusive_memory_only)]
+        let visibility = "read";
+        #[cfg(not(exclusive_memory_only))]
+        let visibility = "read_write";
+
+        write!(
+            f,
+            "@group(0)
+@binding({num_entry})
+var<{location}, {visibility}> {name}: {ty};
+\n",
         )?;
 
         Ok(())

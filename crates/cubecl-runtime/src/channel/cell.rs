@@ -1,9 +1,14 @@
 use super::ComputeChannel;
-use crate::server::{Binding, ComputeServer, CubeCount, Handle};
-use crate::storage::BindingResource;
+use crate::logging::ServerLogger;
+use crate::server::{
+    Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+};
+use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::ExecutionMode;
+use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::future::DynFut;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -43,15 +48,25 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        let future = {
-            let mut server = self.server.borrow_mut();
-            server.read(bindings)
-        };
-        future.await
+    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+        let mut server = self.server.borrow_mut();
+        server.read(bindings)
     }
 
-    fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
+    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+        let mut server = self.server.borrow_mut();
+        server.read_tensor(bindings)
+    }
+
+    fn sync(&self) -> DynFut<()> {
+        let mut server = self.server.borrow_mut();
+        server.sync()
+    }
+
+    fn get_resource(
+        &self,
+        binding: Binding,
+    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.server.borrow_mut().get_resource(binding)
     }
 
@@ -59,52 +74,62 @@ where
         self.server.borrow_mut().create(resource)
     }
 
+    fn create_tensors(
+        &self,
+        data: Vec<&[u8]>,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        self.server
+            .borrow_mut()
+            .create_tensors(data, shape, elem_size)
+    }
+
     fn empty(&self, size: usize) -> Handle {
         self.server.borrow_mut().empty(size)
+    }
+
+    fn empty_tensors(
+        &self,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
+    ) -> Vec<(Handle, Vec<usize>)> {
+        self.server.borrow_mut().empty_tensors(shape, elem_size)
     }
 
     unsafe fn execute(
         &self,
         kernel_description: Server::Kernel,
         count: CubeCount,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         kind: ExecutionMode,
+        logger: Arc<ServerLogger>,
     ) {
-        self.server
-            .borrow_mut()
-            .execute(kernel_description, count, bindings, kind)
+        unsafe {
+            self.server
+                .borrow_mut()
+                .execute(kernel_description, count, bindings, kind, logger)
+        }
     }
 
     fn flush(&self) {
         self.server.borrow_mut().flush()
     }
 
-    async fn sync(&self) {
-        let future = {
-            let mut server = self.server.borrow_mut();
-            server.sync()
-        };
-        future.await
-    }
-
-    async fn sync_elapsed(&self) -> TimestampsResult {
-        let future = {
-            let mut server = self.server.borrow_mut();
-            server.sync_elapsed()
-        };
-        future.await
-    }
-
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         self.server.borrow_mut().memory_usage()
     }
 
-    fn enable_timestamps(&self) {
-        self.server.borrow_mut().enable_timestamps();
+    fn memory_cleanup(&self) {
+        self.server.borrow_mut().memory_cleanup();
     }
 
-    fn disable_timestamps(&self) {
-        self.server.borrow_mut().disable_timestamps();
+    fn start_profile(&self) -> ProfilingToken {
+        self.server.borrow_mut().start_profile()
+    }
+
+    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
+        self.server.borrow_mut().end_profile(token)
     }
 }
 

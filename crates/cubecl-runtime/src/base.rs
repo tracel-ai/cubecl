@@ -8,8 +8,6 @@ pub struct ComputeRuntime<Device, Server: ComputeServer, Channel> {
     clients: spin::Mutex<Option<HashMap<Device, ComputeClient<Server, Channel>>>>,
 }
 
-pub use cubecl_common::benchmark::{TimestampsError, TimestampsResult};
-
 impl<Device, Server, Channel> Default for ComputeRuntime<Device, Server, Channel>
 where
     Device: core::hash::Hash + PartialEq + Eq + Clone + core::fmt::Debug,
@@ -87,7 +85,7 @@ where
 
         if let Some(clients) = clients {
             if clients.contains_key(device) {
-                panic!("Client already created for device {:?}", device);
+                panic!("Client already created for device {device:?}");
             }
 
             clients.insert(device.clone(), client);

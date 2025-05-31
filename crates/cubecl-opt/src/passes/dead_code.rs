@@ -1,3 +1,5 @@
+#![allow(unknown_lints, unnecessary_transmutes)]
+
 use std::{
     mem::{replace, transmute},
     rc::Rc,
@@ -8,8 +10,9 @@ use cubecl_ir::{ConstantScalarValue, Instruction, Operation, OperationReflect, V
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
+    AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
     analyses::{liveness::Liveness, post_order::PostOrder},
-    visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
+    visit_noop,
 };
 
 use super::OptimizerPass;
@@ -63,9 +66,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 // Exclude outputs
                 if !matches!(
                     var.kind,
-                    VariableKind::GlobalOutputArray { .. }
-                        | VariableKind::Slice { .. }
-                        | VariableKind::GlobalInputArray { .. }
+                    VariableKind::GlobalOutputArray { .. } | VariableKind::GlobalInputArray { .. }
                 ) {
                     out = Some(*var);
                 }
@@ -246,11 +247,11 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             }
             for incoming in opt.predecessors(successors[0]) {
                 if incoming != block_idx {
-                    opt.program.add_edge(incoming, block_idx, ());
+                    opt.program.add_edge(incoming, block_idx, 0);
                 }
             }
             for outgoing in opt.successors(successors[0]) {
-                opt.program.add_edge(block_idx, outgoing, ());
+                opt.program.add_edge(block_idx, outgoing, 0);
             }
             *opt.program.node_weight_mut(block_idx).unwrap() = new_block;
             opt.program.remove_node(successors[0]);

@@ -1,26 +1,23 @@
 use ash::{
     khr::cooperative_matrix,
-    vk::{
-        ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, EXT_ROBUSTNESS2_NAME,
-        TRUE,
-    },
+    vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
 };
 use cubecl_core::{
+    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
     compute::Visibility,
     ir::{Elem, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
-    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
 };
 use cubecl_runtime::DeviceProperties;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use wgpu::{
+    DeviceDescriptor, Features, Limits,
     hal::{
         self,
         vulkan::{self, InstanceShared},
     },
-    DeviceDescriptor, Features, Limits,
 };
 
 use crate::{AutoCompiler, WgpuServer};
@@ -30,16 +27,19 @@ mod features;
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
 pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
-    repr.bindings
-        .iter()
-        .enumerate()
-        .map(|it| (it.0, it.1.visibility))
-        .collect()
+    let mut bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+    if repr.has_metadata {
+        bindings.push(Visibility::Read);
+    }
+    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    bindings.into_iter().enumerate().collect()
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
-    let features = adapter.features();
+    let features = adapter
+        .features()
+        .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
         adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
             request_device(adapter, hal_adapter.unwrap(), features, limits)
@@ -136,11 +136,12 @@ fn request_device(
         required_features: full_feat,
         required_limits: limits,
         memory_hints,
+        trace: wgpu::Trace::Off,
     };
 
     unsafe {
         wgpu_adapter
-            .create_device_from_hal(device, &descriptor, None)
+            .create_device_from_hal(device, &descriptor)
             .expect("Failed to create wgpu device")
     }
 }
@@ -158,6 +159,8 @@ fn register_features(
     log::debug!("Supported Vulkan features: {extended_feat:#?}");
 
     register_types(props, &extended_feat);
+    comp_options.supports_u64 = true;
+    props.register_feature(Feature::SyncPlane);
 
     if let Some(atomic_float) = &extended_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
@@ -167,6 +170,7 @@ fn register_features(
             props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
         }
     }
+
     if let Some(atomic_float2) = &extended_feat.atomic_float2 {
         if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
             props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
@@ -203,7 +207,7 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         Elem::AtomicUInt(UIntKind::U32),
         Elem::AtomicUInt(UIntKind::U64),
         Elem::Float(FloatKind::F32),
-        //Elem::Float(FloatKind::F64),
+        // Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];
 
@@ -222,9 +226,9 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
             register(Elem::AtomicFloat(FloatKind::F32));
-            register(Elem::AtomicFloat(FloatKind::F64));
         }
     }
+
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
             register(Elem::AtomicFloat(FloatKind::F16));
@@ -250,6 +254,12 @@ fn register_cmma(
                 && it.scope == ScopeKHR::SUBGROUP
         })
         .filter_map(|it| {
+            let mut min_current = props.hardware.min_tensor_cores_dim.unwrap_or(it.m_size);
+            min_current = u32::min(min_current, it.m_size);
+            min_current = u32::min(min_current, it.n_size);
+            min_current = u32::min(min_current, it.k_size);
+            props.hardware.min_tensor_cores_dim = Some(min_current);
+
             Some(Feature::Cmma {
                 a: convert_type(it.a_type)?,
                 b: convert_type(it.b_type)?,
@@ -261,6 +271,7 @@ fn register_cmma(
         })
         .collect::<Vec<_>>();
     log::debug!("Supported CMMA sizes: {sizes:#?}");
+
     for size in sizes {
         props.register_feature(size);
     }
@@ -291,13 +302,6 @@ pub(crate) fn compile(
     kernel: <WgpuServer as ComputeServer>::Kernel,
     mode: ExecutionMode,
 ) -> CompiledKernel<AutoCompiler> {
-    // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
-    // unchecked execution if robustness is enabled and let Vulkan handle it
-    let mode = if is_robust(&server.device) {
-        ExecutionMode::Unchecked
-    } else {
-        mode
-    };
     log::debug!("Compiling {}", kernel.name());
     let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode);
     #[cfg(feature = "spirv-dump")]
@@ -305,19 +309,12 @@ pub(crate) fn compile(
     compiled
 }
 
-fn is_robust(device: &wgpu::Device) -> bool {
-    fn is_robust(device: &vulkan::Device) -> bool {
-        device
-            .enabled_device_extensions()
-            .contains(&EXT_ROBUSTNESS2_NAME)
-    }
-    unsafe {
-        device.as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
-    }
-}
-
 #[cfg(feature = "spirv-dump")]
-fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_core::KernelId) {
+fn dump_spirv(
+    compiled: &CompiledKernel<AutoCompiler>,
+    name: &str,
+    id: cubecl_runtime::id::KernelId,
+) {
     use std::{
         fs,
         hash::{DefaultHasher, Hash, Hasher},
@@ -348,6 +345,11 @@ fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_co
             fs::write(
                 format!("{dir}/{name}.ir.txt"),
                 format!("{}", repr.optimizer),
+            )
+            .unwrap();
+            fs::write(
+                format!("{dir}/{name}.ir.dot"),
+                format!("{}", repr.optimizer.dot_viz()),
             )
             .unwrap();
         }

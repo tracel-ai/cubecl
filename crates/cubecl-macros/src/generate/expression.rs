@@ -1,9 +1,9 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Member, PathArguments};
+use quote::{format_ident, quote, quote_spanned};
+use syn::{GenericArgument, Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
 
 use crate::{
-    expression::{Block, ConstMatchArm, Expression},
+    expression::{Block, Expression, MatchArm},
     operator::Operator,
     paths::{frontend_path, frontend_type, prelude_type},
     scope::Context,
@@ -31,16 +31,17 @@ impl Expression {
                 let array = array.to_tokens(context);
                 let index = index
                     .as_const(context)
-                    .map(|as_const| quote![#elem::from_lit(context, #as_const)])
+                    .map(|as_const| quote![#elem::from_lit(scope, #as_const)])
                     .unwrap_or_else(|| index.to_tokens(context));
                 let right = right
                     .as_const(context)
-                    .map(|as_const| quote![#elem::from_lit(context, #as_const)])
+                    .map(|as_const| quote![#elem::from_lit(scope, #as_const)])
                     .unwrap_or_else(|| right.to_tokens(context));
                 let op = format_ident!("{}", operator.array_op_name());
                 let expand = with_span(
+                    context,
                     *span,
-                    quote![#frontend_path::#op::expand(context, _array.into(), _index.into(), _value.into())],
+                    quote![#frontend_path::#op::expand(scope, _array, _index.into(), _value.into())],
                 );
                 quote! {
                     {
@@ -63,8 +64,9 @@ impl Expression {
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
                 let expand = with_span(
+                    context,
                     *span,
-                    quote![#frontend_path::#op::expand(context, _lhs.into(), _rhs.into())],
+                    quote![#frontend_path::#op::expand(scope, _lhs.into(), _rhs.into())],
                 );
                 quote! {
                     {
@@ -89,8 +91,9 @@ impl Expression {
                 let input = input.to_tokens(context);
                 let op = format_ident!("{}", operator.op_name());
                 let expand = with_span(
+                    context,
                     *span,
-                    quote![#frontend_path::#op::expand(context, _inner.into())],
+                    quote![#frontend_path::#op::expand(scope, _inner.into())],
                 );
                 quote! {
                     {
@@ -100,13 +103,13 @@ impl Expression {
                 }
             }
             Expression::Keyword { name } => {
-                quote![#name::expand(context)]
+                quote![#name::expand(scope)]
             }
             Expression::Variable(var) => {
                 if var.is_const {
                     let name = &var.name;
                     let expand_elem = frontend_type("ExpandElementTyped");
-                    quote![#expand_elem::from_lit(context, #name)]
+                    quote![#expand_elem::from_lit(scope, #name)]
                 } else {
                     let name = &var.name;
                     if var.try_consume(context) {
@@ -124,7 +127,7 @@ impl Expression {
             }
             Expression::Literal { value, .. } => {
                 let expand_elem = frontend_type("ExpandElementTyped");
-                quote![#expand_elem::from_lit(context, #value)]
+                quote![#expand_elem::from_lit(scope, #value)]
             }
 
             Expression::Assignment { left, right, .. }
@@ -140,7 +143,7 @@ impl Expression {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #frontend_path::index_assign::expand(context, _array.into(), _index.into(), _value.into())
+                        #frontend_path::index_assign::expand(scope, _array, _index.into(), _value.into())
                     }
                 }
             }
@@ -152,7 +155,7 @@ impl Expression {
                     {
                         let _var = #left;
                         let _value = #right;
-                        #frontend_path::assign::expand(context, _value.into(), _var.into())
+                        #frontend_path::assign::expand(scope, _value.into(), _var.into())
                     }
                 }
             }
@@ -161,8 +164,9 @@ impl Expression {
                 let index = index.to_tokens(context);
                 let index_fn = frontend_type("index");
                 let expand = with_span(
+                    context,
                     *span,
-                    quote![#index_fn::expand(context, _array.into(), _index.into())],
+                    quote![#index_fn::expand(scope, _array, _index.into())],
                 );
                 quote! {
                     {
@@ -179,14 +183,19 @@ impl Expression {
                 span,
                 ..
             } => {
-                let debug_call = frontend_type("debug_call_expand");
                 let (args, arg_names) = map_args(args, context);
                 let (generics, path) = split_generics(func, context);
-                let path_str = path.to_string();
+
+                let call = with_debug_call(
+                    context,
+                    *span,
+                    quote![#path::expand #generics(scope, #(#arg_names),*)],
+                );
+
                 quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #path_str, line!(), column!(), |context| #path::expand #generics(context, #(#arg_names),*))
+                        #call
                     }
                 }
             }
@@ -200,25 +209,35 @@ impl Expression {
                 quote! {
                     {
                         #(#args)*
-                        #path::expand #generics(context, #(#arg_names),*)
+                        #path::expand #generics(scope, #(#arg_names),*)
                     }
                 }
             }
             Expression::FunctionCall {
                 args,
-                associated_type: Some((ty_path, func)),
+                associated_type: Some((ty_path, qself, func)),
                 span,
                 ..
             } => {
-                let debug_call = frontend_type("debug_call_expand");
+                let ty_path = if let Some(qself) = qself {
+                    let ty = &qself.ty;
+                    quote![<#ty as #ty_path>]
+                } else {
+                    quote![#ty_path]
+                };
+
                 let (args, arg_names) = map_args(args, context);
                 let mut name = func.clone();
-                let name_str = format!("{}::{}", ty_path.to_token_stream(), name.to_token_stream());
                 name.ident = format_ident!("__expand_{}", name.ident);
+                let call = with_debug_call(
+                    context,
+                    *span,
+                    quote![#ty_path::#name(scope, #(#arg_names),*)],
+                );
                 quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #name_str, line!(), column!(), |context| #ty_path::#name(context, #(#arg_names),*))
+                        #call
                     }
                 }
             }
@@ -230,24 +249,26 @@ impl Expression {
                 span,
                 ..
             } => {
-                let debug_call = frontend_type("debug_call_expand");
-                let method_str = method.to_string();
                 let method = format_ident!("__expand_{method}_method");
                 let receiver = receiver
                     .as_const(context)
                     .unwrap_or_else(|| receiver.to_tokens(context));
-                let call_str = format!("{receiver}.{method_str}");
                 let (args, arg_names) = map_args(args, context);
+                let call = with_debug_call(
+                    context,
+                    *span,
+                    quote![#receiver.#method #generics(scope, #(#arg_names),*)],
+                );
                 quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #call_str, line!(), column!(), |context| #receiver.#method #generics(context, #(#arg_names),*))
+                        #call
                     }
                 }
             }
             Expression::Break => {
                 let path = frontend_path();
-                quote![#path::branch::break_expand(context);]
+                quote![#path::branch::break_expand(scope);]
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
             Expression::Return(span) => error!(
@@ -260,7 +281,7 @@ impl Expression {
                 let to = quote_spanned![to.span()=> <#to as #cast>];
                 quote! {{
                     let __from = #from;
-                    #to::__expand_cast_from(context, __from)
+                    #to::__expand_cast_from(scope, __from)
                 }}
             }
             Expression::ForLoop {
@@ -285,7 +306,7 @@ impl Expression {
                     {
                         let _range = #range;
                         let _unroll = #unroll;
-                        #for_ty::for_expand(context, _range, _unroll, |context, #var_name #var_ty| #block);
+                        #for_ty::for_expand(scope, _range, _unroll, |scope, #var_name #var_ty| #block);
                     }
                 }
             }
@@ -293,7 +314,7 @@ impl Expression {
                 let loop_ty = frontend_type("branch");
                 let block = context.in_fn_mut(scope, |ctx| block.to_tokens(ctx));
 
-                quote![#loop_ty::loop_expand(context, |context| #block);]
+                quote![#loop_ty::loop_expand(scope, |scope| #block);]
             }
             Expression::If {
                 condition,
@@ -320,7 +341,7 @@ impl Expression {
                 quote! {
                     {
                         let _cond = #condition;
-                        #path::branch::if_else_expr_expand(context, _cond.into(), |context| #then_block).or_else(context, |context| #else_branch)
+                        #path::branch::if_else_expr_expand(scope, _cond.into(), |scope| #then_block).or_else(scope, |scope| #else_branch)
                     }
                 }
             }
@@ -336,7 +357,7 @@ impl Expression {
                 quote! {
                     {
                         let _cond = #condition;
-                        #path::branch::if_else_expand(context, _cond.into(), |context| #then_block).or_else(context, |context| #else_branch);
+                        #path::branch::if_else_expand(scope, _cond.into(), |scope| #then_block).or_else(scope, |scope| #else_branch);
                     }
                 }
             }
@@ -351,7 +372,7 @@ impl Expression {
                 quote! {
                     {
                         let _cond = #condition;
-                        #path::branch::if_expand(context, _cond.into(), |context| #then_block);
+                        #path::branch::if_expand(scope, _cond.into(), |scope| #then_block);
                     }
                 }
             }
@@ -371,19 +392,26 @@ impl Expression {
                     .iter()
                     .map(|(val, block)| {
                         let block = block.to_tokens(context);
-                        quote![.case(context, #val, |context| #block)]
+                        quote![.case(scope, #val, |scope| #block)]
                     })
                     .collect::<Vec<_>>();
                 quote! {
                     {
                         let _val = #value;
-                        #branch::#switch(context, _val.into(), |context| #default)
+                        #branch::#switch(scope, _val.into(), |scope| #default)
                             #(#blocks)*
-                            .finish(context)
+                            .finish(scope)
                     }
                 }
             }
-            Expression::Path { path, .. } => quote![#path],
+            Expression::Path { path, qself } => {
+                if let Some(qself) = qself {
+                    let ty = &qself.ty;
+                    quote![<#ty as #path>]
+                } else {
+                    quote![#path]
+                }
+            }
             Expression::Range {
                 start,
                 end,
@@ -425,7 +453,6 @@ impl Expression {
                     quote![(#(#elements),*)]
                 }
             }
-
             Expression::Slice { span, .. } => {
                 error!(*span, "Slice expressions not yet implemented")
             }
@@ -449,24 +476,48 @@ impl Expression {
                 let cube_type = prelude_type("CubeType");
                 let fields = init_fields(fields, context);
                 let path_last = path.segments.last().unwrap();
-                let turbofish = path_last.arguments.clone();
-                let generics = match &turbofish {
+                let turbofish = &path_last.arguments;
+
+                let generics = match turbofish {
                     PathArguments::None => None,
                     PathArguments::AngleBracketed(params) => {
-                        let params = params.args.iter();
+                        let params = params.args.iter().map(|p| match p {
+                            GenericArgument::Type(syn::Type::Path(ty)) => {
+                                if let Some(segment) = ty.path.segments.last() {
+                                    GenericArgument::Type(syn::Type::Path(syn::TypePath {
+                                        qself: ty.qself.clone(),
+                                        path: syn::Path::from(segment.clone()),
+                                    }))
+                                } else {
+                                    p.clone()
+                                }
+                            }
+                            _ => p.clone(),
+                        });
                         Some(quote![<#(#params),*>])
                     }
                     args => {
                         return error!(
                             args.span(),
                             "Fn generics not supported when constructing runtime structs"
-                        )
+                        );
                     }
                 };
 
+                let mut path_simplified = path.clone();
+                if let PathArguments::AngleBracketed(params) =
+                    &mut path_simplified.segments.last_mut().unwrap().arguments
+                {
+                    params.args.iter_mut().for_each(|p| {
+                        if let GenericArgument::Type(syn::Type::Path(ty)) = p {
+                            ty.path = syn::Path::from(ty.path.segments.last().unwrap().clone());
+                        }
+                    });
+                }
+
                 quote! {
                     {
-                        type _Ty #generics = <#path as #cube_type>::ExpandType;
+                        type _Ty #generics = <#path_simplified as #cube_type>::ExpandType;
                         _Ty #turbofish { #(#fields),* }
                     }
                 }
@@ -478,25 +529,33 @@ impl Expression {
             } => {
                 // Without knowing the closure type, we need to assume it's `FnMut`
                 let body = context.in_fn_mut(scope, |ctx| body.to_tokens(ctx));
-                quote![|context, #(#params),*| #body]
+                quote![|scope, #(#params),*| #body]
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
-            Expression::ConstMatch { const_expr, arms } => {
-                let arms = arms.iter().map(|arm| arm.to_tokens(context));
-
-                quote! {
-                    match #const_expr {
-                        #(#arms,)*
-                    }
+            Expression::Match {
+                runtime_variants,
+                expr,
+                arms,
+            } => {
+                let arms = arms
+                    .iter()
+                    .map(|arm| arm.to_tokens(context, *runtime_variants));
+                if *runtime_variants {
+                    quote! { match (#expr).clone() { #(#arms,)* } }
+                } else {
+                    quote! { match #expr { #(#arms,)* } }
                 }
             }
             Expression::Comment { content } => {
                 let frontend_path = frontend_path();
-                quote![#frontend_path::cube_comment::expand(context, #content)]
+                quote![#frontend_path::cube_comment::expand(scope, #content)]
+            }
+            Expression::RustMacro { ident, tokens } => {
+                quote![#ident!(#tokens)]
             }
             Expression::Terminate => {
-                quote![cubecl::frontend::branch::return_expand(context);]
+                quote![cubecl::frontend::branch::return_expand(scope);]
             }
             Expression::ExpressionMacro { ident, args } => {
                 let frontend_path = frontend_path();
@@ -515,7 +574,7 @@ impl Expression {
                         #(
                             #args
                         )*
-                        #frontend_path::#expand!(context, #(#arg_uses),*);
+                        #frontend_path::#expand!(scope, #(#arg_uses),*);
                     }
                 }
             }
@@ -523,14 +582,73 @@ impl Expression {
     }
 }
 
-impl ConstMatchArm {
-    pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
-        let path = &self.pat;
+impl MatchArm {
+    pub fn to_tokens(&self, context: &mut Context, runtime_variants: bool) -> TokenStream {
+        let mut pat = self.pat.clone();
+
+        // If using runtime variants, we need to replace the variant Name with NameExpand.
+        if runtime_variants {
+            Self::expand_pat(&mut pat);
+        }
+
         let expr = self.expr.to_tokens(context);
 
         quote! {
-            #path => #expr
+            #pat => #expr
         }
+    }
+
+    fn expand_pat(pat: &mut Pat) {
+        match pat {
+            // Match simple ident like x in Enum::Variant(x).
+            // Useful for recursive call.
+            Pat::Ident(_) => {}
+            // Match path::Enum::Ident
+            Pat::Path(pat) => {
+                let mut path = pat.path.clone();
+                append_expand_to_enum_name(&mut path);
+                pat.path = path;
+            }
+            // Match path::Enum::Variant {a, b, c}
+            Pat::Struct(pat) => {
+                let mut path = pat.path.clone();
+                append_expand_to_enum_name(&mut path);
+                pat.path = path;
+            }
+            // Match path::Enum::Variant(a, b, c)
+            Pat::TupleStruct(pat) => {
+                let mut path = pat.path.clone();
+                append_expand_to_enum_name(&mut path);
+                pat.path = path;
+            }
+            // Match Pat1 | Pat2 | ...
+            Pat::Or(pat) => {
+                pat.cases.iter_mut().for_each(Self::expand_pat);
+            }
+            // Match (Pat1, Pat2, ...)
+            Pat::Tuple(pat) => {
+                pat.elems.iter_mut().for_each(Self::expand_pat);
+            }
+            // Match the underscore pattern _
+            Pat::Wild(_) => {}
+            _ => {
+                panic!("unsupported pattern in match for {pat:?}");
+                // NOTE: From the documentation https://docs.rs/syn/latest/syn/enum.Pat.html
+                //       I don't think we should support any other patterns.
+                //       Users can always use a big if, else if, else pattern instead.
+                //       Currently, the goal is to support CubeType enums.
+            }
+        }
+    }
+}
+
+// Replace something like `some_path::Enum::Variant` with `some_path::EnumExpand::Variant`.
+fn append_expand_to_enum_name(path: &mut Path) {
+    if path.segments.len() >= 2 {
+        let segment = path.segments.get_mut(path.segments.len() - 2).unwrap(); // Safe because of the if
+        segment.ident = Ident::new(&format!("{}Expand", segment.ident), Span::call_site());
+    } else {
+        panic!("unsupported pattern in match because of segment len");
     }
 }
 
@@ -540,7 +658,7 @@ impl Block {
         let ret = if let Some(ret) = self.ret.as_ref() {
             let as_const = ret.as_const(context);
             if let Some(as_const) = as_const {
-                quote![#as_const.__expand_runtime_method(context)]
+                quote![#as_const]
             } else {
                 ret.to_tokens(context)
             }
@@ -600,14 +718,11 @@ fn map_args(args: &[Expression], context: &mut Context) -> (Vec<TokenStream>, Ve
     (values, names)
 }
 
-/// Since we no longer (unnecessarily) init immutable locals, we do need to init all struct fields
-/// because of interior mutability.
 fn init_fields<'a>(
     fields: &'a [(Member, Expression)],
     context: &'a mut Context,
 ) -> impl Iterator<Item = TokenStream> + 'a {
     fields.iter().map(|(pat, it)| {
-        let init = frontend_type("Init");
         let it = if let Some(as_const) = it.as_const(context) {
             let it = quote_spanned![as_const.span()=> #as_const];
             return quote! {
@@ -622,15 +737,30 @@ fn init_fields<'a>(
         quote! {
             #pat: {
                 let _init = #it;
-                #init::init(_init, context)
+                _init
             }
         }
     })
 }
 
-fn with_span(span: Span, tokens: TokenStream) -> TokenStream {
-    let debug_spanned = frontend_type("spanned_expand");
-    quote_spanned! {span=>
-        #debug_spanned(context, line!(), column!(), |context| #tokens)
+fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
+    if cfg!(debug_symbols) || context.debug_symbols {
+        let debug_spanned = frontend_type("spanned_expand");
+        quote_spanned! {span=>
+            #debug_spanned(scope, line!(), column!(), |scope| #tokens)
+        }
+    } else {
+        tokens
+    }
+}
+
+fn with_debug_call(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
+    if cfg!(debug_symbols) || context.debug_symbols {
+        let debug_call = frontend_type("debug_call_expand");
+        quote_spanned! {span=>
+            #debug_call(scope, line!(), column!(), |scope| #tokens)
+        }
+    } else {
+        tokens
     }
 }

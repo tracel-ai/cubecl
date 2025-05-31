@@ -1,18 +1,20 @@
-use cubecl_common::ExecutionMode;
 use cubecl_core::ir::{
     self as core, BinaryOperator, Comparison, Instruction, Operation, Operator, UnaryOperator,
 };
 use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{
-    item::{Elem, Item},
-    lookups::Slice,
-    variable::IndexedVariable,
     SpirvCompiler, SpirvTarget,
+    item::{Elem, Item},
+    variable::IndexedVariable,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
+        // Setting source loc for non-semantic ops is pointless, they don't show up in a profiler/debugger.
+        if !matches!(inst.operation, Operation::NonSemantic(_)) {
+            self.set_source_loc(&inst.source_loc);
+        }
         let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {
@@ -37,7 +39,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
-            Operation::Pipeline(_) => panic!("Pipeline not supported in SPIR-V"),
+            Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
+            Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
         }
     }
 
@@ -140,15 +143,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
-            Operator::Index(op) => {
-                let is_atomic = op.lhs.item.elem.is_atomic();
-                let value = self.compile_variable(op.lhs);
-                let index = self.compile_variable(op.rhs);
+            Operator::Index(op) | Operator::UncheckedIndex(op) => {
+                let is_atomic = op.list.item.elem.is_atomic();
+                let value = self.compile_variable(op.list);
+                let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
 
                 if is_atomic {
-                    let checked = matches!(self.mode, ExecutionMode::Checked) && value.has_len();
-                    let ptr = match self.index(&value, &index, !checked) {
+                    let ptr = match self.index(&value, &index, true) {
                         IndexedVariable::Pointer(ptr, _) => ptr,
                         _ => unreachable!("Atomic is always pointer"),
                     };
@@ -162,60 +164,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
-            Operator::IndexAssign(op) => {
-                let index = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
+            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
+                let index = self.compile_variable(op.index);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed(&out, &index, value_id);
-            }
-            Operator::UncheckedIndex(op) => {
-                let value = self.compile_variable(op.lhs);
-                let index = self.compile_variable(op.rhs);
-                let out = self.compile_variable(out);
-
-                let out_id = self.read_indexed_unchecked(&out, &value, &index);
-                self.write(&out, out_id);
-            }
-            Operator::UncheckedIndexAssign(op) => {
-                let index = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
-                let out = self.compile_variable(out);
-                let value_id = self.read_as(&value, &out.indexed_item());
-
-                self.write_indexed_unchecked(&out, &index, value_id);
-            }
-            Operator::Slice(op) => {
-                let item = self.compile_item(op.input.item);
-                let input = self.compile_variable(op.input);
-                let start = self.compile_variable(op.start);
-                let end = self.compile_variable(op.end);
-                let out = match out.kind {
-                    core::VariableKind::Slice { id } => id,
-                    _ => unreachable!(),
-                };
-
-                let start_id = self.read(&start);
-                let end_id = self.read(&end);
-                let const_len = match (start.as_const(), end.as_const()) {
-                    (Some(start), Some(end)) => {
-                        let len = end.as_u32() - start.as_u32();
-                        Some(len)
-                    }
-                    _ => None,
-                };
-
-                self.state.slices.insert(
-                    out,
-                    Slice {
-                        ptr: input,
-                        offset: start_id,
-                        end: end_id,
-                        const_len,
-                        item,
-                    },
-                );
             }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);
@@ -249,7 +204,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.logical_not(ty, Some(out), input).unwrap();
                 });
             }
-            Operator::Bitcast(op) => {
+            Operator::Reinterpret(op) => {
                 self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                     b.bitcast(ty, Some(out), input).unwrap();
                 })
@@ -279,18 +234,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let in_ptr = self.index_ptr(&input, &in_index);
                 let out_ptr = self.index_ptr(&out, &out_index);
-                let checked =
-                    matches!(self.mode, ExecutionMode::Checked) && input.has_len() && out.has_len();
-                if checked {
-                    let in_index = self.read(&in_index);
-                    let out_index = self.read(&out_index);
-                    self.compile_copy_bound(&input, &out, in_index, out_index, None, |b| {
-                        b.copy_memory(out_ptr, in_ptr, None, None, vec![]).unwrap();
-                    });
-                } else {
-                    self.copy_memory(out_ptr, in_ptr, None, None, vec![])
-                        .unwrap();
-                }
+                self.copy_memory(out_ptr, in_ptr, None, None, vec![])
+                    .unwrap();
             }
             Operator::CopyMemoryBulk(op) => {
                 self.capabilities.insert(Capability::Addresses);
@@ -303,19 +248,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let source = self.index_ptr(&input, &in_index);
                 let target = self.index_ptr(&out, &out_index);
                 let size = self.const_u32(len * out.item().size());
-                let checked =
-                    matches!(self.mode, ExecutionMode::Checked) && input.has_len() && out.has_len();
-                if checked {
-                    let in_index = self.read(&in_index);
-                    let out_index = self.read(&out_index);
-                    self.compile_copy_bound(&input, &out, in_index, out_index, Some(size), |b| {
-                        b.copy_memory_sized(target, source, size, None, None, vec![])
-                            .unwrap();
-                    });
-                } else {
-                    self.copy_memory_sized(target, source, size, None, None, vec![])
-                        .unwrap();
-                }
+                self.copy_memory_sized(target, source, size, None, None, vec![])
+                    .unwrap();
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }

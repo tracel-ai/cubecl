@@ -3,7 +3,7 @@ use cubecl_core::{
         Arithmetic, Bitwise, Elem, ExpandElement, Instruction, IntKind, Operation, Scope, UIntKind,
         Variable,
     },
-    prelude::{expand_erf, IntExpand},
+    prelude::{IntExpand, expand_erf},
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 
@@ -101,5 +101,5 @@ fn is_u64(var: Variable) -> bool {
 }
 
 fn into_instructions(mut scope: Scope) -> Vec<Instruction> {
-    scope.process().operations
+    scope.process([]).instructions
 }

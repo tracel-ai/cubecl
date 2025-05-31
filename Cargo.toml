@@ -7,10 +7,11 @@ resolver = "2"
 members = ["crates/*", "examples/*", "xtask"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-version = "0.5.0"
+version = "0.6.0"
+rust-version = "1.85"
 
 
 [workspace.dependencies]
@@ -25,6 +26,7 @@ serde = { version = "1.0.204", default-features = false, features = [
     "alloc",
 ] } # alloc is for no_std, derive is needed
 serde_json = { version = "1.0.119", default-features = false }
+toml = "0.8.22"
 variadics_please = "1"
 
 dashmap = "5.5.3"
@@ -32,7 +34,6 @@ hashbrown = "0.14.5"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
 
-getrandom = { version = "0.3.1", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
@@ -50,7 +51,7 @@ rstest = "0.19.0"
 serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
-half = { version = "2.4.1", features = [
+half = { version = "2.5", features = [
     "alloc",
     "num-traits",
     "serde",
@@ -69,7 +70,7 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }
-tracel-xtask = { version = "=1.1.8" }
+tracel-xtask = { version = "=1.1.9" }
 
 portable-atomic = { version = "1.10", default-features = false, features = [
     "serde",

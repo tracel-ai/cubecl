@@ -1,4 +1,4 @@
-use crate::{self as cubecl, ir::Elem, AtomicFeature, Feature};
+use crate::{self as cubecl, AtomicFeature, Feature, ir::Elem};
 
 use cubecl::prelude::*;
 

@@ -2,18 +2,19 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::global::GlobalMatmulFamily;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageTiling,
+    Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSpec, OutputRuntimeArg,
 };
 use crate::matmul::components::{
-    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
 };
-use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::tensor::{ReadWrite, VirtualTensor};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::{BatchConfig as _, BatchMatmulFamily, CubeDispatch};
 
@@ -49,26 +50,20 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
-        let gmm_config = GMM::make_config(
-            input,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
-        );
+        let gmm_config =
+            GMM::make_config(input, problem, line_sizes, cube_dim, cube_count, quantized);
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
         } else {
             panic!("Dynamic cube count unsupported")
         };
 
-        Config::new(gmm_config, cube_count)
+        Config::new(gmm_config, cube_count, quantized)
     }
 }
 
@@ -81,11 +76,14 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
-        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-            client, cube_count, cube_dim, input, output, config,
-        );
+        unsafe {
+            super::matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+                client, cube_count, cube_dim, input, output, size_k, config,
+            );
+        }
     }
 }
 
@@ -113,9 +111,11 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
     type Config = Config<GMM::Config, C>;
 
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
+        _size_k: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();
@@ -131,8 +131,8 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_tiling(Ident::Out).total_row();
-        let stage_y = config.stage_tiling(Ident::Out).total_col();
+        let stage_x = config.tiling_dimensions(Ident::Out).total_row();
+        let stage_y = config.tiling_dimensions(Ident::Out).total_col();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
@@ -148,7 +148,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
 
         let gmm_config = config.to_gmm_config();
         let acc = GMM::init_accumulator(gmm_config);
-        S::execute::<MP, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
+        S::execute::<MP, GMM>(lhs, rhs, out, span, acc, k_range, quantization, gmm_config);
     }
 }
 
@@ -157,6 +157,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
 pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
     cube_count: (u32, u32, u32),
+    quantized: bool,
     _c: PhantomData<C>,
 }
 
@@ -167,8 +168,8 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
         self.gmm_config
     }
 
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.gmm_config.stage_tiling(ident)
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        self.gmm_config.tiling_dimensions(ident)
     }
 
     fn max_m(&self) -> u32 {
@@ -182,15 +183,20 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
     fn max_batches(&self) -> u32 {
         u32::maximum_value()
     }
+
+    fn quantized(&self) -> bool {
+        self.quantized
+    }
 }
 
 impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
 impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
-    pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
+    pub fn new(gmm_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
         Self {
             gmm_config,
             cube_count,
+            quantized,
             _c: PhantomData,
         }
     }

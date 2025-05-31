@@ -1,7 +1,6 @@
-use crate::{
-    server::{Binding, ComputeServer},
-    storage_id_type,
-};
+use core::fmt::Debug;
+
+use crate::{server::Binding, storage_id_type};
 
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
@@ -78,36 +77,28 @@ pub trait ComputeStorage: Send {
     fn alloc(&mut self, size: u64) -> StorageHandle;
 
     /// Deallocates the memory pointed by the given storage id.
+    ///
+    /// These deallocations might need to be flushed with [`Self::perform_deallocations`].
     fn dealloc(&mut self, id: StorageId);
 }
 
 /// Access to the underlying resource for a given binding.
-#[derive(new)]
-pub struct BindingResource<Server: ComputeServer> {
+#[derive(new, Debug)]
+pub struct BindingResource<Resource: Send> {
     // This binding is here just to keep the underlying allocation alive.
     // If the underlying allocation becomes invalid, someone else might
     // allocate into this resource which could lead to bad behaviour.
     #[allow(unused)]
     binding: Binding,
-    resource: <Server::Storage as ComputeStorage>::Resource,
+    resource: Resource,
 }
 
-impl<Server: ComputeServer> BindingResource<Server> {
+impl<Resource: Send> BindingResource<Resource> {
     /// access the underlying resource. Note: The resource might be bigger
     /// than just the original allocation for the binding. Only the part
     /// for the original binding is guaranteed to remain, other parts
     /// of the resource *will* be re-used.
-    pub fn resource(&self) -> &<Server::Storage as ComputeStorage>::Resource {
+    pub fn resource(&self) -> &Resource {
         &self.resource
-    }
-
-    /// Same as [resource](Self::resource), however consumes the binding.
-    ///
-    /// # Warning
-    ///
-    /// Make sure you use the resource before requesting more memory from the storage, since
-    /// this resource might get allocated again.
-    pub fn into_resource(self) -> <Server::Storage as ComputeStorage>::Resource {
-        self.resource
     }
 }

@@ -10,7 +10,7 @@ use cubecl_ir::{
 
 use crate::PhiInstruction;
 
-use super::{convert::value_of_var, Expression, Instruction, Value, ValueTable};
+use super::{Expression, Instruction, Value, ValueTable, convert::value_of_var};
 
 impl ValueTable {
     /// Look up or insert operation if it's numberable. Returns the number, optional out value and
@@ -126,7 +126,8 @@ impl ValueTable {
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
             | Operation::NonSemantic(_)
-            | Operation::Pipeline(_) => Err(None),
+            | Operation::Barrier(_)
+            | Operation::Tma(_) => Err(None),
         }
     }
 
@@ -190,12 +191,12 @@ impl ValueTable {
         let (expr, val) = match operator {
             Operator::Index(op) | Operator::UncheckedIndex(op) => {
                 let out_val = value_of_var(&out);
-                if !op.lhs.is_immutable() {
+                if !op.list.is_immutable() {
                     Err(out_val)?
                 }
                 let item = out.item;
-                let lhs = self.lookup_or_add_var(&op.lhs)?;
-                let rhs = self.lookup_or_add_var(&op.rhs)?;
+                let lhs = self.lookup_or_add_var(&op.list)?;
+                let rhs = self.lookup_or_add_var(&op.index)?;
                 let id = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out_val)
@@ -203,7 +204,6 @@ impl ValueTable {
 
             Operator::IndexAssign(_)
             | Operator::UncheckedIndexAssign(_)
-            | Operator::Slice(_)
             | Operator::CopyMemoryBulk(_)
             | Operator::CopyMemory(_) => Err(None)?,
 
@@ -225,7 +225,6 @@ impl ValueTable {
                 let var = match var.kind {
                     VariableKind::GlobalInputArray { .. }
                     | VariableKind::GlobalOutputArray { .. }
-                    | VariableKind::Slice { .. }
                     | VariableKind::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
                     VariableKind::ConstantArray { length, .. }
                     | VariableKind::SharedMemory { length, .. }

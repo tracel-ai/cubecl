@@ -1,14 +1,20 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{lowest_coordinate_matching, ArgAccumulator, Reduce, ReduceInstruction};
+use crate::precision::ReducePrecision;
+
+use super::{
+    ArgAccumulator, ReduceCoordinate, ReduceCoordinateExpand, ReduceFamily, ReduceInstruction,
+    ReduceRequirements, lowest_coordinate_matching,
+};
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
-#[derive(Debug)]
-pub struct ArgMin;
+#[derive(Debug, CubeType, Clone)]
+pub struct ArgMin {}
 
-impl Reduce for ArgMin {
-    type Instruction<In: Numeric> = Self;
+impl ReduceFamily for ArgMin {
+    type Instruction<P: ReducePrecision> = Self;
+    type Config = ();
 }
 
 #[cube]
@@ -34,32 +40,54 @@ impl ArgMin {
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for ArgMin {
-    type AccumulatorItem = (Line<In>, Line<u32>);
-    type SharedAccumulator = ArgAccumulator<In>;
+impl<P: ReducePrecision> ReduceInstruction<P> for ArgMin {
+    type AccumulatorItem = (Line<P::EA>, Line<u32>);
+    type SharedAccumulator = ArgAccumulator<P::EA>;
+    type Config = ();
 
-    fn null_input(#[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::max_value())
+    fn requirements(_this: &Self) -> ReduceRequirements {
+        ReduceRequirements { coordinates: true }
+    }
+    fn from_config(_config: Self::Config) -> Self {
+        ArgMin {}
     }
 
-    fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<P::EI> {
+        Line::empty(line_size).fill(P::EI::max_value())
+    }
+
+    fn null_accumulator(_this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
         (
-            Self::null_input(line_size),
+            Line::empty(line_size).fill(P::EA::max_value()),
             Line::empty(line_size).fill(u32::MAX),
         )
     }
 
-    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+    fn assign_accumulator(
+        _this: &Self,
+        destination: &mut Self::AccumulatorItem,
+        source: &Self::AccumulatorItem,
+    ) {
         destination.0 = source.0;
         destination.1 = source.1;
     }
 
     fn reduce(
+        _this: &Self,
         accumulator: &Self::AccumulatorItem,
-        item: Line<In>,
-        coordinate: Line<u32>,
+        item: Line<P::EI>,
+        coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
+        let coordinate = match coordinate {
+            ReduceCoordinate::Required(val) => val,
+            ReduceCoordinate::NotRequired => {
+                comptime! {panic!("Coordinates are required for ArgMin")};
+                #[allow(unreachable_code)]
+                Line::new(0)
+            }
+        };
+
         let (candidate_item, candidate_coordinate) = if use_planes {
             let candidate_item = plane_min(item);
             let candidate_coordinate = lowest_coordinate_matching(candidate_item, item, coordinate);
@@ -67,15 +95,17 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
         } else {
             (item, coordinate)
         };
+
         Self::choose_argmin(
             accumulator.0,
             accumulator.1,
-            candidate_item,
+            Line::cast_from(candidate_item),
             candidate_coordinate,
         )
     }
 
     fn fuse_accumulators(
+        _this: &Self,
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
@@ -83,12 +113,13 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     }
 
     fn merge_line<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
         let line_size = accumulator.0.size();
         if comptime!(line_size > 1) {
-            let mut min = In::max_value();
+            let mut min = P::EA::max_value();
             let mut coordinate = u32::MAX.runtime();
 
             #[unroll]
@@ -110,6 +141,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     }
 
     fn to_output_perpendicular<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {

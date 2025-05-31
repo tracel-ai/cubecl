@@ -5,9 +5,13 @@ extern crate derive_new;
 
 /// Cube Frontend Types.
 pub mod frontend;
+/// Input Output utilities.
+pub mod io;
+
+pub mod post_processing;
 
 /// Some future utilities that work across environments.
-pub use cubecl_common::{future, PLANE_DIM_APPROX};
+pub use cubecl_common::{PLANE_DIM_APPROX, future};
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;
@@ -30,7 +34,6 @@ pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::memory_management::MemoryUsage;
 
-use crate::compute::KernelDefinition;
 use frontend::LaunchArg;
 
 pub use cubecl_common::ExecutionMode;
@@ -42,23 +45,16 @@ pub use prelude::CubeDim;
 mod id;
 pub use id::*;
 
-/// Implement this trait to create a [kernel definition](KernelDefinition).
-pub trait Kernel: Send + Sync + 'static + Sized {
-    /// Convert to a kernel definition.
-    fn define(&self) -> KernelDefinition;
-    /// Identifier for the kernel, used for caching kernel compilation.
-    fn id(&self) -> KernelId {
-        KernelId::new::<Self>()
-    }
-}
-
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.
 pub fn calculate_cube_count_elemwise(num_elems: usize, cube_dim: CubeDim) -> CubeCount {
     let num_elems_per_cube = cube_dim.num_elems();
     let cube_counts = f32::max(1.0, f32::ceil(num_elems as f32 / num_elems_per_cube as f32));
     let cube_count_x = f32::ceil(f32::sqrt(cube_counts));
-    let cube_count_y = f32::ceil(num_elems as f32 / (cube_count_x * num_elems_per_cube as f32));
+    let cube_count_y = f32::max(
+        1.0,
+        f32::ceil(num_elems as f32 / (cube_count_x * num_elems_per_cube as f32)),
+    );
 
     CubeCount::Static(cube_count_x as u32, cube_count_y as u32, 1)
 }
@@ -84,7 +80,7 @@ pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim:
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
 /// divisible by a candidate line size and that the smallest stride that is not 1
-/// is equal to the shape of the axis.
+/// is divisible by the vectorization.
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
     supported_line_sizes: impl Iterator<Item = u8>,
@@ -106,16 +102,16 @@ pub fn tensor_line_size_parallel(
         None => return 1,
     };
 
-    let next_stride = strides.iter().filter(|stride| **stride > 1).min();
-
-    if let Some(next_stride) = next_stride {
-        if next_stride != axis_shape {
-            return 1;
-        }
-    }
+    let next_stride = *strides
+        .iter()
+        .filter(|stride| **stride > 1)
+        .min()
+        .unwrap_or(&0);
 
     supported_line_sizes
-        .filter(|line_size| axis_shape % *line_size as usize == 0)
+        .filter(|line_size| {
+            axis_shape % *line_size as usize == 0 && next_stride % *line_size as usize == 0
+        })
         .max()
         .unwrap_or(1)
 }

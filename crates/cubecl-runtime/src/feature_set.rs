@@ -6,8 +6,10 @@ use alloc::collections::BTreeSet;
 #[derive(Debug)]
 pub struct DeviceProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
-    memory: MemoryDeviceProperties,
-    hardware: HardwareProperties,
+    /// The memory properties of this client.
+    pub memory: MemoryDeviceProperties,
+    /// The topology properties of this client.
+    pub hardware: HardwareProperties,
 }
 
 impl<Feature: Ord + Copy> DeviceProperties<Feature> {
@@ -39,15 +41,5 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     /// This should only be used by a [runtime](cubecl_core::Runtime) when initializing a device.
     pub fn register_feature(&mut self, feature: Feature) -> bool {
         self.set.insert(feature)
-    }
-
-    /// The memory properties of this client.
-    pub fn memory_properties(&self) -> &MemoryDeviceProperties {
-        &self.memory
-    }
-
-    /// The topology properties of this client.
-    pub fn hardware_properties(&self) -> &HardwareProperties {
-        &self.hardware
     }
 }

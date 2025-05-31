@@ -1,4 +1,6 @@
-use crate::{codegen::Compiler, compute::CubeTask, ir::Elem};
+use crate::compute::CubeTask;
+use crate::{codegen::Compiler, ir::Elem};
+use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
 pub use cubecl_runtime::channel;
@@ -15,17 +17,16 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
-    type Device: Default + Clone + core::fmt::Debug;
+    type Device: Default + Clone + core::fmt::Debug + Send + Sync;
+
+    /// Fetch the id for the given device.
+    fn device_id(device: &Self::Device) -> DeviceId;
 
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
 
-    /// The runtime name.
-    fn name() -> &'static str;
-
-    /// The default extension for the runtime's kernel/shader code.
-    /// Might change based on which compiler is used.
-    fn extension() -> &'static str;
+    /// The runtime name on the given device.
+    fn name(client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str;
 
     /// Return true if global input array lengths should be added to kernel info.
     fn require_array_lengths() -> bool {
@@ -45,6 +46,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the maximum cube count on each dimension that can be launched.
     fn max_cube_count() -> (u32, u32, u32);
+
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).
@@ -68,12 +71,32 @@ pub enum Feature {
     AtomicFloat(AtomicFeature),
     /// The pipeline feature enables pipelined (async) operations
     Pipeline,
+    /// The barrier feature enables barrier (async) operations
+    Barrier,
+    /// Tensor Memory Accelerator features. Minimum H100/RTX 5000 series for base set
+    Tma(TmaFeature),
+    /// Clustered launches and intra-cluster operations like cluster shared memory
+    CubeCluster,
+    /// Enables to change the line size of containers during kernel execution.
+    DynamicLineSize,
+    /// Enables synchronization within a plane only
+    SyncPlane,
 }
 
-// Atomic features that may be supported by a [cube runtime](Runtime).
+/// Atomic features that may be supported by a [cube runtime](Runtime).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AtomicFeature {
     LoadStore,
     Add,
     MinMax,
+}
+
+/// Atomic features that may be supported by a [cube runtime](Runtime).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TmaFeature {
+    /// Base feature set for tensor memory accelerator features. Includes tiling and im2col
+    Base,
+    /// im2colWide encoding for tensor map.
+    /// TODO: Not yet implemented due to missing `cudarc` support
+    Im2colWide,
 }

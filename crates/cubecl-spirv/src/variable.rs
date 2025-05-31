@@ -1,12 +1,13 @@
+#![allow(unknown_lints, unnecessary_transmutes)]
+
 use std::mem::transmute;
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Array,
-    SpirvCompiler, SpirvTarget,
 };
-use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as core, ConstantScalarValue, FloatKind, Id};
+use cubecl_core::ir::{self, ConstantScalarValue, FloatKind, Id};
 use rspirv::{
     dr::Builder,
     spirv::{StorageClass, Word},
@@ -26,10 +27,12 @@ pub enum Variable {
     Versioned {
         id: (Id, u16),
         item: Item,
+        variable: ir::Variable,
     },
     LocalBinding {
         id: Id,
         item: Item,
+        variable: ir::Variable,
     },
     Raw(Word, Item),
     Named {
@@ -183,8 +186,12 @@ impl Variable {
             Variable::GlobalScalar(id, _) => *id,
             Variable::ConstantScalar(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
-            Variable::Versioned { id, .. } => b.get_versioned(*id),
-            Variable::LocalBinding { id, .. } => b.get_binding(*id),
+            Variable::Versioned {
+                id, variable: var, ..
+            } => b.get_versioned(*id, var),
+            Variable::LocalBinding {
+                id, variable: var, ..
+            } => b.get_binding(*id, var),
             Variable::Raw(id, _) => *id,
             Variable::Named { id, .. } => *id,
             Variable::Slice { ptr, .. } => ptr.id(b),
@@ -344,11 +351,11 @@ pub enum Globals {
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_variable(&mut self, variable: core::Variable) -> Variable {
+    pub fn compile_variable(&mut self, variable: ir::Variable) -> Variable {
         let item = variable.item;
         match variable.kind {
-            core::VariableKind::ConstantScalar(value) => {
-                let item = self.compile_item(core::Item::new(value.elem()));
+            ir::VariableKind::ConstantScalar(value) => {
+                let item = self.compile_item(ir::Item::new(value.elem()));
                 let const_val = value.into();
 
                 if let Some(existing) = self.state.constants.get(&(const_val, item.clone())) {
@@ -359,44 +366,40 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::ConstantScalar(id, const_val, item.elem())
                 }
             }
-            core::VariableKind::Slice { id, .. } => self
-                .state
-                .slices
-                .get(&id)
-                .expect("Tried accessing non-existing slice")
-                .into(),
-            core::VariableKind::GlobalInputArray(id) => {
-                let pos = id;
-                let id = self.state.inputs[id as usize];
+            ir::VariableKind::GlobalInputArray(pos) => {
+                let id = self.state.buffers[pos as usize];
                 Variable::GlobalInputArray(id, self.compile_item(item), pos)
             }
-            core::VariableKind::GlobalOutputArray(id) => {
-                let pos = self.state.inputs.len() as u32 + id;
-                let id = self.state.outputs[id as usize];
+            ir::VariableKind::GlobalOutputArray(pos) => {
+                let id = self.state.buffers[pos as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item), pos)
             }
-            core::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
-            core::VariableKind::LocalMut { id } => {
+            ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
+            ir::VariableKind::LocalMut { id } => {
                 let item = self.compile_item(item);
-                let var = self.get_local(id, &item);
+                let var = self.get_local(id, &item, variable);
                 Variable::Local { id: var, item }
             }
-            core::VariableKind::Versioned { id, version } => {
+            ir::VariableKind::Versioned { id, version } => {
                 let item = self.compile_item(item);
                 let id = (id, version);
-                Variable::Versioned { id, item }
+                Variable::Versioned { id, item, variable }
             }
-            core::VariableKind::LocalConst { id } => {
+            ir::VariableKind::LocalConst { id } => {
                 let item = self.compile_item(item);
-                Variable::LocalBinding { id, item }
+                Variable::LocalBinding { id, item, variable }
             }
-            core::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
-            core::VariableKind::ConstantArray { id, length } => {
+            ir::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
+            ir::VariableKind::ConstantArray { id, length } => {
                 let item = self.compile_item(item);
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
             }
-            core::VariableKind::SharedMemory { id, length } => {
+            ir::VariableKind::SharedMemory {
+                id,
+                length,
+                alignment,
+            } => {
                 let item = self.compile_item(item);
                 let id = if let Some(arr) = self.state.shared_memories.get(&id) {
                     arr.id
@@ -406,13 +409,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         id: arr_id,
                         item: item.clone(),
                         len: length,
+                        var: variable,
+                        alignment,
                     };
                     self.state.shared_memories.insert(id, arr);
                     arr_id
                 };
                 Variable::SharedMemory(id, item, length)
             }
-            core::VariableKind::LocalArray { id, length } => {
+            ir::VariableKind::LocalArray { id, length } => {
                 let item = self.compile_item(item);
                 let id = if let Some(arr) = self.state.local_arrays.get(&id) {
                     arr.id
@@ -420,28 +425,32 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let arr_ty = Item::Array(Box::new(item.clone()), length);
                     let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(arr_ty)).id(self);
                     let arr_id = self.declare_function_variable(ptr_ty);
-                    self.debug_name(arr_id, format!("array({id})"));
+                    self.debug_var_name(arr_id, variable);
                     let arr = Array {
                         id: arr_id,
                         item: item.clone(),
                         len: length,
+                        var: variable,
+                        alignment: None,
                     };
                     self.state.local_arrays.insert(id, arr);
                     arr_id
                 };
                 Variable::LocalArray(id, item, length)
             }
-            core::VariableKind::Matrix { id, mat } => {
-                let elem = self.compile_item(core::Item::new(mat.elem)).elem();
+            ir::VariableKind::Matrix { id, mat } => {
+                let elem = self.compile_item(ir::Item::new(mat.elem)).elem();
                 if self.state.matrices.contains_key(&id) {
                     Variable::CoopMatrix(id, elem)
                 } else {
-                    let matrix = self.init_coop_matrix(mat);
+                    let matrix = self.init_coop_matrix(mat, variable);
                     self.state.matrices.insert(id, matrix);
                     Variable::CoopMatrix(id, elem)
                 }
             }
-            core::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
+            ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
+            ir::VariableKind::Barrier { .. } => panic!("Barrier not supported."),
+            ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -510,32 +519,36 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::LocalBinding {
                 id,
                 item: Item::Vector(elem, vec),
+                variable,
             } if index.as_const().is_some() => IndexedVariable::Composite(
-                self.get_binding(*id),
+                self.get_binding(*id, variable),
                 index.as_const().unwrap().as_u32(),
                 Item::Vector(*elem, *vec),
             ),
             Variable::LocalBinding {
                 id,
                 item: Item::Vector(elem, vec),
+                variable,
             } => IndexedVariable::DynamicComposite(
-                self.get_binding(*id),
+                self.get_binding(*id, variable),
                 self.read(index),
                 Item::Vector(*elem, *vec),
             ),
             Variable::Versioned {
                 id,
                 item: Item::Vector(elem, vec),
+                variable,
             } if index.as_const().is_some() => IndexedVariable::Composite(
-                self.get_versioned(*id),
+                self.get_versioned(*id, variable),
                 index.as_const().unwrap().as_u32(),
                 Item::Vector(*elem, *vec),
             ),
             Variable::Versioned {
                 id,
                 item: Item::Vector(elem, vec),
+                variable,
             } => IndexedVariable::DynamicComposite(
-                self.get_versioned(*id),
+                self.get_versioned(*id, variable),
                 self.read(index),
                 Item::Vector(*elem, *vec),
             ),
@@ -572,9 +585,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn read_indexed(&mut self, out: &Variable, variable: &Variable, index: &Variable) -> Word {
-        let checked = matches!(self.mode, ExecutionMode::Checked) && variable.has_len();
         let always_in_bounds = is_always_in_bounds(variable, index);
-        let index_id = self.read(index);
         let indexed = self.index(variable, index, always_in_bounds);
 
         let read = |b: &mut Self| match indexed {
@@ -606,11 +617,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 out_id
             }
         };
-        if checked && !always_in_bounds {
-            self.compile_read_bound(variable, index_id, variable.item(), read)
-        } else {
-            read(self)
-        }
+
+        read(self)
     }
 
     pub fn read_indexed_unchecked(
@@ -661,8 +669,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn write_id(&mut self, variable: &Variable) -> Word {
         match variable {
-            Variable::LocalBinding { id, .. } => self.get_binding(*id),
-            Variable::Versioned { id, .. } => self.get_versioned(*id),
+            Variable::LocalBinding { id, variable, .. } => self.get_binding(*id, variable),
+            Variable::Versioned { id, variable, .. } => self.get_versioned(*id, variable),
             Variable::Local { .. } => self.id(),
             Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
@@ -687,9 +695,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn write_indexed(&mut self, out: &Variable, index: &Variable, value: Word) {
-        let checked = matches!(self.mode, ExecutionMode::Checked) && out.has_len();
         let always_in_bounds = is_always_in_bounds(out, index);
-        let index_id = self.read(index);
         let variable = self.index(out, index, always_in_bounds);
 
         let write = |b: &mut Self| match variable {
@@ -710,11 +716,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             IndexedVariable::Scalar(var) => b.write(&var, value),
         };
-        if checked && !always_in_bounds {
-            self.compile_write_bound(out, index_id, write);
-        } else {
-            write(self)
-        }
+
+        write(self)
     }
 
     pub fn write_indexed_unchecked(&mut self, out: &Variable, index: &Variable, value: Word) {

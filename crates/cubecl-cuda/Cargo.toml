@@ -11,44 +11,56 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda"
 version.workspace = true
 
 [features]
+compilation-cache = ["cubecl-common/cache"]
 default = [
-  "cubecl-runtime/default",
-  "cubecl-common/default",
-  "cubecl-core/default",
-  "cudarc/cuda-12050",
+    "std",
+    "cubecl-runtime/default",
+    "cubecl-common/default",
+    "cubecl-core/default",
+    "cudarc/cuda-12050",
+    "cudarc/dynamic-loading",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+ptx-wmma = []
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "0.5.0", default-features = false, features = [
-  "cuda",
+cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.6.0", default-features = false, features = [
+    "cuda",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false, features = [
-  "channel-mutex",
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
+    "channel-mutex",
 ] }
 
 bytemuck = { workspace = true }
-cudarc = { version = "0.12.1", features = [
-  "std",
-  "driver",
-  "cuda-version-from-build-system",
+cudarc = { version = "0.16.3", features = [
+    "std",
+    "driver",
+    "cuda-version-from-build-system",
+    "dynamic-loading",
 ], default-features = false }
 
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.5.0", features = [
-  "export_tests",
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
+    "export_tests",
 ] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.5.0", features = [
-  "export_tests",
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
+    "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.5.0", features = [
-  "export_tests",
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-std = { path = "../cubecl-std", version = "0.6.0", features = [
+    "export_tests",
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }

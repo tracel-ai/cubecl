@@ -47,6 +47,7 @@ pub enum CoopMma {
     Load {
         value: Variable,
         stride: Variable,
+        offset: Variable,
         layout: Option<MatrixLayout>,
     },
     /// Executes D=A*B+C;
@@ -61,6 +62,7 @@ pub enum CoopMma {
     Store {
         mat: Variable,
         stride: Variable,
+        offset: Variable,
         layout: MatrixLayout,
     },
     /// Cast a fragment to another type.
@@ -94,33 +96,38 @@ impl OperationReflect for CoopMma {
 impl Display for CoopMma {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            CoopMma::Fill { value } => write!(f, "{}", value),
+            CoopMma::Fill { value } => write!(f, "{value}"),
             CoopMma::Load {
                 value,
                 stride,
+                offset,
                 layout,
             } => {
                 let layout = layout
                     .map(|it| format!(", layout: {it:?}"))
                     .unwrap_or(String::new());
-                write!(f, "matrix_load({}, stride: {}{layout})", value, stride)
+                write!(
+                    f,
+                    "matrix_load({value}, stride: {stride}{layout}, offset: {offset})"
+                )
             }
             CoopMma::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
-            } => write!(f, "execute_cmma({}, {}, {})", mat_a, mat_b, mat_c),
+            } => write!(f, "execute_cmma({mat_a}, {mat_b}, {mat_c})"),
             CoopMma::Store {
                 mat,
                 stride,
+                offset,
                 layout,
             } => write!(
                 f,
-                "matrix_store({}, stride: {}, layout: {:?})",
-                mat, stride, layout
+                "matrix_store({}, stride: {}, layout: {:?}, offset: {:?})",
+                mat, stride, layout, offset
             ),
             CoopMma::Cast { input } => {
-                write!(f, "matrix_cast(input: {})", input)
+                write!(f, "matrix_cast(input: {input})")
             }
         }
     }

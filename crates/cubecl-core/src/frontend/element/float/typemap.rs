@@ -18,7 +18,9 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use cubecl_ir::ExpandElement;
-use derive_more::derive::*;
+use derive_more::derive::{
+    Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
@@ -196,8 +198,8 @@ impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<PO
 
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
-        Init::init(expand, scope)
+        let elem: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
+        into_runtime_expand_element(scope, elem).into()
     }
 }
 
@@ -210,9 +212,9 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(scope, elem)
+impl<const POS: u8> ExpandElementIntoMut for FloatExpand<POS> {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        into_mut_expand_element(scope, elem)
     }
 }
 
@@ -237,11 +239,6 @@ impl<const POS: u8> Sqrt for FloatExpand<POS> {}
 impl<const POS: u8> Round for FloatExpand<POS> {}
 impl<const POS: u8> Floor for FloatExpand<POS> {}
 impl<const POS: u8> Ceil for FloatExpand<POS> {}
-
-impl<T: Index, const POS: u8> CubeIndex<T> for FloatExpand<POS> {
-    type Output = Self;
-}
-impl<T: Index, const POS: u8> CubeIndexMut<T> for FloatExpand<POS> {}
 
 impl<const POS: u8> Float for FloatExpand<POS> {
     const DIGITS: u32 = 32;
@@ -280,7 +277,7 @@ impl<const POS: u8> LaunchArgExpand for FloatExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(FloatExpand::<POS>::as_elem(&builder.context))
+            .scalar(FloatExpand::<POS>::as_elem(&builder.scope))
             .into()
     }
 }
