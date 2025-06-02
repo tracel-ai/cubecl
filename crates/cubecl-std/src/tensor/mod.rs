@@ -8,7 +8,3 @@ pub use handle::*;
 pub use identity::*;
 pub use matrix_batch_layout::*;
 pub mod r#virtual;
-
-// /// Tests for tensor kernels
-// #[cfg(feature = "export_tests")]
-// pub mod tests;
