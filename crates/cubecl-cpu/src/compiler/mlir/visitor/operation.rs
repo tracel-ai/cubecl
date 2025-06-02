@@ -4,7 +4,7 @@ use melior::{
         arith::{self, CmpfPredicate, CmpiPredicate},
         memref,
     },
-    ir::{Type, attribute::IntegerAttribute},
+    ir::{Type, ValueLike, attribute::IntegerAttribute},
 };
 
 use super::Visitor;
@@ -23,6 +23,10 @@ impl<'a> Visitor<'a> {
             }
             Operation::Metadata(metadata) => {
                 self.visit_metadata(metadata, out);
+            }
+            Operation::Copy(copy) => {
+                let value = self.get_variable(out);
+                self.insert_variable(out, value);
             }
             _ => todo!("{:?} is not implemented yet.", operation),
         }
@@ -65,8 +69,7 @@ impl<'a> Visitor<'a> {
     pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: Variable) {
         match arithmetic {
             Arithmetic::Add(add) => {
-                let lhs = self.get_variable(add.lhs);
-                let rhs = self.get_variable(add.rhs);
+                let (lhs, rhs) = self.get_binary_op_variable(add.lhs, add.rhs);
                 let result =
                     self.append_operation_with_result(arith::addf(lhs, rhs, self.location));
                 self.insert_variable(out, result);
