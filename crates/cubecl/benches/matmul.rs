@@ -5,8 +5,8 @@ use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
-use cubecl_std::tensor::TensorHandle;
 use cubecl_runtime::config::GlobalConfig;
+use cubecl_std::tensor::TensorHandle;
 
 use cubecl_random::random_uniform;
 

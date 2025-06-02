@@ -1,3 +1,5 @@
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
         InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
@@ -6,8 +8,6 @@ use cubecl_matmul::{
     },
     kernels::MatmulAvailabilityError,
 };
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, FastDivmod,
     tensor::r#virtual::{ReadWrite, VirtualTensor},

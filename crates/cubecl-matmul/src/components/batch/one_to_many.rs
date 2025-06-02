@@ -7,9 +7,7 @@ use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatmulSpec, OutputRuntimeArg,
 };
-use crate::components::{
-    MatmulConfigFactory, MatmulLaunch, batch, config::MatmulConfig, global,
-};
+use crate::components::{MatmulConfigFactory, MatmulLaunch, batch, config::MatmulConfig, global};
 use crate::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
