@@ -63,10 +63,21 @@ jobs:
       - publish-cubecl-macros
     secrets: inherit
 
-  publish-cubecl-linalg:
+  publish-cubecl-matmul:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
-      crate: cubecl-linalg
+      crate: cubecl-matmul
+    needs:
+      - publish-cubecl-runtime
+      - publish-cubecl-std
+      - publish-cubecl-reduce
+      - publish-cubecl-core
+    secrets: inherit
+
+  publish-cubecl-convolution:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-convolution
     needs:
       - publish-cubecl-runtime
       - publish-cubecl-std

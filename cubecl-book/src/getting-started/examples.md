@@ -1,7 +1,7 @@
 # Examples
 
 For now we only have a limited amount of examples listed in the table below. Note that you can also
-look at how the [linalg](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-linalg) is
+look at how the [matmul](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-matmul) is
 implemented.
 
 | Example                                                                               | Description                                                                                             |

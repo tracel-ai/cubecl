@@ -23,13 +23,14 @@ default = [
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 ptx-wmma = []
 
-unit_matmul_tests = ["cubecl-linalg/unit_matmul_tests"]
-accelerated_matmul_tests = ["cubecl-linalg/accelerated_matmul_tests"]
+unit_matmul_tests = ["cubecl-matmul/unit_matmul_tests"]
+accelerated_matmul_tests = ["cubecl-matmul/accelerated_matmul_tests"]
 matmul_tests = [
-    "cubecl-linalg/matmul_tests",
+    "cubecl-matmul/matmul_tests",
     "unit_matmul_tests",
     "accelerated_matmul_tests",
 ]
+conv_tests = ["cubecl-convolution/conv_tests"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
@@ -58,7 +59,10 @@ serde = { workspace = true }
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
     "export_tests",
 ] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
+cubecl-matmul = { path = "../cubecl-matmul", version = "0.6.0", features = [
+    "export_tests",
+] }
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.6.0", features = [
     "export_tests",
 ] }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [

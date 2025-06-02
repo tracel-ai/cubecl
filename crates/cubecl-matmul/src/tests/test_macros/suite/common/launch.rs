@@ -5,7 +5,7 @@ macro_rules! testgen_matmul_launch {
 
         #[test]
         pub fn test() {
-            cubecl_linalg::matmul::tests::test_macros::suite::plane_accelerated::test_algo::<
+            cubecl_matmul::tests::test_macros::suite::plane_accelerated::test_algo::<
                 $algorithm,
                 $precision,
                 TestRuntime,
@@ -18,7 +18,7 @@ macro_rules! testgen_matmul_launch {
 
         #[test]
         pub fn test() {
-            cubecl_linalg::matmul::tests::test_macros::suite::unit::test_algo::<
+            cubecl_matmul::tests::test_macros::suite::unit::test_algo::<
                 $algorithm,
                 $precision,
                 TestRuntime,
@@ -31,7 +31,7 @@ macro_rules! testgen_matmul_launch {
 
         #[test]
         pub fn test() {
-            cubecl_linalg::matmul::tests::test_macros::suite::tma::test_algo::<
+            cubecl_matmul::tests::test_macros::suite::tma::test_algo::<
                 $algorithm,
                 $precision,
                 TestRuntime,
@@ -44,7 +44,7 @@ macro_rules! testgen_matmul_launch {
 
         #[test]
         pub fn test() {
-            cubecl_linalg::matmul::tests::test_macros::suite::plane_accelerated::test_algo::<
+            cubecl_matmul::tests::test_macros::suite::plane_accelerated::test_algo::<
                 $algorithm,
                 $precision,
                 TestRuntime,
