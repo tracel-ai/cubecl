@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use cubecl_core::ir::{
     Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, Variable, VariableKind,
 };
