@@ -1,10 +1,12 @@
-use cubecl_core::ir::{Arithmetic, Comparison, Metadata, Operation, Variable};
+use cubecl_core::ir::{
+    Arithmetic, Bitwise, Comparison, Elem, IntKind, Metadata, Operation, UIntKind, Variable,
+};
 use melior::{
     dialect::{
         arith::{self, CmpfPredicate, CmpiPredicate},
-        memref,
+        llvm, memref,
     },
-    ir::{Type, ValueLike, attribute::IntegerAttribute},
+    ir::{Type, TypeLike, Value, ValueLike, attribute::IntegerAttribute, r#type::IntegerType},
 };
 
 use super::Visitor;
@@ -18,6 +20,9 @@ impl<'a> Visitor<'a> {
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);
             }
+            Operation::Bitwise(bitwise) => {
+                self.visit_bitwise(bitwise, out);
+            }
             Operation::Comparison(comparison) => {
                 self.visit_comparison(comparison, out);
             }
@@ -25,7 +30,7 @@ impl<'a> Visitor<'a> {
                 self.visit_metadata(metadata, out);
             }
             Operation::Copy(copy) => {
-                let value = self.get_variable(out);
+                let value = self.get_variable(*copy);
                 self.insert_variable(out, value);
             }
             _ => todo!("{:?} is not implemented yet.", operation),
@@ -70,8 +75,32 @@ impl<'a> Visitor<'a> {
         match arithmetic {
             Arithmetic::Add(add) => {
                 let (lhs, rhs) = self.get_binary_op_variable(add.lhs, add.rhs);
-                let result =
-                    self.append_operation_with_result(arith::addf(lhs, rhs, self.location));
+                let operation = if add.lhs.elem().is_int() {
+                    arith::addi(lhs, rhs, self.location)
+                } else {
+                    arith::addf(lhs, rhs, self.location)
+                };
+                let result = self.append_operation_with_result(operation);
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Mul(mul) => {
+                let (lhs, rhs) = self.get_binary_op_variable(mul.lhs, mul.rhs);
+                let operation = if mul.lhs.elem().is_int() {
+                    arith::muli(lhs, rhs, self.location)
+                } else {
+                    arith::mulf(lhs, rhs, self.location)
+                };
+                let result = self.append_operation_with_result(operation);
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Div(div) => {
+                let (lhs, rhs) = self.get_binary_op_variable(div.lhs, div.rhs);
+                let operation = if div.lhs.elem().is_int() {
+                    arith::divf(lhs, rhs, self.location)
+                } else {
+                    arith::divsi(lhs, rhs, self.location)
+                };
+                let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
             Arithmetic::Dot(_dot) => {
@@ -149,6 +178,180 @@ impl<'a> Visitor<'a> {
             panic!("Impossible comparison");
         };
 
+        self.insert_variable(out, value);
+    }
+    pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: Variable) {
+        let value = match bitwise {
+            Bitwise::BitwiseAnd(bin_op) => {
+                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                self.append_operation_with_result(arith::addi(lhs, rhs, self.location))
+            }
+            Bitwise::BitwiseOr(bin_op) => {
+                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                self.append_operation_with_result(arith::ori(lhs, rhs, self.location))
+            }
+            Bitwise::BitwiseXor(bin_op) => {
+                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                self.append_operation_with_result(arith::xori(lhs, rhs, self.location))
+            }
+            Bitwise::ShiftLeft(bin_op) => {
+                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                self.append_operation_with_result(arith::shli(lhs, rhs, self.location))
+            }
+            Bitwise::ShiftRight(bin_op) => {
+                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                self.append_operation_with_result(arith::shrsi(lhs, rhs, self.location))
+            }
+            Bitwise::CountOnes(unary_operator) => {
+                let value = self.get_variable(unary_operator.input);
+                let result_type = self.item_to_type(unary_operator.input.item);
+                let value: Value<'a, 'a> = self.append_operation_with_result(llvm::intr_ctpop(
+                    value,
+                    result_type,
+                    self.location,
+                ));
+                match unary_operator.input.item.elem {
+                    Elem::Int(IntKind::I8)
+                    | Elem::UInt(UIntKind::U8)
+                    | Elem::Int(IntKind::I16)
+                    | Elem::UInt(UIntKind::U16) => {
+                        let mut r#type = IntegerType::new(self.context, 32).into();
+                        if let Some(vectorization) = unary_operator.input.item.vectorization {
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        }
+
+                        self.append_operation_with_result(arith::extui(
+                            value,
+                            r#type,
+                            self.location,
+                        ))
+                    }
+                    Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
+                    Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
+                        let mut r#type = IntegerType::new(self.context, 32).into();
+                        if let Some(vectorization) = unary_operator.input.item.vectorization {
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        }
+
+                        self.append_operation_with_result(arith::trunci(
+                            value,
+                            r#type,
+                            self.location,
+                        ))
+                    }
+                    _ => panic!("These types do not implement count ones"),
+                }
+            }
+            Bitwise::ReverseBits(unary_operator) => {
+                let value = self.get_variable(unary_operator.input);
+                let result_type = self.item_to_type(unary_operator.input.item);
+                self.append_operation_with_result(llvm::intr_bitreverse(
+                    value,
+                    result_type,
+                    self.location,
+                ))
+            }
+            Bitwise::BitwiseNot(unary_operator) => {
+                let value = self.get_variable(unary_operator.input);
+                let mask =
+                    IntegerAttribute::new(self.elem_to_type(unary_operator.input.elem()), -1);
+                let mask = self.append_operation_with_result(arith::constant(
+                    self.context,
+                    mask.into(),
+                    self.location,
+                ));
+                if mask.r#type().is_vector() {
+                    todo!();
+                }
+                self.append_operation_with_result(arith::xori(value, mask, self.location))
+            }
+            Bitwise::LeadingZeros(unary_operator) => {
+                let value = self.get_variable(unary_operator.input);
+                let result_type = self.item_to_type(unary_operator.input.item);
+                let value = self.append_operation_with_result(llvm::intr_ctlz(
+                    self.context,
+                    value,
+                    true,
+                    result_type,
+                    self.location,
+                ));
+
+                match unary_operator.input.item.elem {
+                    Elem::Int(IntKind::I8)
+                    | Elem::UInt(UIntKind::U8)
+                    | Elem::Int(IntKind::I16)
+                    | Elem::UInt(UIntKind::U16) => {
+                        let mut r#type = IntegerType::new(self.context, 32).into();
+                        if let Some(vectorization) = unary_operator.input.item.vectorization {
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        }
+
+                        self.append_operation_with_result(arith::extui(
+                            value,
+                            r#type,
+                            self.location,
+                        ))
+                    }
+                    Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
+                    Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
+                        let mut r#type = IntegerType::new(self.context, 32).into();
+                        if let Some(vectorization) = unary_operator.input.item.vectorization {
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        }
+
+                        self.append_operation_with_result(arith::trunci(
+                            value,
+                            r#type,
+                            self.location,
+                        ))
+                    }
+                    _ => panic!("These types do not implement count ones"),
+                }
+            }
+            Bitwise::FindFirstSet(unary_operator) => {
+                let value = self.get_variable(unary_operator.input);
+                let result_type = self.item_to_type(unary_operator.input.item);
+                let value = self.append_operation_with_result(llvm::intr_cttz(
+                    self.context,
+                    value,
+                    true,
+                    result_type,
+                    self.location,
+                ));
+
+                match unary_operator.input.item.elem {
+                    Elem::Int(IntKind::I8)
+                    | Elem::UInt(UIntKind::U8)
+                    | Elem::Int(IntKind::I16)
+                    | Elem::UInt(UIntKind::U16) => {
+                        let mut r#type = IntegerType::new(self.context, 32).into();
+                        if let Some(vectorization) = unary_operator.input.item.vectorization {
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        }
+
+                        self.append_operation_with_result(arith::extui(
+                            value,
+                            r#type,
+                            self.location,
+                        ))
+                    }
+                    Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
+                    Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
+                        let mut r#type = IntegerType::new(self.context, 32).into();
+                        if let Some(vectorization) = unary_operator.input.item.vectorization {
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        }
+
+                        self.append_operation_with_result(arith::trunci(
+                            value,
+                            r#type,
+                            self.location,
+                        ))
+                    }
+                    _ => panic!("These types do not implement count ones"),
+                }
+            }
+        };
         self.insert_variable(out, value);
     }
 }

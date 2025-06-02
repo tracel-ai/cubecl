@@ -1,7 +1,7 @@
 use cubecl_core::ir::{Elem, Operator, Variable};
 use melior::{
     dialect::{arith, memref, ods::vector},
-    ir::{BlockLike, ValueLike},
+    ir::BlockLike,
 };
 
 use super::Visitor;
@@ -27,7 +27,7 @@ impl<'a> Visitor<'a> {
                 let memref = self.get_variable(index_assign.value);
                 let index = self.get_index(index_assign.index, index_assign.value.item);
                 let out_value = self.get_variable(out);
-                let operation = if index_assign.value.vectorization_factor() == 1 {
+                let operation = if index_assign.value.item.vectorization.is_none() {
                     memref::store(memref, out_value, &[index], self.location)
                 } else {
                     vector::store(self.context, memref, out_value, &[index], self.location).into()
@@ -40,7 +40,6 @@ impl<'a> Visitor<'a> {
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
                 let (then, or_else) = self.get_binary_op_variable(select.then, select.or_else);
-                let result_type = then.r#type();
                 let value = self.append_operation_with_result(arith::select(
                     condition,
                     then,
