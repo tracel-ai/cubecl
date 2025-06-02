@@ -7,7 +7,7 @@ use half::f16;
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
-use cubecl_linalg::tensor::TensorHandle;
+use cubecl_std::tensor::TensorHandle;
 
 #[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {

@@ -63,15 +63,31 @@ jobs:
       - publish-cubecl-macros
     secrets: inherit
 
-  publish-cubecl-linalg:
+  publish-cubecl-matmul:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
-      crate: cubecl-linalg
+      crate: cubecl-matmul
     needs:
       - publish-cubecl-runtime
       - publish-cubecl-std
       - publish-cubecl-reduce
       - publish-cubecl-core
+      - publish-cubecl-common
+      - publish-cubecl-random
+    secrets: inherit
+
+  publish-cubecl-convolution:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-convolution
+    needs:
+      - publish-cubecl-runtime
+      - publish-cubecl-std
+      - publish-cubecl-reduce
+      - publish-cubecl-core
+      - publish-cubecl-common
+      - publish-cubecl-random
+      - publish-cubecl-matmul
     secrets: inherit
 
   publish-cubecl-reduce:
@@ -115,7 +131,8 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
 
@@ -139,7 +156,8 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
 
@@ -153,7 +171,8 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
 
@@ -165,6 +184,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-cuda
       - publish-cubecl-wgpu
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit

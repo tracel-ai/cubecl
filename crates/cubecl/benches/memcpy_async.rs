@@ -8,8 +8,8 @@ use std::marker::PhantomData;
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::frontend::Float;
 use cubecl::future;
-use cubecl_linalg::tensor::TensorHandle;
 use cubecl_random::random_uniform;
+use cubecl_std::tensor::TensorHandle;
 
 #[cube]
 trait ComputeTask: Send + Sync + 'static {

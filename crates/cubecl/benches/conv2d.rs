@@ -6,11 +6,10 @@ use cubecl::{
     client::ComputeClient,
     future,
 };
-use cubecl_linalg::{
-    convolution::{self, ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm},
-    matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul},
-    tensor::TensorHandle,
-};
+use cubecl_convolution as convolution;
+use cubecl_convolution::{ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm};
+use cubecl_matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul};
+use cubecl_std::tensor::TensorHandle;
 
 use cubecl_random::random_uniform;
 

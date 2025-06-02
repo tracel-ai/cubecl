@@ -1,12 +1,13 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
-use cubecl_linalg::matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
+use cubecl_matmul as matmul;
+use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
+use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
-use cubecl_linalg::tensor::TensorHandle;
 use cubecl_runtime::config::GlobalConfig;
+use cubecl_std::tensor::TensorHandle;
 
 use cubecl_random::random_uniform;
 
