@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::tensor::{MatrixBatchLayout, matrix_batch_layout};
 
-use super::components::{MatmulKind, MatmulSize};
+use super::components::{MatmulKind, MatmulProblemSize};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
@@ -30,23 +30,23 @@ struct MatmulProblemDefinition {
     matrix_layout_rhs: MatrixBatchLayout,
 }
 
-impl From<MatmulProblemDefinition> for MatmulSize {
+impl From<MatmulProblemDefinition> for MatmulProblemSize {
     fn from(problem_definition: MatmulProblemDefinition) -> Self {
-        MatmulSize {
-            m: problem_definition.m as u32,
-            n: problem_definition.n as u32,
-            k: problem_definition.k as u32,
-        }
+        MatmulProblemSize::new(
+            problem_definition.m as u32,
+            problem_definition.n as u32,
+            problem_definition.k as u32,
+        )
     }
 }
 
 impl From<&MatmulProblemDefinition> for MatmulKind {
     fn from(problem_definition: &MatmulProblemDefinition) -> Self {
-        let matmul_size = MatmulSize {
-            m: problem_definition.m as u32,
-            n: problem_definition.n as u32,
-            k: problem_definition.k as u32,
-        };
+        let matmul_size = MatmulProblemSize::new(
+            problem_definition.m as u32,
+            problem_definition.n as u32,
+            problem_definition.k as u32,
+        );
         matmul_size.into()
     }
 }

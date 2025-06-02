@@ -8,10 +8,7 @@ use crate::matmul::{
         MatmulLineSizes,
         global::args::{ConcreteOutputFactory, MatmulArgs},
     },
-    kernels::{
-        MatmulLaunchError,
-        matmul::{GlobalInput, StageInput},
-    },
+    kernels::MatmulLaunchError,
 };
 use crate::{
     convolution::base::ConvolutionLaunch,
@@ -23,7 +20,6 @@ use super::{
     algorithm::Algorithm,
     args::ConvInputsLaunch,
     base::{ConvolutionProblem, Dimensionality},
-    selection::select_matmul,
 };
 
 type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<<MP as MatmulPrecision>::EI>;
@@ -141,7 +137,7 @@ where
         R::line_size_elem(&MP::EO::as_elem_native_unchecked()),
     );
 
-    let (selection, config_input) = select_matmul::<Alg, R>(
+    let selection = Alg::selection::<R>(
         client,
         &problem,
         plane_dim,
@@ -168,7 +164,6 @@ where
         problem,
         &line_sizes,
         selection,
-        config_input,
     )
 }
 
@@ -182,7 +177,6 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     problem: ConvolutionProblem,
     line_sizes: &MatmulLineSizes,
     selection: Alg::MatmulSelection,
-    stage_input: StageInput,
 ) -> Result<(), ConvLaunchError>
 where
     Input<Alg, MP>: ConvInputsLaunch,
@@ -204,11 +198,7 @@ where
 
     let config = Alg::make_config::<R, MP>(
         client,
-        GlobalInput {
-            stage_input,
-            loading_precompute_strategy: Alg::loading_precompute_strategy(),
-            loader_mode: Alg::loader_mode(),
-        },
+        Alg::global_input(&selection),
         &problem,
         line_sizes,
         &cube_dim,

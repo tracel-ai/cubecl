@@ -2,20 +2,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TileSize,
     config::MatmulConfig, stage::StageVectorization,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TileMatmulConfigInput {
     pub vectorization: StageVectorization,
-    pub size: MatmulSize,
+    pub tile_size: TileSize,
 }
 
 pub trait TileMatmulFamily:
     MatmulConfigFactory<Input = TileMatmulConfigInput, Config: TileConfig>
 {
-    fn tile_shape(config: &Self::Config) -> MatmulSize;
     fn requires_tensor_cores() -> bool;
 
     type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
@@ -111,7 +110,7 @@ pub trait TileConfig: MatmulConfig {
     fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the shape of the tiles in the three axes m, k and n.
-    fn tile_shape(&self) -> &MatmulSize;
+    fn tile_size(&self) -> &TileSize;
 }
 
 #[derive(CubeType, Clone)]
@@ -136,12 +135,12 @@ impl<ES: Numeric> Tile<ES> {
         let stride = comptime! {
             (match ident.as_input_ident() {
             InputIdent::Lhs => match layout {
-                MatrixLayout::RowMajor => config.tile_shape().k,
-                MatrixLayout::ColMajor => config.tile_shape().m,
+                MatrixLayout::RowMajor => config.tile_size().k(),
+                MatrixLayout::ColMajor => config.tile_size().m(),
             },
             InputIdent::Rhs => match layout {
-                MatrixLayout::RowMajor => config.tile_shape().n,
-                MatrixLayout::ColMajor => config.tile_shape().k,
+                MatrixLayout::RowMajor => config.tile_size().n(),
+                MatrixLayout::ColMajor => config.tile_size().k(),
             },
         }) / config.stage_line_size(ident)};
 

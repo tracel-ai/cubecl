@@ -40,14 +40,14 @@ where
         selection: &Self::MatmulSelection,
     ) -> MatmulLineSizes {
         let max_lhs = match problem.lhs_layout {
-            MatrixLayout::RowMajor => selection.tile_shape.k,
-            MatrixLayout::ColMajor => selection.tile_shape.m,
+            MatrixLayout::RowMajor => selection.tiling_scheme().elements_in_tile_k(),
+            MatrixLayout::ColMajor => selection.tiling_scheme().elements_in_tile_m(),
         };
         let max_rhs = match problem.rhs_layout {
-            MatrixLayout::RowMajor => selection.tile_shape.n,
-            MatrixLayout::ColMajor => selection.tile_shape.k,
+            MatrixLayout::RowMajor => selection.tiling_scheme().elements_in_tile_n(),
+            MatrixLayout::ColMajor => selection.tiling_scheme().elements_in_tile_k(),
         };
-        let max_out = selection.tile_shape.n;
+        let max_out = selection.tiling_scheme().elements_in_tile_n();
 
         MatmulLineSizes {
             lhs: MatmulLineSizes::maximize_lhs(
@@ -68,15 +68,15 @@ where
     }
 
     fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_units_needed = selection.partitions_per_stage.num_elems();
+        let num_units_needed = selection.tiling_scheme().partitions_in_stage_mn();
         let num_planes = num_units_needed.div_ceil(selection.plane_dim);
 
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
     fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tile_count().m * selection.tile_shape.m;
-        let n_stage = selection.tile_count().n * selection.tile_shape.n;
+        let m_stage = selection.tiling_scheme().elements_in_stage_m();
+        let n_stage = selection.tiling_scheme().elements_in_stage_n();
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 

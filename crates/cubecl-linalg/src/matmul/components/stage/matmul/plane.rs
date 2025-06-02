@@ -1,15 +1,14 @@
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::PlaneWriter;
+use crate::matmul::components::stage::PartitionBuffering;
 use crate::matmul::components::stage::ReaderFamily;
-use crate::matmul::components::stage::StageBuffering;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulConfigInput;
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
-    MatmulSize,
+    InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
-use crate::matmul::components::{Ident, MatmulProblem};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::kernels::matmul::StageInput;
 use core::marker::PhantomData;
@@ -52,18 +51,6 @@ pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: Read
 impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFamily
     for PlaneMatmulFamily<TMM, LRF, RRF>
 {
-    fn stage_shape(config: &Self::Config) -> MatmulSize {
-        config.tiling.total_shape()
-    }
-
-    fn tile_count(config: &Self::Config) -> MatmulSize {
-        config.tiling.tile_count
-    }
-
-    fn tile_shape(config: &Self::Config) -> MatmulSize {
-        config.tiling.tile_shape
-    }
-
     type LhsReader = LRF;
     type RhsReader = RRF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
@@ -77,17 +64,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_acc = config.tiling_dimensions(Ident::Out).tile_count();
-        let partition_shape = config.tiles_per_partition();
-        let acc_per_plane = partition_shape.num_elems();
-
-        if num_acc % acc_per_plane != 0 {
-            return Err(Box::new(format!(
-                "Error: Number of accumulators {num_acc} should be divisible by number of accumulators per plane {acc_per_plane}."
-            )));
-        }
-
-        let num_planes_needed = num_acc / acc_per_plane;
+        let num_planes_needed = config.tiling_scheme().partitions_in_stage_mn();
         let num_planes = config.num_planes();
 
         if num_planes != num_planes_needed {
@@ -96,20 +73,23 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             )));
         }
 
-        if config.buffering() == StageBuffering::Double && partition_shape.n < 2 {
+        // TODO we should allow buffering on m dimension
+        if config.partition_buffering() == PartitionBuffering::Double
+            && config.tiling_scheme().tiles_in_partition_n() < 2
+        {
             return Err(Box::new(
                 "Error: Tried doing double buffering with only one tile to compute.".to_string(),
             ));
         }
 
-        TMM::check_config(&config.to_tmm_config())
+        TMM::check_config(&config.tile_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        TMM::check_availability::<R, MP>(client, &config.tmm_config)
+        TMM::check_availability::<R, MP>(client, &config.tile_config)
     }
 
     fn make_config(
@@ -120,30 +100,21 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = stage_input.tiling.tile_shape;
-        let tile_count = stage_input.tiling.tile_count;
-
         let tile_input = TileMatmulConfigInput {
             vectorization: stage_input.stage_vectorization,
-            size: tile_shape,
+            tile_size: stage_input.tiling_scheme.tile_size,
         };
-        let tmm_config = TMM::make_config(
+        let tile_config = TMM::make_config(
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
 
-        let tiling = CompleteStageTiling {
-            tile_shape,
-            tile_count,
-        };
-
         CommonStageConfig::new(
-            tmm_config,
-            tiling,
+            tile_config,
+            stage_input.tiling_scheme,
             cube_dim.y,
             quantized,
-            stage_input.stage_buffering,
+            stage_input.partition_buffering,
             stage_input.num_stages,
-            stage_input.tiles_per_partition,
         )
     }
 }

@@ -23,9 +23,8 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
-            let tiling_dimensions = config.tiling_dimensions(ident);
-            let num_lines_per_tile = tiling_dimensions.tile_size() / line_size;
-            let num_tiles_in_buffer = tiling_dimensions.tile_count();
+            let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
+            let num_tiles_in_buffer = config.tiling_scheme().tiles_in_stage(ident);
             let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
 
             let total_units = config.plane_dim() * config.num_planes();
@@ -36,7 +35,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
             let max_task_id = num_tasks_per_unit - 1;
             let max_position_base = max_id * line_size;
             let max_position = max_position_base + max_task_id * jump_length;
-            let num_stage_elements = tiling_dimensions.total_size();
+            let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
             if max_position > num_stage_elements {
                 return Err(Box::new(
@@ -59,12 +58,11 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
-        let num_stage_elements = tiling_dimensions.total_size();
-        let tile_size = tiling_dimensions.tile_size();
-        let tile_count_row = tiling_dimensions.tile_count_row();
-        let tile_count_col = tiling_dimensions.tile_count_col();
+        let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
+        let tile_size = config.tiling_scheme().elements_in_tile(input_ident);
+        let tile_count_row = config.tiling_scheme().tiles_in_stage_row(input_ident);
+        let tile_count_col = config.tiling_scheme().tiles_in_stage_col(input_ident);
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.plane_dim() * config.num_planes();
@@ -165,12 +163,11 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     #[comptime] config: G,
 ) {
     let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
-        let tiling_dimensions = config.tiling_dimensions(job.input_ident);
         (
             config.global_line_size(job.input_ident),
-            tiling_dimensions.tile_size(),
-            tiling_dimensions.tile_count_row(),
-            tiling_dimensions.tile_count_col()
+            config.tiling_scheme().elements_in_tile(job.input_ident),
+            config.tiling_scheme().tiles_in_stage_row(job.input_ident),
+            config.tiling_scheme().tiles_in_stage_col(job.input_ident),
         )
     };
 
@@ -188,12 +185,12 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         ),
     };
 
-    let (tile_x_within_buffer, tile_y_within_buffer) = TO::to_row_col::<G::SmmConfig>(
+    let (tile_x_within_buffer, tile_y_within_buffer) = TO::to_row_col::<G::StageConfig>(
         tile_index,
         tile_count_row,
         tile_count_col,
         comptime!(job.input_ident.as_ident()),
-        comptime!(config.to_smm_config()),
+        comptime!(config.stage_config()),
     );
 
     let (tile_x, tile_y) = match comptime!(job.input_ident) {
@@ -215,13 +212,13 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         config,
     );
 
-    let nth_tile_in_stage = TO::to_nth_tile::<G::SmmConfig>(
+    let nth_tile_in_stage = TO::to_nth_tile::<G::StageConfig>(
         tile_x,
         tile_y,
         total_tile_count_row,
         total_tile_count_col,
         comptime!(job.input_ident.as_ident()),
-        config.to_smm_config(),
+        config.stage_config(),
     );
 
     let tile_start = nth_tile_in_stage * job.num_lines_per_tile;

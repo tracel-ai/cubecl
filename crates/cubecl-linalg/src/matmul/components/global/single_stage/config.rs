@@ -1,6 +1,6 @@
 use crate::matmul::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+        Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{self, load::LoaderMode},
         stage,
     },
@@ -10,7 +10,7 @@ use crate::matmul::{
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for single stage matmuls
 pub struct Config<S: stage::StageConfig> {
-    smm_config: S,
+    stage_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
     check_k_bounds: bool,
@@ -25,10 +25,10 @@ pub struct Config<S: stage::StageConfig> {
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
-    type SmmConfig = S;
+    type StageConfig = S;
 
-    fn to_smm_config(&self) -> Self::SmmConfig {
-        self.smm_config
+    fn stage_config(&self) -> Self::StageConfig {
+        self.stage_config
     }
 
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
@@ -39,24 +39,20 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         }
     }
 
-    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
-        self.smm_config.tiling_dimensions(ident.into())
-    }
-
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
         match ident.into() {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.matrix_layout(Ident::Out),
+            Ident::Out => self.stage_config.matrix_layout(Ident::Out),
         }
     }
 
     fn num_planes(&self) -> u32 {
-        self.smm_config.num_planes()
+        self.stage_config.num_planes()
     }
 
     fn plane_dim(&self) -> u32 {
-        self.smm_config.plane_dim()
+        self.stage_config.plane_dim()
     }
 
     fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
@@ -97,7 +93,7 @@ impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
 impl<S: stage::StageConfig> Config<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        smm_config: S,
+        stage_config: S,
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
@@ -111,7 +107,7 @@ impl<S: stage::StageConfig> Config<S> {
         loader_mode: LoaderMode,
     ) -> Self {
         Self {
-            smm_config,
+            stage_config,
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,

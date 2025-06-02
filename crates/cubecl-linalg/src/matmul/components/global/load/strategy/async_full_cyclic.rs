@@ -22,10 +22,10 @@ pub struct LoadingStrategy<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
+        let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
+            * config.tiling_scheme().tiles_in_stage(ident);
 
-        let num_slices = tiling.tile_shape_row() * tiling.tile_count();
         if num_slices >= total_units && num_slices % total_units != 0 {
             return Err(Box::new(format!(
                 "Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices"
@@ -45,22 +45,22 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        let stage_dim = config.tiling_dimensions(input_ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(input_ident);
 
         let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (
-                stage_dim.tile_shape_row(),
-                stage_dim.tile_shape_col() / line_size,
+                config.tiling_scheme().elements_in_tile_row(input_ident),
+                config.tiling_scheme().elements_in_tile_col(input_ident) / line_size,
             ),
             MatrixLayout::ColMajor => (
-                stage_dim.tile_shape_col(),
-                stage_dim.tile_shape_row() / line_size,
+                config.tiling_scheme().elements_in_tile_col(input_ident),
+                config.tiling_scheme().elements_in_tile_row(input_ident) / line_size,
             ),
         };
 
-        let num_slices = comptime!(num_slices_per_tile * stage_dim.tile_count());
+        let num_slices =
+            comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(input_ident));
         let num_tasks_per_unit = num_slices.div_ceil(total_units);
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
@@ -115,10 +115,10 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         let slice_index = this.unit_id + this.total_units * task_id;
 
         let nth_tile = slice_index / this.num_slices_per_tile;
-        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
+        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
             nth_tile,
             comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
+            config.stage_config(),
         );
         let nth_slice = slice_index % this.num_slices_per_tile;
 

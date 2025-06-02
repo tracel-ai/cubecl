@@ -1,10 +1,8 @@
 use crate::matmul::components::global::load::LoaderMode;
-use crate::matmul::components::stage::{
-    NumStages, StageBuffering, StageVectorization, TilesPerPartition,
-};
+use crate::matmul::components::stage::{NumStages, PartitionBuffering, StageVectorization};
 use crate::matmul::components::{
-    CompleteStageTiling, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    batch, global, stage, tile,
+    MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
+    global, stage, tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
@@ -19,11 +17,10 @@ pub struct GlobalInput<SI> {
 }
 
 pub struct StageInput {
-    pub tiling: CompleteStageTiling,
-    pub stage_buffering: stage::StageBuffering,
+    pub tiling_scheme: TilingScheme,
+    pub partition_buffering: stage::PartitionBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
-    pub tiles_per_partition: TilesPerPartition,
 }
 
 pub enum MultiRowStrategy {
@@ -72,6 +69,30 @@ pub trait Algorithm {
         MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }
 
+    fn global_input(selection: &Self::MatmulSelection) -> GlobalInput<StageInput> {
+        let partition_buffering = if selection.tiling_scheme().tiles_in_partition_n() > 1 {
+            Self::partition_buffering_strategy()
+        } else {
+            PartitionBuffering::Single
+        };
+
+        let stage_vectorization = StageVectorization {
+            stage_line_size: 0,
+            stage_elem_padding: 0,
+        };
+
+        GlobalInput {
+            stage_input: StageInput {
+                tiling_scheme: *selection.tiling_scheme(),
+                partition_buffering,
+                stage_vectorization,
+                num_stages: Self::num_stages(),
+            },
+            loading_precompute_strategy: Self::loading_precompute_strategy(),
+            loader_mode: Self::loader_mode(),
+        }
+    }
+
     fn num_stages() -> NumStages {
         (1, 1).into()
     }
@@ -84,8 +105,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn stage_buffering_strategy() -> StageBuffering {
-        StageBuffering::Double
+    fn partition_buffering_strategy() -> PartitionBuffering {
+        PartitionBuffering::Double
     }
 
     #[allow(clippy::type_complexity, clippy::result_large_err)]

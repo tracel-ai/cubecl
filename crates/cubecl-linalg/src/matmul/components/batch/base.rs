@@ -1,8 +1,8 @@
 use crate::matmul::components::{
-    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions,
+    MatmulLaunch, MatmulPrecision, Quantized, TilingScheme,
     config::MatmulConfig,
     global::{
-        self, Quantization,
+        self, GlobalConfig as _, Quantization,
         args::{self, MatmulArgs, TensorInput, TensorOutput},
     },
 };
@@ -53,13 +53,10 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Configuration for the [batch matmul](BatchMatmul) level.
 pub trait BatchConfig: MatmulConfig {
     /// Underlying Global matmul config
-    type GmmConfig: global::GlobalConfig;
+    type GlobalConfig: global::GlobalConfig;
 
     /// Convert itself to the underlying global matmul config
-    fn to_gmm_config(&self) -> Self::GmmConfig;
-
-    /// Returns the [StageDim] for the given ident
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
+    fn global_config(&self) -> Self::GlobalConfig;
 
     /// Returns the largest m dimension supported with these configs
     fn max_m(&self) -> u32;
@@ -72,6 +69,10 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;
+
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.global_config().tiling_scheme()
+    }
 }
 
 type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;

@@ -29,13 +29,13 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
 
-    #[cfg(feature = "test-matmul")]
+    #[cfg(feature = "matmul_tests")]
     cubecl_linalg::testgen_matmul_plane_accelerated!();
-    #[cfg(feature = "test-matmul")]
+    #[cfg(feature = "matmul_tests")]
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32]);
-    #[cfg(feature = "test-matmul")]
+    #[cfg(feature = "matmul_tests")]
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);
-    #[cfg(feature = "test-matmul")]
+    #[cfg(feature = "matmul_tests")]
     cubecl_linalg::testgen_tensor_identity!([f32, u32]);
 
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);

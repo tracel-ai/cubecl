@@ -34,42 +34,44 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
-        let line_size = config.to_smm_config().stage_line_size(input_ident.into());
+        let line_size = config.stage_config().stage_line_size(input_ident.into());
         let num_stages = 2;
+
+        let total_row = config.tiling_scheme().elements_in_stage_row(input_ident);
+        let total_col = config.tiling_scheme().elements_in_stage_col(input_ident);
 
         // If buffer is parallel to slices, slices are as long as in full stage, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage
         let (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset) = comptime! {
             match (input_ident, matrix_layout) {
                 (InputIdent::Lhs, MatrixLayout::RowMajor) => {
-                    let num_slices = tiling_dimensions.total_row();
+                    let num_slices = total_row;
                     let num_slices_buffer_offset = 0;
-                    let slice_length = tiling_dimensions.total_col() / (num_stages * line_size);
+                    let slice_length = total_col / (num_stages * line_size);
                     let slice_buffer_offset = buffer_index * slice_length;
 
                     (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
                 },
                 (InputIdent::Lhs, MatrixLayout::ColMajor) => {
-                    let num_slices = tiling_dimensions.total_col() / num_stages;
+                    let num_slices = total_col / num_stages;
                     let num_slices_buffer_offset = buffer_index * num_slices;
-                    let slice_length = tiling_dimensions.total_row() / line_size;
+                    let slice_length = total_row / line_size;
                     let slice_buffer_offset = 0;
 
                     (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
                 },
                 (InputIdent::Rhs, MatrixLayout::RowMajor) => {
-                    let num_slices = tiling_dimensions.total_row() / num_stages;
+                    let num_slices = total_row / num_stages;
                     let num_slices_buffer_offset = buffer_index * num_slices;
-                    let slice_length = tiling_dimensions.total_col() / line_size;
+                    let slice_length = total_col / line_size;
                     let slice_buffer_offset = 0;
 
                     (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
                 },
                 (InputIdent::Rhs, MatrixLayout::ColMajor) => {
-                    let num_slices = tiling_dimensions.total_col();
+                    let num_slices = total_col;
                     let num_slices_buffer_offset = 0;
-                    let slice_length = tiling_dimensions.total_row() / (num_stages * line_size);
+                    let slice_length = total_row / (num_stages * line_size);
                     let slice_buffer_offset = buffer_index * slice_length;
 
                     (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
@@ -131,11 +133,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(nth_slice, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 nth_slice,
                 comptime!(this.input_ident.as_ident()),
-                config.to_smm_config(),
+                config.stage_config(),
             );
 
         let start = this.slice_buffer_offset;

@@ -138,11 +138,10 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Window<EG> {
         let line_size = config.global_line_size(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
         let matrix_layout = config.matrix_layout(input_ident);
 
-        let tile_size_x = tiling_dimensions.tile_shape_row();
-        let tile_size_y = tiling_dimensions.tile_shape_col();
+        let tile_size_x = config.tiling_scheme().elements_in_tile_row(input_ident);
+        let tile_size_y = config.tiling_scheme().elements_in_tile_col(input_ident);
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor => tile_size_y / line_size,
@@ -173,15 +172,14 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Window<EG> {
         let line_size = config.global_line_size(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
         let matrix_layout = config.matrix_layout(input_ident);
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor =>
-                tiling_dimensions.total_col() / line_size
+                config.tiling_scheme().elements_in_stage_col(input_ident) / line_size
             ,
             MatrixLayout::ColMajor =>
-                tiling_dimensions.total_row() / line_size
+                config.tiling_scheme().elements_in_stage_row(input_ident) / line_size
             ,
         }};
 
@@ -276,15 +274,15 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let tile_shape_x = config.tiling_dimensions(input_ident).tile_shape_row();
-        let tile_shape_y = config.tiling_dimensions(input_ident).tile_shape_col();
+        let tile_size_x = config.tiling_scheme().elements_in_tile_row(input_ident);
+        let tile_size_y = config.tiling_scheme().elements_in_tile_col(input_ident);
 
-        let view_tile_x = tile_x * tile_shape_x;
-        let view_tile_y = tile_y * tile_shape_y;
+        let view_tile_x = tile_x * tile_size_x;
+        let view_tile_y = tile_y * tile_size_y;
 
         let (load_x, load_y) = match config.matrix_layout(input_ident) {
-            MatrixLayout::RowMajor => (position / tile_shape_y, position % tile_shape_y),
-            MatrixLayout::ColMajor => (position % tile_shape_x, position / tile_shape_x),
+            MatrixLayout::RowMajor => (position / tile_size_y, position % tile_size_y),
+            MatrixLayout::ColMajor => (position % tile_size_x, position / tile_size_x),
         };
 
         self.load_coalesced::<G>(
@@ -310,8 +308,8 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let stage_shape_x = config.tiling_dimensions(input_ident).total_row();
-        let stage_shape_y = config.tiling_dimensions(input_ident).total_col();
+        let stage_shape_x = config.tiling_scheme().elements_in_stage_row(input_ident);
+        let stage_shape_y = config.tiling_scheme().elements_in_stage_col(input_ident);
 
         let load_offsets = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (position / stage_shape_y, position % stage_shape_y),
@@ -400,12 +398,11 @@ impl<EG: Numeric> TensorWriter<EG> {
         value: Line<EG>,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(Ident::Out);
+        let tile_size_m = config.tiling_scheme().elements_in_tile_m();
+        let tile_size_n = config.tiling_scheme().elements_in_tile_n();
 
-        let view_x =
-            tile_x * tiling.tile_shape_row() + unit_id / tiling.tile_shape_col() + self.x_offset;
-        let view_y =
-            tile_y * tiling.tile_shape_col() + unit_id % tiling.tile_shape_col() + self.y_offset;
+        let view_x = tile_x * tile_size_m + unit_id / tile_size_n + self.x_offset;
+        let view_y = tile_y * tile_size_n + unit_id % tile_size_n + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);

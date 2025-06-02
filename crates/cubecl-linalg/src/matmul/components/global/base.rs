@@ -2,8 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingDimensions,
-    config::MatmulConfig, stage,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
+    config::MatmulConfig,
+    stage::{self, StageConfig},
 };
 use cubecl_std::{
     CubeOption,
@@ -102,16 +103,17 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 /// Configuration for the [global matmul](GlobalMatmul) level.
 pub trait GlobalConfig: MatmulConfig {
     /// Underlying Stage matmul config
-    type SmmConfig: stage::StageConfig;
+    type StageConfig: stage::StageConfig;
 
     /// Convert itself to the underlying stage matmul config
-    fn to_smm_config(&self) -> Self::SmmConfig;
+    fn stage_config(&self) -> Self::StageConfig;
 
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
-    /// Returns the [StageTiling] for the given ident
-    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions;
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.stage_config().tiling_scheme()
+    }
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;

@@ -4,8 +4,8 @@ use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
-use crate::matmul::components::stage::{PartitionsPerStage, TilesPerPartition};
-use crate::matmul::components::{MatmulProblem, MatmulSize, tile::TileMatmulFamily};
+use crate::matmul::components::{MatmulProblem, tile::TileMatmulFamily};
+use crate::matmul::components::{PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::matmul::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
@@ -17,27 +17,12 @@ const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 #[derive(Debug)]
 pub struct PlaneMatmulSelection {
     pub plane_dim: u32,
-    pub tile_shape: MatmulSize,
-    pub tiles_per_partition: TilesPerPartition,
-    pub partitions_per_stage: PartitionsPerStage,
-    pub stage_k: u32,
+    pub tiling_scheme: TilingScheme,
 }
 
 impl MatmulSelection for PlaneMatmulSelection {
-    fn tile_shape(&self) -> MatmulSize {
-        self.tile_shape
-    }
-
-    fn tile_count(&self) -> MatmulSize {
-        MatmulSize {
-            m: self.tiles_per_partition.m * self.partitions_per_stage.m,
-            n: self.tiles_per_partition.n * self.partitions_per_stage.n,
-            k: self.stage_k,
-        }
-    }
-
-    fn tiles_per_partition(&self) -> TilesPerPartition {
-        self.tiles_per_partition
+    fn tiling_scheme(&self) -> &TilingScheme {
+        &self.tiling_scheme
     }
 }
 
@@ -49,7 +34,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     elem_stage: Elem,
     elem_acc: Elem,
 ) -> PlaneMatmulSelection {
-    let tile_shape = find_instruction_shape(
+    let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
@@ -79,36 +64,35 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
         tensor_cores_channels,
-        tile_shape.m as usize,
-        tile_shape.n as usize,
+        tile_size.m() as usize,
+        tile_size.n() as usize,
     );
 
     let (rows_per_plane, stage_size_m) = change_rows_per_plane(
         multi_row_strategy,
         partition_shape_n,
-        tile_shape.m as usize,
+        tile_size.m() as usize,
         problem.m,
     );
 
-    let tiles_per_partition = TilesPerPartition {
-        m: rows_per_plane as u32,
-        n: partition_shape_n as u32,
-    };
+    let tiles_per_partition = PartitionSize::new(
+        rows_per_plane as u32,
+        partition_shape_n as u32,
+        plane_dim / tile_size.k(),
+    );
 
-    let partitions_per_stage = PartitionsPerStage {
-        m: stage_size_m as u32,
-        n: 1,
-    };
+    let partitions_per_stage = StageSize::new(stage_size_m as u32, 1, 1);
 
-    // Makes all rows the length of plane_dim
-    let stage_k = plane_dim / tile_shape.k;
+    let tiling_scheme = TilingScheme::builder()
+        .with_tile_size(tile_size)
+        .with_partition_size(tiles_per_partition)
+        .with_stage_size(partitions_per_stage)
+        .build()
+        .unwrap();
 
     PlaneMatmulSelection {
+        tiling_scheme,
         plane_dim,
-        tile_shape,
-        tiles_per_partition,
-        partitions_per_stage,
-        stage_k,
     }
 }
 
@@ -187,11 +171,11 @@ pub(crate) fn find_tiles_in_partition_n(
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
-pub(crate) fn find_instruction_shape(
+pub(crate) fn find_instruction_size(
     properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
     m: usize,
     n: usize,
-) -> MatmulSize {
+) -> TileSize {
     let supported = |m: u8, n: u8, k: u8| {
         properties
             .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))

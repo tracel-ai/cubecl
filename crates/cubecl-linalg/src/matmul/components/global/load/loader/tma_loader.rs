@@ -104,10 +104,10 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             }
         }
 
-        let stage = StageMemory::new_aligned::<G::SmmConfig>(
+        let stage = StageMemory::new_aligned::<G::StageConfig>(
             comptime!(ident.as_ident()),
             128u32,
-            config.to_smm_config(),
+            config.stage_config(),
         );
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
@@ -133,18 +133,17 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
                 MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
             };
 
-            let tiling_dims = config.tiling_dimensions(ident);
             let size_row = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => tiling_dims.total_row(),
-                MatrixLayout::ColMajor => tiling_dims.total_col(),
+                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
             };
             let size_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => tiling_dims.tile_shape_col(),
-                MatrixLayout::ColMajor => tiling_dims.tile_shape_row(),
+                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_tile_col(ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_tile_row(ident),
             };
             let tile_count_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => tiling_dims.tile_count_col(),
-                MatrixLayout::ColMajor => tiling_dims.tile_count_row(),
+                MatrixLayout::RowMajor => config.tiling_scheme().tiles_in_stage_col(ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(ident),
             };
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
