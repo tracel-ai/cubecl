@@ -42,17 +42,19 @@ impl<'a> Visitor<'a> {
                         region
                     },
                     {
-                        if let Some(merge) = merge
-                            && merge != or_else
-                        {
-                            let region = Region::new();
-                            let block = Block::new(&[]);
-                            region.append_block(block);
-                            let block = region.first_block().unwrap();
-                            self.block_stack.push(block);
-                            self.visit_basic_block(*or_else, opt);
-                            self.block_stack.pop();
-                            region
+                        if let Some(merge) = merge {
+                            if merge != or_else {
+                                let region = Region::new();
+                                let block = Block::new(&[]);
+                                region.append_block(block);
+                                let block = region.first_block().unwrap();
+                                self.block_stack.push(block);
+                                self.visit_basic_block(*or_else, opt);
+                                self.block_stack.pop();
+                                region
+                            } else {
+                                Region::new()
+                            }
                         } else {
                             Region::new()
                         }

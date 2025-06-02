@@ -2,11 +2,14 @@ use cubecl_core::Feature;
 use cubecl_core::ir;
 use cubecl_core::ir::Elem;
 use cubecl_core::ir::FloatKind;
+use cubecl_core::ir::IntKind;
+use cubecl_core::ir::UIntKind;
 use cubecl_runtime::DeviceProperties;
 use melior::dialect::index;
 use melior::ir::Type;
 use melior::ir::Value;
 use melior::ir::ValueLike;
+use melior::ir::r#type::IntegerType;
 
 use super::Visitor;
 
@@ -17,6 +20,15 @@ impl<'a> Visitor<'a> {
             Elem::Float(FloatKind::F16) => Type::float16(self.context),
             Elem::Float(FloatKind::F32) => Type::float32(self.context),
             Elem::Float(FloatKind::F64) => Type::float64(self.context),
+            Elem::Int(IntKind::I8) => IntegerType::new(self.context, 8).into(),
+            Elem::Int(IntKind::I16) => IntegerType::new(self.context, 16).into(),
+            Elem::Int(IntKind::I32) => IntegerType::new(self.context, 32).into(),
+            Elem::Int(IntKind::I64) => IntegerType::new(self.context, 64).into(),
+            Elem::UInt(UIntKind::U8) => IntegerType::new(self.context, 8).into(),
+            Elem::UInt(UIntKind::U16) => IntegerType::new(self.context, 16).into(),
+            Elem::UInt(UIntKind::U32) => IntegerType::new(self.context, 32).into(),
+            Elem::UInt(UIntKind::U64) => IntegerType::new(self.context, 64).into(),
+            Elem::Bool => IntegerType::new(self.context, 1).into(),
             _ => todo!("This type is not implemented yet."),
         }
     }
