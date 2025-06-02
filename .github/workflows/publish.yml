@@ -72,6 +72,8 @@ jobs:
       - publish-cubecl-std
       - publish-cubecl-reduce
       - publish-cubecl-core
+      - publish-cubecl-common
+      - publish-cubecl-random
     secrets: inherit
 
   publish-cubecl-convolution:
@@ -83,6 +85,9 @@ jobs:
       - publish-cubecl-std
       - publish-cubecl-reduce
       - publish-cubecl-core
+      - publish-cubecl-common
+      - publish-cubecl-random
+      - publish-cubecl-matmul
     secrets: inherit
 
   publish-cubecl-reduce:
@@ -126,7 +131,8 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
 
@@ -150,7 +156,8 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
 
@@ -164,7 +171,8 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
 
@@ -176,6 +184,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-cuda
       - publish-cubecl-wgpu
-      - publish-cubecl-linalg
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
       - publish-cubecl-reduce
     secrets: inherit
