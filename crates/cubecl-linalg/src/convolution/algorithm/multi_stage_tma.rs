@@ -22,8 +22,9 @@ use crate::{
         },
         kernels::matmul::{MatmulSelection, PlaneMatmulSelection},
     },
-    tensor::TensorHandle,
 };
+
+use cubecl_std::tensor::TensorHandle;
 
 use super::{
     Algorithm,

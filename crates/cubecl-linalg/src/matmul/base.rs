@@ -1,6 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
-use crate::tensor::TensorHandle;
+use cubecl_std::tensor::{TensorHandle};
 
 use super::{
     components::{

@@ -35,8 +35,6 @@ mod tests {
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32]);
     #[cfg(feature = "matmul_tests")]
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);
-    #[cfg(feature = "matmul_tests")]
-    cubecl_linalg::testgen_tensor_identity!([f32, u32]);
 
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
     cubecl_reduce::testgen_shared_sum!([f32]);

@@ -10,8 +10,8 @@ macro_rules! testgen_random {
         use cubecl_core as cubecl;
 
         use cubecl::{client::ComputeClient, prelude::TensorHandleRef};
-        use cubecl_linalg::tensor::TensorHandle;
         use cubecl_random::*;
+        use cubecl_std::tensor::TensorHandle;
 
         use core::f32;
 

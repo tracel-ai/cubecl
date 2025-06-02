@@ -5,11 +5,12 @@ use crate::matmul::components::{
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
-use crate::tensor::into_contiguous_pitched;
-use crate::tensor::{MatrixBatchLayout, TensorHandle, matrix_batch_layout};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
+use cubecl_std::tensor::{
+    MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
+};
 
 use super::{Algorithm, select_kernel_concrete};
 

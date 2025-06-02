@@ -1,21 +1,20 @@
-use crate::{
-    matmul::{
-        components::{
-            InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-            global::{args::MatmulArgs, load::LoaderMode},
-            stage::{NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization},
-            tile::TileMatmulFamily,
-        },
-        kernels::{
-            MatmulAvailabilityError,
-            matmul::{
-                GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy,
-                StageInput,
-            },
+use crate::matmul::{
+    components::{
+        InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+        global::{args::MatmulArgs, load::LoaderMode},
+        stage::{NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization},
+        tile::TileMatmulFamily,
+    },
+    kernels::{
+        MatmulAvailabilityError,
+        matmul::{
+            GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy, StageInput,
         },
     },
-    tensor::TensorHandle,
 };
+
+use cubecl_std::tensor::TensorHandle;
+
 use cubecl_core::{ir::Elem, prelude::*};
 
 use super::base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProblem};

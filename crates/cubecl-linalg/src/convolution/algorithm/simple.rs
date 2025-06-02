@@ -23,8 +23,9 @@ use crate::{
         },
         kernels::matmul::PlaneMatmulSelection,
     },
-    tensor::{TensorHandle, into_contiguous},
 };
+
+use cubecl_std::tensor::{TensorHandle, into_contiguous};
 
 use super::Algorithm;
 

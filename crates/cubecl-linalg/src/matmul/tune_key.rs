@@ -4,7 +4,7 @@ use cubecl_core::{self as cubecl, Runtime};
 use cubecl_core::{AutotuneKey, ir::Elem};
 use serde::{Deserialize, Serialize};
 
-use crate::tensor::{MatrixBatchLayout, matrix_batch_layout};
+use cubecl_std::tensor::{MatrixBatchLayout, matrix_batch_layout};
 
 use super::components::{MatmulKind, MatmulProblemSize};
 

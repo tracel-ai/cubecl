@@ -25,8 +25,9 @@ use crate::{
         },
         kernels::matmul::PlaneMatmulSelection,
     },
-    tensor::{TensorHandle, into_contiguous_pitched},
 };
+
+use cubecl_std::tensor::{TensorHandle, into_contiguous_pitched};
 
 use super::Algorithm;
 

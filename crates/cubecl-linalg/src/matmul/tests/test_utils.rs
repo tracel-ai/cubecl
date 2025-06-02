@@ -11,13 +11,11 @@ use cubecl_core::{
 
 pub use cubecl_std::SymQ8;
 
-use crate::{
-    matmul::{
-        components::{Ident, MatmulPrecision, MatmulProblem},
-        tests::cmma_matmul::matmul_test_launcher::strides,
-    },
-    tensor::TensorHandle,
+use crate::matmul::{
+    components::{Ident, MatmulPrecision, MatmulProblem},
+    tests::cmma_matmul::matmul_test_launcher::strides,
 };
+use cubecl_std::tensor::TensorHandle;
 
 pub struct QuantizationParams<N: Numeric> {
     pub scaling: Vec<N>, // This is the bit cast of an f32 into the appropriate numbers of N.

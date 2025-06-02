@@ -32,10 +32,10 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_std::testgen!();
+    cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_linalg::testgen_matmul_unit!();
-    cubecl_linalg::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
@@ -67,6 +67,7 @@ mod tests_msl {
 
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_std::testgen!();
+    cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32]);
     cubecl_linalg::testgen_conv2d_accelerated!([f16: f16]);
     cubecl_linalg::testgen_matmul_simple!([f16, f32]);

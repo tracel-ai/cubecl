@@ -1,9 +1,12 @@
-use crate::matmul::kernels::matmul::NUM_SM_APPROX;
+// use crate::matmul::kernels::matmul::NUM_SM_APPROX;
+
+use crate::{FastDivmod, FastDivmodArgs};
 
 use super::TensorHandle;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
-use cubecl_std::{FastDivmod, FastDivmodArgs};
+
+pub const NUM_SM_APPROX: u32 = 50;
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
@@ -311,4 +314,28 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
         stride,
         elems_per_unit,
     );
+}
+
+/// Checks if the tensor associated with the given shape and strides is contiguous.
+pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
+    if shape.is_empty() {
+        return true;
+    }
+
+    for (expected, &stride) in compact_strides(shape).into_iter().zip(strides) {
+        if expected != stride {
+            return false;
+        }
+    }
+
+    true
+}
+
+pub fn compact_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
 }

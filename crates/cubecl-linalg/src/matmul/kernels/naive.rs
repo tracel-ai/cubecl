@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
+use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 
 use super::MatmulLaunchError;
 
