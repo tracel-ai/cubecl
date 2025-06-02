@@ -112,7 +112,9 @@ impl<'a> Module<'a> {
         // pass_manager.add_pass(pass::transform::create_remove_dead_values()); // Needs this to be fixed before https://github.com/llvm/llvm-project/issues/82788
         pass_manager.add_pass(pass::transform::create_control_flow_sink());
         pass_manager.add_pass(pass::transform::create_cse());
-        pass_manager.run(&mut self.module).unwrap();
+        if let Err(err) = pass_manager.run(&mut self.module) {
+            panic!("{}", err);
+        }
         self.module.as_operation().verify();
     }
 

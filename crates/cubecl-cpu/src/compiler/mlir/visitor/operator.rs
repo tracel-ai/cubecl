@@ -1,7 +1,7 @@
-use cubecl_core::ir::{Operator, Variable};
+use cubecl_core::ir::{Elem, Operator, Variable};
 use melior::{
-    dialect::{arith, ods::vector},
-    ir::BlockLike,
+    dialect::{arith, memref, ods::vector},
+    ir::{BlockLike, ValueLike},
 };
 
 use super::Visitor;
@@ -26,15 +26,29 @@ impl<'a> Visitor<'a> {
             Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
                 let memref = self.get_variable(index_assign.value);
                 let index = self.get_index(index_assign.index, index_assign.value.item);
-                let out = self.get_variable(out);
-                let operation =
-                    vector::store(self.context, memref, out, &[index], self.location).into();
+                let out_value = self.get_variable(out);
+                let operation = if index_assign.value.vectorization_factor() == 1 {
+                    memref::store(memref, out_value, &[index], self.location)
+                } else {
+                    vector::store(self.context, memref, out_value, &[index], self.location).into()
+                };
                 self.block().append_operation(operation);
             }
             Operator::Cast(cast) => {
                 self.visit_cast(cast.input, out);
             }
-
+            Operator::Select(select) => {
+                let condition = self.get_variable(select.cond);
+                let (then, or_else) = self.get_binary_op_variable(select.then, select.or_else);
+                let result_type = then.r#type();
+                let value = self.append_operation_with_result(arith::select(
+                    condition,
+                    then,
+                    or_else,
+                    self.location,
+                ));
+                self.insert_variable(out, value);
+            }
             _ => todo!("{:?} is not yet implemented", operator),
         }
     }
@@ -44,8 +58,10 @@ impl<'a> Visitor<'a> {
         let target = self.item_to_type(out.item);
         let value = if to_cast.elem().is_int() && self.is_float(out.elem()) {
             self.append_operation_with_result(arith::sitofp(value, target, self.location))
-        } else if self.is_float(to_cast.elem()) && to_cast.elem().is_int() {
+        } else if self.is_float(to_cast.elem()) && out.elem().is_int() {
             self.append_operation_with_result(arith::fptosi(value, target, self.location))
+        } else if matches!(to_cast.elem(), Elem::Bool) || out.elem().is_int() {
+            self.append_operation_with_result(arith::extui(value, target, self.location))
         } else {
             panic!("Cast not implemented {} -> {}", to_cast.elem(), out.elem());
         };
