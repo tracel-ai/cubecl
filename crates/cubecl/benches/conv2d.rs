@@ -6,7 +6,8 @@ use cubecl::{
     client::ComputeClient,
     future,
 };
-use cubecl_convolution::{self, ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm};
+use cubecl_convolution as convolution;
+use cubecl_convolution::{ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm};
 use cubecl_matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul};
 use cubecl_std::tensor::TensorHandle;
 
