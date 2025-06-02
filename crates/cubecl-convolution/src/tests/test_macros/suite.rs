@@ -118,8 +118,8 @@ pub fn calculate_conv_output_size(
 #[macro_export]
 macro_rules! conv2d_standard_tests {
     () => {
-        use $crate::convolution::tests::ConvolutionSize;
-        use $cubecl_matmul::components::{PartitionSize, StageSize, TileSize};
+        use cubecl_matmul::components::{PartitionSize, StageSize, TileSize};
+        use $crate::tests::ConvolutionSize;
 
         mod t8x8x8 {
             use super::*;
@@ -337,10 +337,10 @@ macro_rules! conv2d_standard_tests {
     };
 
     ($tile:expr, $partition:expr, $stage:expr, $problem:expr) => {
+        use cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
         use $crate::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
         use $crate::algorithm::simple::SimpleConvAlgorithm;
         use $crate::algorithm::simple_tma::SimpleTmaConvAlgorithm;
-        use $cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
 
         #[test]
         pub fn simple_coalesced_im2col() {

@@ -12,7 +12,7 @@ use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 
 #[derive(Debug)]
-pub(crate) struct TensorRawParts<N: Numeric + CubeElement> {
+pub struct TensorRawParts<N: Numeric + CubeElement> {
     pub handle: server::Handle,
     pub scale: Option<server::Handle>,
     pub shape: Vec<usize>,

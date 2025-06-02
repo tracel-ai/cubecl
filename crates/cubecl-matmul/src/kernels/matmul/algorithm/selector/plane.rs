@@ -10,8 +10,8 @@ use crate::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
 
-pub(crate) const NUM_SM_APPROX: u32 = 50;
-pub(crate) const NUM_TENSOR_CORES_APPROX: u32 = 4;
+pub const NUM_SM_APPROX: u32 = 50;
+pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
 const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
 #[derive(Debug)]
@@ -171,7 +171,7 @@ pub(crate) fn find_tiles_in_partition_n(
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
-pub(crate) fn find_instruction_size(
+pub fn find_instruction_size(
     properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
     m: usize,
     n: usize,
