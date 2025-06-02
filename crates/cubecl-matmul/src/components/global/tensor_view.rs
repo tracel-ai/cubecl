@@ -1,6 +1,6 @@
-use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::global;
-use crate::matmul::components::{Ident, MatrixLayout};
+use crate::components::config::InputIdent;
+use crate::components::global;
+use crate::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;

@@ -8,7 +8,7 @@ use cubecl_std::{
 };
 
 use super::Quantization;
-use crate::matmul::{
+use crate::{
     components::{self, MatmulPrecision, MatmulProblem, problem::MatmulLineSizes},
     kernels::matmul::MatmulSelection,
 };

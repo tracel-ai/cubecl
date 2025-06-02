@@ -3,17 +3,16 @@ use std::any::TypeId;
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use half::f16;
 
-use crate::matmul::{
+use cubecl_matmul::{
     components::{
         MatmulLineSizes,
         global::args::{ConcreteOutputFactory, MatmulArgs},
     },
     kernels::MatmulLaunchError,
 };
-use crate::{
-    convolution::base::ConvolutionLaunch,
-    matmul::components::{self, InputIdent, MatmulPrecision},
-};
+use crate::
+    base::ConvolutionLaunch;
+use cubecl_matmul::components::{self, InputIdent, MatmulPrecision};
 
 use super::{
     ConvLaunchError,

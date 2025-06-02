@@ -5,15 +5,13 @@ use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::{
-    convolution::{
-        ConvGemmConfig,
-        base::{Dimensionality, RuntimeArgs},
-        reader::tma::Im2colTmaReader,
-    },
-    matmul::components::{
-        Ident, InputIdent, MatmulPrecision,
-        stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory},
-    },
+    ConvGemmConfig,
+    base::{Dimensionality, RuntimeArgs},
+    reader::tma::Im2colTmaReader,
+};
+use cubecl_matmul::components::{
+    Ident, InputIdent, MatmulPrecision,
+    stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory},
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;

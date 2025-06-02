@@ -5,14 +5,13 @@ use cubecl_std::{
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use crate::{
-    convolution::base::{Convolution, ConvolutionFamily, RuntimeArgs},
-    matmul::components::{
-        Ident,
-        global::{
-            GlobalConfig,
-            args::{MatmulArgs, TensorInput, TensorInputIdent, TensorOutput},
-        },
+use crate::base::{Convolution, ConvolutionFamily, RuntimeArgs};
+
+use cubecl_matmul::components::{
+    Ident,
+    global::{
+        GlobalConfig,
+        args::{MatmulArgs, TensorInput, TensorInputIdent, TensorOutput},
     },
 };
 
@@ -92,12 +91,10 @@ pub(crate) fn shape_divmod<'a, R: Runtime>(
 pub mod config {
     use std::ops::Deref;
 
-    use crate::{
-        convolution::{ConvGemmConfig, base::Dimensionality},
-        matmul::components::{
-            InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-            global::{GlobalConfig, load::LoaderMode},
-        },
+    use crate::{ConvGemmConfig, base::Dimensionality};
+    use cubecl_matmul::components::{
+        InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
+        global::{GlobalConfig, load::LoaderMode},
     };
 
     use super::*;

@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_unit_tile {
     ($algorithm: ty, $precision: ty) => {
-        use $crate::matmul::components::TileSize;
+        use $crate::components::TileSize;
 
         mod t1x1x1 {
             use super::*;

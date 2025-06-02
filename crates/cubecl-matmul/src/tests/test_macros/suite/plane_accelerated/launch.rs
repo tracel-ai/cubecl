@@ -1,8 +1,8 @@
-use crate::matmul::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
-use crate::matmul::components::{MatmulProblemSize, TilingScheme};
-use crate::matmul::kernels::matmul::{Algorithm, PlaneMatmulSelection};
-use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
-use crate::matmul::tests::test_utils::TestPrecision;
+use crate::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
+use crate::components::{MatmulProblemSize, TilingScheme};
+use crate::kernels::matmul::{Algorithm, PlaneMatmulSelection};
+use crate::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
+use crate::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
 
 pub fn test_algo<

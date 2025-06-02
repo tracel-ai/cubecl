@@ -7,22 +7,20 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 
-use crate::matmul::components::stage::NumStages;
-use crate::matmul::kernels::matmul::MatmulSelection;
 use crate::{
-    convolution::{
-        base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily,
-        selection::convolution_matmul_selection,
+    base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily,
+    selection::convolution_matmul_selection,
+};
+use cubecl_matmul::components::stage::NumStages;
+use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::{
+    components::{
+        InputIdent,
+        global::args::TensorArgs,
+        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+        tile::TileMatmulFamily,
     },
-    matmul::{
-        components::{
-            InputIdent,
-            global::args::TensorArgs,
-            stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
-            tile::TileMatmulFamily,
-        },
-        kernels::matmul::PlaneMatmulSelection,
-    },
+    kernels::matmul::PlaneMatmulSelection,
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous};
@@ -62,7 +60,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
-        ident: crate::matmul::components::InputIdent,
+        ident: cubecl_matmul::components::InputIdent,
     ) -> TensorHandle<R, E> {
         let rank = handle.shape.len();
         let dim_c = rank - 1;

@@ -3,7 +3,7 @@ use cubecl_core::{self as cubecl};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::matmul::components::batch::shared::swizzle;
+use crate::components::batch::shared::swizzle;
 
 #[cube]
 /// Distributes cube instances across the tensor, assigning each to compute data in distinct regions.

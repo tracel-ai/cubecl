@@ -2,7 +2,7 @@ use super::{MatmulSelection, UnitMatmulSelection, base, unit_matmul_selection};
 use cubecl_core::{ir::Elem, prelude::*};
 use std::marker::PhantomData;
 
-use crate::matmul::components::{
+use crate::components::{
     MatmulLineSizes, MatmulProblem, MatrixLayout,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{

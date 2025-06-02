@@ -1,10 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::kernels::tiling2d::config::CubeTiling2dConfig;
-use crate::matmul::kernels::tiling2d::tile::loader::{CheckBounds, ReadTileInfo};
-use crate::matmul::kernels::tiling2d::tile::memory_access::ContiguousAccess;
-use crate::matmul::kernels::tiling2d::write_output::WriteTileInfo;
+use crate::kernels::tiling2d::config::CubeTiling2dConfig;
+use crate::kernels::tiling2d::tile::loader::{CheckBounds, ReadTileInfo};
+use crate::kernels::tiling2d::tile::memory_access::ContiguousAccess;
+use crate::kernels::tiling2d::write_output::WriteTileInfo;
 
 #[cube]
 pub(crate) trait BlockLoader<N: Numeric>: Send + Sync + 'static {

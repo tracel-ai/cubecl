@@ -1,9 +1,9 @@
-use crate::matmul::components::global::load::SyncFullLoadingStrategy;
-use crate::matmul::components::stage::OrderedTilingOrder;
-use crate::matmul::components::{
+use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::stage::OrderedTilingOrder;
+use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
-use crate::matmul::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
+use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

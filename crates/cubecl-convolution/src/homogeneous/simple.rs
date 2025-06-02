@@ -1,32 +1,30 @@
 use std::marker::PhantomData;
 
 use crate::{
-    convolution::{
-        base::{
-            Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
-            ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
-        },
-        loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
+    base::{
+        Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
+        ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
     },
-    matmul::{
-        components::{
-            EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
-            MatmulPrecision, MatmulSpec, OutputRuntimeArg,
-            global::{
-                AccumulatorLoader, GlobalConfig,
-                load::{SyncFullLoader, sync_full_cyclic},
-                single_stage,
-            },
-            stage::{
-                ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader,
-                RowMajorTilingOrder, StageConfig, StageMatmul, StageMatmulFamily,
-            },
-        },
-        kernels::matmul::GlobalInput,
-    },
+    loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::{
+    components::{
+        EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
+        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
+        global::{
+            AccumulatorLoader, GlobalConfig,
+            load::{SyncFullLoader, sync_full_cyclic},
+            single_stage,
+        },
+        stage::{
+            ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,
+            StageConfig, StageMatmul, StageMatmulFamily,
+        },
+    },
+    kernels::matmul::GlobalInput,
+};
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
@@ -238,7 +236,7 @@ where
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
-    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+    ) -> Result<(), cubecl_matmul::kernels::MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.stage_config())
     }
 }

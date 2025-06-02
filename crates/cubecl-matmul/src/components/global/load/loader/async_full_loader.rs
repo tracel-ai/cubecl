@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::{AsyncLoadingJob, LoadingValidation};
-use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
-use crate::matmul::components::global::{Quantization, single_stage};
-use crate::matmul::components::stage::FullStageToTileReader;
-use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::stage::{self, StageMemory};
-use crate::matmul::components::{InputIdent, MatmulPrecision, global};
+use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
+use crate::components::global::tensor_view::TensorReader;
+use crate::components::global::{CopyMechanism, GlobalConfig};
+use crate::components::global::{Quantization, single_stage};
+use crate::components::stage::FullStageToTileReader;
+use crate::components::stage::TilingLayout;
+use crate::components::stage::{self, StageMemory};
+use crate::components::{InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;

@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, CubeType};
 use std::marker::PhantomData;
 
-use crate::matmul::kernels::tiling2d::{
+use crate::kernels::tiling2d::{
     config::CubeTiling2dConfig,
     load_shared_memory::{LoadInfo, Loader},
 };

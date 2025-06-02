@@ -1,5 +1,3 @@
-// use crate::matmul::kernels::matmul::NUM_SM_APPROX;
-
 use crate::{FastDivmod, FastDivmodArgs};
 
 use super::TensorHandle;

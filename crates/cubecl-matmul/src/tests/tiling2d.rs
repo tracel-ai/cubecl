@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use cubecl_core::{CubeElement, Runtime, prelude::Float};
 
-use crate::matmul::kernels::tiling2d;
+use crate::kernels::tiling2d;
 
 use super::test_utils::{MatmulTestCase, Sample, assert_equals_approx};
 

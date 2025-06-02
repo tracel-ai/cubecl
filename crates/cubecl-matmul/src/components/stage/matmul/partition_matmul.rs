@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::AccumulatorLoader;
-use crate::matmul::components::stage::StageConfig;
-use crate::matmul::components::stage::StageEvent;
-use crate::matmul::components::stage::StageToTileReader;
-use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
-use crate::matmul::components::stage::{PartitionBuffering, StageEventListener};
-use crate::matmul::components::tile;
+use crate::components::MatmulPrecision;
+use crate::components::global::AccumulatorLoader;
+use crate::components::stage::StageConfig;
+use crate::components::stage::StageEvent;
+use crate::components::stage::StageToTileReader;
+use crate::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
+use crate::components::stage::{PartitionBuffering, StageEventListener};
+use crate::components::tile;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 

@@ -1,4 +1,4 @@
-use crate::matmul::components::global::GlobalConfig;
+use cubecl_matmul::components::global::GlobalConfig;
 
 use super::base::Dimensionality;
 

@@ -1,4 +1,4 @@
-use crate::matmul::{
+use cubecl_matmul::{
     components::{
         InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
         global::{args::MatmulArgs, load::LoaderMode},

@@ -1,16 +1,16 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
-use crate::matmul::components::global::GlobalMatmulFamily;
-use crate::matmul::components::global::Quantization;
-use crate::matmul::components::{
+use crate::components::batch::span::{Span, SpanDim, SpanMatmul};
+use crate::components::global::GlobalMatmulFamily;
+use crate::components::global::Quantization;
+use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatmulSpec, OutputRuntimeArg,
 };
-use crate::matmul::components::{
+use crate::components::{
     MatmulConfigFactory, MatmulLaunch, batch, config::MatmulConfig, global,
 };
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;

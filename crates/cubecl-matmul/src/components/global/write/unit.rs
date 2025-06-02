@@ -1,6 +1,6 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::global::GlobalConfig;
-use crate::matmul::components::global::tensor_view::TensorWriter;
+use crate::components::Ident;
+use crate::components::global::GlobalConfig;
+use crate::components::global::tensor_view::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use std::marker::PhantomData;
 
-use crate::matmul::kernels::tiling2d::{
+use crate::kernels::tiling2d::{
     base::Dimensions,
     config::CubeTiling2dConfig,
     write_output::{OutputWriter, WriteTileInfo},

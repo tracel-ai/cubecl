@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::load::SyncFullLoadingStrategy;
-use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, Quantization};
-use crate::matmul::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
-use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
+use crate::components::MatmulPrecision;
+use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::global::tensor_view::TensorReader;
+use crate::components::global::{GlobalConfig, Quantization};
+use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
+use crate::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};

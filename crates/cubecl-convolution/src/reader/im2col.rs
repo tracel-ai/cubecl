@@ -2,10 +2,8 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
-use crate::{
-    convolution::{ConvGemmConfig, loader::im2col_tma::div_mod_seq},
-    matmul::components::Ident,
-};
+use crate::{ConvGemmConfig, loader::im2col_tma::div_mod_seq};
+use cubecl_matmul::components::Ident;
 
 #[derive(CubeType)]
 /// A view of a feature map tensor that starts reading data from a specified offset.

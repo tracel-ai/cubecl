@@ -1,34 +1,31 @@
 use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
-    convolution::{
-        base::{
-            Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
-            ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
-        },
-        loader::{
-            bias::BiasLoader,
-            im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
-            weight_tma::{TmaWeightLoader, TmaWeightTiling},
-        },
+    base::{
+        Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
+        ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
     },
-    matmul::{
-        components::{
-            EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-            MatmulSpec, OutputRuntimeArg,
-            global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
-            stage::{
-                FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul,
-                StageMatmulFamily,
-            },
-        },
-        kernels::{MatmulAvailabilityError, matmul::GlobalInput},
+    loader::{
+        bias::BiasLoader,
+        im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
+        weight_tma::{TmaWeightLoader, TmaWeightTiling},
     },
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
     self as cubecl,
     prelude::barrier::{Barrier, BarrierLevel},
+};
+use cubecl_matmul::{
+    components::{
+        EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+        MatmulSpec, OutputRuntimeArg,
+        global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
+        stage::{
+            FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
+        },
+    },
+    kernels::{MatmulAvailabilityError, matmul::GlobalInput},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

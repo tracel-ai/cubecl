@@ -1,10 +1,9 @@
-use crate::matmul;
-use crate::matmul::components::{
+use crate::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
-use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
-use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
+use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
@@ -232,12 +231,12 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let n = rhs.shape[rank - 1] as u32;
 
     let lhs_layout = match transposed.0 {
-        true => matmul::components::MatrixLayout::ColMajor,
-        false => matmul::components::MatrixLayout::RowMajor,
+        true => MatrixLayout::ColMajor,
+        false => MatrixLayout::RowMajor,
     };
     let rhs_layout = match transposed.1 {
-        true => matmul::components::MatrixLayout::ColMajor,
-        false => matmul::components::MatrixLayout::RowMajor,
+        true => MatrixLayout::ColMajor,
+        false => MatrixLayout::RowMajor,
     };
 
     let batch_lhs: usize = lhs.shape[..lhs.shape.len() - 2].iter().product();

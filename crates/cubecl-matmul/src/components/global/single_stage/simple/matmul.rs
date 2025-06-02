@@ -1,4 +1,4 @@
-use crate::matmul::{
+use crate::{
     components::{
         InputIdent, MatmulPrecision,
         global::{
@@ -17,7 +17,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
-use crate::matmul::{
+use crate::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},

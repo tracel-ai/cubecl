@@ -1,15 +1,15 @@
-use crate::matmul::components::InputIdent;
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::load::TmaLoader;
-use crate::matmul::components::global::load::arrive_tma;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
-use crate::matmul::components::global::{Quantization, load::TmaReader};
-use crate::matmul::components::problem::MatmulLineSizes;
-use crate::matmul::components::stage::StageConfig;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::kernels::matmul::GlobalInput;
+use crate::components::InputIdent;
+use crate::components::MatmulPrecision;
+use crate::components::global::ZeroAccumulatorLoader;
+use crate::components::global::load::TmaLoader;
+use crate::components::global::load::arrive_tma;
+use crate::components::global::single_stage::Config;
+use crate::components::global::{GlobalMatmul, load::TmaTiling};
+use crate::components::global::{Quantization, load::TmaReader};
+use crate::components::problem::MatmulLineSizes;
+use crate::components::stage::StageConfig;
+use crate::components::stage::StageMatmul;
+use crate::kernels::matmul::GlobalInput;
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -21,7 +21,7 @@ use std::{any::TypeId, marker::PhantomData};
 
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
-use crate::matmul::{
+use crate::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},

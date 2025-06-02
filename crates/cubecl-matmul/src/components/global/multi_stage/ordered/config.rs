@@ -1,4 +1,4 @@
-use crate::matmul::{
+use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{GlobalConfig, load::LoaderMode},

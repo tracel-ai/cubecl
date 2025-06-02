@@ -4,14 +4,15 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{CubeOption, FastDivmod};
 
-use crate::matmul::components::{
+use crate::base::RuntimeArgs;
+use cubecl_matmul::components::stage::RowMajorTilingOrder;
+use cubecl_matmul::components::{
     Ident, InputIdent, MatmulPrecision, global::Quantization, stage::FullStageToTileReader,
 };
-use crate::matmul::components::{
+use cubecl_matmul::components::{
     global::{self, tensor_view::MappedTensorReader},
     stage::{ContiguousTilingLayout, StageConfig, StageMemory},
 };
-use crate::{convolution::base::RuntimeArgs, matmul::components::stage::RowMajorTilingOrder};
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
 pub type TmaWeightReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaWeightTiling>;

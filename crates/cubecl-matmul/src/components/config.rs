@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulAvailabilityError;
 
 use super::problem::MatmulLineSizes;
 use super::{MatmulPrecision, MatmulProblem};

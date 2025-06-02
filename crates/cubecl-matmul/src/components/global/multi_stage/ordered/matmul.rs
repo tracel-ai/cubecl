@@ -1,20 +1,20 @@
-use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::{
+use crate::components::global::Quantization;
+use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
     SyncFullLoader, SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::matmul::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::problem::MatmulLineSizes;
-use crate::matmul::components::stage::{BufferStageToTileReader, StageConfig};
-use crate::matmul::components::stage::{FullReaderFamily, StageEventListener};
-use crate::matmul::components::stage::{FullStageToTileReader, StageEvent};
-use crate::matmul::components::{
+use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::problem::MatmulLineSizes;
+use crate::components::stage::{BufferStageToTileReader, StageConfig};
+use crate::components::stage::{FullReaderFamily, StageEventListener};
+use crate::components::stage::{FullStageToTileReader, StageEvent};
+use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
 };
-use crate::matmul::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
-use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::matmul::kernels::matmul::GlobalInput;
+use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
+use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::GlobalInput;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};

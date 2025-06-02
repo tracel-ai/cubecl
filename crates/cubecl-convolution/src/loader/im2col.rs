@@ -4,16 +4,11 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
-use crate::{
-    convolution::base::RuntimeArgs,
-    matmul::components::{
-        Ident, InputIdent, MatmulPrecision,
-        stage::{ContiguousTilingLayout, FullStageToTileReader, RowMajorTilingOrder},
-    },
-};
-use crate::{
-    convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
-    matmul::components::stage::StageMemory,
+use crate::base::RuntimeArgs;
+use crate::{ConvGemmConfig, reader::im2col::Im2colReader};
+use cubecl_matmul::components::{
+    Ident, InputIdent, MatmulPrecision,
+    stage::{ContiguousTilingLayout, FullStageToTileReader, RowMajorTilingOrder, StageMemory},
 };
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm

@@ -1,13 +1,13 @@
 use std::fmt::Display;
 
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::problem::MatmulLineSizes;
-use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
-use crate::matmul::components::{
+use crate::components::config::MatmulConfig;
+use crate::components::problem::MatmulLineSizes;
+use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
+use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
     TileSize,
 };
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};

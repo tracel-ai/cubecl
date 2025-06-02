@@ -8,20 +8,19 @@ use cubecl_core::{
 };
 
 use crate::{
-    convolution::{
-        base::{ConvolutionConfigFactory, ConvolutionProblem},
-        homogeneous::multi_stage_tma::MultiStageTmaConvolutionFamily,
-        selection::convolution_matmul_selection,
+    base::{ConvolutionConfigFactory, ConvolutionProblem},
+    homogeneous::multi_stage_tma::MultiStageTmaConvolutionFamily,
+    selection::convolution_matmul_selection,
+};
+
+use cubecl_matmul::{
+    components::{
+        InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+        global::args::TensorMapArgs,
+        stage::{FullReaderFamily, NumStages, plane_matmul::PlaneMatmulFamily},
+        tile::TileMatmulFamily,
     },
-    matmul::{
-        components::{
-            InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-            global::args::TensorMapArgs,
-            stage::{FullReaderFamily, NumStages, plane_matmul::PlaneMatmulFamily},
-            tile::TileMatmulFamily,
-        },
-        kernels::matmul::{MatmulSelection, PlaneMatmulSelection},
-    },
+    kernels::matmul::{MatmulSelection, PlaneMatmulSelection},
 };
 
 use cubecl_std::tensor::TensorHandle;
@@ -81,10 +80,10 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
         Ok(config)
     }
 
-    fn check_availability<R: Runtime, MP: crate::matmul::components::MatmulPrecision>(
+    fn check_availability<R: Runtime, MP: cubecl_matmul::components::MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &<Self::GlobalConvolution as ConvolutionConfigFactory>::Config,
-    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+    ) -> Result<(), cubecl_matmul::kernels::MatmulAvailabilityError> {
         <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
             client, config,
         )?;
@@ -93,7 +92,7 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
             .properties()
             .feature_enabled(cubecl_core::Feature::Tma(cubecl_core::TmaFeature::Base))
         {
-            return Err(crate::matmul::kernels::MatmulAvailabilityError::TmaUnavailable);
+            return Err(cubecl_matmul::kernels::MatmulAvailabilityError::TmaUnavailable);
         }
 
         Ok(())

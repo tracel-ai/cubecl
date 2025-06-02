@@ -1,4 +1,4 @@
-use crate::matmul::{
+use cubecl_matmul::{
     components::{
         InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
         MatmulSpec, MatrixLayout, OutputRuntimeArg,

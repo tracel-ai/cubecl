@@ -1,13 +1,13 @@
 #[macro_export]
 macro_rules! testgen_matmul_plane_accelerated_algorithm {
     () => {
-        use $crate::matmul::kernels::matmul::{
+        use $crate::kernels::matmul::{
             simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm,
             double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm},
             ordered_double_buffering::OrderedDoubleBufferingAlgorithm
         };
-        use $crate::matmul::components::global::load::{
+        use $crate::components::global::load::{
             async_full_cyclic,
             async_full_maximize_slice_length,
             async_full_maximize_unit_count,
@@ -15,7 +15,7 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             sync_full_tilewise,
             async_full_cooperative,
         };
-        use $crate::matmul::components::stage::{
+        use $crate::components::stage::{
             ColMajorTilingOrder,
             RowMajorTilingOrder
         };

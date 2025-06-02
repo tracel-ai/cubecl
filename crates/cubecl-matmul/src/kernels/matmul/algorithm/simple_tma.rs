@@ -4,7 +4,7 @@ use super::{
 use core::marker::PhantomData;
 use cubecl_core::{ir::Elem, prelude::*};
 
-use crate::matmul::components::{
+use crate::components::{
     MatmulLineSizes, MatmulProblem,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{self},

@@ -11,7 +11,7 @@ use cubecl_core::{
 
 pub use cubecl_std::SymQ8;
 
-use crate::matmul::{
+use crate::{
     components::{Ident, MatmulPrecision, MatmulProblem},
     tests::cmma_matmul::matmul_test_launcher::strides,
 };

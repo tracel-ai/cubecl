@@ -1,15 +1,15 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server};
 
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulConfigFactory;
-use crate::matmul::components::MatmulLaunch;
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::global::args::TensorInputsLaunch;
-use crate::matmul::kernels::matmul::Algorithm;
-use crate::matmul::tests::test_utils::Sample;
-use crate::matmul::tests::test_utils::TestPrecision;
+use crate::components::Ident;
+use crate::components::MatmulConfigFactory;
+use crate::components::MatmulLaunch;
+use crate::components::MatmulProblem;
+use crate::components::MatrixLayout;
+use crate::components::global::args::TensorInputsLaunch;
+use crate::kernels::matmul::Algorithm;
+use crate::tests::test_utils::Sample;
+use crate::tests::test_utils::TestPrecision;
 
 #[derive(Debug)]
 pub(crate) struct TensorRawParts<N: Numeric + CubeElement> {

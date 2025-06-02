@@ -1,8 +1,8 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use super::base::ConvolutionProblem;
-use crate::matmul::components::TilingScheme;
-use crate::matmul::{
+use cubecl_matmul::components::TilingScheme;
+use cubecl_matmul::{
     components::tile::TileMatmulFamily,
     kernels::matmul::{
         NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, PlaneMatmulSelection, find_instruction_size,

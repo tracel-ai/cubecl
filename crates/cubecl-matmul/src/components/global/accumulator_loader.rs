@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::{CubeType, prelude::*};
 
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::tile;
+use crate::components::MatmulPrecision;
+use crate::components::tile;
 
 use super::GlobalConfig;
 

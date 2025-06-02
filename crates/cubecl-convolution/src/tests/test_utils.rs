@@ -7,10 +7,8 @@ use cubecl_core::{
     server::{self},
 };
 
-use crate::{
-    convolution::base::ConvolutionProblem,
-    matmul::tests::{CastInto, Sample},
-};
+use crate::base::ConvolutionProblem;
+use cubecl_matmul::tests::{CastInto, Sample};
 
 pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;

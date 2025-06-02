@@ -1,10 +1,10 @@
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
-use crate::matmul::components::{
+use crate::components::config::MatmulConfig;
+use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
+use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatrixLayout, TileSize, as_cmma_layout,
 };
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};

@@ -1,19 +1,19 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::InputIdent;
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::load::AsyncLoader;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::problem::MatmulLineSizes;
-use crate::matmul::components::stage::StageConfig;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::{FullReaderFamily, FullStageToTileReader};
-use crate::matmul::kernels::matmul::GlobalInput;
-use crate::matmul::{
+use crate::components::InputIdent;
+use crate::components::MatmulPrecision;
+use crate::components::global::GlobalMatmul;
+use crate::components::global::Quantization;
+use crate::components::global::ZeroAccumulatorLoader;
+use crate::components::global::load::AsyncFullLoadingStrategy;
+use crate::components::global::load::AsyncLoader;
+use crate::components::global::single_stage::Config;
+use crate::components::problem::MatmulLineSizes;
+use crate::components::stage::StageConfig;
+use crate::components::stage::StageMatmul;
+use crate::components::stage::{FullReaderFamily, FullStageToTileReader};
+use crate::kernels::matmul::GlobalInput;
+use crate::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},

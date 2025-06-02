@@ -1,10 +1,10 @@
-use crate::matmul::components::global::load::LoaderMode;
-use crate::matmul::components::stage::{NumStages, PartitionBuffering, StageVectorization};
-use crate::matmul::components::{
+use crate::components::global::load::LoaderMode;
+use crate::components::stage::{NumStages, PartitionBuffering, StageVectorization};
+use crate::components::{
     MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
     global, stage, tile,
 };
-use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 

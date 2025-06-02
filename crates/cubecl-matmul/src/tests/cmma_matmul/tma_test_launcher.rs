@@ -3,17 +3,17 @@ use std::marker::PhantomData;
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
-use crate::matmul::components::{
+use crate::components::Ident;
+use crate::components::MatmulProblem;
+use crate::components::MatrixLayout;
+use crate::components::{MatmulConfigFactory, global::args::TensorMapArgs};
+use crate::components::{
     MatmulLaunch,
     global::args::{ConcreteInputsFactory, TensorMapInputs},
 };
-use crate::matmul::kernels::matmul::Algorithm;
-use crate::matmul::tests::test_utils::Sample;
-use crate::matmul::tests::test_utils::TestPrecision;
+use crate::kernels::matmul::Algorithm;
+use crate::tests::test_utils::Sample;
+use crate::tests::test_utils::TestPrecision;
 
 use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 

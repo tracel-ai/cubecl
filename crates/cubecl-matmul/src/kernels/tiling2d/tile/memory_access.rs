@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, CubeType};
 
-use crate::matmul::kernels::tiling2d::config::CubeTiling2dConfig;
+use crate::kernels::tiling2d::config::CubeTiling2dConfig;
 
 use super::loader::{CheckBounds, ReadTileInfo};
 

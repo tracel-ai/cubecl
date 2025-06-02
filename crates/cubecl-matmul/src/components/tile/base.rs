@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{
+use crate::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TileSize,
     config::MatmulConfig, stage::StageVectorization,
 };

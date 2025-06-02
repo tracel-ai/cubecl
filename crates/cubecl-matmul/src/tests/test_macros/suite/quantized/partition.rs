@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_quantized_partition {
     ($algorithm: ty, $precision: ty, $tile: expr) => {
-        use $crate::matmul::components::PartitionSize;
+        use $crate::components::PartitionSize;
 
         mod p1x1x4 {
             use super::*;

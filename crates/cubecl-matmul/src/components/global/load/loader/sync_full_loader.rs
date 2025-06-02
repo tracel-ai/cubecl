@@ -1,14 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::GlobalConfig;
-use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::LoadingJob;
-use crate::matmul::components::global::load::LoadingValidation;
-use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::FullStageToTileReader;
-use crate::matmul::components::stage::StageMemory;
-use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::{InputIdent, MatmulPrecision};
+use crate::components::global::GlobalConfig;
+use crate::components::global::Quantization;
+use crate::components::global::load::LoadingJob;
+use crate::components::global::load::LoadingValidation;
+use crate::components::global::tensor_view::TensorReader;
+use crate::components::stage::FullStageToTileReader;
+use crate::components::stage::StageMemory;
+use crate::components::stage::TilingLayout;
+use crate::components::{InputIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;

@@ -2,14 +2,14 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::load::sync_buffer_cyclic;
-use crate::matmul::components::stage::{
+use crate::components::MatmulProblem;
+use crate::components::batch::{CubeCountDispatch, CubeDispatch};
+use crate::components::global::load::sync_buffer_cyclic;
+use crate::components::stage::{
     self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
-use crate::matmul::components::tile;
-use crate::matmul::components::{batch, global};
+use crate::components::tile;
+use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, PlaneMatmulSelection, plane_matmul_selection};

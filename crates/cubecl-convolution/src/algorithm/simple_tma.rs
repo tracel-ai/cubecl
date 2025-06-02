@@ -7,24 +7,22 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 
-use crate::matmul::components::MatmulLineSizes;
-use crate::matmul::components::stage::NumStages;
-use crate::matmul::kernels::matmul::MatmulSelection;
 use crate::{
-    convolution::{
-        base::{ConvolutionConfigFactory, ConvolutionProblem, Dimensionality},
-        homogeneous::simple_tma::SimpleTmaConvolutionFamily,
-        selection::convolution_matmul_selection,
+    base::{ConvolutionConfigFactory, ConvolutionProblem, Dimensionality},
+    homogeneous::simple_tma::SimpleTmaConvolutionFamily,
+    selection::convolution_matmul_selection,
+};
+use cubecl_matmul::components::MatmulLineSizes;
+use cubecl_matmul::components::stage::NumStages;
+use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::{
+    components::{
+        InputIdent, InvalidConfigError, MatmulPrecision,
+        global::args::TensorMapArgs,
+        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+        tile::TileMatmulFamily,
     },
-    matmul::{
-        components::{
-            InputIdent, InvalidConfigError, MatmulPrecision,
-            global::args::TensorMapArgs,
-            stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
-            tile::TileMatmulFamily,
-        },
-        kernels::matmul::PlaneMatmulSelection,
-    },
+    kernels::matmul::PlaneMatmulSelection,
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_pitched};
@@ -81,10 +79,10 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         Ok(config)
     }
 
-    fn check_availability<R: Runtime, MP: crate::matmul::components::MatmulPrecision>(
+    fn check_availability<R: Runtime, MP: cubecl_matmul::components::MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &<Self::GlobalConvolution as ConvolutionConfigFactory>::Config,
-    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+    ) -> Result<(), cubecl_matmul::kernels::MatmulAvailabilityError> {
         <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
             client, config,
         )?;
@@ -93,7 +91,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
             .properties()
             .feature_enabled(cubecl_core::Feature::Tma(cubecl_core::TmaFeature::Base))
         {
-            return Err(crate::matmul::kernels::MatmulAvailabilityError::TmaUnavailable);
+            return Err(cubecl_matmul::kernels::MatmulAvailabilityError::TmaUnavailable);
         }
 
         Ok(())

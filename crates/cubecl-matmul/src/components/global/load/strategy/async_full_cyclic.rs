@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::{
+use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, load::AsyncFullLoadingStrategy, tensor_view::TensorReader,

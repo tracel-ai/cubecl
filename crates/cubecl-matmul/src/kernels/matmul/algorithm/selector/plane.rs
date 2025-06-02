@@ -4,9 +4,9 @@ use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
-use crate::matmul::components::{MatmulProblem, tile::TileMatmulFamily};
-use crate::matmul::components::{PartitionSize, StageSize, TileSize, TilingScheme};
-use crate::matmul::kernels::matmul::MultiRowStrategy;
+use crate::components::{MatmulProblem, tile::TileMatmulFamily};
+use crate::components::{PartitionSize, StageSize, TileSize, TilingScheme};
+use crate::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
 

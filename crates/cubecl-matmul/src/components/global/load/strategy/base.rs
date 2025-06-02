@@ -1,7 +1,7 @@
-use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig, Quantization};
-use crate::matmul::components::stage::{StageMemory, TilingLayout};
-use crate::matmul::components::{Ident, InvalidConfigError, MatmulPrecision};
+use crate::components::global::tensor_view::TensorReader;
+use crate::components::global::{CopyMechanism, GlobalConfig, Quantization};
+use crate::components::stage::{StageMemory, TilingLayout};
+use crate::components::{Ident, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;

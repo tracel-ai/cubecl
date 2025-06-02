@@ -1,4 +1,4 @@
-use crate::matmul::components::{
+use crate::components::{
     MatmulLaunch, MatmulPrecision, Quantized, TilingScheme,
     config::MatmulConfig,
     global::{

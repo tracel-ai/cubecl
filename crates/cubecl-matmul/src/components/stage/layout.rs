@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::matmul::components::tile::Tile;
-use crate::matmul::components::{Ident, InputIdent, MatrixLayout};
+use crate::components::tile::Tile;
+use crate::components::{Ident, InputIdent, MatrixLayout};
 
 use super::{StageConfig, StageMemory};
 

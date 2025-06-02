@@ -1,16 +1,15 @@
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 
-use crate::convolution::algorithm::Algorithm;
-use crate::convolution::base::ConvolutionProblem;
-use crate::matmul::components::MatmulLineSizes;
-use crate::matmul::tests::test_utils::Sample;
-use crate::matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
-use crate::{convolution::base::ConvolutionLaunch, matmul::components::InputIdent};
-use crate::{
-    convolution::{args::ConvInputsLaunch, base::ConvolutionConfigFactory},
-    matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs},
-};
+use crate::algorithm::Algorithm;
+use crate::base::ConvolutionLaunch;
+use crate::base::ConvolutionProblem;
+use crate::{args::ConvInputsLaunch, base::ConvolutionConfigFactory};
+use cubecl_matmul::components::InputIdent;
+use cubecl_matmul::components::MatmulLineSizes;
+use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
+use cubecl_matmul::tests::test_utils::Sample;
+use cubecl_matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
 
 use super::test_utils::TestPrecision;
 

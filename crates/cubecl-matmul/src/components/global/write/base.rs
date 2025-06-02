@@ -1,4 +1,4 @@
-use crate::matmul::components::global::GlobalConfig;
+use crate::components::global::GlobalConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

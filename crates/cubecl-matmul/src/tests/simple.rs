@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use cubecl_core::{CubeElement, Runtime, prelude::Float};
 
-use crate::matmul::kernels::naive;
+use crate::kernels::naive;
 use cubecl_std::tensor::TensorHandle;
 
 use super::test_utils::{MatmulTestCase, Sample, assert_equals_approx};

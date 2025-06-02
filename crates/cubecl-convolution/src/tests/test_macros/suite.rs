@@ -1,17 +1,14 @@
-use crate::convolution::{
+use crate::base::ConvolutionProblem;
+use crate::tests::convolution_test_launcher::test_convolution_algorithm;
+use crate::{
     algorithm::Algorithm, args::ConvInputsLaunch, base::Dimensionality,
     tests::test_utils::TestPrecision,
 };
-use crate::matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
-use crate::matmul::kernels::matmul::PlaneMatmulSelection;
-use crate::{
-    convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
-};
-use crate::{
-    convolution::tests::convolution_test_launcher::test_convolution_algorithm,
-    matmul::components::global::args::MatmulArgs,
-};
 use cubecl_core::Runtime;
+use cubecl_matmul::components::global::args::ConcreteOutputFactory;
+use cubecl_matmul::components::global::args::MatmulArgs;
+use cubecl_matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
+use cubecl_matmul::kernels::matmul::PlaneMatmulSelection;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionSize {
@@ -122,7 +119,7 @@ pub fn calculate_conv_output_size(
 macro_rules! conv2d_standard_tests {
     () => {
         use $crate::convolution::tests::ConvolutionSize;
-        use $crate::matmul::components::{PartitionSize, StageSize, TileSize};
+        use $cubecl_matmul::components::{PartitionSize, StageSize, TileSize};
 
         mod t8x8x8 {
             use super::*;
@@ -343,7 +340,7 @@ macro_rules! conv2d_standard_tests {
         use $crate::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
         use $crate::algorithm::simple::SimpleConvAlgorithm;
         use $crate::algorithm::simple_tma::SimpleTmaConvAlgorithm;
-        use $crate::matmul::components::global::args::{TensorArgs, TensorMapArgs};
+        use $cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
 
         #[test]
         pub fn simple_coalesced_im2col() {

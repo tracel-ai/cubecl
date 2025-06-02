@@ -1,7 +1,7 @@
 use cubecl_core::tensor_line_size_parallel;
 use serde::{Deserialize, Serialize};
 
-use crate::matmul::kernels::MatmulInvalidProblem;
+use crate::kernels::MatmulInvalidProblem;
 
 use super::{Ident, MatmulProblemSize, MatrixLayout, batch};
 

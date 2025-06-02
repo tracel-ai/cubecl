@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
-use crate::matmul::components::{
+use crate::components::global::Quantization;
+use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
-use crate::matmul::components::{
+use crate::components::{
     global::{GlobalConfig, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };

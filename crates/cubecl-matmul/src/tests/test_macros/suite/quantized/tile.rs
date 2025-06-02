@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_quantized_tile {
     ($algorithm: ty, $precision: ty) => {
-        use $crate::matmul::components::TileSize;
+        use $crate::components::TileSize;
 
         #[cfg(target_os = "macos")]
         mod t8x8x8 {

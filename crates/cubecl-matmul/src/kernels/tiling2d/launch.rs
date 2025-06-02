@@ -2,7 +2,7 @@ use std::cmp::max;
 
 use cubecl_core::prelude::*;
 
-use crate::matmul::kernels::tiling2d::{
+use crate::kernels::tiling2d::{
     base::tiling2d_cube_kernel,
     config::{CubeTiling2dConfig, tiling2d_cube_count, tiling2d_cube_dim},
 };

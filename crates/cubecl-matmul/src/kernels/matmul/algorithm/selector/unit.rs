@@ -1,4 +1,4 @@
-use crate::matmul::components::{MatmulKind, MatmulProblem, TilingScheme};
+use crate::components::{MatmulKind, MatmulProblem, TilingScheme};
 
 use super::MatmulSelection;
 

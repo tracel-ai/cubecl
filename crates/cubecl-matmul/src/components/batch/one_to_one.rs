@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::{
+use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory, MatmulLaunch,
     MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
     batch::{self, shared::gmm_execute},
     config::MatmulConfig,
     global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
 };
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulAvailabilityError;
 use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

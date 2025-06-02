@@ -1,4 +1,4 @@
-use crate::matmul::components::{
+use crate::components::{
     Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
     global::AccumulatorLoader,
     stage::{PartitionBuffering, StageConfig},

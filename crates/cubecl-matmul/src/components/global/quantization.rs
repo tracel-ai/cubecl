@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::matmul::components::{InputIdent, MatmulPrecision};
+use crate::components::{InputIdent, MatmulPrecision};
 
 /// Store the quantization meta-parameters.
 /// For now, we only support symmetric quantization,

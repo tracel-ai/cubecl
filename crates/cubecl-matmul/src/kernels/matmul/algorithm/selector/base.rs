@@ -1,11 +1,11 @@
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::matmul::components::{
+use crate::components::{
     InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg, TilingScheme,
 };
-use crate::matmul::kernels::matmul::Algorithm;
-use crate::matmul::{
+use crate::kernels::matmul::Algorithm;
+use crate::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,
         global::args::{ConcreteInputsFactory, ConcreteOutputFactory},

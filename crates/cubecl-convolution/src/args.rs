@@ -3,14 +3,12 @@ use std::any::TypeId;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::{
-    convolution::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner},
-    matmul::components::{
-        MatmulLineSizes,
-        global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
-    },
-    matmul::kernels::matmul::MatmulSelection,
+use crate::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner};
+use cubecl_matmul::components::{
+    MatmulLineSizes,
+    global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
 };
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use super::base::ConvolutionProblem;
 

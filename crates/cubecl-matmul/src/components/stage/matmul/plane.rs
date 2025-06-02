@@ -1,16 +1,16 @@
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::global::PlaneWriter;
-use crate::matmul::components::stage::PartitionBuffering;
-use crate::matmul::components::stage::ReaderFamily;
-use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
-use crate::matmul::components::tile::TileMatmulConfigInput;
-use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{
+use crate::components::MatmulProblem;
+use crate::components::global::PlaneWriter;
+use crate::components::stage::PartitionBuffering;
+use crate::components::stage::ReaderFamily;
+use crate::components::stage::shared::CommonStageConfig;
+use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
+use crate::components::tile::TileMatmulConfigInput;
+use crate::components::tile::TileMatmulFamily;
+use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
-use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::matmul::kernels::matmul::StageInput;
+use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;

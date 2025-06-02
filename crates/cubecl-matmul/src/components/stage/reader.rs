@@ -1,11 +1,11 @@
-use crate::matmul::components::InputIdent;
-use crate::matmul::components::global::load::BufferId;
-use crate::matmul::components::stage::ReaderFamily;
-use crate::matmul::components::stage::StageMemory;
-use crate::matmul::components::stage::TilingLayout;
-use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::tile::Tile;
-use crate::matmul::components::tile::TileConfig;
+use crate::components::InputIdent;
+use crate::components::global::load::BufferId;
+use crate::components::stage::ReaderFamily;
+use crate::components::stage::StageMemory;
+use crate::components::stage::TilingLayout;
+use crate::components::stage::shared::CommonStageConfig;
+use crate::components::tile::Tile;
+use crate::components::tile::TileConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

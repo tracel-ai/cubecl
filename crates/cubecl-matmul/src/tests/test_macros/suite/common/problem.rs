@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_problem {
     ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr, $stage_size: expr, $layouts: expr) => {
-        use $crate::matmul::components::MatmulProblemSize;
+        use $crate::components::MatmulProblemSize;
 
         mod g100x100x100 {
             use super::*;
