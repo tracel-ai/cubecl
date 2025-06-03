@@ -8,8 +8,8 @@ use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
     TileSize,
 };
-use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::MatmulSelection;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -35,7 +35,9 @@ impl TileMatmulFamily for RegisterMatmul {
         false
     }
 
-    fn resource_demand(_selection: &MatmulSelection) -> Result<ComputeResources, InvalidConfigError> {
+    fn resource_demand(
+        _selection: &MatmulSelection,
+    ) -> Result<ComputeResources, InvalidConfigError> {
         Ok(ComputeResources::Units(1))
     }
 }

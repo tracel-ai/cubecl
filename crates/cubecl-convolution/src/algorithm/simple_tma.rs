@@ -14,15 +14,13 @@ use crate::{
 };
 use cubecl_matmul::components::MatmulLineSizes;
 use cubecl_matmul::components::stage::NumStages;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
-use cubecl_matmul::{
-    components::{
-        InputIdent, InvalidConfigError, MatmulPrecision,
-        global::args::TensorMapArgs,
-        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
-        tile::TileMatmulFamily,
-    },
+use cubecl_matmul::components::{
+    InputIdent, InvalidConfigError, MatmulPrecision,
+    global::args::TensorMapArgs,
+    stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+    tile::TileMatmulFamily,
 };
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_pitched};
 

@@ -22,7 +22,9 @@ impl TileMatmulFamily for AcceleratedMatmul {
         true
     }
 
-    fn resource_demand(_selection: &MatmulSelection) -> Result<ComputeResources, InvalidConfigError> {
+    fn resource_demand(
+        _selection: &MatmulSelection,
+    ) -> Result<ComputeResources, InvalidConfigError> {
         Ok(ComputeResources::Planes(1))
     }
 }

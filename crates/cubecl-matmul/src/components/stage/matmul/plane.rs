@@ -58,7 +58,9 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
 
-    fn resource_demand(selection: &MatmulSelection) -> Result<ComputeResources, InvalidConfigError> {
+    fn resource_demand(
+        selection: &MatmulSelection,
+    ) -> Result<ComputeResources, InvalidConfigError> {
         if let ComputeResources::Planes(planes) = TMM::resource_demand(selection)? {
             Ok(ComputeResources::Planes(
                 planes * selection.tiling_scheme.partitions_in_stage_mn(),

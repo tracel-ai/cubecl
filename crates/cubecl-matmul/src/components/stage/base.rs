@@ -32,7 +32,8 @@ pub trait StageMatmulFamily:
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
-    fn resource_demand(selection: &MatmulSelection) -> Result<ComputeResources, InvalidConfigError>;
+    fn resource_demand(selection: &MatmulSelection)
+    -> Result<ComputeResources, InvalidConfigError>;
 }
 
 #[cube]

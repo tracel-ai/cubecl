@@ -19,12 +19,7 @@ pub struct ConvolutionSize {
     pub out_c: usize,
 }
 
-pub fn test_algo<
-    A: Algorithm,
-    Args: MatmulArgs,
-    P: TestPrecision,
-    R: Runtime,
->(
+pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     tile_size: TileSize,
     partition_size: PartitionSize,
     stage_size: StageSize,
