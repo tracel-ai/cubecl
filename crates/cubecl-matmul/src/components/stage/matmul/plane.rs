@@ -56,6 +56,16 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     type RhsReader = RRF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        if let ResourceDemand::Planes(planes) = TMM::resource_demand(config.tile_config())? {
+            Ok(ResourceDemand::Planes(
+                planes * config.tiling_scheme().partitions_in_stage_mn(),
+            ))
+        } else {
+            unreachable!("Plane matmul should not demand units")
+        }
+    }
 }
 
 impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFactory
@@ -117,15 +127,5 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             stage_input.partition_buffering,
             stage_input.num_stages,
         )
-    }
-
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        if let ResourceDemand::Planes(planes) = TMM::resource_demand(config.tile_config())? {
-            Ok(ResourceDemand::Planes(
-                planes * config.tiling_scheme().partitions_in_stage_mn(),
-            ))
-        } else {
-            unreachable!("Units should never occur here")
-        }
     }
 }

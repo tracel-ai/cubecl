@@ -12,6 +12,7 @@ use crate::components::{
     global::args::{ConcreteInputsFactory, TensorMapInputs},
 };
 use crate::kernels::matmul::Algorithm;
+use crate::kernels::matmul::MatmulSelection;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 
@@ -23,7 +24,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: A::MatmulSelection,
+    selection: MatmulSelection,
 ) where
     A: Algorithm,
     P: TestPrecision,

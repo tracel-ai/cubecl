@@ -1,3 +1,4 @@
+use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::load::LoaderMode;
 use crate::components::stage::{NumStages, PartitionBuffering, StageVectorization};
 use crate::components::{
@@ -55,22 +56,23 @@ pub trait Algorithm {
     type StageMatmul: stage::StageMatmulFamily<Input = StageInput>;
     type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput<StageInput>>;
     type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
-    type MatmulSelection: MatmulSelection;
 
-    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
-    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount;
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+        Self::BatchMatmul::cube_count(selection, problem)
+    }
 
     fn line_sizes(
         problem: &MatmulProblem,
         in_available: impl Iterator<Item = u8> + Clone,
         out_available: impl Iterator<Item = u8> + Clone,
-        _selection: &Self::MatmulSelection,
+        _selection: &MatmulSelection,
     ) -> MatmulLineSizes {
         MatmulLineSizes::new_maximized(problem, in_available, out_available)
     }
 
-    fn global_input(selection: &Self::MatmulSelection) -> GlobalInput<StageInput> {
-        let partition_buffering = if selection.tiling_scheme().tiles_in_partition_n() > 1 {
+    fn global_input(selection: &MatmulSelection) -> GlobalInput<StageInput> {
+        let partition_buffering = if selection.tiling_scheme.tiles_in_partition_n() > 1 {
             Self::partition_buffering_strategy()
         } else {
             PartitionBuffering::Single
@@ -83,7 +85,7 @@ pub trait Algorithm {
 
         GlobalInput {
             stage_input: StageInput {
-                tiling_scheme: *selection.tiling_scheme(),
+                tiling_scheme: selection.tiling_scheme.clone(),
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
@@ -148,5 +150,5 @@ pub trait Algorithm {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-    ) -> Self::MatmulSelection;
+    ) -> MatmulSelection;
 }

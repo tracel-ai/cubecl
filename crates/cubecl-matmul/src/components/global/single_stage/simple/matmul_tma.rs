@@ -40,6 +40,10 @@ where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
+    }
 }
 
 impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
@@ -126,10 +130,6 @@ where
             input.loading_precompute_strategy,
             input.loader_mode,
         )
-    }
-
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
     }
 }
 

@@ -16,12 +16,12 @@ use crate::{
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteInputsFactory: LaunchArg {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
         rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        selection: &M,
+        selection: &MatmulSelection,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
@@ -30,9 +30,9 @@ pub trait ConcreteInputsFactory: LaunchArg {
 /// Create the output runtime argument for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteOutputFactory: LaunchArg {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
-        selection: &M,
+        selection: &MatmulSelection,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
@@ -455,12 +455,12 @@ pub struct TensorInputs<EG: Numeric> {
 }
 
 impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
         rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        _selection: &M,
+        _selection: &MatmulSelection,
         _problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
@@ -474,9 +474,9 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
 }
 
 impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
-        _selection: &M,
+        _selection: &MatmulSelection,
         _problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
@@ -653,16 +653,16 @@ pub struct TensorMapInputs<EG: Numeric> {
 }
 
 impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         _lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
         rhs: &'a TensorHandleRef<'a, R>,
         _rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        selection: &M,
+        selection: &MatmulSelection,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
-        let tiling_scheme = selection.tiling_scheme();
+        let tiling_scheme = selection.tiling_scheme;
         let stage_m = tiling_scheme.elements_in_stage_m();
         let stage_n = tiling_scheme.elements_in_stage_n();
         let stage_k = tiling_scheme.elements_in_stage_k();

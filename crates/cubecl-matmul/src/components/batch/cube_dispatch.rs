@@ -13,10 +13,11 @@ pub trait CubeDispatch: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq
     fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
     fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
-}
-
-pub trait CubeCountDispatch {
-    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount;
+    fn cube_count(
+        #[comptime] cubes_for_m: u32,
+        #[comptime] cubes_for_n: u32,
+        #[comptime] cubes_for_batches: u32,
+    ) -> comptime_type!(CubeCount);
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
@@ -64,11 +65,13 @@ impl CubeDispatch for NaturalDispatch {
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.2
     }
-}
 
-impl CubeCountDispatch for NaturalDispatch {
-    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
-        CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)
+    fn cube_count(
+        #[comptime] cubes_for_m: u32,
+        #[comptime] cubes_for_n: u32,
+        #[comptime] cubes_for_batches: u32,
+    ) -> comptime_type!(CubeCount) {
+        comptime! {CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)}
     }
 }
 
@@ -93,11 +96,13 @@ impl CubeDispatch for TransposedDispatch {
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.2
     }
-}
 
-impl CubeCountDispatch for TransposedDispatch {
-    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
-        CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)
+    fn cube_count(
+        #[comptime] cubes_for_m: u32,
+        #[comptime] cubes_for_n: u32,
+        #[comptime] cubes_for_batches: u32,
+    ) -> comptime_type!(CubeCount) {
+        comptime! {CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)}
     }
 }
 
@@ -124,11 +129,13 @@ impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.2
     }
-}
 
-impl<const W: u32> CubeCountDispatch for SwizzleNaturalDispatch<W> {
-    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
-        CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)
+    fn cube_count(
+        #[comptime] cubes_for_m: u32,
+        #[comptime] cubes_for_n: u32,
+        #[comptime] cubes_for_batches: u32,
+    ) -> comptime_type!(CubeCount) {
+        comptime! {CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)}
     }
 }
 
@@ -155,10 +162,12 @@ impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.2
     }
-}
 
-impl<const W: u32> CubeCountDispatch for SwizzleTransposedDispatch<W> {
-    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
-        CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)
+    fn cube_count(
+        #[comptime] cubes_for_m: u32,
+        #[comptime] cubes_for_n: u32,
+        #[comptime] cubes_for_batches: u32,
+    ) -> comptime_type!(CubeCount) {
+        comptime! {CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)}
     }
 }

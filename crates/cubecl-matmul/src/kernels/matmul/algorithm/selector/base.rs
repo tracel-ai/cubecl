@@ -14,8 +14,10 @@ use crate::{
 };
 use cubecl_core::frontend::CubePrimitive;
 
-pub trait MatmulSelection {
-    fn tiling_scheme(&self) -> &TilingScheme;
+#[derive(Debug)]
+pub struct MatmulSelection {
+    pub plane_dim: u32,
+    pub tiling_scheme: TilingScheme,
 }
 
 /// Select which kernel to launch for the given Algorithm.

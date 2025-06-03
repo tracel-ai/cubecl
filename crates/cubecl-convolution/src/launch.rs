@@ -1,6 +1,7 @@
 use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 use half::f16;
 
 use crate::base::ConvolutionLaunch;
@@ -174,7 +175,7 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     problem: ConvolutionProblem,
     line_sizes: &MatmulLineSizes,
-    selection: Alg::MatmulSelection,
+    selection: MatmulSelection,
 ) -> Result<(), ConvLaunchError>
 where
     Input<Alg, MP>: ConvInputsLaunch,

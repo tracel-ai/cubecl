@@ -3,9 +3,11 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
+    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter},
+    resource::ResourceDemand,
     tile::TileConfig,
 };
 
@@ -27,6 +29,8 @@ pub trait StageMatmulFamily:
             LhsReader = <Self::LhsReader as ReaderFamily>::Reader<MP::ES, TL>,
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError>;
 }
 
 #[cube]

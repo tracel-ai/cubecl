@@ -20,6 +20,10 @@ impl TileMatmulFamily for AcceleratedMatmul {
     fn requires_tensor_cores() -> bool {
         true
     }
+
+    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        Ok(ResourceDemand::Planes(1))
+    }
 }
 
 #[cube]
@@ -205,10 +209,6 @@ impl MatmulConfigFactory for AcceleratedMatmul {
             rhs_line_size,
             line_sizes.out as u32,
         )
-    }
-
-    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        Ok(ResourceDemand::Planes(1))
     }
 }
 

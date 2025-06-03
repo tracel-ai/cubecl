@@ -2,8 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
+    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    TilingScheme,
     config::MatmulConfig,
+    resource::ResourceDemand,
     stage::{self, StageConfig},
 };
 use cubecl_std::{
@@ -18,6 +20,8 @@ pub trait GlobalMatmulFamily:
     MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
 {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError>;
 }
 
 #[cube]

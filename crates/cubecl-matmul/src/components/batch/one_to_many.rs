@@ -9,6 +9,7 @@ use crate::components::{
 };
 use crate::components::{MatmulConfigFactory, MatmulLaunch, batch, config::MatmulConfig, global};
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::MatmulSelection;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
@@ -26,6 +27,10 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> BatchMatmulFamily
     for OneToManyMatmulFamily<GMM, S, C>
 {
     type Matmul<MP: MatmulPrecision> = OneToManyMatmul<MP, GMM::Matmul<MP>, S, C>;
+
+    fn cube_count(_selection: &MatmulSelection, _problem: &MatmulProblem) -> CubeCount {
+        todo!()
+    }
 }
 
 impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactory

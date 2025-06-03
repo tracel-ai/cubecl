@@ -1,13 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory, MatmulLaunch,
-    MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
-    batch::{self, shared::gmm_execute},
-    config::MatmulConfig,
-    global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
-    resource::ResourceDemand,
-};
+use crate::{components::{
+    batch::{self, shared::gmm_execute}, config::MatmulConfig, global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization}, Args, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory, MatmulLaunch, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg, EA, EI, EO, ES
+}, kernels::matmul::MatmulSelection};
 use crate::kernels::MatmulAvailabilityError;
 use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
@@ -24,6 +19,14 @@ pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
 
 impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
     type Matmul<MP: MatmulPrecision> = OneToOneMatmul<MP, GMM::Matmul<MP>, C>;
+
+    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+        C::cube_count(
+            (problem.m as u32).div_ceil(selection.tiling_scheme.elements_in_stage_m()),
+            (problem.n as u32).div_ceil(selection.tiling_scheme.elements_in_stage_n()),
+            problem.num_batches() as u32,
+        )
+    }
 }
 
 impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
@@ -60,10 +63,6 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
         };
 
         Config::<GMM::Config, C>::new(global_config, cube_count, quantized)
-    }
-
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        let cube_dim_demand = GMM::resource_demand(config.global_config());
     }
 }
 

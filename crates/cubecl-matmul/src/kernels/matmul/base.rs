@@ -3,6 +3,7 @@ use crate::components::{
     MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
+use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*};
@@ -286,7 +287,7 @@ pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: &MatmulLineSizes,
     config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: A::MatmulSelection,
+    selection: MatmulSelection,
 ) -> Result<(), MatmulLaunchError> {
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);

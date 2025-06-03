@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::components::resource::ResourceDemand;
 use crate::kernels::MatmulAvailabilityError;
 
 use super::problem::MatmulLineSizes;
@@ -56,8 +55,6 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config;
-
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError>;
 }
 
 /// A config for a matmul

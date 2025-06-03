@@ -1,15 +1,11 @@
 use crate::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
 use crate::components::{MatmulProblemSize, TilingScheme};
-use crate::kernels::matmul::{Algorithm, UnitMatmulSelection};
+use crate::kernels::matmul::{Algorithm, MatmulSelection};
 use crate::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
 
-pub fn test_algo<
-    A: Algorithm<MatmulSelection = UnitMatmulSelection>,
-    P: TestPrecision,
-    R: Runtime,
->(
+pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_size: TileSize,
     partition_size: PartitionSize,
@@ -41,7 +37,7 @@ pub fn test_algo<
         .build()
         .unwrap();
 
-    let selection = UnitMatmulSelection {
+    let selection = MatmulSelection {
         plane_dim,
         tiling_scheme: tiling_scheme.clone(),
     };

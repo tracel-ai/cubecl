@@ -5,6 +5,7 @@ use crate::components::InvalidConfigError;
 pub enum ResourceDemand {
     Units(u32),
     Planes(u32),
+    // TODO cube, cubes
 }
 
 impl ResourceDemand {

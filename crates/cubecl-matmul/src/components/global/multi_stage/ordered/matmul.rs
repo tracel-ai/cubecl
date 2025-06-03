@@ -47,6 +47,10 @@ where
         SMM::Matmul<MP, <LL as SyncFullLoadingStrategy>::TilingLayout, RL::TilingLayout>,
         RL,
     >;
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
+    }
 }
 
 impl<SMM, RL> MatmulConfigFactory for OrderedDoubleBufferingMatmulFamily<SMM, RL>
@@ -104,10 +108,6 @@ where
             input.loading_precompute_strategy,
             input.loader_mode,
         )
-    }
-
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
     }
 }
 

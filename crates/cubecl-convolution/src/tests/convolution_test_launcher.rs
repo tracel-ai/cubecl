@@ -1,5 +1,6 @@
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use crate::algorithm::Algorithm;
 use crate::base::ConvolutionLaunch;
@@ -22,7 +23,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: ConvolutionProblem,
     input: <A::GlobalConvolution as ConvolutionConfigFactory>::Input,
-    selection: A::MatmulSelection,
+    selection: MatmulSelection,
 ) where
     A: Algorithm,
     Args: MatmulArgs,

@@ -33,6 +33,10 @@ impl TileMatmulFamily for RegisterMatmul {
     fn requires_tensor_cores() -> bool {
         false
     }
+
+    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        Ok(ResourceDemand::Units(1))
+    }
 }
 
 #[derive(CubeType)]
@@ -459,10 +463,6 @@ impl MatmulConfigFactory for RegisterMatmul {
             rhs_line_size,
             line_sizes.out as u32,
         )
-    }
-
-    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        Ok(ResourceDemand::Units(1))
     }
 }
 
