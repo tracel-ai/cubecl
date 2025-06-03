@@ -85,7 +85,7 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn run_pass(&mut self) {
-        let pass_manager = PassManager::new(&self.context);
+        let pass_manager = PassManager::new(self.context);
         pass_manager.enable_verifier(true);
         pass_manager.enable_ir_printing(&PassIrPrintingOptions {
             before_all: true,

@@ -78,7 +78,6 @@ impl<'a> Visitor<'a> {
             //} => todo!(),
             ControlFlow::Return => {
                 // Implementation needs to jump to the last return because func.return is not really conceived for return inside the function
-                ()
             }
             ControlFlow::None => (),
             _ => todo!("{:?}", basic_block.control_flow),
