@@ -1,17 +1,18 @@
 use crate::components::MatmulProblem;
+use crate::components::TilingScheme;
 use crate::components::global::UnitWriter;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;
 use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::components::tile::ComputeResources;
+use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulConfigInput;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
 use crate::kernels::MatmulAvailabilityError;
-use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -38,12 +39,12 @@ impl StagePartitioner for UnitPartitioner {
         UnitWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
     }
 
-    fn position() -> u32 {
-        UNIT_POS
+    fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
+        UNIT_POS - config.load_plane_offset() * config.plane_dim()
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
-        config.num_planes() * config.plane_dim()
+        config.num_compute_planes() * config.plane_dim()
     }
 }
 
@@ -57,12 +58,12 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         UnitMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
 
-    fn resource_demand(
-        selection: &MatmulSelection,
+    fn computation_resources(
+        tiling_scheme: &TilingScheme,
     ) -> Result<ComputeResources, InvalidConfigError> {
-        if let ComputeResources::Units(units) = TMM::resource_demand(selection)? {
+        if let ComputeResources::Units(units) = TMM::computation_resources()? {
             Ok(ComputeResources::Units(
-                units * selection.tiling_scheme.stage_partitions_in_stage_mn(),
+                units * tiling_scheme.stage_partitions_in_stage_mn(),
             ))
         } else {
             unreachable!("Unit matmul should not demand planes")
@@ -76,7 +77,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_units_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_units = config.plane_dim() * config.num_planes();
+        let num_units = config.plane_dim() * config.num_compute_planes();
 
         if num_units != num_units_needed {
             return Err(Box::new(format!(
@@ -118,13 +119,23 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
 
+        let total_planes = cube_dim.y;
+        let num_compute_planes =
+            <Self as StageMatmulFamily>::computation_resources(&stage_input.tiling_scheme)
+                .unwrap_or_else(|e| panic!("{}", e))
+                .as_plane_resources(tile_config.plane_dim())
+                .unwrap_or_else(|e| panic!("{}", e))
+                .get_count();
+        let num_loader_only_planes = total_planes - num_compute_planes;
+
         CommonStageConfig::new(
             tile_config,
             stage_input.tiling_scheme,
-            cube_dim.y,
             quantized,
             stage_input.partition_buffering,
             stage_input.num_stages,
+            num_loader_only_planes,
+            num_compute_planes,
         )
     }
 }

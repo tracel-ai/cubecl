@@ -12,10 +12,11 @@ use cubecl_core as cubecl;
 pub struct CommonStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
-    pub num_planes: u32,
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
+    pub load_plane_offset: u32,
+    pub num_compute_planes: u32,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -41,10 +42,6 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tile_config.matrix_layout(ident)
     }
 
-    fn num_planes(&self) -> u32 {
-        self.num_planes
-    }
-
     fn plane_dim(&self) -> u32 {
         self.tile_config.plane_dim()
     }
@@ -63,6 +60,14 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     fn tiling_scheme(&self) -> TilingScheme {
         self.tiling_scheme
     }
+
+    fn load_plane_offset(&self) -> u32 {
+        self.load_plane_offset
+    }
+
+    fn num_compute_planes(&self) -> u32 {
+        self.num_compute_planes
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
@@ -72,18 +77,20 @@ impl<T: TileConfig> CommonStageConfig<T> {
     pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,
-        num_planes: u32,
         quantized: bool,
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
+        load_plane_offset: u32,
+        num_compute_planes: u32,
     ) -> Self {
         Self {
             tile_config,
             tiling_scheme,
-            num_planes,
             quantized,
             partition_buffering,
             num_stages,
+            load_plane_offset,
+            num_compute_planes,
         }
     }
 }

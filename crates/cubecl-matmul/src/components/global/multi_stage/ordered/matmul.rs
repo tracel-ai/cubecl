@@ -48,7 +48,7 @@ where
     >;
 
     fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
+        SMM::computation_resources(&selection.tiling_scheme)?.to_cube_dim(selection.plane_dim)
     }
 }
 

@@ -32,4 +32,11 @@ impl ComputeResources {
             ComputeResources::Planes(num_planes) => Ok(CubeDim::new_2d(plane_dim, num_planes)),
         }
     }
+
+    pub(crate) fn get_count(&self) -> u32 {
+        match self {
+            ComputeResources::Units(count) => count,
+            ComputeResources::Planes(count) => count,
+        }
+    }
 }
