@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::span::{Span, SpanDim, SpanMatmul};
+use crate::components::batch::span::{GlobalPartitionMatmul, Span, SpanDim};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::Quantization;
 use crate::components::{
@@ -17,23 +17,34 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::{BatchConfig as _, BatchMatmulFamily, CubeDispatch};
 
-pub struct OneToManyMatmulFamily<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> {
+pub struct OneToManyMatmulFamily<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: CubeDispatch>
+{
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
     _c: PhantomData<C>,
 }
 
-impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> BatchMatmulFamily
+impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: CubeDispatch> BatchMatmulFamily
     for OneToManyMatmulFamily<GMM, S, C>
 {
     type Matmul<MP: MatmulPrecision> = OneToManyMatmul<MP, GMM::Matmul<MP>, S, C>;
 
-    fn cube_count(_selection: &MatmulSelection, _problem: &MatmulProblem) -> CubeCount {
-        todo!()
+    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+        let elements_in_m = selection.tiling_scheme.elements_in_stage_m()
+            * selection.tiling_scheme.global_partition_size.m;
+        let elements_in_n = selection.tiling_scheme.elements_in_stage_n()
+            * selection.tiling_scheme.global_partition_size.n;
+
+        C::cube_count(
+            (problem.m as u32).div_ceil(elements_in_m),
+            (problem.n as u32).div_ceil(elements_in_n),
+            (problem.num_batches() as u32)
+                .div_ceil(selection.tiling_scheme.global_partition_size.batches),
+        )
     }
 }
 
-impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactory
+impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: CubeDispatch> MatmulConfigFactory
     for OneToManyMatmulFamily<GMM, S, C>
 {
     type Config = Config<GMM::Config, C>;
@@ -70,7 +81,7 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
     }
 }
 
-impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
+impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: CubeDispatch> MatmulLaunch
     for OneToManyMatmulFamily<GMM, S, C>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
@@ -98,7 +109,7 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
 pub struct OneToManyMatmul<
     MP: MatmulPrecision,
     GMM: global::GlobalMatmul<MP>,
-    S: SpanMatmul,
+    S: GlobalPartitionMatmul,
     C: CubeDispatch,
 > {
     _mp: PhantomData<MP>,
@@ -108,7 +119,7 @@ pub struct OneToManyMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeDispatch>
+impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: GlobalPartitionMatmul, C: CubeDispatch>
     batch::BatchMatmul<MP> for OneToManyMatmul<MP, GMM, S, C>
 {
     type Config = Config<GMM::Config, C>;
@@ -122,29 +133,29 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();
-        let shape_x = out.shape(rank - 2);
-        let shape_y = out.shape(rank - 1);
+        let problem_m = out.shape(rank - 2);
+        let problem_n = out.shape(rank - 1);
 
-        let mut shape_z = 1;
+        let mut shape_b = 1;
         for b in 0..rank - 2 {
-            shape_z *= out.shape(b);
+            shape_b *= out.shape(b);
         }
 
-        let cubes_x = config.cube_count_x();
-        let cubes_y = config.cube_count_y();
-        let cubes_z = config.cube_count_batch();
+        let cubes_m = config.cube_count_m();
+        let cubes_n = config.cube_count_n();
+        let cubes_b = config.cube_count_batch();
 
-        let stage_x = config.tiling_scheme().elements_in_stage_m();
-        let stage_y = config.tiling_scheme().elements_in_stage_n();
-        let stage_z = 1;
+        let stage_m = config.tiling_scheme().elements_in_stage_m();
+        let stage_n = config.tiling_scheme().elements_in_stage_n();
+        let stage_b = 1;
 
-        let (x_index, y_index) = C::x_y_indices();
+        let (m_index, n_index) = C::m_n_indices();
         let batch_index = C::batch_index();
 
         let span = Span::new(
-            SpanDim::new(shape_x, stage_x, x_index, cubes_x),
-            SpanDim::new(shape_y, stage_y, y_index, cubes_y),
-            SpanDim::new(shape_z, stage_z, batch_index, cubes_z),
+            SpanDim::new(problem_m, stage_m, m_index, cubes_m),
+            SpanDim::new(problem_n, stage_n, n_index, cubes_n),
+            SpanDim::new(shape_b, stage_b, batch_index, cubes_b),
         );
 
         let k_range = (0, lhs.shape(rank - 1));
@@ -209,12 +220,12 @@ impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
         }
     }
 
-    fn cube_count_x(&self) -> u32 {
-        C::max_x(self.cube_count)
+    fn cube_count_m(&self) -> u32 {
+        C::max_m(self.cube_count)
     }
 
-    fn cube_count_y(&self) -> u32 {
-        C::max_y(self.cube_count)
+    fn cube_count_n(&self) -> u32 {
+        C::max_n(self.cube_count)
     }
 
     fn cube_count_batch(&self) -> u32 {

@@ -32,7 +32,7 @@ pub struct SpanDim {
 
 #[cube]
 /// Iterates on several global matmul across a span
-pub trait SpanMatmul: 'static + Send + Sync {
+pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
@@ -90,7 +90,7 @@ impl SpanDim {
 }
 
 #[cube]
-impl SpanMatmul for RowMajorSpanMatmul {
+impl GlobalPartitionMatmul for RowMajorSpanMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
@@ -124,7 +124,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
 }
 
 #[cube]
-impl SpanMatmul for ColMajorSpanMatmul {
+impl GlobalPartitionMatmul for ColMajorSpanMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
@@ -158,7 +158,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
 }
 
 #[cube]
-impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
+impl<const W: u32> GlobalPartitionMatmul for SwizzleSpanMatmul<W> {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,

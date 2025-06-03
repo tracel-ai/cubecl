@@ -1,11 +1,12 @@
 use super::Ident;
-use super::size::{MatmulDim, PartitionSize, StageSize, TileSize};
+use super::size::{GlobalPartitionSize, MatmulDim, PartitionSize, StageSize, TileSize};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct TilingScheme {
     pub tile_size: TileSize,
     pub partition_size: PartitionSize,
     pub stage_size: StageSize,
+    pub global_partition_size: GlobalPartitionSize,
 }
 
 impl TilingScheme {
@@ -19,6 +20,7 @@ pub struct TilingSchemeBuilder {
     tile_size: Option<TileSize>,
     partition_size: Option<PartitionSize>,
     stage_size: Option<StageSize>,
+    global_partition_size: Option<GlobalPartitionSize>,
 }
 
 impl TilingSchemeBuilder {
@@ -38,17 +40,29 @@ impl TilingSchemeBuilder {
         self
     }
 
+    pub fn with_global_partition_size(
+        mut self,
+        global_partition_size: GlobalPartitionSize,
+    ) -> Self {
+        self.global_partition_size = Some(global_partition_size);
+        self
+    }
+
     pub fn build(self) -> Result<TilingScheme, &'static str> {
         Ok(TilingScheme {
             tile_size: self.tile_size.ok_or("Missing tile_size")?,
             partition_size: self.partition_size.ok_or("Missing tiles_per_partition")?,
             stage_size: self.stage_size.ok_or("Missing partitions_per_stage")?,
+            global_partition_size: self
+                .global_partition_size
+                .unwrap_or(GlobalPartitionSize::new(1, 1, 1)),
         })
     }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TilingLevel {
+    GlobalPartition,
     Stage,
     Partition,
     Tile,
@@ -67,11 +81,32 @@ impl TilingScheme {
         match (child_level, parent_level) {
             (child, parent) if child == parent => Some(1),
 
+            (Stage, GlobalPartition) => match dim {
+                MatmulDim::M => Some(self.global_partition_size.m),
+                MatmulDim::N => Some(self.global_partition_size.n),
+                MatmulDim::K => None,
+            },
+
             (Partition, Stage) => Some(self.stage_size.get(dim)),
 
             (Tile, Partition) => Some(self.partition_size.get(dim)),
 
             (Element, Tile) => Some(self.tile_size.get(dim)),
+
+            (Partition, GlobalPartition) => Some(
+                self.try_count_1d(Partition, Stage, dim)?
+                    * self.try_count_1d(Stage, GlobalPartition, dim)?,
+            ),
+
+            (Tile, GlobalPartition) => Some(
+                self.try_count_1d(Tile, Stage, dim)?
+                    * self.try_count_1d(Stage, GlobalPartition, dim)?,
+            ),
+
+            (Element, GlobalPartition) => Some(
+                self.try_count_1d(Element, Stage, dim)?
+                    * self.try_count_1d(Stage, GlobalPartition, dim)?,
+            ),
 
             (Tile, Stage) => Some(
                 self.try_count_1d(Partition, Stage, dim)?

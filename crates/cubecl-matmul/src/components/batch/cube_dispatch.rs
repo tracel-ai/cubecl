@@ -8,10 +8,10 @@ use crate::components::batch::shared::swizzle;
 #[cube]
 /// Distributes cube instances across the tensor, assigning each to compute data in distinct regions.
 pub trait CubeDispatch: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq {
-    fn x_y_indices() -> (u32, u32);
+    fn m_n_indices() -> (u32, u32);
     fn batch_index() -> u32;
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
+    fn max_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
+    fn max_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
     fn cube_count(
         #[comptime] cubes_for_m: u32,
@@ -46,7 +46,7 @@ pub struct SwizzleTransposedDispatch<const W: u32>;
 
 #[cube]
 impl CubeDispatch for NaturalDispatch {
-    fn x_y_indices() -> (u32, u32) {
+    fn m_n_indices() -> (u32, u32) {
         (CUBE_POS_X, CUBE_POS_Y)
     }
 
@@ -54,11 +54,11 @@ impl CubeDispatch for NaturalDispatch {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.0
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.1
     }
 
@@ -77,7 +77,7 @@ impl CubeDispatch for NaturalDispatch {
 
 #[cube]
 impl CubeDispatch for TransposedDispatch {
-    fn x_y_indices() -> (u32, u32) {
+    fn m_n_indices() -> (u32, u32) {
         (CUBE_POS_Y, CUBE_POS_X)
     }
 
@@ -85,11 +85,11 @@ impl CubeDispatch for TransposedDispatch {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.1
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.0
     }
 
@@ -108,7 +108,7 @@ impl CubeDispatch for TransposedDispatch {
 
 #[cube]
 impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
-    fn x_y_indices() -> (u32, u32) {
+    fn m_n_indices() -> (u32, u32) {
         let height = CUBE_COUNT_X;
         let nth_cube = CUBE_POS_Y * height + CUBE_POS_X;
         swizzle(nth_cube, height, W)
@@ -118,11 +118,11 @@ impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.0
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.1
     }
 
@@ -141,7 +141,7 @@ impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
 
 #[cube]
 impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
-    fn x_y_indices() -> (u32, u32) {
+    fn m_n_indices() -> (u32, u32) {
         let height = CUBE_COUNT_Y;
         let nth_cube = CUBE_POS_X * height + CUBE_POS_Y;
         swizzle(nth_cube, height, W)
@@ -151,11 +151,11 @@ impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.1
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+    fn max_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
         cube_count.0
     }
 

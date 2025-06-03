@@ -29,6 +29,12 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMat
     type Matmul<MP: MatmulPrecision> = OneToOneMatmul<MP, GMM::Matmul<MP>, C>;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+        // TODO we could delete one_to_one, as it's a specific case of one_to_many with (1,1,1) global partition size
+        let global_partition = selection.tiling_scheme.global_partition_size;
+        assert!(global_partition.m == 1);
+        assert!(global_partition.n == 1);
+        assert!(global_partition.batches == 1);
+
         C::cube_count(
             (problem.m as u32).div_ceil(selection.tiling_scheme.elements_in_stage_m()),
             (problem.n as u32).div_ceil(selection.tiling_scheme.elements_in_stage_n()),
@@ -117,7 +123,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
-        let (x_index, y_index) = C::x_y_indices();
+        let (x_index, y_index) = C::m_n_indices();
         let x_offset = x_index * config.tiling_scheme().elements_in_stage_m();
         let y_offset = y_index * config.tiling_scheme().elements_in_stage_n();
         let nth_batch = C::batch_index();
@@ -157,11 +163,11 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
     }
 
     fn max_m(&self) -> u32 {
-        C::max_x(self.cube_count) * self.tiling_scheme().elements_in_stage_m()
+        C::max_m(self.cube_count) * self.tiling_scheme().elements_in_stage_m()
     }
 
     fn max_n(&self) -> u32 {
-        C::max_y(self.cube_count) * self.tiling_scheme().elements_in_stage_n()
+        C::max_n(self.cube_count) * self.tiling_scheme().elements_in_stage_n()
     }
 
     fn max_batches(&self) -> u32 {
