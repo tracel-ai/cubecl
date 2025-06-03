@@ -2,14 +2,15 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::components::MatmulProblem;
 use crate::components::batch::CubeDispatch;
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::stage::{
     self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
 use crate::components::tile;
+use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{batch, global};
+use crate::kernels::matmul::Algorithm;
 
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, plane_matmul_selection};
@@ -35,6 +36,13 @@ where
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        if selection.tiling_scheme.partitions_in_stage_n() > 1 {
+            return Err(Box::new("Ordered does not support partitions > 1 in n"));
+        }
+        <Self as Algorithm>::cube_dim(selection)
+    }
 
     fn num_stages() -> NumStages {
         (1, 2).into()
