@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::components::batch::CubeDispatch;
+use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::stage::{
     self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
@@ -10,7 +11,6 @@ use crate::components::stage::{
 use crate::components::tile;
 use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{batch, global};
-use crate::kernels::matmul::Algorithm;
 
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, plane_matmul_selection};
@@ -41,7 +41,7 @@ where
         if selection.tiling_scheme.partitions_in_stage_n() > 1 {
             return Err(Box::new("Ordered does not support partitions > 1 in n"));
         }
-        <Self as Algorithm>::cube_dim(selection)
+        Self::GlobalMatmul::cube_dim(selection)
     }
 
     fn num_stages() -> NumStages {
