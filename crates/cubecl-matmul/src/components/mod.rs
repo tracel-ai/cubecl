@@ -6,7 +6,6 @@ pub mod tile;
 mod base;
 mod config;
 mod problem;
-mod resource;
 mod size;
 mod spec;
 mod tiling_scheme;

@@ -2,12 +2,13 @@ use std::fmt::Display;
 
 use crate::components::config::MatmulConfig;
 use crate::components::problem::MatmulLineSizes;
-use crate::components::resource::ResourceDemand;
+use crate::components::tile::compute_resource::ComputeResources;
 use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
     TileSize,
 };
+use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
@@ -34,8 +35,8 @@ impl TileMatmulFamily for RegisterMatmul {
         false
     }
 
-    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        Ok(ResourceDemand::Units(1))
+    fn resource_demand(_selection: &MatmulSelection) -> Result<ComputeResources, InvalidConfigError> {
+        Ok(ComputeResources::Units(1))
     }
 }
 

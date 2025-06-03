@@ -2,13 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TilingScheme,
-    config::MatmulConfig,
-    global::{self, AccumulatorLoader, GlobalWriter},
-    resource::ResourceDemand,
-    tile::TileConfig,
+use crate::{
+    components::{
+        Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+        TilingScheme,
+        config::MatmulConfig,
+        global::{self, AccumulatorLoader, GlobalWriter},
+        tile::{ComputeResources, TileConfig},
+    },
+    kernels::matmul::MatmulSelection,
 };
 
 use super::{StageEventListener, StageToTileReader, TilingLayout};
@@ -30,7 +32,7 @@ pub trait StageMatmulFamily:
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError>;
+    fn resource_demand(selection: &MatmulSelection) -> Result<ComputeResources, InvalidConfigError>;
 }
 
 #[cube]

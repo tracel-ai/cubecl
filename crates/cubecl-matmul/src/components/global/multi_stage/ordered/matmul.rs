@@ -5,7 +5,6 @@ use crate::components::global::load::{
 };
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::problem::MatmulLineSizes;
-use crate::components::resource::ResourceDemand;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::stage::{FullReaderFamily, StageEventListener};
 use crate::components::stage::{FullStageToTileReader, StageEvent};
@@ -15,7 +14,7 @@ use crate::components::{
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::kernels::MatmulAvailabilityError;
-use crate::kernels::matmul::GlobalInput;
+use crate::kernels::matmul::{GlobalInput, MatmulSelection};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -48,8 +47,8 @@ where
         RL,
     >;
 
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
     }
 }
 

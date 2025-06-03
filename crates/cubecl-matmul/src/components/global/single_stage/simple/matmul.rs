@@ -7,10 +7,9 @@ use crate::{
             single_stage::Config,
         },
         problem::MatmulLineSizes,
-        resource::ResourceDemand,
         stage::{FullStageToTileReader, StageConfig, StageMatmul},
     },
-    kernels::matmul::GlobalInput,
+    kernels::matmul::{GlobalInput, MatmulSelection},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -46,8 +45,8 @@ where
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
     }
 }
 

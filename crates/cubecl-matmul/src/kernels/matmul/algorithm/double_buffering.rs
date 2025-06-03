@@ -50,15 +50,6 @@ where
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
-        let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
-        let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
-
-        Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
-    }
-
     fn num_stages() -> NumStages {
         (2, 2).into()
     }
@@ -108,15 +99,6 @@ where
         CubeDim::new(selection.plane_dim, num_planes, 1)
     }
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
-        let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
-        let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
-
-        Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
-    }
-
     fn num_stages() -> NumStages {
         (2, 2).into()
     }
@@ -163,15 +145,6 @@ where
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         let num_planes = selection.tiling_scheme.partitions_in_stage_m();
         CubeDim::new(selection.plane_dim, num_planes, 1)
-    }
-
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
-        let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
-        let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
-
-        Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
 
     fn num_stages() -> NumStages {

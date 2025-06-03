@@ -7,11 +7,9 @@ use crate::components::global::single_stage::Config;
 use crate::components::global::{GlobalMatmul, load::TmaTiling};
 use crate::components::global::{Quantization, load::TmaReader};
 use crate::components::problem::MatmulLineSizes;
-use crate::components::resource::ResourceDemand;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
-use crate::kernels::matmul::GlobalInput;
-
+use crate::kernels::matmul::{GlobalInput, MatmulSelection};
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
@@ -41,8 +39,8 @@ where
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
 
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
     }
 }
 

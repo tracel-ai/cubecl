@@ -9,11 +9,11 @@ use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::load::AsyncLoader;
 use crate::components::global::single_stage::Config;
 use crate::components::problem::MatmulLineSizes;
-use crate::components::resource::ResourceDemand;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::{FullReaderFamily, FullStageToTileReader};
 use crate::kernels::matmul::GlobalInput;
+use crate::kernels::matmul::MatmulSelection;
 use crate::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
@@ -50,8 +50,8 @@ where
     type Matmul<MP: MatmulPrecision> =
         SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
-    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
-        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
     }
 }
 
