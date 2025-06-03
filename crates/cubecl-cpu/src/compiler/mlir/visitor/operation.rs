@@ -5,8 +5,12 @@ use melior::{
     dialect::{
         arith::{self, CmpfPredicate, CmpiPredicate},
         llvm, memref,
+        ods::vector,
     },
-    ir::{Type, TypeLike, Value, ValueLike, attribute::IntegerAttribute, r#type::IntegerType},
+    ir::{
+        Attribute, Type, TypeLike, Value, ValueLike, attribute::IntegerAttribute,
+        r#type::IntegerType,
+    },
 };
 
 use super::Visitor;
@@ -73,6 +77,45 @@ impl<'a> Visitor<'a> {
 
     pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: Variable) {
         match arithmetic {
+            Arithmetic::Abs(abs) => {
+                let value = self.get_variable(abs.input);
+                let (negation, condition) = if abs.input.elem().is_int() {
+                    let minus_one = self.create_int_constant_from_item(abs.input.item, -1);
+                    let negation = self.append_operation_with_result(arith::muli(
+                        value,
+                        minus_one,
+                        self.location,
+                    ));
+                    let zero = self.create_int_constant_from_item(abs.input.item, 0);
+                    let condition = self.append_operation_with_result(arith::cmpi(
+                        self.context,
+                        CmpiPredicate::Sge,
+                        value,
+                        zero,
+                        self.location,
+                    ));
+                    (negation, condition)
+                } else {
+                    let negation =
+                        self.append_operation_with_result(arith::negf(value, self.location));
+                    let zero = self.create_float_constant_from_item(abs.input.item, 0.0);
+                    let condition = self.append_operation_with_result(arith::cmpf(
+                        self.context,
+                        CmpfPredicate::Oge,
+                        value,
+                        zero,
+                        self.location,
+                    ));
+                    (negation, condition)
+                };
+                let abs = self.append_operation_with_result(arith::select(
+                    condition,
+                    value,
+                    negation,
+                    self.location,
+                ));
+                self.insert_variable(out, abs);
+            }
             Arithmetic::Add(add) => {
                 let (lhs, rhs) = self.get_binary_op_variable(add.lhs, add.rhs);
                 let operation = if add.lhs.elem().is_int() {
@@ -103,10 +146,36 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
-            Arithmetic::Dot(_dot) => {
-                todo!(
-                    "Dot product will needs to be implemented manually, because size are unknown at compilation."
-                );
+            Arithmetic::Dot(dot) => {
+                let lhs = self.get_variable(dot.lhs);
+                let rhs = self.get_variable(dot.rhs);
+                // This could be used if it wasn't broken and the documentation was usable https://mlir.llvm.org/docs/Dialects/Vector/#vectorcontract-vectorcontractionop
+                let result = self.elem_to_type(dot.lhs.elem());
+                if dot.lhs.elem().is_int() {
+                    let multiplied =
+                        self.append_operation_with_result(arith::muli(lhs, rhs, self.location));
+                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                    let reduction = self.append_operation_with_result(vector::reduction(
+                        self.context,
+                        result,
+                        multiplied,
+                        kind,
+                        self.location,
+                    ));
+                    self.insert_variable(out, reduction);
+                } else {
+                    let multiplied =
+                        self.append_operation_with_result(arith::mulf(lhs, rhs, self.location));
+                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                    let reduction = self.append_operation_with_result(vector::reduction(
+                        self.context,
+                        result,
+                        multiplied,
+                        kind,
+                        self.location,
+                    ));
+                    self.insert_variable(out, reduction);
+                }
             }
             _ => todo!("This arithmetic is not yet implemented: {}", arithmetic),
         }
@@ -217,7 +286,7 @@ impl<'a> Visitor<'a> {
                     | Elem::UInt(UIntKind::U16) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
                         if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type);
                         }
 
                         self.append_operation_with_result(arith::extui(
@@ -230,7 +299,7 @@ impl<'a> Visitor<'a> {
                     Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
                         if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                            r#type = Type::vector(&[vectorization.get() as u64], r#type);
                         }
 
                         self.append_operation_with_result(arith::trunci(
