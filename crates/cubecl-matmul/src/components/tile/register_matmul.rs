@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::components::config::MatmulConfig;
 use crate::components::problem::MatmulLineSizes;
+use crate::components::resource::ResourceDemand;
 use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
@@ -458,6 +459,10 @@ impl MatmulConfigFactory for RegisterMatmul {
             rhs_line_size,
             line_sizes.out as u32,
         )
+    }
+
+    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        Ok(ResourceDemand::Units(1))
     }
 }
 

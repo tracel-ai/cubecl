@@ -1,4 +1,5 @@
 use crate::components::config::MatmulConfig;
+use crate::components::resource::ResourceDemand;
 use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
@@ -204,6 +205,10 @@ impl MatmulConfigFactory for AcceleratedMatmul {
             rhs_line_size,
             line_sizes.out as u32,
         )
+    }
+
+    fn resource_demand(_config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        Ok(ResourceDemand::Planes(1))
     }
 }
 

@@ -6,6 +6,7 @@ use crate::components::{
     batch::{self, shared::gmm_execute},
     config::MatmulConfig,
     global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
+    resource::ResourceDemand,
 };
 use crate::kernels::MatmulAvailabilityError;
 use batch::{BatchMatmul, BatchMatmulFamily};
@@ -59,6 +60,10 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
         };
 
         Config::<GMM::Config, C>::new(global_config, cube_count, quantized)
+    }
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        let cube_dim_demand = GMM::resource_demand(config.global_config());
     }
 }
 

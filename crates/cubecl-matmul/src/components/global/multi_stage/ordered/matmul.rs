@@ -5,6 +5,7 @@ use crate::components::global::load::{
 };
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::problem::MatmulLineSizes;
+use crate::components::resource::ResourceDemand;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::stage::{FullReaderFamily, StageEventListener};
 use crate::components::stage::{FullStageToTileReader, StageEvent};
@@ -103,6 +104,10 @@ where
             input.loading_precompute_strategy,
             input.loader_mode,
         )
+    }
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
     }
 }
 

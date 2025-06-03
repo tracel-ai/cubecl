@@ -7,6 +7,7 @@ use crate::components::global::single_stage::Config;
 use crate::components::global::{GlobalMatmul, load::TmaTiling};
 use crate::components::global::{Quantization, load::TmaReader};
 use crate::components::problem::MatmulLineSizes;
+use crate::components::resource::ResourceDemand;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::kernels::matmul::GlobalInput;
@@ -125,6 +126,10 @@ where
             input.loading_precompute_strategy,
             input.loader_mode,
         )
+    }
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        SMM::resource_demand(config.stage_config())?.as_planes_resource(config.plane_dim())
     }
 }
 

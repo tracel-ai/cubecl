@@ -1,5 +1,6 @@
 use crate::components::MatmulProblem;
 use crate::components::global::PlaneWriter;
+use crate::components::resource::ResourceDemand;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;
@@ -116,5 +117,15 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             stage_input.partition_buffering,
             stage_input.num_stages,
         )
+    }
+
+    fn resource_demand(config: Self::Config) -> Result<ResourceDemand, InvalidConfigError> {
+        if let ResourceDemand::Planes(planes) = TMM::resource_demand(config.tile_config())? {
+            Ok(ResourceDemand::Planes(
+                planes * config.tiling_scheme().partitions_in_stage_mn(),
+            ))
+        } else {
+            unreachable!("Units should never occur here")
+        }
     }
 }
