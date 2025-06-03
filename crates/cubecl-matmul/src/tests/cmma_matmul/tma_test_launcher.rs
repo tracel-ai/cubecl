@@ -132,13 +132,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
-            &client,
-            cube_dim,
-            cube_count,
-            inputs,
-            output,
-            ScalarArg::new(problem.k as u32),
-            config,
+            &client, cube_dim, cube_count, inputs, output, config,
         );
     }
 

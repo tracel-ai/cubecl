@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::batch::partition_batch_matmul::{
-    GlobalPartitionMatmul, PartitionSpan, PartitionSpanDim,
+    GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::Quantization;
@@ -93,12 +93,11 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulLa
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
         unsafe {
             super::matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
-                client, cube_count, cube_dim, input, output, size_k, config,
+                client, cube_count, cube_dim, input, output, config,
             );
         }
     }
@@ -135,36 +134,14 @@ impl<
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        size_k: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
-        // let (x_index, y_index) = C::m_n_indices();
-        // let x_offset = x_index * config.tiling_scheme().elements_in_stage_m();
-        // let y_offset = y_index * config.tiling_scheme().elements_in_stage_n();
-        // let nth_batch = C::batch_index();
-        // let k_range = (0, size_k);
-
-        // let global_config = config.global_config();
-
-        // gmm_execute::<MP, GMM>(
-        //     lhs,
-        //     rhs,
-        //     out,
-        //     x_offset,
-        //     y_offset,
-        //     nth_batch,
-        //     &mut GMM::init_accumulator(global_config),
-        //     k_range,
-        //     quantization,
-        //     global_config,
-        // );
-
-        let k_range = (0, size_k);
-
         let rank = out.rank();
         let problem_m = out.shape(rank - 2);
         let problem_n = out.shape(rank - 1);
+        let problem_k = lhs.shape(lhs.rank() - 1);
+        let k_range = (0, problem_k);
 
         let mut problem_b = 1;
         for b in 0..rank - 2 {
@@ -175,20 +152,20 @@ impl<
         let (m_index, n_index) = P::m_n_indices();
         let batch_index = P::batch_index();
 
-        let span = PartitionSpan::new(
-            PartitionSpanDim::new(
+        let ranges = PartitionRanges::new(
+            PartitionRangeDim::new(
                 problem_m,
                 m_index,
                 ts.elements_in_stage_m(),
                 ts.elements_in_global_partition_m(),
             ),
-            PartitionSpanDim::new(
+            PartitionRangeDim::new(
                 problem_n,
                 n_index,
                 ts.elements_in_stage_n(),
                 ts.elements_in_global_partition_n(),
             ),
-            PartitionSpanDim::new(
+            PartitionRangeDim::new(
                 problem_b,
                 batch_index,
                 1u32,
@@ -203,7 +180,7 @@ impl<
             lhs,
             rhs,
             out,
-            span,
+            ranges,
             acc,
             k_range,
             quantization,

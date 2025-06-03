@@ -327,13 +327,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(
-            client,
-            cube_dim,
-            cube_count,
-            input,
-            output,
-            ScalarArg::new(problem.k as u32),
-            config,
+            client, cube_dim, cube_count, input, output, config,
         );
     };
 

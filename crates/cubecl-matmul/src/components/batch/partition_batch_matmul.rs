@@ -16,14 +16,14 @@ use super::shared::gmm_execute;
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
 /// Similar to the concept of tensor slice, but specialized for matmul constraints
-pub struct PartitionSpan {
-    row: PartitionSpanDim,
-    col: PartitionSpanDim,
-    batch: PartitionSpanDim,
+pub struct PartitionRanges {
+    row: PartitionRangeDim,
+    col: PartitionRangeDim,
+    batch: PartitionRangeDim,
 }
 
 #[derive(CubeType)]
-pub struct PartitionSpanDim {
+pub struct PartitionRangeDim {
     start: u32,
     end: u32,
     #[cube(comptime)]
@@ -33,13 +33,13 @@ pub struct PartitionSpanDim {
 }
 
 #[cube]
-/// Iterates on several global matmul across a span
+/// Iterates on several global matmul across a partition
 pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        partition_span: PartitionSpan,
+        partition_ranges: PartitionRanges,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
@@ -60,31 +60,31 @@ pub struct ColMajorGlobalPartitionMatmul {}
 ///
 /// The swizzle algorithm processes  W elements per row in a top-down pass,
 /// then shifts to the next W columns in a bottom-up pass.
-/// This zigzag (top-down, bottom-up) repeats, covering the matrix span by span.
+/// This zigzag (top-down, bottom-up) repeats, covering the matrix global matmul per global matmul.
 pub struct SwizzleGlobalPartitionMatmul<const W: u32> {}
 
 #[cube]
-impl PartitionSpan {
+impl PartitionRanges {
     pub fn new(
-        row: PartitionSpanDim,
-        col: PartitionSpanDim,
-        batch: PartitionSpanDim,
-    ) -> PartitionSpan {
-        PartitionSpan { row, col, batch }
+        row: PartitionRangeDim,
+        col: PartitionRangeDim,
+        batch: PartitionRangeDim,
+    ) -> PartitionRanges {
+        PartitionRanges { row, col, batch }
     }
 }
 
 #[cube]
-impl PartitionSpanDim {
+impl PartitionRangeDim {
     pub fn new(
         problem_dim: u32,
         cube_pos: u32,
         #[comptime] stage_dim: u32,
         #[comptime] global_partition_dim: u32,
-    ) -> PartitionSpanDim {
+    ) -> PartitionRangeDim {
         let start = cube_pos * global_partition_dim;
         let end = Min::min(start + global_partition_dim, problem_dim);
-        PartitionSpanDim {
+        PartitionRangeDim {
             start,
             end,
             step: stage_dim,
@@ -99,25 +99,25 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: PartitionSpan,
+        ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
-        #[unroll(span.batch.num_steps <= 1)]
-        for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
-            #[unroll(span.row.num_steps <= 1)]
-            for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
-                #[unroll(span.col.num_steps <= 1)]
-                for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
+        #[unroll(ranges.batch.num_steps <= 1)]
+        for batch_iter in range_stepped(ranges.batch.start, ranges.batch.end, ranges.batch.step) {
+            #[unroll(ranges.row.num_steps <= 1)]
+            for row_offset in range_stepped(ranges.row.start, ranges.row.end, ranges.row.step) {
+                #[unroll(ranges.col.num_steps <= 1)]
+                for col_offset in range_stepped(ranges.col.start, ranges.col.end, ranges.col.step) {
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
                         rhs,
                         out,
-                        row_iter,
-                        col_iter,
+                        row_offset,
+                        col_offset,
                         batch_iter,
                         &mut acc,
                         k_range,
@@ -136,25 +136,25 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: PartitionSpan,
+        ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
-        #[unroll(span.batch.num_steps <= 1)]
-        for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
-            #[unroll(span.col.num_steps <= 1)]
-            for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
-                #[unroll(span.row.num_steps <= 1)]
-                for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
+        #[unroll(ranges.batch.num_steps <= 1)]
+        for batch_iter in range_stepped(ranges.batch.start, ranges.batch.end, ranges.batch.step) {
+            #[unroll(ranges.col.num_steps <= 1)]
+            for col_offset in range_stepped(ranges.col.start, ranges.col.end, ranges.col.step) {
+                #[unroll(ranges.row.num_steps <= 1)]
+                for row_offset in range_stepped(ranges.row.start, ranges.row.end, ranges.row.step) {
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
                         rhs,
                         out,
-                        row_iter,
-                        col_iter,
+                        row_offset,
+                        col_offset,
                         batch_iter,
                         &mut acc,
                         k_range,
@@ -173,29 +173,29 @@ impl<const W: u32> GlobalPartitionMatmul for SwizzleGlobalPartitionMatmul<W> {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: PartitionSpan,
+        ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
-        let num_swizzle = comptime!(span.row.num_steps * span.col.num_steps);
+        let num_swizzle = comptime!(ranges.row.num_steps * ranges.col.num_steps);
 
-        #[unroll(span.batch.num_steps <= 1)]
-        for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
+        #[unroll(ranges.batch.num_steps <= 1)]
+        for batch_iter in range_stepped(ranges.batch.start, ranges.batch.end, ranges.batch.step) {
             #[unroll(num_swizzle <= 1)]
             for n in 0..num_swizzle {
                 GMM::zero_accumulator(&mut acc, config);
-                let (row, col) = swizzle(n, span.row.num_steps, W);
+                let (row, col) = swizzle(n, ranges.row.num_steps, W);
 
-                let row_iter = span.row.start + row * span.row.step;
-                let col_iter = span.col.start + col * span.col.step;
+                let row_offset = ranges.row.start + row * ranges.row.step;
+                let col_offset = ranges.col.start + col * ranges.col.step;
                 gmm_execute::<MP, GMM>(
                     lhs,
                     rhs,
                     out,
-                    row_iter,
-                    col_iter,
+                    row_offset,
+                    col_offset,
                     batch_iter,
                     &mut acc,
                     k_range,

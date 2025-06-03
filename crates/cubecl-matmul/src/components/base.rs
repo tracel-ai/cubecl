@@ -15,7 +15,6 @@ pub trait MatmulLaunch: MatmulConfigFactory {
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        size_k: ScalarArg<u32>,
         config: <Self as MatmulConfigFactory>::Config,
     );
 }

@@ -49,7 +49,6 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        size_k: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     );
@@ -94,7 +93,6 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    size_k: u32,
     #[comptime] config: BMM::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
@@ -113,18 +111,10 @@ pub(crate) fn matmul<
             lhs,
             rhs,
             out,
-            size_k,
             CubeOption::new_Some(quantization),
             config,
         );
     } else {
-        BMM::Matmul::<(EI, ES, EA, EO)>::execute(
-            lhs,
-            rhs,
-            out,
-            size_k,
-            CubeOption::new_None(),
-            config,
-        );
+        BMM::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
     };
 }
