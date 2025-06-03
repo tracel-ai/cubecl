@@ -1,10 +1,12 @@
 use cubecl_core::ir::{
     Arithmetic, Bitwise, Comparison, Elem, IntKind, Metadata, Operation, UIntKind, Variable,
 };
+use melior::dialect::llvm;
+use melior::dialect::ods::llvm as llvm_ods;
 use melior::{
     dialect::{
         arith::{self, CmpfPredicate, CmpiPredicate},
-        llvm, memref,
+        memref,
         ods::vector,
     },
     ir::{
@@ -79,41 +81,22 @@ impl<'a> Visitor<'a> {
         match arithmetic {
             Arithmetic::Abs(abs) => {
                 let value = self.get_variable(abs.input);
-                let (negation, condition) = if abs.input.elem().is_int() {
-                    let minus_one = self.create_int_constant_from_item(abs.input.item, -1);
-                    let negation = self.append_operation_with_result(arith::muli(
-                        value,
-                        minus_one,
-                        self.location,
-                    ));
-                    let zero = self.create_int_constant_from_item(abs.input.item, 0);
-                    let condition = self.append_operation_with_result(arith::cmpi(
+                let result_type = self.item_to_type(abs.input.item);
+                let abs = if abs.input.elem().is_int() {
+                    self.append_operation_with_result(llvm::intr_abs(
                         self.context,
-                        CmpiPredicate::Sge,
                         value,
-                        zero,
+                        false,
+                        result_type,
                         self.location,
-                    ));
-                    (negation, condition)
+                    ))
                 } else {
-                    let negation =
-                        self.append_operation_with_result(arith::negf(value, self.location));
-                    let zero = self.create_float_constant_from_item(abs.input.item, 0.0);
-                    let condition = self.append_operation_with_result(arith::cmpf(
+                    self.append_operation_with_result(llvm_ods::intr_fabs(
                         self.context,
-                        CmpfPredicate::Oge,
                         value,
-                        zero,
                         self.location,
-                    ));
-                    (negation, condition)
+                    ))
                 };
-                let abs = self.append_operation_with_result(arith::select(
-                    condition,
-                    value,
-                    negation,
-                    self.location,
-                ));
                 self.insert_variable(out, abs);
             }
             Arithmetic::Add(add) => {
@@ -126,14 +109,13 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
-            Arithmetic::Mul(mul) => {
-                let (lhs, rhs) = self.get_binary_op_variable(mul.lhs, mul.rhs);
-                let operation = if mul.lhs.elem().is_int() {
-                    arith::muli(lhs, rhs, self.location)
-                } else {
-                    arith::mulf(lhs, rhs, self.location)
-                };
-                let result = self.append_operation_with_result(operation);
+            Arithmetic::Cos(cos) => {
+                let value = self.get_variable(cos.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_cos(
+                    self.context,
+                    value,
+                    self.location,
+                ));
                 self.insert_variable(out, result);
             }
             Arithmetic::Div(div) => {
@@ -176,6 +158,102 @@ impl<'a> Visitor<'a> {
                     ));
                     self.insert_variable(out, reduction);
                 }
+            }
+            Arithmetic::Erf(_) => {
+                unreachable!("Should have been transformed in primitive in a previous passe");
+            }
+            Arithmetic::Exp(exp) => {
+                let value = self.get_variable(exp.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_exp(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Floor(floor) => {
+                let value = self.get_variable(floor.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_floor(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Fma(fma) => {
+                let a = self.get_variable(fma.a);
+                let b = self.get_variable(fma.b);
+                let c = self.get_variable(fma.c);
+
+                let result_type = self.item_to_type(fma.a.item);
+                let result = self.append_operation_with_result(vector::fma(
+                    self.context,
+                    result_type,
+                    a,
+                    b,
+                    c,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Log(log) => {
+                let value = self.get_variable(log.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_log(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Log1p(log) => {
+                let value = self.get_variable(log.input);
+                let one = self.create_float_constant_from_item(log.input.item, 1.0);
+                let plus_one =
+                    self.append_operation_with_result(arith::addf(value, one, self.location));
+                let result = self.append_operation_with_result(llvm_ods::intr_log(
+                    self.context,
+                    plus_one,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Neg(neg) => {
+                let value = self.get_variable(neg.input);
+                let result = if neg.input.elem().is_int() {
+                    // Cmpl to 2
+                    let mask = self.create_int_constant_from_item(neg.input.item, -1);
+                    let inv =
+                        self.append_operation_with_result(arith::xori(value, mask, self.location)); // Inverse bit
+                    let one = self.create_int_constant_from_item(neg.input.item, 1);
+                    self.append_operation_with_result(arith::addui_extended(
+                        inv,
+                        one,
+                        self.location,
+                    ))
+                } else {
+                    self.append_operation_with_result(arith::negf(value, self.location))
+                };
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Mul(mul) => {
+                let (lhs, rhs) = self.get_binary_op_variable(mul.lhs, mul.rhs);
+                let operation = if mul.lhs.elem().is_int() {
+                    arith::muli(lhs, rhs, self.location)
+                } else {
+                    arith::mulf(lhs, rhs, self.location)
+                };
+                let result = self.append_operation_with_result(operation);
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Sub(sub) => {
+                let (lhs, rhs) = self.get_binary_op_variable(sub.lhs, sub.rhs);
+                let operation = if sub.lhs.elem().is_int() {
+                    arith::subi(lhs, rhs, self.location)
+                } else {
+                    arith::subf(lhs, rhs, self.location)
+                };
+                let result = self.append_operation_with_result(operation);
+                self.insert_variable(out, result);
             }
             _ => todo!("This arithmetic is not yet implemented: {}", arithmetic),
         }
@@ -322,16 +400,7 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::BitwiseNot(unary_operator) => {
                 let value = self.get_variable(unary_operator.input);
-                let mask =
-                    IntegerAttribute::new(self.elem_to_type(unary_operator.input.elem()), -1);
-                let mask = self.append_operation_with_result(arith::constant(
-                    self.context,
-                    mask.into(),
-                    self.location,
-                ));
-                if mask.r#type().is_vector() {
-                    todo!();
-                }
+                let mask = self.create_int_constant_from_item(unary_operator.input.item, -1);
                 self.append_operation_with_result(arith::xori(value, mask, self.location))
             }
             Bitwise::LeadingZeros(unary_operator) => {
