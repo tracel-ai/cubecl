@@ -4,21 +4,21 @@ use cubecl_core::{ir::Elem, prelude::*};
 
 use crate::components::{
     MatmulLineSizes, MatmulProblem,
-    batch::{self, CubeDispatch},
+    batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{self},
     stage::{self, FullReaderFamily},
     tile,
 };
 
-pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _tmm: PhantomData<TMM>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for SimpleTmaAlgorithm<TMM, Dispatch>
+impl<TMM, P> base::Algorithm for SimpleTmaAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
@@ -28,7 +28,11 @@ where
     >;
     type GlobalMatmul = global::single_stage::simple::SimpleTmaMatmulFamily<Self::StageMatmul>;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn line_sizes(
         problem: &MatmulProblem,

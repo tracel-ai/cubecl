@@ -1,5 +1,6 @@
 pub mod one_to_many;
-pub mod one_to_one;
+// pub mod one_to_one;
+pub mod partitioned_batch_matmul;
 
 mod base;
 mod cube_dispatch;

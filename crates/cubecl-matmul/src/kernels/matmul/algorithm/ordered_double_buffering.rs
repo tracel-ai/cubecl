@@ -2,7 +2,7 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::components::batch::CubeDispatch;
+use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::stage::{
@@ -15,14 +15,14 @@ use crate::components::{batch, global};
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, plane_matmul_selection};
 
-pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, Dispatch>
+impl<TMM, P> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
@@ -35,10 +35,14 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        if selection.tiling_scheme.partitions_in_stage_n() > 1 {
+        if selection.tiling_scheme.stage_partitions_in_stage_n() > 1 {
             return Err(Box::new("Ordered does not support partitions > 1 in n"));
         }
         Self::GlobalMatmul::cube_dim(selection)

@@ -64,13 +64,13 @@ pub trait BatchConfig: MatmulConfig {
     fn global_config(&self) -> Self::GlobalConfig;
 
     /// Returns the largest m dimension supported with these configs
-    fn max_m(&self) -> u32;
+    fn max_problem_m(&self) -> u32;
 
     /// Returns the largest n dimension supported with these configs
-    fn max_n(&self) -> u32;
+    fn max_problem_n(&self) -> u32;
 
     /// Returns the largest number of batches supported with these configs
-    fn max_batches(&self) -> u32;
+    fn max_problem_batches(&self) -> u32;
 
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;

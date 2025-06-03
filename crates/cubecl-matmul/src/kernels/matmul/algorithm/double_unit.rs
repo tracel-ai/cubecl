@@ -4,19 +4,19 @@ use std::marker::PhantomData;
 
 use crate::components::{
     MatmulLineSizes, MatmulProblem, MatrixLayout,
-    batch::{self, CubeDispatch},
+    batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{self, load::sync_buffer_cyclic},
     stage::{self, BufferReaderFamily, NumStages, RowMajorTilingOrder},
     tile,
 };
 
-pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedDispatch> {
+pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedPartitioner> {
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<Dispatch> base::Algorithm for DoubleUnitAlgorithm<Dispatch>
+impl<P> base::Algorithm for DoubleUnitAlgorithm<P>
 where
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = tile::register_matmul::RegisterMatmul;
     type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
@@ -26,7 +26,11 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn num_stages() -> NumStages {
         (2, 2).into()

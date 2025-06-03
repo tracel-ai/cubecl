@@ -18,14 +18,14 @@ use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::{BatchConfig as _, CubeDispatch};
+use super::{BatchConfig as _, Partitioner};
 
-pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
+pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: Partitioner> {
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
 }
 
-impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
+impl<GMM: GlobalMatmulFamily, C: Partitioner> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
     type Matmul<MP: MatmulPrecision> = OneToOneMatmul<MP, GMM::Matmul<MP>, C>;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
@@ -35,7 +35,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMat
         assert!(global_partition.n == 1);
         assert!(global_partition.batches == 1);
 
-        C::cube_count(
+        C::create_cube_count(
             (problem.m as u32).div_ceil(selection.tiling_scheme.elements_in_stage_m()),
             (problem.n as u32).div_ceil(selection.tiling_scheme.elements_in_stage_n()),
             problem.num_batches() as u32,
@@ -43,7 +43,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMat
     }
 }
 
-impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
+impl<GMM: GlobalMatmulFamily, C: Partitioner> MatmulConfigFactory
     for OneToOneMatmulFamily<GMM, C>
 {
     type Input = GMM::Input;
@@ -80,7 +80,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
     }
 }
 
-impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFamily<GMM, C> {
+impl<GMM: GlobalMatmulFamily, C: Partitioner> MatmulLaunch for OneToOneMatmulFamily<GMM, C> {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
@@ -103,14 +103,14 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
 ///
 /// Note: This algorithm requires one cube per global matmul;
 /// insufficient cubes will result in incomplete computations.
-pub struct OneToOneMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> {
+pub struct OneToOneMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: Partitioner> {
     _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP>
+impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: Partitioner> BatchMatmul<MP>
     for OneToOneMatmul<MP, GMM, C>
 {
     type Config = Config<GMM::Config, C>;
@@ -148,30 +148,30 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
-pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
+pub struct Config<G: global::GlobalConfig, C: Partitioner> {
     global_config: G,
     cube_count: (u32, u32, u32),
     quantized: bool,
     _c: PhantomData<C>,
 }
 
-impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, C> {
+impl<G: global::GlobalConfig, C: Partitioner> batch::BatchConfig for Config<G, C> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
         self.global_config
     }
 
-    fn max_m(&self) -> u32 {
-        C::max_m(self.cube_count) * self.tiling_scheme().elements_in_stage_m()
+    fn max_problem_m(&self) -> u32 {
+        C::cube_count_m(self.cube_count) * self.tiling_scheme().elements_in_stage_m()
     }
 
-    fn max_n(&self) -> u32 {
-        C::max_n(self.cube_count) * self.tiling_scheme().elements_in_stage_n()
+    fn max_problem_n(&self) -> u32 {
+        C::cube_count_n(self.cube_count) * self.tiling_scheme().elements_in_stage_n()
     }
 
-    fn max_batches(&self) -> u32 {
-        C::max_batches(self.cube_count)
+    fn max_problem_batches(&self) -> u32 {
+        C::cube_count_batches(self.cube_count)
     }
 
     fn quantized(&self) -> bool {
@@ -179,9 +179,9 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
     }
 }
 
-impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
+impl<G: global::GlobalConfig, C: Partitioner> MatmulConfig for Config<G, C> {}
 
-impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
+impl<G: global::GlobalConfig, C: Partitioner> Config<G, C> {
     pub fn new(global_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
         Self {
             global_config,

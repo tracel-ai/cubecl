@@ -17,14 +17,14 @@ use super::shared::gmm_execute;
 /// Area of a tensor a cube is responsible of performing matmul
 /// Similar to the concept of tensor slice, but specialized for matmul constraints
 pub struct PartitionSpan {
-    row: SpanDim,
-    col: SpanDim,
-    batch: SpanDim,
+    row: PartitionSpanDim,
+    col: PartitionSpanDim,
+    batch: PartitionSpanDim,
 }
 
 #[derive(CubeType)]
 /// Span information in one dimension
-pub struct SpanDim {
+pub struct PartitionSpanDim {
     start: u32,
     end: u32,
     step: u32,
@@ -37,7 +37,7 @@ pub trait GlobalPartitionMatmul: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: PartitionSpan,
+        partition_span: PartitionSpan,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
@@ -47,11 +47,11 @@ pub trait GlobalPartitionMatmul: 'static + Send + Sync {
 
 #[derive(CubeType)]
 /// Iterates on global matmuls in a row major fashion
-pub struct RowMajorSpanMatmul {}
+pub struct RowMajorGlobalPartitionMatmul {}
 
 #[derive(CubeType)]
 /// Iterates on global matmuls in a col major fashion
-pub struct ColMajorSpanMatmul {}
+pub struct ColMajorGlobalPartitionMatmul {}
 
 #[derive(CubeType)]
 /// Iterates on global matmuls following the swizzle algorithm
@@ -59,24 +59,28 @@ pub struct ColMajorSpanMatmul {}
 /// The swizzle algorithm processes  W elements per row in a top-down pass,
 /// then shifts to the next W columns in a bottom-up pass.
 /// This zigzag (top-down, bottom-up) repeats, covering the matrix span by span.
-pub struct SwizzleSpanMatmul<const W: u32> {}
+pub struct SwizzleGlobalPartitionMatmul<const W: u32> {}
 
 #[cube]
 impl PartitionSpan {
-    pub fn new(row: SpanDim, col: SpanDim, batch: SpanDim) -> PartitionSpan {
+    pub fn new(
+        row: PartitionSpanDim,
+        col: PartitionSpanDim,
+        batch: PartitionSpanDim,
+    ) -> PartitionSpan {
         PartitionSpan { row, col, batch }
     }
 }
 
 #[cube]
-impl SpanDim {
-    pub fn new(shape: u32, stage: u32, cube_pos: u32, num_cubes: u32) -> SpanDim {
+impl PartitionSpanDim {
+    pub fn new(shape: u32, stage: u32, cube_pos: u32, num_cubes: u32) -> PartitionSpanDim {
         let num_stages = (shape + stage - 1) / stage;
         let num = (num_stages + num_cubes - 1) / num_cubes;
         let span = num * stage;
         let start = cube_pos * span;
         let end = Min::min(start + span, shape);
-        SpanDim {
+        PartitionSpanDim {
             start,
             end,
             step: stage,
@@ -90,7 +94,7 @@ impl SpanDim {
 }
 
 #[cube]
-impl GlobalPartitionMatmul for RowMajorSpanMatmul {
+impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
@@ -124,7 +128,7 @@ impl GlobalPartitionMatmul for RowMajorSpanMatmul {
 }
 
 #[cube]
-impl GlobalPartitionMatmul for ColMajorSpanMatmul {
+impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
@@ -158,7 +162,7 @@ impl GlobalPartitionMatmul for ColMajorSpanMatmul {
 }
 
 #[cube]
-impl<const W: u32> GlobalPartitionMatmul for SwizzleSpanMatmul<W> {
+impl<const W: u32> GlobalPartitionMatmul for SwizzleGlobalPartitionMatmul<W> {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,

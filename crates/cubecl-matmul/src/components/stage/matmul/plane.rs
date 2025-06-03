@@ -63,7 +63,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     ) -> Result<ComputeResources, InvalidConfigError> {
         if let ComputeResources::Planes(planes) = TMM::resource_demand(selection)? {
             Ok(ComputeResources::Planes(
-                planes * selection.tiling_scheme.partitions_in_stage_mn(),
+                planes * selection.tiling_scheme.stage_partitions_in_stage_mn(),
             ))
         } else {
             unreachable!("Plane matmul should not demand units")
@@ -78,7 +78,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_planes_needed = config.tiling_scheme().partitions_in_stage_mn();
+        let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
         let num_planes = config.num_planes();
 
         if num_planes != num_planes_needed {
@@ -89,7 +89,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
 
         // TODO we should allow buffering on m dimension
         if config.partition_buffering() == PartitionBuffering::Double
-            && config.tiling_scheme().tiles_in_partition_n() < 2
+            && config.tiling_scheme().tiles_in_stage_partition_n() < 2
         {
             return Err(Box::new(
                 "Error: Tried doing double buffering with only one tile to compute.".to_string(),

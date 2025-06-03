@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::components::MatmulProblem;
-use crate::components::batch::CubeDispatch;
+use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
@@ -14,22 +14,22 @@ use crate::components::{batch, global};
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, plane_matmul_selection};
 
-pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
-pub struct TilewiseDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct TilewiseDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
-pub struct HybridDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct HybridDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for CyclicDoubleBufferingAlgorithm<TMM, Dispatch>
+impl<TMM, P> base::Algorithm for CyclicDoubleBufferingAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
@@ -43,7 +43,11 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn num_stages() -> NumStages {
         (2, 2).into()
@@ -69,10 +73,10 @@ where
     }
 }
 
-impl<TMM, Dispatch> base::Algorithm for TilewiseDoubleBufferingAlgorithm<TMM, Dispatch>
+impl<TMM, P> base::Algorithm for TilewiseDoubleBufferingAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
@@ -87,7 +91,11 @@ where
         sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn num_stages() -> NumStages {
         (2, 2).into()
@@ -113,10 +121,10 @@ where
     }
 }
 
-impl<TMM, Dispatch> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM, Dispatch>
+impl<TMM, P> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
@@ -130,7 +138,11 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn num_stages() -> NumStages {
         (2, 2).into()

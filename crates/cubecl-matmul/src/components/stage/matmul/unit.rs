@@ -62,7 +62,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
     ) -> Result<ComputeResources, InvalidConfigError> {
         if let ComputeResources::Units(units) = TMM::resource_demand(selection)? {
             Ok(ComputeResources::Units(
-                units * selection.tiling_scheme.partitions_in_stage_mn(),
+                units * selection.tiling_scheme.stage_partitions_in_stage_mn(),
             ))
         } else {
             unreachable!("Unit matmul should not demand planes")
@@ -75,7 +75,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_units_needed = config.tiling_scheme().partitions_in_stage_mn();
+        let num_units_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
         let num_units = config.plane_dim() * config.num_planes();
 
         if num_units != num_units_needed {
@@ -85,7 +85,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
         }
 
         if config.partition_buffering() == PartitionBuffering::Double
-            && config.tiling_scheme().tiles_in_partition_n() < 2
+            && config.tiling_scheme().tiles_in_stage_partition_n() < 2
         {
             return Err(Box::new(
                 "Error: Tried doing double buffering with only one tile to compute.".to_string(),

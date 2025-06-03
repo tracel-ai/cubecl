@@ -69,24 +69,24 @@ impl MatmulProblem {
         &self,
         config: &B,
     ) -> Result<(), MatmulInvalidProblem> {
-        if self.m > config.max_m() as usize {
+        if self.m > config.max_problem_m() as usize {
             return Err(MatmulInvalidProblem::ExceededMSize {
                 m: self.m as u32,
-                max_m: config.max_m(),
+                max_m: config.max_problem_m(),
             });
         }
 
-        if self.n > config.max_n() as usize {
+        if self.n > config.max_problem_n() as usize {
             return Err(MatmulInvalidProblem::ExceededNSize {
                 n: self.n as u32,
-                max_n: config.max_n(),
+                max_n: config.max_problem_n(),
             });
         }
 
-        if self.num_batches() > config.max_batches() as usize {
+        if self.num_batches() > config.max_problem_batches() as usize {
             return Err(MatmulInvalidProblem::ExceededBatchSize {
                 b: self.num_batches() as u32,
-                max_b: config.max_batches(),
+                max_b: config.max_problem_batches(),
             });
         }
 

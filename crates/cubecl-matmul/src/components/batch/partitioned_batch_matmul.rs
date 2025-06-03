@@ -17,25 +17,26 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::{BatchConfig as _, BatchMatmulFamily, Partitioner};
 
-pub struct OneToManyMatmulFamily<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner>
-{
+pub struct PartitionedBatchMatmulFamily<
+    GMM: GlobalMatmulFamily,
+    S: GlobalPartitionMatmul,
+    P: Partitioner,
+> {
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
-    _c: PhantomData<C>,
+    _c: PhantomData<P>,
 }
 
-impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> BatchMatmulFamily
-    for OneToManyMatmulFamily<GMM, S, C>
+impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMatmulFamily
+    for PartitionedBatchMatmulFamily<GMM, S, P>
 {
-    type Matmul<MP: MatmulPrecision> = OneToManyMatmul<MP, GMM::Matmul<MP>, S, C>;
+    type Matmul<MP: MatmulPrecision> = PartitionedBatchMatmul<MP, GMM::Matmul<MP>, S, P>;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let elements_in_m = selection.tiling_scheme.elements_in_stage_m()
-            * selection.tiling_scheme.global_partition_size.m;
-        let elements_in_n = selection.tiling_scheme.elements_in_stage_n()
-            * selection.tiling_scheme.global_partition_size.n;
+        let elements_in_m = selection.tiling_scheme.elements_in_global_partition_m();
+        let elements_in_n = selection.tiling_scheme.elements_in_global_partition_n();
 
-        C::create_cube_count(
+        P::create_cube_count(
             (problem.m as u32).div_ceil(elements_in_m),
             (problem.n as u32).div_ceil(elements_in_n),
             (problem.num_batches() as u32)
@@ -45,7 +46,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> BatchMat
 }
 
 impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulConfigFactory
-    for OneToManyMatmulFamily<GMM, S, C>
+    for PartitionedBatchMatmulFamily<GMM, S, C>
 {
     type Config = Config<GMM::Config, C>;
     type Input = GMM::Input;
@@ -82,7 +83,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulCo
 }
 
 impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulLaunch
-    for OneToManyMatmulFamily<GMM, S, C>
+    for PartitionedBatchMatmulFamily<GMM, S, C>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -106,23 +107,27 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulLa
 ///
 /// The algorithm supports any number of cubes,
 /// looping as needed to process all data.
-pub struct OneToManyMatmul<
+pub struct PartitionedBatchMatmul<
     MP: MatmulPrecision,
     GMM: global::GlobalMatmul<MP>,
     S: GlobalPartitionMatmul,
-    C: Partitioner,
+    P: Partitioner,
 > {
     _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
-    _c: PhantomData<C>,
+    _c: PhantomData<P>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: GlobalPartitionMatmul, C: Partitioner>
-    batch::BatchMatmul<MP> for OneToManyMatmul<MP, GMM, S, C>
+impl<
+    MP: MatmulPrecision,
+    GMM: global::GlobalMatmul<MP>,
+    GPMM: GlobalPartitionMatmul,
+    P: Partitioner,
+> batch::BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM, P>
 {
-    type Config = Config<GMM::Config, C>;
+    type Config = Config<GMM::Config, P>;
 
     fn execute(
         lhs: VirtualTensor<MP::EI>,
@@ -149,8 +154,8 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: GlobalPartitionMatmu
         let stage_n = config.tiling_scheme().elements_in_stage_n();
         let stage_b = 1;
 
-        let (m_index, n_index) = C::m_n_indices();
-        let batch_index = C::batch_index();
+        let (m_index, n_index) = P::m_n_indices();
+        let batch_index = P::batch_index();
 
         let span = PartitionSpan::new(
             PartitionSpanDim::new(problem_m, stage_m, m_index, cubes_m),
@@ -162,7 +167,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: GlobalPartitionMatmu
 
         let global_config = config.global_config();
         let acc = GMM::init_accumulator(global_config);
-        S::execute::<MP, GMM>(
+        GPMM::execute::<MP, GMM>(
             lhs,
             rhs,
             out,
@@ -184,7 +189,7 @@ pub struct Config<G: global::GlobalConfig, C: Partitioner> {
     _c: PhantomData<C>,
 }
 
-impl<G: global::GlobalConfig, C: Partitioner> batch::BatchConfig for Config<G, C> {
+impl<G: global::GlobalConfig, P: Partitioner> batch::BatchConfig for Config<G, P> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
@@ -192,15 +197,28 @@ impl<G: global::GlobalConfig, C: Partitioner> batch::BatchConfig for Config<G, C
     }
 
     fn max_problem_m(&self) -> u32 {
-        u32::maximum_value()
+        self.cube_count_m()
+            * self
+                .global_config
+                .tiling_scheme()
+                .elements_in_global_partition_m()
     }
 
     fn max_problem_n(&self) -> u32 {
-        u32::maximum_value()
+        self.cube_count_n()
+            * self
+                .global_config
+                .tiling_scheme()
+                .elements_in_global_partition_n()
     }
 
     fn max_problem_batches(&self) -> u32 {
-        u32::maximum_value()
+        self.cube_count_batch()
+            * self
+                .global_config
+                .tiling_scheme()
+                .global_partition_size
+                .batches
     }
 
     fn quantized(&self) -> bool {
@@ -208,9 +226,9 @@ impl<G: global::GlobalConfig, C: Partitioner> batch::BatchConfig for Config<G, C
     }
 }
 
-impl<G: global::GlobalConfig, C: Partitioner> MatmulConfig for Config<G, C> {}
+impl<G: global::GlobalConfig, P: Partitioner> MatmulConfig for Config<G, P> {}
 
-impl<G: global::GlobalConfig, C: Partitioner> Config<G, C> {
+impl<G: global::GlobalConfig, P: Partitioner> Config<G, P> {
     pub fn new(global_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
         Self {
             global_config,
@@ -221,14 +239,14 @@ impl<G: global::GlobalConfig, C: Partitioner> Config<G, C> {
     }
 
     fn cube_count_m(&self) -> u32 {
-        C::cube_count_m(self.cube_count)
+        P::cube_count_m(self.cube_count)
     }
 
     fn cube_count_n(&self) -> u32 {
-        C::cube_count_n(self.cube_count)
+        P::cube_count_n(self.cube_count)
     }
 
     fn cube_count_batch(&self) -> u32 {
-        C::cube_count_batches(self.cube_count)
+        P::cube_count_batches(self.cube_count)
     }
 }

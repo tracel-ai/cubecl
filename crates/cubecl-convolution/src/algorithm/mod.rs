@@ -35,7 +35,7 @@ pub trait Algorithm {
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
 
     fn global_input(selection: &MatmulSelection) -> GlobalInput<StageInput> {
-        let partition_buffering = if selection.tiling_scheme.tiles_in_partition_n() > 1 {
+        let partition_buffering = if selection.tiling_scheme.tiles_in_stage_partition_n() > 1 {
             Self::partition_buffering_strategy()
         } else {
             PartitionBuffering::Single

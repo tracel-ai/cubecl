@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     MatmulLineSizes, MatmulProblem, MatrixLayout,
-    batch::{self, CubeDispatch},
+    batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         self,
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
@@ -16,23 +16,28 @@ use crate::components::{
 pub struct SimpleUnitAlgorithm<
     LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
     RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-    Dispatch = batch::TransposedDispatch,
+    Dispatch = batch::TransposedPartitioner,
 > {
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<LL, RL, Dispatch> base::Algorithm for SimpleUnitAlgorithm<LL, RL, Dispatch>
+impl<LL, RL, P> base::Algorithm for SimpleUnitAlgorithm<LL, RL, P>
 where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
-    Dispatch: CubeDispatch,
+    P: Partitioner,
 {
     type TileMatmul = tile::register_matmul::RegisterMatmul;
     type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+
+    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
+        Self::GlobalMatmul,
+        RowMajorGlobalPartitionMatmul,
+        P,
+    >;
 
     fn line_sizes(
         problem: &MatmulProblem,

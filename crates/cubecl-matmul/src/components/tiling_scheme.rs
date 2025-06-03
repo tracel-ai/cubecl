@@ -64,7 +64,7 @@ impl TilingSchemeBuilder {
 pub enum TilingLevel {
     GlobalPartition,
     Stage,
-    Partition,
+    StagePartition,
     Tile,
     Element,
 }
@@ -87,14 +87,14 @@ impl TilingScheme {
                 MatmulDim::K => None,
             },
 
-            (Partition, Stage) => Some(self.stage_size.get(dim)),
+            (StagePartition, Stage) => Some(self.stage_size.get(dim)),
 
-            (Tile, Partition) => Some(self.partition_size.get(dim)),
+            (Tile, StagePartition) => Some(self.partition_size.get(dim)),
 
             (Element, Tile) => Some(self.tile_size.get(dim)),
 
-            (Partition, GlobalPartition) => Some(
-                self.try_count_1d(Partition, Stage, dim)?
+            (StagePartition, GlobalPartition) => Some(
+                self.try_count_1d(StagePartition, Stage, dim)?
                     * self.try_count_1d(Stage, GlobalPartition, dim)?,
             ),
 
@@ -109,16 +109,17 @@ impl TilingScheme {
             ),
 
             (Tile, Stage) => Some(
-                self.try_count_1d(Partition, Stage, dim)?
-                    * self.try_count_1d(Tile, Partition, dim)?,
+                self.try_count_1d(StagePartition, Stage, dim)?
+                    * self.try_count_1d(Tile, StagePartition, dim)?,
             ),
 
             (Element, Stage) => {
                 Some(self.try_count_1d(Tile, Stage, dim)? * self.try_count_1d(Element, Tile, dim)?)
             }
 
-            (Element, Partition) => Some(
-                self.try_count_1d(Tile, Partition, dim)? * self.try_count_1d(Element, Tile, dim)?,
+            (Element, StagePartition) => Some(
+                self.try_count_1d(Tile, StagePartition, dim)?
+                    * self.try_count_1d(Element, Tile, dim)?,
             ),
 
             // Invalid transitions
@@ -245,15 +246,15 @@ macro_rules! count_2d_ident_method {
 }
 
 impl TilingScheme {
-    count_1d_method!(partitions_in_stage_m, Partition, Stage, M);
-    count_1d_method!(partitions_in_stage_n, Partition, Stage, N);
-    count_1d_method!(partitions_in_stage_k, Partition, Stage, K);
-    count_1d_ident_row_method!(partitions_in_stage_row, Partition, Stage);
-    count_1d_ident_col_method!(partitions_in_stage_col, Partition, Stage);
-    count_2d_method!(partitions_in_stage_mk, Partition, Stage, M, K);
-    count_2d_method!(partitions_in_stage_nk, Partition, Stage, N, K);
-    count_2d_method!(partitions_in_stage_mn, Partition, Stage, M, N);
-    count_2d_ident_method!(partitions_in_stage, Partition, Stage);
+    count_1d_method!(stage_partitions_in_stage_m, StagePartition, Stage, M);
+    count_1d_method!(stage_partitions_in_stage_n, StagePartition, Stage, N);
+    count_1d_method!(stage_partitions_in_stage_k, StagePartition, Stage, K);
+    count_1d_ident_row_method!(stage_partitions_in_stage_row, StagePartition, Stage);
+    count_1d_ident_col_method!(stage_partitions_in_stage_col, StagePartition, Stage);
+    count_2d_method!(stage_partitions_in_stage_mk, StagePartition, Stage, M, K);
+    count_2d_method!(stage_partitions_in_stage_nk, StagePartition, Stage, N, K);
+    count_2d_method!(stage_partitions_in_stage_mn, StagePartition, Stage, M, N);
+    count_2d_ident_method!(stage_partitions_in_stage, StagePartition, Stage);
 
     count_1d_method!(tiles_in_stage_m, Tile, Stage, M);
     count_1d_method!(tiles_in_stage_n, Tile, Stage, N);
@@ -275,25 +276,43 @@ impl TilingScheme {
     count_2d_method!(elements_in_stage_mn, Element, Stage, M, N);
     count_2d_ident_method!(elements_in_stage, Element, Stage);
 
-    count_1d_method!(tiles_in_partition_m, Tile, Partition, M);
-    count_1d_method!(tiles_in_partition_n, Tile, Partition, N);
-    count_1d_method!(tiles_in_partition_k, Tile, Partition, K);
-    count_1d_ident_row_method!(tiles_in_partition_row, Tile, Partition);
-    count_1d_ident_col_method!(tiles_in_partition_col, Tile, Partition);
-    count_2d_method!(tiles_in_partition_mk, Tile, Partition, M, K);
-    count_2d_method!(tiles_in_partition_nk, Tile, Partition, N, K);
-    count_2d_method!(tiles_in_partition_mn, Tile, Partition, M, N);
-    count_2d_ident_method!(tiles_in_partition, Tile, Partition);
+    count_1d_method!(tiles_in_stage_partition_m, Tile, StagePartition, M);
+    count_1d_method!(tiles_in_stage_partition_n, Tile, StagePartition, N);
+    count_1d_method!(tiles_in_stage_partition_k, Tile, StagePartition, K);
+    count_1d_ident_row_method!(tiles_in_stage_partition_row, Tile, StagePartition);
+    count_1d_ident_col_method!(tiles_in_stage_partition_col, Tile, StagePartition);
+    count_2d_method!(tiles_in_stage_partition_mk, Tile, StagePartition, M, K);
+    count_2d_method!(tiles_in_stage_partition_nk, Tile, StagePartition, N, K);
+    count_2d_method!(tiles_in_stage_partition_mn, Tile, StagePartition, M, N);
+    count_2d_ident_method!(tiles_in_stage_partition, Tile, StagePartition);
 
-    count_1d_method!(elements_in_partition_m, Element, Partition, M);
-    count_1d_method!(elements_in_partition_n, Element, Partition, N);
-    count_1d_method!(elements_in_partition_k, Element, Partition, K);
-    count_1d_ident_row_method!(elements_in_partition_row, Element, Partition);
-    count_1d_ident_col_method!(elements_in_partition_col, Element, Partition);
-    count_2d_method!(elements_in_partition_mk, Element, Partition, M, K);
-    count_2d_method!(elements_in_partition_nk, Element, Partition, N, K);
-    count_2d_method!(elements_in_partition_mn, Element, Partition, M, N);
-    count_2d_ident_method!(elements_in_partition, Element, Partition);
+    count_1d_method!(elements_in_stage_partition_m, Element, StagePartition, M);
+    count_1d_method!(elements_in_stage_partition_n, Element, StagePartition, N);
+    count_1d_method!(elements_in_stage_partition_k, Element, StagePartition, K);
+    count_1d_ident_row_method!(elements_in_stage_partition_row, Element, StagePartition);
+    count_1d_ident_col_method!(elements_in_stage_partition_col, Element, StagePartition);
+    count_2d_method!(
+        elements_in_stage_partition_mk,
+        Element,
+        StagePartition,
+        M,
+        K
+    );
+    count_2d_method!(
+        elements_in_stage_partition_nk,
+        Element,
+        StagePartition,
+        N,
+        K
+    );
+    count_2d_method!(
+        elements_in_stage_partition_mn,
+        Element,
+        StagePartition,
+        M,
+        N
+    );
+    count_2d_ident_method!(elements_in_stage_partition, Element, StagePartition);
 
     count_1d_method!(elements_in_tile_m, Element, Tile, M);
     count_1d_method!(elements_in_tile_n, Element, Tile, N);
@@ -304,4 +323,23 @@ impl TilingScheme {
     count_2d_method!(elements_in_tile_nk, Element, Tile, N, K);
     count_2d_method!(elements_in_tile_mn, Element, Tile, M, N);
     count_2d_ident_method!(elements_in_tile, Element, Tile);
+
+    count_1d_method!(elements_in_global_partition_m, Element, GlobalPartition, M);
+    count_1d_method!(elements_in_global_partition_n, Element, GlobalPartition, N);
+    count_1d_method!(tiles_in_global_partition_m, Tile, GlobalPartition, M);
+    count_1d_method!(tiles_in_global_partition_n, Tile, GlobalPartition, N);
+    count_1d_method!(
+        stage_partitions_in_global_partition_m,
+        StagePartition,
+        GlobalPartition,
+        M
+    );
+    count_1d_method!(
+        stage_partitions_in_global_partition_n,
+        StagePartition,
+        GlobalPartition,
+        N
+    );
+    count_1d_method!(stages_in_global_partition_m, Stage, GlobalPartition, M);
+    count_1d_method!(stages_in_global_partition_n, Stage, GlobalPartition, N);
 }
