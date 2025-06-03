@@ -16,7 +16,7 @@ use super::shared::gmm_execute;
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
 /// Similar to the concept of tensor slice, but specialized for matmul constraints
-pub struct Span {
+pub struct PartitionSpan {
     row: SpanDim,
     col: SpanDim,
     batch: SpanDim,
@@ -37,7 +37,7 @@ pub trait GlobalPartitionMatmul: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: Span,
+        span: PartitionSpan,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
@@ -62,9 +62,9 @@ pub struct ColMajorSpanMatmul {}
 pub struct SwizzleSpanMatmul<const W: u32> {}
 
 #[cube]
-impl Span {
-    pub fn new(row: SpanDim, col: SpanDim, batch: SpanDim) -> Span {
-        Span { row, col, batch }
+impl PartitionSpan {
+    pub fn new(row: SpanDim, col: SpanDim, batch: SpanDim) -> PartitionSpan {
+        PartitionSpan { row, col, batch }
     }
 }
 
@@ -95,7 +95,7 @@ impl GlobalPartitionMatmul for RowMajorSpanMatmul {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: Span,
+        span: PartitionSpan,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
@@ -129,7 +129,7 @@ impl GlobalPartitionMatmul for ColMajorSpanMatmul {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: Span,
+        span: PartitionSpan,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,
@@ -163,7 +163,7 @@ impl<const W: u32> GlobalPartitionMatmul for SwizzleSpanMatmul<W> {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        span: Span,
+        span: PartitionSpan,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         quantization: CubeOption<Quantization<MP>>,

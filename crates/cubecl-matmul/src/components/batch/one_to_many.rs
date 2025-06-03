@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::span::{GlobalPartitionMatmul, Span, SpanDim};
+use crate::components::batch::span::{GlobalPartitionMatmul, PartitionSpan, SpanDim};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::Quantization;
 use crate::components::{
@@ -152,7 +152,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: GlobalPartitionMatmu
         let (m_index, n_index) = C::m_n_indices();
         let batch_index = C::batch_index();
 
-        let span = Span::new(
+        let span = PartitionSpan::new(
             SpanDim::new(problem_m, stage_m, m_index, cubes_m),
             SpanDim::new(problem_n, stage_n, n_index, cubes_n),
             SpanDim::new(shape_b, stage_b, batch_index, cubes_b),
