@@ -54,7 +54,19 @@ pub fn test_matmul_algorithm<A, P, R>(
         &selection,
     );
 
-    let cube_dim = A::cube_dim(&selection);
+    let cube_dim = match A::cube_dim(&selection) {
+        Ok(cube_dim) => cube_dim,
+        Err(err) => {
+            let msg = format!("Can't launch the test: {err}");
+            if panic_on_launch_err {
+                panic!("{msg}");
+            } else {
+                println!("{msg}");
+                return;
+            }
+        }
+    };
+
     let cube_count = A::cube_count(&selection, &problem);
 
     let config = match A::make_config(

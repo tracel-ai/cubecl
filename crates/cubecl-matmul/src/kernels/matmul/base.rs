@@ -289,7 +289,7 @@ pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: MatmulSelection,
 ) -> Result<(), MatmulLaunchError> {
-    let cube_dim = A::cube_dim(&selection);
+    let cube_dim = A::cube_dim(&selection)?;
     let cube_count = A::cube_count(&selection, &problem);
 
     launch_matmul::<MS, R, A>(

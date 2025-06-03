@@ -37,11 +37,6 @@ where
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        let num_planes = selection.tiling_scheme.partitions_in_stage_m();
-        CubeDim::new(selection.plane_dim, num_planes, 1)
-    }
-
     fn selection<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,

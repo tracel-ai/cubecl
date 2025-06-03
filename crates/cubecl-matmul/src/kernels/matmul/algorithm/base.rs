@@ -1,9 +1,10 @@
 use crate::components::batch::BatchMatmulFamily;
+use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
 use crate::components::stage::{NumStages, PartitionBuffering, StageVectorization};
 use crate::components::{
-    MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
-    global, stage, tile,
+    InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    TilingScheme, batch, global, stage, tile,
 };
 use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
@@ -57,7 +58,10 @@ pub trait Algorithm {
     type GlobalMatmul: global::GlobalMatmulFamily<Input = GlobalInput<StageInput>>;
     type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        Self::GlobalMatmul::cube_dim(selection)
+    }
+
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
         Self::BatchMatmul::cube_count(selection, problem)
     }
