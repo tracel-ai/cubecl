@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::span::{GlobalPartitionMatmul, PartitionSpan, PartitionSpanDim};
+use crate::components::batch::partition_batch_matmul::{
+    GlobalPartitionMatmul, PartitionSpan, PartitionSpanDim,
+};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::Quantization;
 use crate::components::{
@@ -133,40 +135,70 @@ impl<
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        _size_k: u32,
+        size_k: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
+        // let (x_index, y_index) = C::m_n_indices();
+        // let x_offset = x_index * config.tiling_scheme().elements_in_stage_m();
+        // let y_offset = y_index * config.tiling_scheme().elements_in_stage_n();
+        // let nth_batch = C::batch_index();
+        // let k_range = (0, size_k);
+
+        // let global_config = config.global_config();
+
+        // gmm_execute::<MP, GMM>(
+        //     lhs,
+        //     rhs,
+        //     out,
+        //     x_offset,
+        //     y_offset,
+        //     nth_batch,
+        //     &mut GMM::init_accumulator(global_config),
+        //     k_range,
+        //     quantization,
+        //     global_config,
+        // );
+
+        let k_range = (0, size_k);
+
         let rank = out.rank();
         let problem_m = out.shape(rank - 2);
         let problem_n = out.shape(rank - 1);
 
-        let mut shape_b = 1;
+        let mut problem_b = 1;
         for b in 0..rank - 2 {
-            shape_b *= out.shape(b);
+            problem_b *= out.shape(b);
         }
 
-        let cubes_m = config.cube_count_m();
-        let cubes_n = config.cube_count_n();
-        let cubes_b = config.cube_count_batch();
-
-        let stage_m = config.tiling_scheme().elements_in_stage_m();
-        let stage_n = config.tiling_scheme().elements_in_stage_n();
-        let stage_b = 1;
-
+        let ts = config.tiling_scheme();
         let (m_index, n_index) = P::m_n_indices();
         let batch_index = P::batch_index();
 
         let span = PartitionSpan::new(
-            PartitionSpanDim::new(problem_m, stage_m, m_index, cubes_m),
-            PartitionSpanDim::new(problem_n, stage_n, n_index, cubes_n),
-            PartitionSpanDim::new(shape_b, stage_b, batch_index, cubes_b),
+            PartitionSpanDim::new(
+                problem_m,
+                m_index,
+                ts.elements_in_stage_m(),
+                ts.elements_in_global_partition_m(),
+            ),
+            PartitionSpanDim::new(
+                problem_n,
+                n_index,
+                ts.elements_in_stage_n(),
+                ts.elements_in_global_partition_n(),
+            ),
+            PartitionSpanDim::new(
+                problem_b,
+                batch_index,
+                1u32,
+                ts.global_partition_size.batches,
+            ),
         );
-
-        let k_range = (0, lhs.shape(rank - 1));
 
         let global_config = config.global_config();
         let acc = GMM::init_accumulator(global_config);
+
         GPMM::execute::<MP, GMM>(
             lhs,
             rhs,
@@ -182,11 +214,11 @@ impl<
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
-pub struct Config<G: global::GlobalConfig, C: Partitioner> {
+pub struct Config<G: global::GlobalConfig, P: Partitioner> {
     global_config: G,
     cube_count: (u32, u32, u32),
     quantized: bool,
-    _c: PhantomData<C>,
+    _c: PhantomData<P>,
 }
 
 impl<G: global::GlobalConfig, P: Partitioner> batch::BatchConfig for Config<G, P> {

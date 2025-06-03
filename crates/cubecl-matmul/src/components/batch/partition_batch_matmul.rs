@@ -23,11 +23,13 @@ pub struct PartitionSpan {
 }
 
 #[derive(CubeType)]
-/// Span information in one dimension
 pub struct PartitionSpanDim {
     start: u32,
     end: u32,
+    #[cube(comptime)]
     step: u32,
+    #[cube(comptime)]
+    num_steps: u32,
 }
 
 #[cube]
@@ -74,22 +76,20 @@ impl PartitionSpan {
 
 #[cube]
 impl PartitionSpanDim {
-    pub fn new(shape: u32, stage: u32, cube_pos: u32, num_cubes: u32) -> PartitionSpanDim {
-        let num_stages = (shape + stage - 1) / stage;
-        let num = (num_stages + num_cubes - 1) / num_cubes;
-        let span = num * stage;
-        let start = cube_pos * span;
-        let end = Min::min(start + span, shape);
+    pub fn new(
+        problem_dim: u32,
+        cube_pos: u32,
+        #[comptime] stage_dim: u32,
+        #[comptime] global_partition_dim: u32,
+    ) -> PartitionSpanDim {
+        let start = cube_pos * global_partition_dim;
+        let end = Min::min(start + global_partition_dim, problem_dim);
         PartitionSpanDim {
             start,
             end,
-            step: stage,
+            step: stage_dim,
+            num_steps: global_partition_dim.div_ceil(stage_dim),
         }
-    }
-
-    pub fn num_iterations(&self) -> u32 {
-        let range = self.end - self.start;
-        (range + self.step - 1) / self.step
     }
 }
 
@@ -105,8 +105,11 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
+        #[unroll(span.batch.num_steps <= 1)]
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
+            #[unroll(span.row.num_steps <= 1)]
             for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
+                #[unroll(span.col.num_steps <= 1)]
                 for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
@@ -139,8 +142,11 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
+        #[unroll(span.batch.num_steps <= 1)]
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
+            #[unroll(span.col.num_steps <= 1)]
             for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
+                #[unroll(span.row.num_steps <= 1)]
                 for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
@@ -173,12 +179,14 @@ impl<const W: u32> GlobalPartitionMatmul for SwizzleGlobalPartitionMatmul<W> {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
-        let num_swizzle = span.row.num_iterations() * span.col.num_iterations();
+        let num_swizzle = comptime!(span.row.num_steps * span.col.num_steps);
 
+        #[unroll(span.batch.num_steps <= 1)]
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
+            #[unroll(num_swizzle <= 1)]
             for n in 0..num_swizzle {
                 GMM::zero_accumulator(&mut acc, config);
-                let (row, col) = swizzle(n, span.row.num_iterations(), W);
+                let (row, col) = swizzle(n, span.row.num_steps, W);
 
                 let row_iter = span.row.start + row * span.row.step;
                 let col_iter = span.col.start + col * span.col.step;
