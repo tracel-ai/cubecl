@@ -14,13 +14,8 @@ impl<'a> Visitor<'a> {
                 let vector_type = self.item_to_type(index.list.item);
                 let index = self.get_index(index.index, index.list.item);
                 let operation =
-                    vector::load(self.context, vector_type, memref, &[index], self.location).into();
-                let load_ssa = self
-                    .block()
-                    .append_operation(operation)
-                    .result(0)
-                    .unwrap()
-                    .into();
+                    vector::load(self.context, vector_type, memref, &[index], self.location);
+                let load_ssa = self.append_operation_with_result(operation);
                 self.insert_variable(out, load_ssa);
             }
             Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
