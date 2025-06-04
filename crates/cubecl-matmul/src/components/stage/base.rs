@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TilingScheme,
+    ComputeResources, Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision,
+    MatrixLayout, TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter},
-    tile::{ComputeResources, TileConfig},
+    tile::TileConfig,
 };
 
 use super::{StageEventListener, StageToTileReader, TilingLayout};

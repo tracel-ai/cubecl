@@ -1,6 +1,6 @@
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
+        Ident, InputIdent, MatmulConfig, MatrixLayout, PlaneRoles,
         global::{GlobalConfig, load::LoaderMode},
         stage::{self},
     },
@@ -22,6 +22,7 @@ pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub num_planes: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
+    plane_roles: PlaneRoles,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
@@ -45,10 +46,6 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
             Ident::Rhs => self.rhs_layout,
             Ident::Out => self.stage_config.matrix_layout(Ident::Out),
         }
-    }
-
-    fn num_planes(&self) -> u32 {
-        self.num_planes
     }
 
     fn plane_dim(&self) -> u32 {
@@ -86,6 +83,10 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     fn loader_mode(&self) -> LoaderMode {
         self.loader_mode
     }
+
+    fn num_loading_planes(&self) -> u32 {
+        self.plane_roles.loader_count()
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
@@ -105,6 +106,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
         num_planes: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
+        plane_roles: PlaneRoles,
     ) -> Self {
         Self {
             stage_config,
@@ -119,6 +121,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
             num_planes,
             precompute_job,
             loader_mode,
+            plane_roles,
         }
     }
 }

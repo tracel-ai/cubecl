@@ -133,8 +133,8 @@ pub mod config {
             self.matmul.matrix_layout(ident)
         }
 
-        fn num_planes(&self) -> u32 {
-            self.matmul.num_planes()
+        fn num_loading_planes(&self) -> u32 {
+            self.matmul.num_loading_planes()
         }
 
         fn plane_dim(&self) -> u32 {

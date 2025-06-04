@@ -106,6 +106,9 @@ where
             cube_dim.y,
             input.loading_precompute_strategy,
             input.loader_mode,
+            input
+                .loading_plane_count
+                .to_plane_roles(stage_config.num_compute_planes()),
         )
     }
 }
@@ -474,8 +477,9 @@ impl<
 
         // We cannot start loading Lhs before all were loaded in fragments
         // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
-        let num_lhs_load_per_k =
-            comptime!(self.config.tiling_scheme().tiles_in_stage_m() / self.config.num_planes());
+        let num_lhs_load_per_k = comptime!(
+            self.config.tiling_scheme().tiles_in_stage_m() / self.config.num_loading_planes()
+        );
         let num_tmm_per_k =
             comptime!(num_lhs_load_per_k * self.config.tiling_scheme().tiles_in_stage_n());
         let lhs_can_start = current_event >= event_count_total - num_tmm_per_k;

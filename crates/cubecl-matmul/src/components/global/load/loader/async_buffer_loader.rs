@@ -146,6 +146,6 @@ impl<
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         this.stage_memory
-            .clear_buffer::<S>(buffer_id, this.input_ident, config.stage_config())
+            .clear_buffer::<DoubleBufferingGlobalConfig<S>>(buffer_id, this.input_ident, config)
     }
 }

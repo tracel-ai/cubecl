@@ -1,4 +1,4 @@
-use crate::components::tile::TileConfig;
+use crate::components::ComputeResources;
 use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
 use crate::components::global::PlaneWriter;
@@ -6,7 +6,7 @@ use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;
 use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
-use crate::components::tile::ComputeResources;
+use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulConfigInput;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{

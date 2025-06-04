@@ -124,8 +124,7 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
-    /// Returns the number of planes in the cube
-    fn num_planes(&self) -> u32;
+    fn num_loading_planes(&self) -> u32;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;

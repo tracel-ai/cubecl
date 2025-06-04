@@ -1,3 +1,4 @@
+use crate::components::LoadingPlaneCount;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
@@ -16,6 +17,7 @@ pub struct GlobalInput<SI> {
     pub stage_input: SI,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
     pub loader_mode: LoaderMode,
+    pub loading_plane_count: LoadingPlaneCount,
 }
 
 pub struct StageInput {
@@ -96,6 +98,7 @@ pub trait Algorithm {
             },
             loading_precompute_strategy: Self::loading_precompute_strategy(),
             loader_mode: Self::loader_mode(),
+            loading_plane_count: Self::loading_plane_count(),
         }
     }
 
@@ -109,6 +112,10 @@ pub trait Algorithm {
 
     fn loader_mode() -> LoaderMode {
         LoaderMode::Relaxed
+    }
+
+    fn loading_plane_count() -> LoadingPlaneCount {
+        LoadingPlaneCount::default()
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {

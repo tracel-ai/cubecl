@@ -100,6 +100,9 @@ where
             cube_dim.y,
             input.loading_precompute_strategy,
             input.loader_mode,
+            input
+                .loading_plane_count
+                .to_plane_roles(stage_config.num_compute_planes()),
         )
     }
 }

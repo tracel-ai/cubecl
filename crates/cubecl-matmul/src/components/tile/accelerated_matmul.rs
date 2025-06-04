@@ -1,5 +1,5 @@
+use crate::components::resource::ComputeResources;
 use crate::components::config::MatmulConfig;
-use crate::components::tile::compute_resource::ComputeResources;
 use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,

@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
+use crate::components::resource::ComputeResources;
 use crate::components::config::MatmulConfig;
 use crate::components::problem::MatmulLineSizes;
-use crate::components::tile::compute_resource::ComputeResources;
 use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatrixLayout,
