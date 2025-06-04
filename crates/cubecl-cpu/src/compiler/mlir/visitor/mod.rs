@@ -1,3 +1,4 @@
+pub(super) mod arithmetic;
 pub(super) mod block;
 pub(super) mod elem;
 pub(super) mod instruction;

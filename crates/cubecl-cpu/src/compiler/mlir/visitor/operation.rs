@@ -1,18 +1,13 @@
 use cubecl_core::ir::{
-    Arithmetic, Bitwise, Comparison, Elem, IntKind, Metadata, Operation, UIntKind, Variable,
+    Bitwise, Comparison, Elem, IntKind, Metadata, Operation, UIntKind, Variable,
 };
 use melior::dialect::llvm;
-use melior::dialect::ods::llvm as llvm_ods;
 use melior::{
     dialect::{
         arith::{self, CmpfPredicate, CmpiPredicate},
         memref,
-        ods::vector,
     },
-    ir::{
-        Attribute, Type, TypeLike, Value, ValueLike, attribute::IntegerAttribute,
-        r#type::IntegerType,
-    },
+    ir::{Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
 };
 
 use super::Visitor;
@@ -74,188 +69,6 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, value);
             }
             _ => todo!("This metadata is not yet implemented {}", metadata),
-        }
-    }
-
-    pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: Variable) {
-        match arithmetic {
-            Arithmetic::Abs(abs) => {
-                let value = self.get_variable(abs.input);
-                let result_type = self.item_to_type(abs.input.item);
-                let abs = if abs.input.elem().is_int() {
-                    self.append_operation_with_result(llvm::intr_abs(
-                        self.context,
-                        value,
-                        false,
-                        result_type,
-                        self.location,
-                    ))
-                } else {
-                    self.append_operation_with_result(llvm_ods::intr_fabs(
-                        self.context,
-                        value,
-                        self.location,
-                    ))
-                };
-                self.insert_variable(out, abs);
-            }
-            Arithmetic::Add(add) => {
-                let (lhs, rhs) = self.get_binary_op_variable(add.lhs, add.rhs);
-                let operation = if add.lhs.elem().is_int() {
-                    arith::addi(lhs, rhs, self.location)
-                } else {
-                    arith::addf(lhs, rhs, self.location)
-                };
-                let result = self.append_operation_with_result(operation);
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Cos(cos) => {
-                let value = self.get_variable(cos.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_cos(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Div(div) => {
-                let (lhs, rhs) = self.get_binary_op_variable(div.lhs, div.rhs);
-                let operation = if div.lhs.elem().is_int() {
-                    arith::divf(lhs, rhs, self.location)
-                } else {
-                    arith::divsi(lhs, rhs, self.location)
-                };
-                let result = self.append_operation_with_result(operation);
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Dot(dot) => {
-                let lhs = self.get_variable(dot.lhs);
-                let rhs = self.get_variable(dot.rhs);
-                // This could be used if it wasn't broken and the documentation was usable https://mlir.llvm.org/docs/Dialects/Vector/#vectorcontract-vectorcontractionop
-                let result = self.elem_to_type(dot.lhs.elem());
-                if dot.lhs.elem().is_int() {
-                    let multiplied =
-                        self.append_operation_with_result(arith::muli(lhs, rhs, self.location));
-                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                    let reduction = self.append_operation_with_result(vector::reduction(
-                        self.context,
-                        result,
-                        multiplied,
-                        kind,
-                        self.location,
-                    ));
-                    self.insert_variable(out, reduction);
-                } else {
-                    let multiplied =
-                        self.append_operation_with_result(arith::mulf(lhs, rhs, self.location));
-                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                    let reduction = self.append_operation_with_result(vector::reduction(
-                        self.context,
-                        result,
-                        multiplied,
-                        kind,
-                        self.location,
-                    ));
-                    self.insert_variable(out, reduction);
-                }
-            }
-            Arithmetic::Erf(_) => {
-                unreachable!("Should have been transformed in primitive in a previous passe");
-            }
-            Arithmetic::Exp(exp) => {
-                let value = self.get_variable(exp.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_exp(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Floor(floor) => {
-                let value = self.get_variable(floor.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_floor(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Fma(fma) => {
-                let a = self.get_variable(fma.a);
-                let b = self.get_variable(fma.b);
-                let c = self.get_variable(fma.c);
-
-                let result_type = self.item_to_type(fma.a.item);
-                let result = self.append_operation_with_result(vector::fma(
-                    self.context,
-                    result_type,
-                    a,
-                    b,
-                    c,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Log(log) => {
-                let value = self.get_variable(log.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_log(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Log1p(log) => {
-                let value = self.get_variable(log.input);
-                let one = self.create_float_constant_from_item(log.input.item, 1.0);
-                let plus_one =
-                    self.append_operation_with_result(arith::addf(value, one, self.location));
-                let result = self.append_operation_with_result(llvm_ods::intr_log(
-                    self.context,
-                    plus_one,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Neg(neg) => {
-                let value = self.get_variable(neg.input);
-                let result = if neg.input.elem().is_int() {
-                    // Cmpl to 2
-                    let mask = self.create_int_constant_from_item(neg.input.item, -1);
-                    let inv =
-                        self.append_operation_with_result(arith::xori(value, mask, self.location)); // Inverse bit
-                    let one = self.create_int_constant_from_item(neg.input.item, 1);
-                    self.append_operation_with_result(arith::addui_extended(
-                        inv,
-                        one,
-                        self.location,
-                    ))
-                } else {
-                    self.append_operation_with_result(arith::negf(value, self.location))
-                };
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Mul(mul) => {
-                let (lhs, rhs) = self.get_binary_op_variable(mul.lhs, mul.rhs);
-                let operation = if mul.lhs.elem().is_int() {
-                    arith::muli(lhs, rhs, self.location)
-                } else {
-                    arith::mulf(lhs, rhs, self.location)
-                };
-                let result = self.append_operation_with_result(operation);
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Sub(sub) => {
-                let (lhs, rhs) = self.get_binary_op_variable(sub.lhs, sub.rhs);
-                let operation = if sub.lhs.elem().is_int() {
-                    arith::subi(lhs, rhs, self.location)
-                } else {
-                    arith::subf(lhs, rhs, self.location)
-                };
-                let result = self.append_operation_with_result(operation);
-                self.insert_variable(out, result);
-            }
-            _ => todo!("This arithmetic is not yet implemented: {}", arithmetic),
         }
     }
 
