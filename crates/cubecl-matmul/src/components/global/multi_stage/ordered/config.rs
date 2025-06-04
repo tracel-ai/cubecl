@@ -1,8 +1,6 @@
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout, PlaneRoles,
-        global::{GlobalConfig, load::LoaderMode},
-        stage::{self},
+        global::{load::LoaderMode, new_specializer, GlobalConfig, Specializer}, stage::{self}, Ident, InputIdent, MatmulConfig, MatrixLayout, PlaneRoles
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
@@ -23,6 +21,7 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
     plane_roles: PlaneRoles,
+    specializer: Specializer,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
@@ -90,6 +89,10 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
     fn num_loading_planes(&self) -> u32 {
         self.plane_roles.loader_count()
     }
+
+    fn specializer(&self) -> Specializer {
+        self.specializer
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for OrderedDoubleBufferingGlobalConfig<S> {}
@@ -125,6 +128,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             precompute_job,
             loader_mode,
             plane_roles,
+            specializer: new_specializer(plane_roles),
         }
     }
 }

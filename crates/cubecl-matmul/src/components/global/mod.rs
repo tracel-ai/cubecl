@@ -16,3 +16,4 @@ pub use base::*;
 pub use copy_mechanism::*;
 pub use quantization::*;
 pub use write::*;
+pub use specialization::*;

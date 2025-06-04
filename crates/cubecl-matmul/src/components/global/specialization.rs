@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-trait SpecializationRule: CubeType {
+pub trait SpecializationRule: CubeType {
     /// Returns true if the given plane_id is a loader
     fn is_loader(this: &Self, plane_id: u32) -> bool;
 
@@ -24,7 +24,7 @@ trait SpecializationRule: CubeType {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-struct ThresholdSpecializer {
+pub struct ThresholdSpecializer {
     pub loader_end: u32,
     pub compute_start: u32,
 }
@@ -115,15 +115,40 @@ impl SpecializationRule for Specializer {
     }
 }
 
+pub fn new_specializer(plane_roles: PlaneRoles) -> Specializer {
+    if plane_roles.has_specialization() {
+        Specializer::Threshold(ThresholdSpecializer {
+            loader_end: plane_roles.load_only + plane_roles.overlap,
+            compute_start: plane_roles.load_only,
+        })
+    } else {
+        Specializer::NoSpecialization
+    }
+}
+
+#[cube]
 impl Specializer {
-    pub fn new(plane_roles: PlaneRoles) -> Specializer {
-        if plane_roles.has_specialization() {
-            Specializer::Threshold(ThresholdSpecializer {
-                loader_end: plane_roles.load_only + plane_roles.overlap,
-                compute_start: plane_roles.load_only,
-            })
-        } else {
-            Specializer::NoSpecialization
-        }
+    pub fn is_loader(&self) -> bool {
+        <Specializer as SpecializationRule>::is_loader(self, UNIT_POS_Y)
+    }
+
+    pub fn is_computer(&self) -> bool {
+        <Specializer as SpecializationRule>::is_computer(self, UNIT_POS_Y)
+    }
+
+    pub fn plane_id_to_loader_index(&self) -> u32 {
+        <Specializer as SpecializationRule>::plane_id_to_loader_index(self, UNIT_POS_Y)
+    }
+
+    pub fn plane_id_to_computer_index(&self) -> u32 {
+        <Specializer as SpecializationRule>::plane_id_to_computer_index(self, UNIT_POS_Y)
+    }
+
+    pub fn loader_index_to_plane_id(&self, loader_index: u32) -> u32 {
+        <Specializer as SpecializationRule>::loader_index_to_plane_id(self, loader_index)
+    }
+
+    pub fn computer_index_to_plane_id(&self, computer_index: u32) -> u32 {
+        <Specializer as SpecializationRule>::computer_index_to_plane_id(self, computer_index)
     }
 }

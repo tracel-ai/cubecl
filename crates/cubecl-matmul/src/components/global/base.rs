@@ -6,6 +6,7 @@ use crate::{
         Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
         TilingScheme,
         config::MatmulConfig,
+        global::Specializer,
         stage::{self, StageConfig},
     },
     kernels::matmul::MatmulSelection,
@@ -125,6 +126,7 @@ pub trait GlobalConfig: MatmulConfig {
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     fn num_loading_planes(&self) -> u32;
+    fn specializer(&self) -> Specializer;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
