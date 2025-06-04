@@ -3,7 +3,7 @@ use cubecl_core::{ir::Elem, prelude::*};
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulProblem,
+    LoadingPlaneCount, MatmulProblem, PlaneCountMode,
     batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         self,
@@ -60,5 +60,12 @@ where
             elem_stage,
             elem_acc,
         )
+    }
+
+    fn loading_plane_count() -> LoadingPlaneCount {
+        LoadingPlaneCount {
+            overlap: PlaneCountMode::None,
+            load_only: PlaneCountMode::Inherit,
+        }
     }
 }

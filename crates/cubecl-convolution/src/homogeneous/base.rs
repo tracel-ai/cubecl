@@ -169,8 +169,8 @@ pub mod config {
             self.matmul.tiling_scheme()
         }
 
-        fn specializer(&self) -> Specializer {
-            self.matmul.specializer()
+        fn plane_roles(&self) -> Specializer {
+            self.matmul.plane_roles()
         }
     }
 

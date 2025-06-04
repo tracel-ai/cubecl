@@ -3,10 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::{
     components::{
-        Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-        TilingScheme,
+        Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory,
+        MatmulPrecision, MatrixLayout, PlaneRoles, TilingScheme,
         config::MatmulConfig,
-        global::Specializer,
         stage::{self, StageConfig},
     },
     kernels::matmul::MatmulSelection,
@@ -24,7 +23,10 @@ pub trait GlobalMatmulFamily:
 {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
 
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError>;
+    fn cube_dim(
+        selection: &MatmulSelection,
+        loading_plane_count: LoadingPlaneCount,
+    ) -> Result<CubeDim, InvalidConfigError>;
 }
 
 #[cube]
@@ -126,7 +128,7 @@ pub trait GlobalConfig: MatmulConfig {
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     fn num_loading_planes(&self) -> u32;
-    fn specializer(&self) -> Specializer;
+    fn plane_roles(&self) -> PlaneRoles;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;

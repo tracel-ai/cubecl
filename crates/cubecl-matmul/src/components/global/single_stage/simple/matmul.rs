@@ -1,8 +1,8 @@
 use crate::{
     components::{
-        InputIdent, MatmulPrecision,
+        InputIdent, LoadingPlaneCount, MatmulPrecision,
         global::{
-            GlobalMatmul, Quantization, ZeroAccumulatorLoader,
+            GlobalMatmul, Quantization, ThresholdSpecializer, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
         },
@@ -45,8 +45,16 @@ where
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        SMM::computation_resources(&selection.tiling_scheme)?.to_cube_dim(selection.plane_dim)
+    fn cube_dim(
+        selection: &MatmulSelection,
+        loading_plane_count: LoadingPlaneCount,
+    ) -> Result<CubeDim, InvalidConfigError> {
+        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
+        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        Ok(CubeDim::new_2d(
+            selection.plane_dim,
+            compute_planes + load_only_planes,
+        ))
     }
 }
 
@@ -163,11 +171,17 @@ where
         let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
         let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
+        // TODO re-make thresholdspecializer in enum now that it does not come from config
+        let specializer = ThresholdSpecializer::new(config.plane_roles());
+
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            // todo an if comptime first
+            if specializer.is_loader(UNIT_POS_Y) {
+                Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+                Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            }
 
             sync_cube();
 

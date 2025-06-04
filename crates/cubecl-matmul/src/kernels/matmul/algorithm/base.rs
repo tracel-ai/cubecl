@@ -61,7 +61,7 @@ pub trait Algorithm {
     type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
 
     fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        Self::GlobalMatmul::cube_dim(selection)
+        Self::GlobalMatmul::cube_dim(selection, Self::loading_plane_count())
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {

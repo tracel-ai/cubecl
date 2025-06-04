@@ -1,6 +1,8 @@
 use crate::{
     components::{
-        global::{self, load::LoaderMode, new_specializer, Specializer}, stage, Ident, InputIdent, MatmulConfig, MatrixLayout, PlaneRoles
+        Ident, InputIdent, MatmulConfig, MatrixLayout, PlaneRoles,
+        global::{self, load::LoaderMode},
+        stage,
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
@@ -21,7 +23,6 @@ pub struct Config<S: stage::StageConfig> {
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
     plane_roles: PlaneRoles,
-    specializer: Specializer,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -87,8 +88,8 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.plane_roles.loader_count()
     }
 
-    fn specializer(&self) -> Specializer {
-        self.specializer
+    fn plane_roles(&self) -> PlaneRoles {
+        self.plane_roles
     }
 }
 
@@ -125,7 +126,6 @@ impl<S: stage::StageConfig> Config<S> {
             precompute_job,
             loader_mode,
             plane_roles,
-            specializer: new_specializer(plane_roles),
         }
     }
 }

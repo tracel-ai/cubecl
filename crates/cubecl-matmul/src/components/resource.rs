@@ -43,8 +43,8 @@ impl ComputeResources {
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LoadingPlaneCount {
-    overlap: PlaneCountMode,
-    load_only: PlaneCountMode,
+    pub overlap: PlaneCountMode,
+    pub load_only: PlaneCountMode,
 }
 
 impl Default for LoadingPlaneCount {
@@ -56,17 +56,6 @@ impl Default for LoadingPlaneCount {
     }
 }
 impl LoadingPlaneCount {
-    /// Fits all in overlap first, if there are more, go in load_only
-    pub fn from_fixed_total(target_loading_planes: u32, compute_planes: u32) -> Self {
-        let overlap_count = target_loading_planes.min(compute_planes);
-        let load_only_count = target_loading_planes.saturating_sub(overlap_count);
-
-        Self {
-            overlap: PlaneCountMode::Fixed(overlap_count),
-            load_only: PlaneCountMode::Fixed(load_only_count),
-        }
-    }
-
     pub fn to_plane_roles(&self, compute_planes: u32) -> PlaneRoles {
         let overlap = self.get_overlap_count(compute_planes);
         PlaneRoles {
