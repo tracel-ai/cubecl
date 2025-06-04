@@ -41,9 +41,6 @@ melior = { workspace = true }
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
     "export_tests",
 ] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.6.0", features = [
-    "export_tests",
-] }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
     "export_tests",
 ] }
