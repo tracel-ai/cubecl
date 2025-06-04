@@ -41,6 +41,38 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
+            Arithmetic::Ceil(ceil) => {
+                let value = self.get_variable(ceil.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_ceil(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Clamp(clamp) => {
+                let value = self.get_variable(clamp.input);
+                let min = self.get_variable(clamp.input);
+                let max = self.get_variable(clamp.input);
+
+                let value = if self.is_signed_int(clamp.input.elem()) {
+                    let min =
+                        self.append_operation_with_result(arith::maxsi(value, min, self.location));
+                    self.append_operation_with_result(arith::minsi(min, max, self.location))
+                } else if self.is_unsigned_int(clamp.input.elem()) {
+                    let min =
+                        self.append_operation_with_result(arith::maxui(value, min, self.location));
+                    self.append_operation_with_result(arith::minui(min, max, self.location))
+                } else {
+                    let min = self.append_operation_with_result(arith::maxnumf(
+                        value,
+                        min,
+                        self.location,
+                    ));
+                    self.append_operation_with_result(arith::minimumf(min, max, self.location))
+                };
+                self.insert_variable(out, value);
+            }
             Arithmetic::Cos(cos) => {
                 let value = self.get_variable(cos.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_cos(
@@ -233,16 +265,8 @@ impl<'a> Visitor<'a> {
             Arithmetic::Neg(neg) => {
                 let value = self.get_variable(neg.input);
                 let result = if neg.input.elem().is_int() {
-                    // Complement to 2 (inverse + 1)
-                    let mask = self.create_int_constant_from_item(neg.input.item, -1);
-                    let inv =
-                        self.append_operation_with_result(arith::xori(value, mask, self.location)); // Inverse bit
-                    let one = self.create_int_constant_from_item(neg.input.item, 1);
-                    self.append_operation_with_result(arith::addui_extended(
-                        inv,
-                        one,
-                        self.location,
-                    ))
+                    let zero = self.create_int_constant_from_item(neg.input.item, 0);
+                    self.append_operation_with_result(arith::subi(zero, value, self.location))
                 } else {
                     self.append_operation_with_result(arith::negf(value, self.location))
                 };
@@ -280,6 +304,63 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, value);
             }
+            Arithmetic::Powf(powf) => {
+                let base = self.get_variable(powf.lhs);
+                let exp = self.get_variable(powf.rhs);
+                let result = self.append_operation_with_result(llvm_ods::intr_pow(
+                    self.context,
+                    base,
+                    exp,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Recip(recip) => {
+                let value = self.get_variable(recip.input);
+                let one = self.create_float_constant_from_item(recip.input.item, 1.0);
+                let recip =
+                    self.append_operation_with_result(arith::divf(one, value, self.location));
+                self.insert_variable(out, recip);
+            }
+            Arithmetic::Remainder(remainder) => {
+                let lhs = self.get_variable(remainder.lhs);
+                let rhs = self.get_variable(remainder.rhs);
+                let value = if self.is_signed_int(remainder.lhs.elem()) {
+                    self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
+                } else if self.is_unsigned_int(remainder.lhs.elem()) {
+                    self.append_operation_with_result(arith::remui(lhs, rhs, self.location))
+                } else {
+                    self.append_operation_with_result(arith::remf(lhs, rhs, self.location))
+                };
+                self.insert_variable(out, value);
+            }
+            Arithmetic::Round(round) => {
+                let input = self.get_variable(round.input);
+                let output = self.append_operation_with_result(llvm_ods::intr_round(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                self.insert_variable(out, output);
+            }
+            Arithmetic::Sin(sin) => {
+                let input = self.get_variable(sin.input);
+                let output = self.append_operation_with_result(llvm_ods::intr_sin(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                self.insert_variable(out, output);
+            }
+            Arithmetic::Sqrt(sqrt) => {
+                let input = self.get_variable(sqrt.input);
+                let output = self.append_operation_with_result(llvm_ods::intr_sin(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                self.insert_variable(out, output);
+            }
             Arithmetic::Sub(sub) => {
                 let (lhs, rhs) = self.get_binary_op_variable(sub.lhs, sub.rhs);
                 let operation = if sub.lhs.elem().is_int() {
@@ -290,7 +371,15 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
-            _ => todo!("This arithmetic is not yet implemented: {}", arithmetic),
+            Arithmetic::Tanh(tanh) => {
+                let input = self.get_variable(tanh.input);
+                let output = self.append_operation_with_result(llvm_ods::intr_tanh(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                self.insert_variable(out, output);
+            }
         }
     }
 }
