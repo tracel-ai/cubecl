@@ -1,3 +1,4 @@
+use crate::components::LoadingPlaneCount;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
@@ -6,7 +7,6 @@ use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
     TilingScheme, batch, global, stage, tile,
 };
-use crate::components::{LoadingPlaneCount, PlaneCountMode};
 use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
