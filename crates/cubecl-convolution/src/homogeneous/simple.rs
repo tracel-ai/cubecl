@@ -14,7 +14,7 @@ use cubecl_matmul::{
         EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
         MatmulPrecision, MatmulSpec, OutputRuntimeArg,
         global::{
-            AccumulatorLoader, GlobalConfig, SpecializerConfig,
+            AccumulatorLoader, GlobalConfig,
             load::{SyncFullLoader, sync_full_cyclic},
             single_stage,
         },
@@ -208,11 +208,6 @@ where
         );
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        let specializer_config = SpecializerConfig::from_loading_plane_count(
-            input.loading_plane_count,
-            stage_config.num_compute_planes(),
-        );
-
         config::ConvolutionConfig::new(
             single_stage::Config::new(
                 stage_config,
@@ -228,7 +223,6 @@ where
                 stage_k,
                 input.loading_precompute_strategy,
                 input.loader_mode,
-                specializer_config,
             ),
             &problem.kernel_size,
             &problem.stride,

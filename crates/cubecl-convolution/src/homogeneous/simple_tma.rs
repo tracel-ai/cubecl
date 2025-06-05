@@ -20,9 +20,7 @@ use cubecl_matmul::{
     components::{
         EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
         MatmulSpec, OutputRuntimeArg,
-        global::{
-            AccumulatorLoader, GlobalConfig, SpecializerConfig, load::arrive_tma, single_stage,
-        },
+        global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
@@ -223,11 +221,6 @@ where
         );
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        let specializer_config = SpecializerConfig::from_loading_plane_count(
-            input.loading_plane_count,
-            stage_config.num_compute_planes(),
-        );
-
         config::ConvolutionConfig::new(
             single_stage::Config::new(
                 stage_config,
@@ -243,7 +236,6 @@ where
                 stage_k,
                 input.loading_precompute_strategy,
                 input.loader_mode,
-                specializer_config,
             ),
             &problem.kernel_size,
             &problem.stride,

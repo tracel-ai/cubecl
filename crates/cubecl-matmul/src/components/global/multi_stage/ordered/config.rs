@@ -22,7 +22,6 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub num_planes: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
-    specializer_config: SpecializerConfig,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
@@ -88,11 +87,11 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
     }
 
     fn num_loading_planes(&self) -> u32 {
-        self.specializer_config.loader_count()
+        self.stage_config.specializer_config().loader_count()
     }
 
     fn specializer_config(&self) -> SpecializerConfig {
-        self.specializer_config
+        self.stage_config.specializer_config()
     }
 }
 
@@ -113,7 +112,6 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         num_planes: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
-        specializer_config: SpecializerConfig,
     ) -> Self {
         Self {
             stage_config,
@@ -128,7 +126,6 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             num_planes,
             precompute_job,
             loader_mode,
-            specializer_config,
         }
     }
 }

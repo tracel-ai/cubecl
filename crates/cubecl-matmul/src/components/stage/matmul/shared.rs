@@ -1,6 +1,6 @@
 use crate::components::{
     Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
-    global::AccumulatorLoader,
+    global::{AccumulatorLoader, SpecializerConfig},
     stage::{PartitionBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
 };
@@ -15,8 +15,9 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
-    pub load_plane_offset: u32,
-    pub num_compute_planes: u32,
+    // pub load_plane_offset: u32,
+    // pub num_compute_planes: u32,
+    specializer_config: SpecializerConfig,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -61,12 +62,12 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tiling_scheme
     }
 
-    fn load_plane_offset(&self) -> u32 {
-        self.load_plane_offset
+    fn num_compute_planes(&self) -> u32 {
+        self.specializer_config.computer_count()
     }
 
-    fn num_compute_planes(&self) -> u32 {
-        self.num_compute_planes
+    fn specializer_config(&self) -> SpecializerConfig {
+        self.specializer_config
     }
 }
 
@@ -80,8 +81,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         quantized: bool,
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
-        load_plane_offset: u32,
-        num_compute_planes: u32,
+        specializer_config: SpecializerConfig,
     ) -> Self {
         Self {
             tile_config,
@@ -89,8 +89,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             partition_buffering,
             num_stages,
-            load_plane_offset,
-            num_compute_planes,
+            specializer_config,
         }
     }
 }

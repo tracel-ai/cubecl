@@ -1,6 +1,8 @@
 use crate::components::ComputeResources;
 use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
+use crate::components::global::Specializer;
+use crate::components::global::SpecializerConfig;
 use crate::components::global::UnitWriter;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
@@ -13,7 +15,6 @@ use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
 use crate::kernels::MatmulAvailabilityError;
-use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -41,7 +42,10 @@ impl StagePartitioner for UnitPartitioner {
     }
 
     fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
-        UNIT_POS - config.load_plane_offset() * config.plane_dim()
+        let plane_id =
+            Specializer::new(config.specializer_config()).plane_id_to_computer_index(UNIT_POS_Y);
+
+        UNIT_POS_X + config.plane_dim() * plane_id
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
@@ -120,14 +124,16 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
 
-        let total_planes = cube_dim.y;
-        let num_compute_planes =
+        let compute_planes =
             <Self as StageMatmulFamily>::computation_resources(&stage_input.tiling_scheme)
                 .unwrap_or_else(|e| panic!("{}", e))
                 .as_plane_resources(tile_config.plane_dim())
                 .unwrap_or_else(|e| panic!("{}", e))
                 .get_count();
-        let num_loader_only_planes = total_planes - num_compute_planes;
+        let specializer_config = SpecializerConfig::from_loading_plane_count(
+            stage_input.loading_plane_count,
+            compute_planes,
+        );
 
         CommonStageConfig::new(
             tile_config,
@@ -135,8 +141,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             quantized,
             stage_input.partition_buffering,
             stage_input.num_stages,
-            num_loader_only_planes,
-            num_compute_planes,
+            specializer_config,
         )
     }
 }

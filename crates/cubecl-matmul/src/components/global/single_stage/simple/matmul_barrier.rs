@@ -5,7 +5,6 @@ use crate::components::LoadingPlaneCount;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
-use crate::components::global::SpecializerConfig;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::load::AsyncLoader;
@@ -113,11 +112,6 @@ where
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        let specializer_config = SpecializerConfig::from_loading_plane_count(
-            input.loading_plane_count,
-            stage_config.num_compute_planes(),
-        );
-
         Config::new(
             stage_config,
             problem.m as u32 % stage_shape_m != 0,
@@ -131,7 +125,6 @@ where
             stage_shape_k,
             input.loading_precompute_strategy,
             input.loader_mode,
-            specializer_config,
         )
     }
 }

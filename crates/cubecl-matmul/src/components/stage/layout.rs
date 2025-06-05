@@ -154,7 +154,7 @@ impl TilingOrder for OrderedTilingOrder {
         if Ident::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
-        if config.load_plane_offset() > 0 {
+        if config.specializer_config().has_specialization() {
             panic!("Ordered tiling order unimplemented for specialized")
         }
 
@@ -182,7 +182,7 @@ impl TilingOrder for OrderedTilingOrder {
         if Ident::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
-        if config.load_plane_offset() > 0 {
+        if config.specializer_config().has_specialization() {
             panic!("Ordered tiling order unimplemented for specialized")
         }
 

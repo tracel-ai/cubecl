@@ -53,6 +53,10 @@ impl SpecializerConfig {
             SpecializerKind::NoSpecialization => false,
         }
     }
+
+    pub fn has_specialization(&self) -> bool {
+        self.plane_roles.has_specialization()
+    }
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]

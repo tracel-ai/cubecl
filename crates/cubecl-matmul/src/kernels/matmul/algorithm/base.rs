@@ -17,7 +17,6 @@ pub struct GlobalInput<SI> {
     pub stage_input: SI,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
     pub loader_mode: LoaderMode,
-    pub loading_plane_count: LoadingPlaneCount,
 }
 
 pub struct StageInput {
@@ -25,6 +24,7 @@ pub struct StageInput {
     pub partition_buffering: stage::PartitionBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
+    pub loading_plane_count: LoadingPlaneCount,
 }
 
 pub enum MultiRowStrategy {
@@ -95,10 +95,10 @@ pub trait Algorithm {
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
+                loading_plane_count: Self::loading_plane_count(),
             },
             loading_precompute_strategy: Self::loading_precompute_strategy(),
             loader_mode: Self::loader_mode(),
-            loading_plane_count: Self::loading_plane_count(),
         }
     }
 

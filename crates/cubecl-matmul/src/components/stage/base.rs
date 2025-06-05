@@ -6,7 +6,7 @@ use crate::components::{
     ComputeResources, Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision,
     MatrixLayout, TilingScheme,
     config::MatmulConfig,
-    global::{self, AccumulatorLoader, GlobalWriter},
+    global::{self, AccumulatorLoader, GlobalWriter, SpecializerConfig},
     tile::TileConfig,
 };
 
@@ -153,11 +153,10 @@ pub trait StageConfig: MatmulConfig {
 
     fn tiling_scheme(&self) -> TilingScheme;
 
-    /// Number of planes that perform only loading
-    fn load_plane_offset(&self) -> u32;
-
     /// Number of planes that perform computation
     fn num_compute_planes(&self) -> u32;
+
+    fn specializer_config(&self) -> SpecializerConfig;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
