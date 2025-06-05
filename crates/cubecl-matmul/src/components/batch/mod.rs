@@ -1,13 +1,12 @@
-pub mod one_to_many;
-pub mod one_to_one;
+pub mod partitioned_batch_matmul;
 
 mod base;
 mod cube_dispatch;
+mod partition_batch_matmul;
 mod shared;
-mod span;
 
 pub use base::*;
 pub use cube_dispatch::*;
-pub use span::*;
+pub use partition_batch_matmul::*;
 
 pub use shared::*;

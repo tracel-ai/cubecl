@@ -1,10 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
-    config::MatmulConfig,
-    stage::{self, StageConfig},
+use crate::{
+    components::{
+        Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+        TilingScheme,
+        config::MatmulConfig,
+        stage::{self, StageConfig},
+    },
+    kernels::matmul::MatmulSelection,
 };
 use cubecl_std::{
     CubeOption,
@@ -18,6 +22,8 @@ pub trait GlobalMatmulFamily:
     MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
 {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError>;
 }
 
 #[cube]

@@ -75,7 +75,7 @@ where
         let mut lhs = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(config.tiling_scheme().tiles_in_partition_m()) {
+        for _ in 0..comptime!(config.tiling_scheme().tiles_in_stage_partition_m()) {
             lhs.push(TMM::allocate_lhs(tile_config));
         }
 
@@ -126,9 +126,9 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let m_iterations = config.tiling_scheme().tiles_in_partition_m();
-        let n_iterations = config.tiling_scheme().tiles_in_partition_n();
-        let k_iterations = config.tiling_scheme().tiles_in_partition_k();
+        let m_iterations = config.tiling_scheme().tiles_in_stage_partition_m();
+        let n_iterations = config.tiling_scheme().tiles_in_stage_partition_n();
+        let k_iterations = config.tiling_scheme().tiles_in_stage_partition_k();
 
         let mut k_iter = comptime![0u32];
         let mut lhs_load_counter = comptime![0];
@@ -233,9 +233,9 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let m_iterations = config.tiling_scheme().tiles_in_partition_m();
-        let n_iterations = config.tiling_scheme().tiles_in_partition_n();
-        let k_iterations = config.tiling_scheme().tiles_in_partition_k();
+        let m_iterations = config.tiling_scheme().tiles_in_stage_partition_m();
+        let n_iterations = config.tiling_scheme().tiles_in_stage_partition_n();
+        let k_iterations = config.tiling_scheme().tiles_in_stage_partition_k();
 
         let mut k_iter = comptime![0u32];
 

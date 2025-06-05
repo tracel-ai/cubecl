@@ -5,7 +5,7 @@ use cubecl_matmul::components::TilingScheme;
 use cubecl_matmul::{
     components::tile::TileMatmulFamily,
     kernels::matmul::{
-        NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, PlaneMatmulSelection, find_instruction_size,
+        MatmulSelection, NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_size,
     },
 };
 
@@ -80,7 +80,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     plane_dim: u32,
     elem_stage: Elem,
     elem_acc: Elem,
-) -> PlaneMatmulSelection {
+) -> MatmulSelection {
     // rough heuristic based on previous bench results where 512 channels with a 3x3 kernel seemed
     // to be the rough cutoff for the k=4 size.
     let stage_k = if problem.k >= 4096 { 4 } else { 2 };
@@ -118,7 +118,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    PlaneMatmulSelection {
+    MatmulSelection {
         plane_dim,
         tiling_scheme,
     }

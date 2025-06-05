@@ -12,6 +12,7 @@ use crate::components::{
     global::args::{ConcreteInputsFactory, TensorMapInputs},
 };
 use crate::kernels::matmul::Algorithm;
+use crate::kernels::matmul::MatmulSelection;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 
@@ -23,7 +24,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: A::MatmulSelection,
+    selection: MatmulSelection,
 ) where
     A: Algorithm,
     P: TestPrecision,
@@ -50,7 +51,18 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &selection,
     );
 
-    let cube_dim = A::cube_dim(&selection);
+    let cube_dim = match A::cube_dim(&selection) {
+        Ok(cube_dim) => cube_dim,
+        Err(err) => {
+            let msg = format!("Can't launch the test: {err}");
+            if panic_on_launch_err {
+                panic!("{msg}");
+            } else {
+                println!("{msg}");
+                return;
+            }
+        }
+    };
     let cube_count = A::cube_count(&selection, &problem);
 
     let config = match A::make_config(
@@ -120,13 +132,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
-            &client,
-            cube_dim,
-            cube_count,
-            inputs,
-            output,
-            ScalarArg::new(problem.k as u32),
-            config,
+            &client, cube_dim, cube_count, inputs, output, config,
         );
     }
 

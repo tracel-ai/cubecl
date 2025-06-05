@@ -8,7 +8,7 @@ use cubecl_core::Runtime;
 use cubecl_matmul::components::global::args::ConcreteOutputFactory;
 use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
-use cubecl_matmul::kernels::matmul::PlaneMatmulSelection;
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionSize {
@@ -19,12 +19,7 @@ pub struct ConvolutionSize {
     pub out_c: usize,
 }
 
-pub fn test_algo<
-    A: Algorithm<MatmulSelection = PlaneMatmulSelection>,
-    Args: MatmulArgs,
-    P: TestPrecision,
-    R: Runtime,
->(
+pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     tile_size: TileSize,
     partition_size: PartitionSize,
     stage_size: StageSize,
@@ -88,7 +83,7 @@ pub fn test_algo<
         .build()
         .unwrap();
 
-    let selection = PlaneMatmulSelection {
+    let selection = MatmulSelection {
         plane_dim,
         tiling_scheme: tiling_scheme.clone(),
     };

@@ -137,7 +137,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) -> &TMM::Accumulator {
         this.sequence.index(comptime!(
-            i * config.tiling_scheme().tiles_in_partition_n() + j
+            i * config.tiling_scheme().tiles_in_stage_partition_n() + j
         ))
     }
 
@@ -148,7 +148,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         #[comptime] config: CommonStageConfig<TMM::Config>,
     ) -> &mut TMM::Accumulator {
         this.sequence.index_mut(comptime!(
-            i * config.tiling_scheme().tiles_in_partition_n() + j
+            i * config.tiling_scheme().tiles_in_stage_partition_n() + j
         ))
     }
 }

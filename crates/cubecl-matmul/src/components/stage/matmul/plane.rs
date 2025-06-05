@@ -4,12 +4,14 @@ use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;
 use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
+use crate::components::tile::ComputeResources;
 use crate::components::tile::TileMatmulConfigInput;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -55,6 +57,18 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     type RhsReader = RRF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
+
+    fn resource_demand(
+        selection: &MatmulSelection,
+    ) -> Result<ComputeResources, InvalidConfigError> {
+        if let ComputeResources::Planes(planes) = TMM::resource_demand(selection)? {
+            Ok(ComputeResources::Planes(
+                planes * selection.tiling_scheme.stage_partitions_in_stage_mn(),
+            ))
+        } else {
+            unreachable!("Plane matmul should not demand units")
+        }
+    }
 }
 
 impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFactory
@@ -64,7 +78,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_planes_needed = config.tiling_scheme().partitions_in_stage_mn();
+        let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
         let num_planes = config.num_planes();
 
         if num_planes != num_planes_needed {
@@ -75,7 +89,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
 
         // TODO we should allow buffering on m dimension
         if config.partition_buffering() == PartitionBuffering::Double
-            && config.tiling_scheme().tiles_in_partition_n() < 2
+            && config.tiling_scheme().tiles_in_stage_partition_n() < 2
         {
             return Err(Box::new(
                 "Error: Tried doing double buffering with only one tile to compute.".to_string(),

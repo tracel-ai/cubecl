@@ -9,8 +9,7 @@ use crate::components::global::{Quantization, load::TmaReader};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
-use crate::kernels::matmul::GlobalInput;
-
+use crate::kernels::matmul::{GlobalInput, MatmulSelection};
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
@@ -39,6 +38,10 @@ where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
+
+    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
+        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
+    }
 }
 
 impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>

@@ -28,15 +28,14 @@ pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
     type GlobalConvolution: ConvolutionFamily<Input = GlobalInput<StageInput>>;
-    type MatmulSelection: MatmulSelection;
 
     type Args: MatmulArgs;
 
-    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim;
-    fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
 
-    fn global_input(selection: &Self::MatmulSelection) -> GlobalInput<StageInput> {
-        let partition_buffering = if selection.tiling_scheme().tiles_in_partition_n() > 1 {
+    fn global_input(selection: &MatmulSelection) -> GlobalInput<StageInput> {
+        let partition_buffering = if selection.tiling_scheme.tiles_in_stage_partition_n() > 1 {
             Self::partition_buffering_strategy()
         } else {
             PartitionBuffering::Single
@@ -49,7 +48,7 @@ pub trait Algorithm {
 
         GlobalInput {
             stage_input: StageInput {
-                tiling_scheme: *selection.tiling_scheme(),
+                tiling_scheme: selection.tiling_scheme,
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
@@ -115,7 +114,7 @@ pub trait Algorithm {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-    ) -> Self::MatmulSelection;
+    ) -> MatmulSelection;
 
     fn line_sizes(
         problem: &ConvolutionProblem,

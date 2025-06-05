@@ -1,10 +1,13 @@
-use crate::components::{
-    MatmulLaunch, MatmulPrecision, Quantized, TilingScheme,
-    config::MatmulConfig,
-    global::{
-        self, GlobalConfig as _, Quantization,
-        args::{self, MatmulArgs, TensorInput, TensorOutput},
+use crate::{
+    components::{
+        MatmulLaunch, MatmulPrecision, MatmulProblem, Quantized, TilingScheme,
+        config::MatmulConfig,
+        global::{
+            self, GlobalConfig as _, Quantization,
+            args::{self, MatmulArgs, TensorInput, TensorOutput},
+        },
     },
+    kernels::matmul::MatmulSelection,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -16,6 +19,8 @@ use cubecl_std::{
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
+
+    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
 }
 
 #[cube]
@@ -44,7 +49,6 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        size_k: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     );
@@ -59,13 +63,13 @@ pub trait BatchConfig: MatmulConfig {
     fn global_config(&self) -> Self::GlobalConfig;
 
     /// Returns the largest m dimension supported with these configs
-    fn max_m(&self) -> u32;
+    fn max_problem_m(&self) -> u32;
 
     /// Returns the largest n dimension supported with these configs
-    fn max_n(&self) -> u32;
+    fn max_problem_n(&self) -> u32;
 
     /// Returns the largest number of batches supported with these configs
-    fn max_batches(&self) -> u32;
+    fn max_problem_batches(&self) -> u32;
 
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;
@@ -89,7 +93,6 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    size_k: u32,
     #[comptime] config: BMM::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
@@ -108,18 +111,10 @@ pub(crate) fn matmul<
             lhs,
             rhs,
             out,
-            size_k,
             CubeOption::new_Some(quantization),
             config,
         );
     } else {
-        BMM::Matmul::<(EI, ES, EA, EO)>::execute(
-            lhs,
-            rhs,
-            out,
-            size_k,
-            CubeOption::new_None(),
-            config,
-        );
+        BMM::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
     };
 }

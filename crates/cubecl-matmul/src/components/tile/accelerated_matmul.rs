@@ -1,10 +1,12 @@
 use crate::components::config::MatmulConfig;
+use crate::components::tile::compute_resource::ComputeResources;
 use crate::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatrixLayout, TileSize, as_cmma_layout,
 };
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::MatmulSelection;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
@@ -18,6 +20,12 @@ impl TileMatmulFamily for AcceleratedMatmul {
 
     fn requires_tensor_cores() -> bool {
         true
+    }
+
+    fn resource_demand(
+        _selection: &MatmulSelection,
+    ) -> Result<ComputeResources, InvalidConfigError> {
+        Ok(ComputeResources::Planes(1))
     }
 }
 

@@ -13,20 +13,20 @@ use cubecl_matmul::kernels::matmul::MatmulSelection;
 use super::base::ConvolutionProblem;
 
 pub trait ConvInputsLaunch: LaunchArg {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
-        selection: &M,
+        selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
 impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
-        _selection: &M,
+        _selection: &MatmulSelection,
         _problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
@@ -40,14 +40,14 @@ impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
 }
 
 impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
-    fn create<'a, M: MatmulSelection, R: Runtime>(
+    fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
-        selection: &M,
+        selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
-        let tiling_scheme = selection.tiling_scheme();
+        let tiling_scheme = selection.tiling_scheme;
         let stage_m = tiling_scheme.elements_in_stage_m();
         let stage_n = tiling_scheme.elements_in_stage_n();
         let tile_size_k = tiling_scheme.elements_in_tile_k();

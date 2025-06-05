@@ -14,18 +14,6 @@ pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
 const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
-#[derive(Debug)]
-pub struct PlaneMatmulSelection {
-    pub plane_dim: u32,
-    pub tiling_scheme: TilingScheme,
-}
-
-impl MatmulSelection for PlaneMatmulSelection {
-    fn tiling_scheme(&self) -> &TilingScheme {
-        &self.tiling_scheme
-    }
-}
-
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
@@ -33,7 +21,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     multi_row_strategy: MultiRowStrategy,
     elem_stage: Elem,
     elem_acc: Elem,
-) -> PlaneMatmulSelection {
+) -> MatmulSelection {
     let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
@@ -90,7 +78,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    PlaneMatmulSelection {
+    MatmulSelection {
         tiling_scheme,
         plane_dim,
     }

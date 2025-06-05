@@ -88,9 +88,9 @@ where
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        let m_acc_count = config.tiling_scheme().tiles_in_partition_m();
-        let n_acc_count = config.tiling_scheme().tiles_in_partition_n();
-        let num_partitions_n = config.tiling_scheme().partitions_in_stage_n();
+        let m_acc_count = config.tiling_scheme().tiles_in_stage_partition_m();
+        let n_acc_count = config.tiling_scheme().tiles_in_stage_partition_n();
+        let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
         let start_m = m_acc_count * (SP::position() / num_partitions_n);
         let start_n = n_acc_count * (SP::position() % num_partitions_n);
 
@@ -136,8 +136,8 @@ where
         let out_smem_line_size = stage_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_scheme().elements_in_tile_mn() / out_smem_line_size;
-        let m_iterations = global_config.tiling_scheme().tiles_in_partition_m();
-        let n_iterations = global_config.tiling_scheme().tiles_in_partition_n();
+        let m_iterations = global_config.tiling_scheme().tiles_in_stage_partition_m();
+        let n_iterations = global_config.tiling_scheme().tiles_in_stage_partition_n();
 
         let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * comptime!(SP::num_primitives(stage_config)),
@@ -146,7 +146,7 @@ where
         let slice_start = num_tile_lines * SP::position();
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let num_partitions_n = stage_config.tiling_scheme().partitions_in_stage_n();
+        let num_partitions_n = stage_config.tiling_scheme().stage_partitions_in_stage_n();
         let m_offset = m_iterations * (SP::position() / num_partitions_n);
         let n_offset = n_iterations * (SP::position() % num_partitions_n);
 

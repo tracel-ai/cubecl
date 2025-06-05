@@ -14,16 +14,13 @@ use crate::{
 };
 use cubecl_matmul::components::MatmulLineSizes;
 use cubecl_matmul::components::stage::NumStages;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
-use cubecl_matmul::{
-    components::{
-        InputIdent, InvalidConfigError, MatmulPrecision,
-        global::args::TensorMapArgs,
-        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
-        tile::TileMatmulFamily,
-    },
-    kernels::matmul::PlaneMatmulSelection,
+use cubecl_matmul::components::{
+    InputIdent, InvalidConfigError, MatmulPrecision,
+    global::args::TensorMapArgs,
+    stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+    tile::TileMatmulFamily,
 };
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_pitched};
 
@@ -40,21 +37,20 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
-    type MatmulSelection = PlaneMatmulSelection;
 
     type Args = TensorMapArgs;
 
-    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(
             selection.plane_dim,
-            selection.tiling_scheme().tiles_in_stage_m(),
+            selection.tiling_scheme.tiles_in_stage_m(),
             1,
         )
     }
 
-    fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme().elements_in_stage_m();
-        let n_stage = selection.tiling_scheme().elements_in_stage_n();
+    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
+        let m_stage = selection.tiling_scheme.elements_in_stage_m();
+        let n_stage = selection.tiling_scheme.elements_in_stage_n();
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
@@ -116,7 +112,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-    ) -> Self::MatmulSelection {
+    ) -> MatmulSelection {
         convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
     }
 }
