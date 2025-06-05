@@ -28,6 +28,7 @@ pub struct Visitor<'a> {
     pub location: Location<'a>,
     pub current_local_variables: HashMap<u32, Value<'a, 'a>>,
     pub current_version_variables: HashMap<(u32, u16), Value<'a, 'a>>,
+    pub current_mut_variables: HashMap<u32, Value<'a, 'a>>,
     pub global_buffers: Vec<Value<'a, 'a>>,
 
     pub cube_dim_x: Option<Value<'a, 'a>>,
@@ -52,6 +53,7 @@ impl<'a> Visitor<'a> {
     pub fn new(context: &'a Context, location: Location<'a>) -> Self {
         let current_local_variables = HashMap::new();
         let current_version_variables = HashMap::new();
+        let current_mut_variables = HashMap::new();
         let global_buffers = vec![];
         let block_stack = vec![];
 
@@ -77,6 +79,7 @@ impl<'a> Visitor<'a> {
             location,
             current_local_variables,
             current_version_variables,
+            current_mut_variables,
             global_buffers,
             cube_dim_x,
             cube_dim_y,
