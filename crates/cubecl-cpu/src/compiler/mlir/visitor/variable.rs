@@ -3,7 +3,7 @@ use cubecl_core::ir::{
 };
 use melior::{
     dialect::{
-        memref,
+        index, memref,
         ods::{arith, vector},
     },
     ir::{
@@ -220,25 +220,12 @@ impl<'a> Visitor<'a> {
         }
     }
     pub fn get_index(&self, variable: Variable, target_item: Item) -> Value<'a, 'a> {
-        let mut index = match variable.kind {
-            VariableKind::ConstantScalar(constant_scalar_value) => {
-                let value = match constant_scalar_value {
-                    ConstantScalarValue::Int(value, _) => value,
-                    ConstantScalarValue::UInt(value, _) => value as i64,
-                    _ => todo!("Operation is not implemented {}", constant_scalar_value),
-                };
-                let integer_type = Type::index(self.context);
-                let value = IntegerAttribute::new(integer_type, value).into();
-                self.append_operation_with_result(arith::constant(
-                    self.context,
-                    integer_type,
-                    value,
-                    self.location,
-                ))
-            }
-            VariableKind::Builtin(builtin) => self.get_builtin(builtin),
-            _ => todo!("{:?} is not yet implemented", variable.kind),
-        };
+        let index = self.get_variable(variable);
+        let mut index = self.append_operation_with_result(index::casts(
+            index,
+            Type::index(self.context),
+            self.location,
+        ));
         if let Some(vectorization) = target_item.vectorization {
             let vectorization = vectorization.get() as i64;
             let shift = vectorization.ilog2() as i64;
