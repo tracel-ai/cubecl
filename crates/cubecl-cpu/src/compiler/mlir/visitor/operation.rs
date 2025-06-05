@@ -1,7 +1,7 @@
 use cubecl_core::ir::{
     Bitwise, Comparison, Elem, IntKind, Metadata, Operation, UIntKind, Variable,
 };
-use melior::dialect::llvm;
+use melior::dialect::{index, llvm};
 use melior::{
     dialect::{
         arith::{self, CmpfPredicate, CmpiPredicate},
@@ -50,6 +50,12 @@ impl<'a> Visitor<'a> {
                 let value = self.append_operation_with_result(memref::dim(
                     variable,
                     constant,
+                    self.location,
+                ));
+                let integer_type = IntegerType::new(self.context, 32);
+                let value = self.append_operation_with_result(index::casts(
+                    value,
+                    integer_type.into(),
                     self.location,
                 ));
                 self.insert_variable(out, value);
