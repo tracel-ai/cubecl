@@ -50,6 +50,8 @@ impl<'a> Visitor<'a> {
                                 let block = region.first_block().unwrap();
                                 self.block_stack.push(block);
                                 self.visit_basic_block(*or_else, opt);
+                                self.block()
+                                    .append_operation(scf::r#yield(&[], self.location));
                                 self.block_stack.pop();
                                 region
                             } else {

@@ -27,13 +27,13 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, load_ssa);
             }
             Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
-                let memref = self.get_variable(index_assign.value);
+                let value = self.get_variable(index_assign.value);
                 let index = self.get_index(index_assign.index, index_assign.value.item);
-                let out_value = self.get_memory(out);
+                let memref = self.get_memory(out);
                 let operation = if index_assign.value.item.vectorization.is_none() {
-                    memref::store(memref, out_value, &[index], self.location)
+                    memref::store(value, memref, &[index], self.location)
                 } else {
-                    vector::store(self.context, memref, out_value, &[index], self.location).into()
+                    vector::store(self.context, value, memref, &[index], self.location).into()
                 };
                 self.block().append_operation(operation);
             }
