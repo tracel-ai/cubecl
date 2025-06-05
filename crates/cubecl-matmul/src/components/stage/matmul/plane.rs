@@ -13,6 +13,7 @@ use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
