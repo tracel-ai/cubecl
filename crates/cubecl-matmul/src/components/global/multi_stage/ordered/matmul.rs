@@ -1,9 +1,9 @@
-use crate::components::global::Quantization;
 use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
     SyncFullLoader, SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
 };
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{Quantization, SpecializerConfig};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::stage::{FullReaderFamily, StageEventListener};
@@ -101,6 +101,11 @@ where
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
+        let specializer_config = SpecializerConfig::from_loading_plane_count(
+            input.loading_plane_count,
+            stage_config.num_compute_planes(),
+        );
+
         OrderedDoubleBufferingGlobalConfig::new(
             stage_config,
             problem.m as u32 % stage_shape_m != 0,
@@ -114,9 +119,7 @@ where
             cube_dim.y,
             input.loading_precompute_strategy,
             input.loader_mode,
-            input
-                .loading_plane_count
-                .to_plane_roles(stage_config.num_compute_planes()),
+            specializer_config,
         )
     }
 }

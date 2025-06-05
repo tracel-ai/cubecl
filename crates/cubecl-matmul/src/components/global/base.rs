@@ -4,8 +4,9 @@ use cubecl_core::prelude::*;
 use crate::{
     components::{
         Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory,
-        MatmulPrecision, MatrixLayout, PlaneRoles, TilingScheme,
+        MatmulPrecision, MatrixLayout, TilingScheme,
         config::MatmulConfig,
+        global::SpecializerConfig,
         stage::{self, StageConfig},
     },
     kernels::matmul::MatmulSelection,
@@ -128,7 +129,7 @@ pub trait GlobalConfig: MatmulConfig {
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     fn num_loading_planes(&self) -> u32;
-    fn plane_roles(&self) -> PlaneRoles;
+    fn specializer_config(&self) -> SpecializerConfig;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;

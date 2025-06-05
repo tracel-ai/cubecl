@@ -2,7 +2,7 @@ use crate::{
     components::{
         InputIdent, LoadingPlaneCount, MatmulPrecision,
         global::{
-            GlobalMatmul, Quantization, Specializer, ZeroAccumulatorLoader,
+            GlobalMatmul, Quantization, Specializer, SpecializerConfig, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
         },
@@ -102,6 +102,11 @@ where
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
+        let specializer_config = SpecializerConfig::from_loading_plane_count(
+            input.loading_plane_count,
+            stage_config.num_compute_planes(),
+        );
+
         Config::new(
             stage_config,
             problem.m as u32 % stage_shape_m != 0,
@@ -115,9 +120,7 @@ where
             stage_shape_k,
             input.loading_precompute_strategy,
             input.loader_mode,
-            input
-                .loading_plane_count
-                .to_plane_roles(stage_config.num_compute_planes()),
+            specializer_config,
         )
     }
 }
@@ -173,7 +176,7 @@ where
         let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
         let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
-        let specializer = Specializer::new(config.plane_roles());
+        let specializer = Specializer::new(config.specializer_config());
 
         for _ in 0..num_loops {
             sync_cube();

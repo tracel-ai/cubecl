@@ -1,3 +1,4 @@
+use crate::components::global::SpecializerConfig;
 use crate::components::InputIdent;
 use crate::components::LoadingPlaneCount;
 use crate::components::MatmulPrecision;
@@ -123,6 +124,11 @@ where
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
+        let specializer_config = SpecializerConfig::from_loading_plane_count(
+            input.loading_plane_count,
+            stage_config.num_compute_planes(),
+        );
+
         Config::new(
             stage_config,
             problem.m as u32 % stage_shape_m != 0,
@@ -136,9 +142,7 @@ where
             stage_shape_k,
             input.loading_precompute_strategy,
             input.loader_mode,
-            input
-                .loading_plane_count
-                .to_plane_roles(stage_config.num_compute_planes()),
+            specializer_config,
         )
     }
 }
