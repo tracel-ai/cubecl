@@ -1,9 +1,9 @@
-use crate::components::global::SpecializerConfig;
 use crate::components::ComputeResources;
 use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
 use crate::components::global::PlaneWriter;
 use crate::components::global::Specializer;
+use crate::components::global::SpecializerConfig;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;

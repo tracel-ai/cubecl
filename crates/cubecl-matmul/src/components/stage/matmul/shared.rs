@@ -15,8 +15,6 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
-    // pub load_plane_offset: u32,
-    // pub num_compute_planes: u32,
     specializer_config: SpecializerConfig,
 }
 

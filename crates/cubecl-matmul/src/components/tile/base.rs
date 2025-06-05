@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TileSize, resource::ComputeResources, config::MatmulConfig, stage::StageVectorization,
+    TileSize, config::MatmulConfig, resource::ComputeResources, stage::StageVectorization,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
