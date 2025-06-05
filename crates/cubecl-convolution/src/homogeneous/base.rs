@@ -93,8 +93,8 @@ pub mod config {
 
     use crate::{ConvGemmConfig, base::Dimensionality};
     use cubecl_matmul::components::{
-        InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{GlobalConfig, Specializer, load::LoaderMode},
+        InputIdent, MatmulConfig, MatrixLayout, PlaneRoles, TilingScheme,
+        global::{GlobalConfig, load::LoaderMode},
     };
 
     use super::*;
@@ -169,7 +169,7 @@ pub mod config {
             self.matmul.tiling_scheme()
         }
 
-        fn plane_roles(&self) -> Specializer {
+        fn plane_roles(&self) -> PlaneRoles {
             self.matmul.plane_roles()
         }
     }
