@@ -33,18 +33,6 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn is_signed_int(&self, elem: Elem) -> bool {
-        matches!(elem, Elem::Int(_) | Elem::AtomicInt(_))
-    }
-
-    pub fn is_unsigned_int(&self, elem: Elem) -> bool {
-        matches!(elem, Elem::UInt(_) | Elem::AtomicUInt(_))
-    }
-
-    pub fn is_float(&self, elem: Elem) -> bool {
-        matches!(elem, Elem::Float(_) | Elem::AtomicFloat(_))
-    }
-
     pub fn visit_correct_index(
         &self,
         lhs: Value<'a, 'a>,

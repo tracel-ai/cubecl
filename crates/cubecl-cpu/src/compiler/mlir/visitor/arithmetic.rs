@@ -55,11 +55,11 @@ impl<'a> Visitor<'a> {
                 let min = self.get_variable(clamp.input);
                 let max = self.get_variable(clamp.input);
 
-                let value = if self.is_signed_int(clamp.input.elem()) {
+                let value = if clamp.input.elem().is_signed_int() {
                     let min =
                         self.append_operation_with_result(arith::maxsi(value, min, self.location));
                     self.append_operation_with_result(arith::minsi(min, max, self.location))
-                } else if self.is_unsigned_int(clamp.input.elem()) {
+                } else if clamp.input.elem().is_unsigned_int() {
                     let min =
                         self.append_operation_with_result(arith::maxui(value, min, self.location));
                     self.append_operation_with_result(arith::minui(min, max, self.location))
@@ -204,9 +204,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Max(max) => {
                 let lhs = self.get_variable(max.lhs);
                 let rhs = self.get_variable(max.rhs);
-                let value = if self.is_signed_int(max.lhs.elem()) {
+                let value = if max.lhs.elem().is_signed_int() {
                     self.append_operation_with_result(arith::maxsi(lhs, rhs, self.location))
-                } else if self.is_unsigned_int(max.lhs.elem()) {
+                } else if max.lhs.elem().is_unsigned_int() {
                     self.append_operation_with_result(arith::maxui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::maxnumf(lhs, rhs, self.location))
@@ -216,9 +216,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Min(min) => {
                 let lhs = self.get_variable(min.lhs);
                 let rhs = self.get_variable(min.rhs);
-                let value = if self.is_signed_int(min.lhs.elem()) {
+                let value = if min.lhs.elem().is_signed_int() {
                     self.append_operation_with_result(arith::minsi(lhs, rhs, self.location))
-                } else if self.is_unsigned_int(min.lhs.elem()) {
+                } else if min.lhs.elem().is_unsigned_int() {
                     self.append_operation_with_result(arith::minui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::minimumf(lhs, rhs, self.location))
@@ -228,9 +228,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Modulo(modulo) => {
                 let lhs = self.get_variable(modulo.lhs);
                 let rhs = self.get_variable(modulo.rhs);
-                let value = if self.is_signed_int(modulo.lhs.elem()) {
+                let value = if modulo.lhs.elem().is_signed_int() {
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
-                } else if self.is_unsigned_int(modulo.lhs.elem()) {
+                } else if modulo.lhs.elem().is_unsigned_int() {
                     self.append_operation_with_result(arith::remui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::remf(lhs, rhs, self.location))
@@ -249,7 +249,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::MulHi(mul_hi) => {
                 let (lhs, rhs) = self.get_binary_op_variable(mul_hi.lhs, mul_hi.rhs);
-                let operation = if self.is_signed_int(mul_hi.lhs.elem()) {
+                let operation = if mul_hi.lhs.elem().is_signed_int() {
                     arith::mulsi_extended(lhs, rhs, self.location)
                 } else {
                     arith::mului_extended(lhs, rhs, self.location)
@@ -325,9 +325,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Remainder(remainder) => {
                 let lhs = self.get_variable(remainder.lhs);
                 let rhs = self.get_variable(remainder.rhs);
-                let value = if self.is_signed_int(remainder.lhs.elem()) {
+                let value = if remainder.lhs.elem().is_signed_int() {
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
-                } else if self.is_unsigned_int(remainder.lhs.elem()) {
+                } else if remainder.lhs.elem().is_unsigned_int() {
                     self.append_operation_with_result(arith::remui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::remf(lhs, rhs, self.location))

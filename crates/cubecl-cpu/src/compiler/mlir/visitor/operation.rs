@@ -46,7 +46,7 @@ impl<'a> Visitor<'a> {
                     IntegerAttribute::new(Type::index(self.context), 0).into(),
                     self.location,
                 ));
-                let variable = self.get_variable(*var);
+                let variable = self.get_memory(*var);
                 let value = self.append_operation_with_result(memref::dim(
                     variable,
                     constant,
@@ -60,7 +60,7 @@ impl<'a> Visitor<'a> {
                     IntegerAttribute::new(Type::index(self.context), 0).into(),
                     self.location,
                 ));
-                let variable = self.get_variable(*var);
+                let variable = self.get_memory(*var);
                 let value = self.append_operation_with_result(memref::dim(
                     variable,
                     constant,
@@ -86,7 +86,7 @@ impl<'a> Visitor<'a> {
         let rhs = self.get_variable(bin_op.rhs);
         let (lhs, rhs) = self.visit_correct_index(lhs, rhs);
 
-        let value = if self.is_float(bin_op.lhs.item.elem) {
+        let value = if bin_op.lhs.item.elem.is_float() {
             let predicate = match comparison {
                 Comparison::Lower(_) => CmpfPredicate::Olt,
                 Comparison::LowerEqual(_) => CmpfPredicate::Ole,
@@ -102,7 +102,7 @@ impl<'a> Visitor<'a> {
                 rhs,
                 self.location,
             ))
-        } else if self.is_signed_int(bin_op.lhs.item.elem) {
+        } else if bin_op.lhs.item.elem.is_signed_int() {
             let predicate = match comparison {
                 Comparison::Lower(_) => CmpiPredicate::Slt,
                 Comparison::LowerEqual(_) => CmpiPredicate::Sle,
@@ -118,7 +118,7 @@ impl<'a> Visitor<'a> {
                 rhs,
                 self.location,
             ))
-        } else if self.is_unsigned_int(bin_op.lhs.item.elem) {
+        } else if bin_op.lhs.item.elem.is_unsigned_int() {
             let predicate = match comparison {
                 Comparison::Lower(_) => CmpiPredicate::Ult,
                 Comparison::LowerEqual(_) => CmpiPredicate::Ule,
@@ -237,11 +237,16 @@ impl<'a> Visitor<'a> {
                             r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
                         }
 
-                        self.append_operation_with_result(arith::extui(
+                        let value = self.append_operation_with_result(arith::extui(
                             value,
                             r#type,
                             self.location,
-                        ))
+                        ));
+                        let max = self.create_int_constant_from_item(
+                            out.item,
+                            unary_operator.input.item.elem.size_bits() as i64,
+                        );
+                        self.append_operation_with_result(arith::minui(value, max, self.location))
                     }
                     Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
                     Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
@@ -265,8 +270,31 @@ impl<'a> Visitor<'a> {
                 let value = self.append_operation_with_result(llvm::intr_cttz(
                     self.context,
                     value,
-                    true,
+                    false,
                     result_type,
+                    self.location,
+                ));
+
+                let one = self.create_int_constant_from_item(unary_operator.input.item, 1);
+                let value =
+                    self.append_operation_with_result(arith::addi(value, one, self.location));
+
+                let max = self.create_int_constant_from_item(
+                    unary_operator.input.item,
+                    unary_operator.input.item.elem.size_bits() as i64 + 1,
+                );
+                let cond = self.append_operation_with_result(arith::cmpi(
+                    self.context,
+                    CmpiPredicate::Uge,
+                    value,
+                    max,
+                    self.location,
+                ));
+                let zero = self.create_int_constant_from_item(unary_operator.input.item, 0);
+                let value = self.append_operation_with_result(arith::select(
+                    cond,
+                    zero,
+                    value,
                     self.location,
                 ));
 

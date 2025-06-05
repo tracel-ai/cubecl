@@ -2,11 +2,14 @@ use cubecl_core::ir::{
     Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, Variable, VariableKind,
 };
 use melior::{
-    dialect::ods::{arith, vector},
+    dialect::{
+        memref,
+        ods::{arith, vector},
+    },
     ir::{
-        Type, TypeLike, Value, ValueLike,
+        BlockLike, Type, TypeLike, Value, ValueLike,
         attribute::{FloatAttribute, IntegerAttribute},
-        r#type::IntegerType,
+        r#type::{IntegerType, MemRefType},
     },
 };
 
@@ -20,6 +23,45 @@ impl<'a> Visitor<'a> {
             }
             VariableKind::Versioned { id, version } => {
                 self.current_version_variables.insert((id, version), value);
+            }
+            VariableKind::LocalMut { id } => {
+                let r#type = self.elem_to_type(variable.elem());
+                let memref_type = MemRefType::new(
+                    r#type,
+                    &[variable.vectorization_factor() as i64],
+                    None,
+                    None,
+                )
+                .into();
+                let memref = self
+                    .current_mut_variables
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        let value = self.append_operation_with_result(memref::alloca(
+                            self.context,
+                            memref_type,
+                            &[],
+                            &[],
+                            None,
+                            self.location,
+                        ));
+                        self.current_mut_variables.insert(id, value);
+                        value
+                    });
+                let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
+                let zero = self.append_operation_with_result(arith::constant(
+                    self.context,
+                    Type::index(self.context),
+                    integer,
+                    self.location,
+                ));
+                let operation = if value.r#type().is_vector() {
+                    vector::store(self.context, value, memref, &[zero], self.location).into()
+                } else {
+                    memref::store(value, memref, &[zero], self.location)
+                };
+                self.block().append_operation(operation);
             }
             _ => todo!("This variable is not implemented {:?}", variable),
         };
@@ -61,11 +103,24 @@ impl<'a> Visitor<'a> {
         }
         (lhs_value, rhs_value)
     }
-    pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
+    pub fn get_memory(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
                 self.global_buffers[id as usize]
             }
+            VariableKind::LocalMut { id } => self
+                .current_mut_variables
+                .get(&id)
+                .expect("Variable should have been declared before")
+                .clone(),
+            _ => todo!(
+                "This variable isn't backed by memory or implemented: {}",
+                variable
+            ),
+        }
+    }
+    pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
+        match variable.kind {
             VariableKind::LocalConst { id } => self
                 .current_local_variables
                 .get(&id)
@@ -135,6 +190,32 @@ impl<'a> Visitor<'a> {
                 .get(&(id, version))
                 .expect("Variable should have been declared before")
                 .clone(),
+            VariableKind::LocalMut { id } => {
+                let memref = self
+                    .current_mut_variables
+                    .get(&id)
+                    .expect("Variable should have been declared before")
+                    .clone();
+                let result_type = self.item_to_type(variable.item);
+                let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
+                let zero = self.append_operation_with_result(arith::constant(
+                    self.context,
+                    Type::index(self.context),
+                    integer,
+                    self.location,
+                ));
+                if variable.item.vectorization.is_some() {
+                    self.append_operation_with_result(vector::load(
+                        self.context,
+                        result_type,
+                        memref,
+                        &[zero],
+                        self.location,
+                    ))
+                } else {
+                    self.append_operation_with_result(memref::load(memref, &[zero], self.location))
+                }
+            }
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
     }
