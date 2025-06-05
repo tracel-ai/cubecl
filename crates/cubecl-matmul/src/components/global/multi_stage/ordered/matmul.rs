@@ -9,8 +9,8 @@ use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::stage::{FullReaderFamily, StageEventListener};
 use crate::components::stage::{FullStageToTileReader, StageEvent};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
-    stage,
+    Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
+    MatmulProblem, stage,
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::kernels::MatmulAvailabilityError;
@@ -47,8 +47,16 @@ where
         RL,
     >;
 
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
+    fn cube_dim(
+        selection: &MatmulSelection,
+        loading_plane_count: LoadingPlaneCount,
+    ) -> Result<CubeDim, InvalidConfigError> {
+        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
+        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        Ok(CubeDim::new_2d(
+            selection.plane_dim,
+            compute_planes + load_only_planes,
+        ))
     }
 }
 
@@ -474,8 +482,9 @@ impl<
 
         // We cannot start loading Lhs before all were loaded in fragments
         // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
-        let num_lhs_load_per_k =
-            comptime!(self.config.tiling_scheme().tiles_in_stage_m() / self.config.num_planes());
+        let num_lhs_load_per_k = comptime!(
+            self.config.tiling_scheme().tiles_in_stage_m() / self.config.num_loading_planes()
+        );
         let num_tmm_per_k =
             comptime!(num_lhs_load_per_k * self.config.tiling_scheme().tiles_in_stage_n());
         let lhs_can_start = current_event >= event_count_total - num_tmm_per_k;

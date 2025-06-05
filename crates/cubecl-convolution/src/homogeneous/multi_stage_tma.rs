@@ -292,7 +292,7 @@ where
         let num_stages = num_stages::<R, MP>(
             client,
             problem,
-            stage_config.num_planes(),
+            stage_config.num_compute_planes(),
             &stage_config.tiling_scheme(),
         );
 
@@ -390,15 +390,13 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     num_planes: u32,
     tiling_scheme: &TilingScheme,
 ) -> u32 {
-    let inputs_stage_size = tiling_scheme.elements_in_stage_m()
-        * tiling_scheme.elements_in_stage_k()
-        + tiling_scheme.elements_in_stage_k() * tiling_scheme.elements_in_stage_n();
+    let inputs_stage_size =
+        tiling_scheme.elements_in_stage_mk() + tiling_scheme.elements_in_stage_nk();
     // u64 is the barrier, which is also in shared.
     // Just to ensure we don't go over by a few bytes accidentally.
     let inputs_stage_size_bytes =
         inputs_stage_size * size_of::<MP::ES>() as u32 + size_of::<u64>() as u32;
-    let output_stage_size =
-        tiling_scheme.elements_in_tile_m() * tiling_scheme.elements_in_tile_n() * num_planes;
+    let output_stage_size = tiling_scheme.elements_in_tile_mn() * num_planes;
     let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
 
     let max_smem = client.properties().hardware.max_shared_memory_size;

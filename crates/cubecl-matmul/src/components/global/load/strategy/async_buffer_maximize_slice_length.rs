@@ -79,7 +79,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
             }
         };
 
-        let unit_count = config.plane_dim() * config.num_planes();
+        let unit_count = config.plane_dim() * config.num_loading_planes();
         let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         Job {

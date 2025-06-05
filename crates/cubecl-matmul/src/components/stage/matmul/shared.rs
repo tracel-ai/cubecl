@@ -1,6 +1,6 @@
 use crate::components::{
     Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
-    global::AccumulatorLoader,
+    global::{AccumulatorLoader, SpecializerConfig},
     stage::{PartitionBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
 };
@@ -12,10 +12,10 @@ use cubecl_core as cubecl;
 pub struct CommonStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
-    pub num_planes: u32,
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
+    specializer_config: SpecializerConfig,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -41,10 +41,6 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tile_config.matrix_layout(ident)
     }
 
-    fn num_planes(&self) -> u32 {
-        self.num_planes
-    }
-
     fn plane_dim(&self) -> u32 {
         self.tile_config.plane_dim()
     }
@@ -63,6 +59,14 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     fn tiling_scheme(&self) -> TilingScheme {
         self.tiling_scheme
     }
+
+    fn num_compute_planes(&self) -> u32 {
+        self.specializer_config.computer_count()
+    }
+
+    fn specializer_config(&self) -> SpecializerConfig {
+        self.specializer_config
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
@@ -72,18 +76,18 @@ impl<T: TileConfig> CommonStageConfig<T> {
     pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,
-        num_planes: u32,
         quantized: bool,
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
+        specializer_config: SpecializerConfig,
     ) -> Self {
         Self {
             tile_config,
             tiling_scheme,
-            num_planes,
             quantized,
             partition_buffering,
             num_stages,
+            specializer_config,
         }
     }
 }
