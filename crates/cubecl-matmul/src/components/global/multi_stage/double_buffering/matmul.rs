@@ -1,7 +1,9 @@
 use crate::components::global::Quantization;
 use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
-use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
+use crate::components::global::multi_stage::{
+    DoubleBufferingEventListener, EventListenerConfig, EventListenerMode,
+};
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
@@ -163,6 +165,11 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
+        let event_listener_config = comptime!(EventListenerConfig {
+            mode: EventListenerMode::Full,
+            ordered: (false, false),
+        });
+
         sync_cube();
 
         for _ in 0..num_loops {
@@ -180,7 +187,7 @@ where
                     &lhs_loader,
                     &rhs_loader,
                     config,
-                    false,
+                    event_listener_config,
                 ),
             );
 
@@ -205,7 +212,7 @@ where
                     &lhs_loader,
                     &rhs_loader,
                     config,
-                    false,
+                    event_listener_config,
                 ),
             );
 
@@ -221,7 +228,13 @@ where
             &mut rhs_tile,
             acc,
             config.stage_config(),
-            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config, false),
+            DoubleBufferingEventListener::new(
+                BufferId::B,
+                &lhs_loader,
+                &rhs_loader,
+                config,
+                event_listener_config,
+            ),
         );
 
         sync_cube();

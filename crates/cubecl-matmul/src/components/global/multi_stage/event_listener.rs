@@ -5,6 +5,42 @@ use crate::components::global::GlobalConfig;
 use crate::components::global::load::BufferId;
 use crate::components::stage::{StageEvent, StageEventListener};
 
+#[derive(Copy, Clone)]
+#[allow(unused)]
+pub enum EventListenerMode {
+    Full,
+    Lhs,
+    Rhs,
+    None,
+}
+
+#[derive(Copy, Clone)]
+pub struct EventListenerConfig {
+    pub mode: EventListenerMode,
+    // For Lhs and Rhs
+    pub ordered: (bool, bool),
+}
+
+impl EventListenerConfig {
+    pub fn should_fill_lhs(&self) -> bool {
+        match self.mode {
+            EventListenerMode::Full => true,
+            EventListenerMode::Lhs => true,
+            EventListenerMode::Rhs => false,
+            EventListenerMode::None => false,
+        }
+    }
+
+    pub fn should_fill_rhs(&self) -> bool {
+        match self.mode {
+            EventListenerMode::Full => true,
+            EventListenerMode::Lhs => false,
+            EventListenerMode::Rhs => true,
+            EventListenerMode::None => false,
+        }
+    }
+}
+
 #[derive(CubeType)]
 pub(crate) struct DoubleBufferingEventListener<
     Lhs: JobExecutor<G>,
@@ -21,7 +57,7 @@ pub(crate) struct DoubleBufferingEventListener<
     state_rhs: Sequence<Rhs::Job>,
     #[cube(comptime)]
     // TODO from config
-    ordered: bool,
+    event_listener_config: EventListenerConfig,
 }
 
 #[derive(Clone)]
@@ -57,7 +93,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
-        #[comptime] ordered: bool,
+        #[comptime] event_listener_config: EventListenerConfig,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
@@ -66,7 +102,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
-            ordered,
+            event_listener_config,
         }
     }
 }
@@ -130,21 +166,17 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 }
 
 #[cube]
-impl<
-    // MP: MatmulPrecision,
-    L: JobExecutor<G>,
-    R: JobExecutor<G>,
-    // LL: SyncFullLoadingStrategy,
-    // RL: SyncBufferLoadingStrategy,
-    G: GlobalConfig,
-> DoubleBufferingEventListener<L, R, G>
-{
+impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
-        let job_lhs = L::create_job(&self.loader_lhs, self.buffer_id, self.config);
-        let job_rhs = R::create_job(&self.loader_rhs, self.buffer_id, self.config);
+        if comptime!(self.event_listener_config.should_fill_lhs()) {
+            self.state_lhs
+                .push(L::create_job(&self.loader_lhs, self.buffer_id, self.config));
+        }
 
-        self.state_lhs.push(job_lhs);
-        self.state_rhs.push(job_rhs);
+        if comptime!(self.event_listener_config.should_fill_rhs()) {
+            self.state_rhs
+                .push(R::create_job(&self.loader_rhs, self.buffer_id, self.config));
+        }
     }
 
     fn analyse(
@@ -161,18 +193,19 @@ impl<
         let lhs_num_task_executed = L::Job::current(lhs_job);
         let rhs_num_task_executed = R::Job::current(rhs_job);
 
-        let lhs_can_start = comptime!(if self.ordered {
-            // We cannot start loading Lhs before all were loaded in fragments
-            // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
-            let num_lhs_load_per_k =
-                self.config.tiling_scheme().tiles_in_stage_m() / self.config.num_planes();
-            let num_tmm_per_k = num_lhs_load_per_k * self.config.tiling_scheme().tiles_in_stage_n();
-            current_event >= event_count_total - num_tmm_per_k
-        } else {
-            true
-        });
-
         comptime! {
+            // When ordered, we cannot start loading before all were loaded in fragments
+            // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
+            let can_start = |ordered: bool| if ordered {
+                let num_tmm_per_k = self.config.tiling_scheme().tiles_in_stage_partition_mn();
+                current_event >= event_count_total - num_tmm_per_k
+            } else {
+                true
+            };
+
+            let lhs_can_start = can_start(self.event_listener_config.ordered.0);
+            let rhs_can_start = can_start(self.event_listener_config.ordered.1);
+
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);
 
@@ -184,7 +217,7 @@ impl<
                 },
                 rhs: IdentEventAnalysis {
                     counter: rhs_num_task_executed * step + (lhs_num_tasks * step) + start,
-                    can_start: true,
+                    can_start: rhs_can_start,
                     completed: rhs_num_task_executed >= rhs_num_tasks,
                 }
             }
