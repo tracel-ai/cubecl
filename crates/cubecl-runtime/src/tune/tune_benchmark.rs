@@ -56,9 +56,12 @@ impl<
         let durations = (0..num_samples)
             .map(|_| {
                 self.client.profile(|| {
-                    operation
+                    let output = operation
                         .execute(self.inputs.clone())
                         .expect("Should not fail when previously tried during the warmup.");
+                    // It is important to return the output since otherwise deadcode elimination
+                    // might optimize away code that needs to be profiled.
+                    output
                 })
             })
             .collect();

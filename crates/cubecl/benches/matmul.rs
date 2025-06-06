@@ -15,14 +15,14 @@ const TRANSPOSE_LHS: bool = true;
 const TRANSPOSE_RHS: bool = false;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Args = (
+    type Input = (
         TensorHandle<R, MP::EI>,
         Option<TensorHandle<R, f32>>,
         TensorHandle<R, MP::EI>,
         Option<TensorHandle<R, f32>>,
     );
 
-    fn prepare(&self) -> Self::Args {
+    fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
         let mut lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
@@ -54,7 +54,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         (lhs, None, rhs, None)
     }
 
-    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Args) {
+    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Input) {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
@@ -91,7 +91,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
         self.client.profile(|| self.execute(args))
     }
 }
