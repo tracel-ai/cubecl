@@ -1,8 +1,6 @@
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{self, load::LoaderMode},
-        stage,
+        global::{self, load::LoaderMode, multi_stage::EventLoadingMode}, stage, Ident, InputIdent, MatmulConfig, MatrixLayout
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
@@ -85,6 +83,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
 
     fn loader_mode(&self) -> LoaderMode {
         self.loader_mode
+    }
+
+    fn event_loading_mode(&self, _ident: InputIdent) -> EventLoadingMode {
+        EventLoadingMode::Relaxed
     }
 }
 

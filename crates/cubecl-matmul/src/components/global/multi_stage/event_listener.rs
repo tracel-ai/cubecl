@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::InputIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::load::BufferId;
 use crate::components::stage::{StageEvent, StageEventListener};
@@ -16,22 +17,9 @@ pub enum EventLoadingMode {
     None,
 }
 
-#[derive(Copy, Clone)]
-pub struct EventListenerConfig {
-    pub lhs: EventLoadingMode,
-    pub rhs: EventLoadingMode,
-}
-
-impl EventListenerConfig {
-    pub fn should_fill_lhs(&self) -> bool {
-        match self.lhs {
-            EventLoadingMode::Relaxed | EventLoadingMode::Ordered => true,
-            EventLoadingMode::None => false,
-        }
-    }
-
-    pub fn should_fill_rhs(&self) -> bool {
-        match self.rhs {
+impl EventLoadingMode {
+    pub fn should_fill(&self) -> bool {
+        match self {
             EventLoadingMode::Relaxed | EventLoadingMode::Ordered => true,
             EventLoadingMode::None => false,
         }
@@ -52,9 +40,6 @@ pub(crate) struct DoubleBufferingEventListener<
     config: G,
     state_lhs: Sequence<Lhs::Job>,
     state_rhs: Sequence<Rhs::Job>,
-    #[cube(comptime)]
-    // TODO from config
-    event_listener_config: EventListenerConfig,
 }
 
 #[derive(Clone)]
@@ -90,7 +75,6 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
-        #[comptime] event_listener_config: EventListenerConfig,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
@@ -99,7 +83,6 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
-            event_listener_config,
         }
     }
 }
@@ -165,12 +148,20 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 #[cube]
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
-        if comptime!(self.event_listener_config.should_fill_lhs()) {
+        if comptime!(
+            self.config
+                .event_loading_mode(InputIdent::Lhs)
+                .should_fill()
+        ) {
             self.state_lhs
                 .push(L::create_job(&self.loader_lhs, self.buffer_id, self.config));
         }
 
-        if comptime!(self.event_listener_config.should_fill_rhs()) {
+        if comptime!(
+            self.config
+                .event_loading_mode(InputIdent::Rhs)
+                .should_fill()
+        ) {
             self.state_rhs
                 .push(R::create_job(&self.loader_rhs, self.buffer_id, self.config));
         }
@@ -199,8 +190,8 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
                 true
             };
 
-            let lhs_can_start = can_start(self.event_listener_config.lhs);
-            let rhs_can_start = can_start(self.event_listener_config.rhs);
+            let lhs_can_start = can_start(self.config.event_loading_mode(InputIdent::Lhs));
+            let rhs_can_start = can_start(self.config.event_loading_mode(InputIdent::Rhs));
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);

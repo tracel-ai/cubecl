@@ -1,9 +1,7 @@
 use crate::components::global::Quantization;
 use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
+use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::multi_stage::{
-    DoubleBufferingEventListener, EventListenerConfig, EventLoadingMode,
-};
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
@@ -165,11 +163,6 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        let event_listener_config = comptime!(EventListenerConfig {
-            lhs: EventLoadingMode::Relaxed,
-            rhs: EventLoadingMode::Relaxed
-        });
-
         sync_cube();
 
         for _ in 0..num_loops {
@@ -182,13 +175,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::B,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    event_listener_config,
-                ),
+                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
             // We always advance by 2 * k because Buffer B shares the same global memory state as Buffer A,
@@ -207,13 +194,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::A,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    event_listener_config,
-                ),
+                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
 
             sync_cube();
@@ -228,13 +209,7 @@ where
             &mut rhs_tile,
             acc,
             config.stage_config(),
-            DoubleBufferingEventListener::new(
-                BufferId::B,
-                &lhs_loader,
-                &rhs_loader,
-                config,
-                event_listener_config,
-            ),
+            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
         sync_cube();
