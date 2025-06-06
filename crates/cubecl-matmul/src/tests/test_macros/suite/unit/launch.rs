@@ -39,7 +39,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
 
     let selection = MatmulSelection {
         plane_dim,
-        tiling_scheme: tiling_scheme.clone(),
+        tiling_scheme,
     };
 
     test_matmul_algorithm::<A, P, R>(client, problem, A::global_input(&selection), selection);

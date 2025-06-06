@@ -23,9 +23,9 @@ fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
 }
 
 impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
-    type Args = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
+    type Input = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
 
-    fn prepare(&self) -> Self::Args {
+    fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
         let lhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
@@ -38,7 +38,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         (lhs, rhs, out)
     }
 
-    fn execute(&self, (lhs, rhs, out): Self::Args) {
+    fn execute(&self, (lhs, rhs, out): Self::Input) {
         let num_elems: usize = out.shape.iter().product();
 
         let cube_dim = CubeDim::new(16, 16, 1);
@@ -71,7 +71,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
         self.client.profile(|| self.execute(args))
     }
 }

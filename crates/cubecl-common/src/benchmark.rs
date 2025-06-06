@@ -209,8 +209,10 @@ impl BenchmarkComputations {
 
 /// Benchmark trait.
 pub trait Benchmark {
-    /// Benchmark arguments.
-    type Args: Clone;
+    /// Benchmark input arguments.
+    type Input: Clone;
+    /// The benchmark output.
+    type Output;
 
     /// Prepare the benchmark, run anything that is essential for the benchmark, but shouldn't
     /// count as included in the duration.
@@ -219,9 +221,14 @@ pub trait Benchmark {
     ///
     /// This should not include warmup, the benchmark will be run at least one time without
     /// measuring the execution time.
-    fn prepare(&self) -> Self::Args;
-    /// Execute the benchmark and returns the time it took to complete.
-    fn execute(&self, args: Self::Args);
+    fn prepare(&self) -> Self::Input;
+
+    /// Execute the benchmark and returns the logical output of the task executed.
+    ///
+    /// It is important to return the output since otherwise deadcode optimization might optimize
+    /// away code that should be benchmarked.
+    fn execute(&self, input: Self::Input) -> Self::Output;
+
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
         const DEFAULT: usize = 10;
@@ -238,13 +245,16 @@ pub trait Benchmark {
             DEFAULT
         }
     }
+
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
     fn name(&self) -> String;
+
     /// The options passed to the benchmark.
     fn options(&self) -> Option<String> {
         None
     }
+
     /// Shapes dimensions
     fn shapes(&self) -> Vec<Vec<usize>> {
         vec![]
@@ -255,18 +265,19 @@ pub trait Benchmark {
 
     /// Start measuring the computation duration.
     #[cfg(feature = "std")]
-    fn profile(&self, args: Self::Args) -> ProfileDuration {
+    fn profile(&self, args: Self::Input) -> ProfileDuration {
         self.profile_full(args)
     }
 
     /// Start measuring the computation duration. Use the full duration irregardless of whether
     /// device duration is available or not.
     #[cfg(feature = "std")]
-    fn profile_full(&self, args: Self::Args) -> ProfileDuration {
+    fn profile_full(&self, args: Self::Input) -> ProfileDuration {
         self.sync();
         let start_time = std::time::Instant::now();
-        self.execute(args);
+        let out = self.execute(args);
         self.sync();
+        core::mem::drop(out);
         ProfileDuration::from_duration(start_time.elapsed())
     }
 
@@ -278,22 +289,25 @@ pub trait Benchmark {
 
         #[cfg(feature = "std")]
         {
-            // Warmup
-            let args = self.prepare();
-            for _ in 0..self.num_samples() {
-                self.execute(args.clone());
-            }
-            std::thread::sleep(Duration::from_secs(1));
-
-            let mut durations = Vec::with_capacity(self.num_samples());
-
-            for _ in 0..self.num_samples() {
+            let execute = |args: &Self::Input| {
                 let profile = match timing_method {
                     TimingMethod::System => self.profile_full(args.clone()),
                     TimingMethod::Device => self.profile(args.clone()),
                 };
-                let duration = crate::future::block_on(profile.resolve());
-                durations.push(duration);
+                crate::future::block_on(profile.resolve())
+            };
+            let args = self.prepare();
+
+            // Warmup
+            for _ in 0..3 {
+                let _duration = execute(&args);
+            }
+            std::thread::sleep(Duration::from_secs(1));
+
+            // Real execution.
+            let mut durations = Vec::with_capacity(self.num_samples());
+            for _ in 0..self.num_samples() {
+                durations.push(execute(&args));
             }
 
             BenchmarkDurations {

@@ -10,6 +10,7 @@ pub struct CudaStorage {
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
     ptr_bindings: PtrBindings,
+    mem_alignment: usize,
 }
 
 struct PtrBindings {
@@ -51,12 +52,13 @@ impl core::fmt::Debug for CudaStorage {
 /// Keeps actual CUDA buffer references in a hashmap with ids as keys.
 impl CudaStorage {
     /// Create a new storage on the given [device](cudarc::driver::sys::CUdeviceptr).
-    pub fn new(stream: CUstream) -> Self {
+    pub fn new(mem_alignment: usize, stream: CUstream) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
             ptr_bindings: PtrBindings::new(),
+            mem_alignment,
         }
     }
 
@@ -105,10 +107,9 @@ impl CudaResource {
 
 impl ComputeStorage for CudaStorage {
     type Resource = CudaResource;
-    // 32 bytes is enough to handle a double4 worth of alignment.
-    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
-    // trying this in the future to see if it reduces memory coalescing.
-    const ALIGNMENT: u64 = 32;
+    fn alignment(&self) -> usize {
+        self.mem_alignment
+    }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self.memory.get(&handle.id).unwrap();

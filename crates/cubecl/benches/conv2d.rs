@@ -16,13 +16,13 @@ use cubecl_random::random_uniform;
 use cubecl::prelude::*;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
-    type Args = (
+    type Input = (
         TensorHandle<R, MP::EI>,
         TensorHandle<R, MP::EI>,
         TensorHandle<R, MP::EI>,
     );
 
-    fn prepare(&self) -> Self::Args {
+    fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
         let input = TensorHandle::<R, MP::EI>::empty(&client, self.input_shape.to_vec());
@@ -50,7 +50,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         (input, weight, bias)
     }
 
-    fn execute(&self, (input, weight, bias): Self::Args) {
+    fn execute(&self, (input, weight, bias): Self::Input) {
         let client = R::client(&self.device);
         let [n, _, h_in, w_in] = self.input_shape;
         let [c_out, _, k_h, k_w] = self.weight_shape;
@@ -92,7 +92,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
         self.client.profile(|| self.execute(args))
     }
 }

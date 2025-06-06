@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 /// Buffer storage for HIP.
 pub struct HipStorage {
+    mem_alignment: usize,
     memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
     deallocations: Vec<StorageId>,
     stream: cubecl_hip_sys::hipStream_t,
@@ -26,8 +27,9 @@ impl core::fmt::Debug for HipStorage {
 /// Keeps actual HIP buffer references in a hashmap with ids as key.
 impl HipStorage {
     /// Create a new storage on the given stream.
-    pub fn new(stream: cubecl_hip_sys::hipStream_t) -> Self {
+    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
+            mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
@@ -66,9 +68,11 @@ pub struct HipResource {
 unsafe impl Send for HipResource {}
 
 impl ComputeStorage for HipStorage {
-    const ALIGNMENT: u64 = 32;
-
     type Resource = HipResource;
+
+    fn alignment(&self) -> usize {
+        self.mem_alignment
+    }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;

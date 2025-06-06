@@ -19,7 +19,6 @@ use cubecl_runtime::{
     client::ComputeClient,
     id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
-    storage::ComputeStorage,
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
 use std::mem::MaybeUninit;
@@ -62,6 +61,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         .unwrap();
         arch_major * 10 + minor
     } as u32;
+    // 32 bytes is enough to handle a double4 worth of alignment.
+    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
+    // trying this in the future to see if it reduces memory coalescing.
+    //
+    // TODO: Find the correct value from the driver.
+    let mem_alignment = 32;
 
     // Ask the wmma compiler for its supported combinations
     let arch = CudaArchitecture {
@@ -84,10 +89,10 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let storage = CudaStorage::new(stream);
+    let storage = CudaStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
-        alignment: CudaStorage::ALIGNMENT,
+        alignment: mem_alignment as u64,
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -194,7 +199,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
-    let server = CudaServer::new(cuda_ctx);
+    let server = CudaServer::new(mem_alignment, cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 

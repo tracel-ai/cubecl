@@ -23,7 +23,6 @@ use cubecl_core::{
 };
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -47,6 +46,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
+    mem_alignment: usize,
 }
 
 #[derive(Debug)]
@@ -289,7 +289,7 @@ impl ComputeServer for CudaServer {
             let width_bytes = width * elem_size;
             // This should be done with cuMemAllocPitch, but that would propagate changes much deeper
             // through memory management. So just manually pitch to alignment for now.
-            let pitch = width_bytes.next_multiple_of(Self::Storage::ALIGNMENT as usize);
+            let pitch = width_bytes.next_multiple_of(self.mem_alignment);
             let size = height * pitch;
             total_size += size;
             let mut stride = vec![1; rank];
@@ -769,8 +769,8 @@ impl CudaContext {
 
 impl CudaServer {
     /// Create a new cuda server.
-    pub(crate) fn new(ctx: CudaContext) -> Self {
-        Self { ctx }
+    pub(crate) fn new(mem_alignment: usize, ctx: CudaContext) -> Self {
+        Self { mem_alignment, ctx }
     }
 
     fn get_context(&mut self) -> &mut CudaContext {

@@ -1,6 +1,5 @@
 use crate::{
-    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend,
-    compute::{WgpuServer, WgpuStorage},
+    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
 use cubecl_common::future;
@@ -9,6 +8,7 @@ use cubecl_core::{
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
@@ -17,7 +17,6 @@ use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
-use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -217,7 +216,7 @@ pub(crate) fn create_client_on_setup(
 
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
-        alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
+        alignment: limits.min_storage_buffer_offset_alignment as u64,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {

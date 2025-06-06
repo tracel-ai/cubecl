@@ -38,7 +38,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         .unwrap();
 
     let selection = MatmulSelection {
-        tiling_scheme: tiling_scheme.clone(),
+        tiling_scheme,
         plane_dim,
     };
 

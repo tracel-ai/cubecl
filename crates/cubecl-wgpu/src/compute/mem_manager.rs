@@ -31,6 +31,7 @@ impl WgpuMemManager {
         #[allow(unused_mut)]
         let mut memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
+                memory_properties.alignment as usize,
                 device.clone(),
                 BufferUsages::STORAGE
                     | BufferUsages::COPY_SRC
@@ -44,6 +45,7 @@ impl WgpuMemManager {
         // Memory pool for timing queries.
         let memory_pool_queries = MemoryManagement::from_configuration(
             WgpuStorage::new(
+                memory_properties.alignment as usize,
                 device.clone(),
                 BufferUsages::COPY_SRC | BufferUsages::QUERY_RESOLVE,
             ),
