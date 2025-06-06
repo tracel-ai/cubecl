@@ -7,36 +7,33 @@ use crate::components::stage::{StageEvent, StageEventListener};
 
 #[derive(Copy, Clone)]
 #[allow(unused)]
-pub enum EventListenerMode {
-    Full,
-    Lhs,
-    Rhs,
+pub enum EventLoadingMode {
+    // Load all without constraints
+    Relaxed,
+    // Load all but respecting order
+    Ordered,
+    // Don't load
     None,
 }
 
 #[derive(Copy, Clone)]
 pub struct EventListenerConfig {
-    pub mode: EventListenerMode,
-    // For Lhs and Rhs
-    pub ordered: (bool, bool),
+    pub lhs: EventLoadingMode,
+    pub rhs: EventLoadingMode,
 }
 
 impl EventListenerConfig {
     pub fn should_fill_lhs(&self) -> bool {
-        match self.mode {
-            EventListenerMode::Full => true,
-            EventListenerMode::Lhs => true,
-            EventListenerMode::Rhs => false,
-            EventListenerMode::None => false,
+        match self.lhs {
+            EventLoadingMode::Relaxed | EventLoadingMode::Ordered => true,
+            EventLoadingMode::None => false,
         }
     }
 
     pub fn should_fill_rhs(&self) -> bool {
-        match self.mode {
-            EventListenerMode::Full => true,
-            EventListenerMode::Lhs => false,
-            EventListenerMode::Rhs => true,
-            EventListenerMode::None => false,
+        match self.rhs {
+            EventLoadingMode::Relaxed | EventLoadingMode::Ordered => true,
+            EventLoadingMode::None => false,
         }
     }
 }
@@ -196,15 +193,14 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
         comptime! {
             // When ordered, we cannot start loading before all were loaded in fragments
             // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
-            let can_start = |ordered: bool| if ordered {
-                let num_tmm_per_k = self.config.tiling_scheme().tiles_in_stage_partition_mn();
-                current_event >= event_count_total - num_tmm_per_k
+            let can_start = |event_loading_mode: EventLoadingMode| if let EventLoadingMode::Ordered = event_loading_mode {
+                current_event >= event_count_total - self.config.tiling_scheme().tiles_in_stage_partition_mn()
             } else {
                 true
             };
 
-            let lhs_can_start = can_start(self.event_listener_config.ordered.0);
-            let rhs_can_start = can_start(self.event_listener_config.ordered.1);
+            let lhs_can_start = can_start(self.event_listener_config.lhs);
+            let rhs_can_start = can_start(self.event_listener_config.rhs);
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);

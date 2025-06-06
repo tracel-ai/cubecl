@@ -2,7 +2,7 @@ use crate::components::global::Quantization;
 use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::multi_stage::{
-    DoubleBufferingEventListener, EventListenerConfig, EventListenerMode,
+    DoubleBufferingEventListener, EventListenerConfig, EventLoadingMode,
 };
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
@@ -166,8 +166,8 @@ where
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
         let event_listener_config = comptime!(EventListenerConfig {
-            mode: EventListenerMode::Full,
-            ordered: (false, false),
+            lhs: EventLoadingMode::Relaxed,
+            rhs: EventLoadingMode::Relaxed
         });
 
         sync_cube();
