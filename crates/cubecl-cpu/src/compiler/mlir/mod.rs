@@ -13,7 +13,7 @@ pub use visitor::elem::register_supported_types;
 
 use std::fmt::{Debug, Display};
 
-use cubecl_core::prelude::KernelDefinition;
+use cubecl_core::{prelude::KernelDefinition, server::ScalarBinding};
 use melior::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
@@ -28,6 +28,7 @@ pub struct MlirEngine {
     args_first_indirection: Vec<*mut ()>,
     args_second_indirection: Vec<*mut ()>,
     pub builtin: Builtin,
+    scalars: Vec<ScalarBinding>,
     execution_engine: ExecutionEngine,
 }
 
@@ -65,6 +66,7 @@ impl MlirEngine {
         let args_zero_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
         let args_first_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
         let args_second_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
+        let scalars = Vec::with_capacity(MAX_BUFFER_SIZE);
         let mut builtin = Builtin::default();
         builtin.set_cube_dim(kernel.cube_dim);
         register_external_function(&execution_engine);
@@ -73,6 +75,7 @@ impl MlirEngine {
             args_zero_indirection,
             args_first_indirection,
             args_second_indirection,
+            scalars,
             builtin,
         }
     }
@@ -89,6 +92,12 @@ impl MlirEngine {
         self.args_first_indirection.push(undirected as *mut ());
         let undirected = self.args_first_indirection.last_mut().unwrap() as *mut *mut ();
         self.args_second_indirection.push(undirected as *mut ());
+    }
+
+    pub fn push_scalar(&mut self, scalar: ScalarBinding) {
+        self.scalars.push(scalar);
+        let data = self.scalars.last_mut().unwrap().data.as_mut_ptr() as *mut u8;
+        self.args_second_indirection.push(data as *mut ());
     }
 
     pub fn push_builtin(&mut self) {

@@ -30,6 +30,7 @@ pub struct Visitor<'a> {
     pub current_version_variables: HashMap<(u32, u16), Value<'a, 'a>>,
     pub current_mut_variables: HashMap<u32, Value<'a, 'a>>,
     pub global_buffers: Vec<Value<'a, 'a>>,
+    pub global_scalars: Vec<Value<'a, 'a>>,
 
     pub cube_dim_x: Option<Value<'a, 'a>>,
     pub cube_dim_y: Option<Value<'a, 'a>>,
@@ -55,6 +56,7 @@ impl<'a> Visitor<'a> {
         let current_version_variables = HashMap::new();
         let current_mut_variables = HashMap::new();
         let global_buffers = vec![];
+        let global_scalar_buffers = vec![];
         let block_stack = vec![];
 
         let cube_dim_x = None;
@@ -81,6 +83,7 @@ impl<'a> Visitor<'a> {
             current_version_variables,
             current_mut_variables,
             global_buffers,
+            global_scalars: global_scalar_buffers,
             cube_dim_x,
             cube_dim_y,
             cube_dim_z,
@@ -132,7 +135,13 @@ impl<'a> Visitor<'a> {
         let mut block_input = Vec::with_capacity(kernel.buffers.len());
 
         for binding in kernel.buffers.iter() {
-            let memref = self.item_to_memref_buffer_type(binding.item).into();
+            let memref = self.memref_buffer_type(binding).into();
+            inputs.push(memref);
+            block_input.push((memref, self.location));
+        }
+
+        for binding in kernel.scalars.iter() {
+            let memref = self.memref_scalar_type(binding).into();
             inputs.push(memref);
             block_input.push((memref, self.location));
         }
@@ -157,9 +166,14 @@ impl<'a> Visitor<'a> {
                 region.append_block(block);
 
                 let block = region.first_block().unwrap();
-                let argument_count = block.argument_count() - 9;
+                let argument_count = kernel.buffers.len();
                 for i in 0..argument_count {
                     self.global_buffers.push(block.argument(i).unwrap().into());
+                }
+
+                let scalar = kernel.scalars.len();
+                for i in argument_count..argument_count + scalar {
+                    self.global_scalars.push(block.argument(i).unwrap().into());
                 }
 
                 self.insert_builtin_loop(block, opt);
@@ -211,7 +225,7 @@ impl<'a> Visitor<'a> {
         for (i, v) in to_assign.into_iter().enumerate() {
             *v = Some(
                 block
-                    .argument(self.global_buffers.len() + i)
+                    .argument(self.global_buffers.len() + self.global_scalars.len() + i)
                     .unwrap()
                     .into(),
             );

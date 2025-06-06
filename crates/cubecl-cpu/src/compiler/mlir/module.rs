@@ -96,7 +96,6 @@ impl<'a> Module<'a> {
             flags: OperationPrintingFlags::new(),
             tree_printing_path: PathBuf::from("debug"),
         });
-
         pass_manager.add_pass(pass::transform::create_canonicalizer());
         pass_manager.add_pass(pass::conversion::create_finalize_mem_ref_to_llvm());
         pass_manager.add_pass(pass::conversion::create_index_to_llvm());
