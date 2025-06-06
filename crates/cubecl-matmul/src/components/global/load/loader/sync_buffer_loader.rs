@@ -8,6 +8,8 @@ use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
+use crate::components::global::multi_stage::Job;
+use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::stage::BufferStageToTileReader;
 use crate::components::stage::StageMemory;
@@ -116,12 +118,19 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             );
         }
     }
+}
 
-    pub fn create_job(
+#[cube]
+impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExecutor<G>
+    for SyncBufferLoader<MP, G, L>
+{
+    type Job = SyncBufferLoaderJob<MP, L>;
+
+    fn create_job(
         this: &Self,
         #[comptime] buffer_id: BufferId,
         #[comptime] config: G,
-    ) -> SyncBufferLoaderJob<MP, L> {
+    ) -> Self::Job {
         let loading = match this.loading_job {
             CubeOption::Some(job) => match buffer_id {
                 BufferId::A => job.0,
@@ -142,11 +151,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         }
     }
 
-    pub fn execute_task(
-        this: &mut Self,
-        job: &mut SyncBufferLoaderJob<MP, L>,
-        #[comptime] config: G,
-    ) {
+    fn execute_task(this: &mut Self, job: &mut SyncBufferLoaderJob<MP, L>, #[comptime] config: G) {
         let task_id = job.current.read().counter;
 
         L::Job::<MP>::execute_task::<G>(
@@ -170,4 +175,15 @@ pub struct SyncBufferLoaderJob<MP: MatmulPrecision, L: SyncBufferLoadingStrategy
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
+}
+
+#[cube]
+impl<MP: MatmulPrecision, L: SyncBufferLoadingStrategy> Job for SyncBufferLoaderJob<MP, L> {
+    fn current(this: &Self) -> comptime_type!(u32) {
+        this.current.read().counter
+    }
+
+    fn num_tasks(this: &Self) -> comptime_type!(u32) {
+        this.num_tasks
+    }
 }

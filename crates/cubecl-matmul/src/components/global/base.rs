@@ -6,6 +6,7 @@ use crate::{
         Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
         TilingScheme,
         config::MatmulConfig,
+        global::multi_stage::EventLoadingMode,
         stage::{self, StageConfig},
     },
     kernels::matmul::MatmulSelection,
@@ -146,4 +147,6 @@ pub trait GlobalConfig: MatmulConfig {
     /// Whether to check loader is balanced in comptime or runtime.
     /// Not supported by all loading strategies
     fn loader_mode(&self) -> LoaderMode;
+
+    fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
 }

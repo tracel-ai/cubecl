@@ -94,7 +94,7 @@ pub mod config {
     use crate::{ConvGemmConfig, base::Dimensionality};
     use cubecl_matmul::components::{
         InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{GlobalConfig, load::LoaderMode},
+        global::{GlobalConfig, load::LoaderMode, multi_stage::EventLoadingMode},
     };
 
     use super::*;
@@ -167,6 +167,10 @@ pub mod config {
 
         fn tiling_scheme(&self) -> TilingScheme {
             self.matmul.tiling_scheme()
+        }
+
+        fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode {
+            self.matmul.event_loading_mode(ident)
         }
     }
 

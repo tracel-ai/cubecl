@@ -2,8 +2,12 @@ use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
+use crate::components::global::load::BufferId;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
+use crate::components::global::load::TaskCounter;
+use crate::components::global::multi_stage::Job;
+use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
@@ -13,8 +17,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
-
-use super::TaskCounter;
 
 #[cube]
 /// A strategy for fully and synchronously loading a stage.
@@ -100,8 +102,19 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
             );
         }
     }
+}
 
-    pub fn create_job(this: &Self, #[comptime] config: G) -> SyncFullLoaderJob<MP, L> {
+#[cube]
+impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
+    for SyncFullLoader<MP, G, L>
+{
+    type Job = SyncFullLoaderJob<MP, L>;
+
+    fn create_job(
+        this: &Self,
+        #[comptime] _buffer_id: BufferId,
+        #[comptime] config: G,
+    ) -> Self::Job {
         let loading = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => L::new_job::<MP, G>(this.input_ident, config),
@@ -116,11 +129,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         }
     }
 
-    pub fn execute_task(
-        this: &mut Self,
-        job: &mut SyncFullLoaderJob<MP, L>,
-        #[comptime] config: G,
-    ) {
+    fn execute_task(this: &mut Self, job: &mut SyncFullLoaderJob<MP, L>, #[comptime] config: G) {
         let task_id = job.current.read().counter;
 
         L::Job::<MP>::execute_task::<G>(
@@ -144,4 +153,15 @@ pub struct SyncFullLoaderJob<MP: MatmulPrecision, L: SyncFullLoadingStrategy> {
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
+}
+
+#[cube]
+impl<MP: MatmulPrecision, L: SyncFullLoadingStrategy> Job for SyncFullLoaderJob<MP, L> {
+    fn current(this: &Self) -> comptime_type!(u32) {
+        this.current.read().counter
+    }
+
+    fn num_tasks(this: &Self) -> comptime_type!(u32) {
+        this.num_tasks
+    }
 }
