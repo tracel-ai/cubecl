@@ -137,6 +137,9 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         _logger: Arc<ServerLogger>,
     ) {
+        let Bindings {
+            buffers, scalars, ..
+        } = bindings;
         // TODO implement the runtime
         let kernel = kernel.compile(
             &mut Default::default(),
@@ -144,7 +147,7 @@ impl ComputeServer for CpuServer {
             kind,
         );
         let mut execution_engine = kernel.repr.unwrap();
-        let buffers = bindings.buffers.clone();
+
         for binding in buffers.into_iter() {
             let handle = self
                 .ctx
@@ -156,6 +159,11 @@ impl ComputeServer for CpuServer {
                 execution_engine.push_buffer(ptr);
             }
         }
+
+        for (_, scalar) in scalars.into_iter() {
+            execution_engine.push_scalar(scalar);
+        }
+
         let cube_count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
             CubeCount::Dynamic(binding) => {

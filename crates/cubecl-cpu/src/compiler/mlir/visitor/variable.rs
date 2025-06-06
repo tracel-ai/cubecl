@@ -216,6 +216,21 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(memref::load(memref, &[zero], self.location))
                 }
             }
+            VariableKind::GlobalScalar(id) => {
+                let var = self.global_scalars[id as usize];
+                if variable.item.vectorization.is_some() {
+                    let result_type = self.item_to_type(variable.item);
+                    self.append_operation_with_result(vector::load(
+                        self.context,
+                        result_type,
+                        var,
+                        &[],
+                        self.location,
+                    ))
+                } else {
+                    var
+                }
+            }
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
     }
