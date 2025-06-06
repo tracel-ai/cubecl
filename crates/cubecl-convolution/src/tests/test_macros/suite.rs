@@ -85,7 +85,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
 
     let selection = MatmulSelection {
         plane_dim,
-        tiling_scheme: tiling_scheme.clone(),
+        tiling_scheme,
     };
 
     test_convolution_algorithm::<A, Args, P, R>(

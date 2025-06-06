@@ -8,6 +8,7 @@ use cubecl_core::{
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
@@ -16,7 +17,6 @@ use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
-use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
