@@ -188,14 +188,31 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
         #[comptime] current_event: u32,
         #[comptime] event_count_total: u32,
     ) -> comptime_type!(EventAnalysis) {
-        let lhs_job = self.state_lhs.index(0);
-        let rhs_job = self.state_rhs.index(0);
+        let lhs_len = self.state_lhs.len();
+        let rhs_len = self.state_rhs.len();
 
-        let lhs_num_tasks = L::Job::num_tasks(lhs_job);
-        let rhs_num_tasks = R::Job::num_tasks(rhs_job);
+        let mut lhs_num_tasks = comptime!(0u32);
+        let mut rhs_num_tasks = comptime!(0u32);
+        let mut lhs_num_task_executed = comptime!(0u32);
+        let mut rhs_num_task_executed = comptime!(0u32);
+
+        if comptime!(lhs_len > 0) {
+            let lhs_job = self.state_lhs.index(0);
+            let num_tasks = L::Job::num_tasks(lhs_job);
+            let current = L::Job::current(lhs_job);
+            comptime!(lhs_num_tasks += num_tasks);
+            comptime!(lhs_num_task_executed += current);
+        }
+
+        if comptime!(rhs_len > 0) {
+            let rhs_job = self.state_rhs.index(0);
+            let num_tasks = R::Job::num_tasks(rhs_job);
+            let current = R::Job::current(rhs_job);
+            comptime!(rhs_num_tasks += num_tasks);
+            comptime!(rhs_num_task_executed += current);
+        }
+
         let num_tasks_total = comptime!(lhs_num_tasks + rhs_num_tasks);
-        let lhs_num_task_executed = L::Job::current(lhs_job);
-        let rhs_num_task_executed = R::Job::current(rhs_job);
 
         comptime! {
             // When ordered, we cannot start loading before all were loaded in fragments
@@ -206,8 +223,8 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
                 true
             };
 
-            let lhs_can_start = can_start(self.config.event_loading_mode(InputIdent::Lhs));
-            let rhs_can_start = can_start(self.config.event_loading_mode(InputIdent::Rhs));
+            let lhs_can_start = lhs_len > 0 && can_start(self.config.event_loading_mode(InputIdent::Lhs));
+            let rhs_can_start = rhs_len > 0 && can_start(self.config.event_loading_mode(InputIdent::Rhs));
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);
