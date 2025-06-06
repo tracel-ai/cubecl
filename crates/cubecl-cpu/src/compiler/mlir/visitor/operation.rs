@@ -88,8 +88,7 @@ impl<'a> Visitor<'a> {
             Comparison::Greater(bin_op) => bin_op,
         };
 
-        let lhs = self.get_variable(bin_op.lhs);
-        let rhs = self.get_variable(bin_op.rhs);
+        let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
         let (lhs, rhs) = self.visit_correct_index(lhs, rhs);
 
         let value = if bin_op.lhs.item.elem.is_float() {
