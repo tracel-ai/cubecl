@@ -7,21 +7,41 @@ use crate::components::global::load::BufferId;
 use crate::components::stage::{StageEvent, StageEventListener};
 
 #[derive(Copy, Clone)]
-#[allow(unused)]
 pub enum EventLoadingMode {
-    // Load all without constraints
+    // Load without constraints
     Relaxed,
-    // Load all but respecting order
+    // Load but respecting order
     Ordered,
-    // Don't load
+}
+
+#[derive(Copy, Clone)]
+pub enum EventLoadingRange {
+    // Load both Lhs and Rhs
+    Full,
+    // Load Lhs only
+    Lhs,
+    // Load Rhs only
+    Rhs,
+    // Don't perform loading
     None,
 }
 
-impl EventLoadingMode {
-    pub fn should_fill(&self) -> bool {
+impl EventLoadingRange {
+    pub fn should_fill_lhs(&self) -> bool {
         match self {
-            EventLoadingMode::Relaxed | EventLoadingMode::Ordered => true,
-            EventLoadingMode::None => false,
+            EventLoadingRange::Full => true,
+            EventLoadingRange::Lhs => true,
+            EventLoadingRange::Rhs => false,
+            EventLoadingRange::None => false,
+        }
+    }
+
+    pub fn should_fill_rhs(&self) -> bool {
+        match self {
+            EventLoadingRange::Full => true,
+            EventLoadingRange::Lhs => false,
+            EventLoadingRange::Rhs => true,
+            EventLoadingRange::None => false,
         }
     }
 }
@@ -40,6 +60,8 @@ pub(crate) struct DoubleBufferingEventListener<
     config: G,
     state_lhs: Sequence<Lhs::Job>,
     state_rhs: Sequence<Rhs::Job>,
+    #[cube(comptime)]
+    event_loading_range: EventLoadingRange,
 }
 
 #[derive(Clone)]
@@ -75,6 +97,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
+        #[comptime] event_loading_range: EventLoadingRange,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
@@ -83,6 +106,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
+            event_loading_range,
         }
     }
 }
@@ -148,20 +172,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 #[cube]
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
-        if comptime!(
-            self.config
-                .event_loading_mode(InputIdent::Lhs)
-                .should_fill()
-        ) {
+        if comptime!(self.event_loading_range.should_fill_lhs()) {
             self.state_lhs
                 .push(L::create_job(&self.loader_lhs, self.buffer_id, self.config));
         }
 
-        if comptime!(
-            self.config
-                .event_loading_mode(InputIdent::Rhs)
-                .should_fill()
-        ) {
+        if comptime!(self.event_loading_range.should_fill_rhs()) {
             self.state_rhs
                 .push(R::create_job(&self.loader_rhs, self.buffer_id, self.config));
         }

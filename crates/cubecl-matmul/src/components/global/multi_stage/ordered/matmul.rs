@@ -3,7 +3,7 @@ use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
     SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::components::global::multi_stage::DoubleBufferingEventListener;
+use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingRange};
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
@@ -190,7 +190,13 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(
+                    BufferId::B,
+                    &lhs_loader,
+                    &rhs_loader,
+                    config,
+                    EventLoadingRange::Full,
+                ),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
@@ -207,7 +213,13 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(
+                    BufferId::A,
+                    &lhs_loader,
+                    &rhs_loader,
+                    config,
+                    EventLoadingRange::Full,
+                ),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
@@ -224,7 +236,13 @@ where
             &mut rhs_tile,
             acc,
             config.stage_config(),
-            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+            DoubleBufferingEventListener::new(
+                BufferId::B,
+                &lhs_loader,
+                &rhs_loader,
+                config,
+                EventLoadingRange::Full,
+            ),
         );
 
         sync_cube();
