@@ -74,7 +74,7 @@ pub trait Algorithm {
     }
 
     fn loading_plane_count() -> LoadOnlyRoleConfig {
-        LoadOnlyRoleConfig::default()
+        LoadOnlyRoleConfig::None
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {

@@ -94,8 +94,7 @@ impl CubeDebug for EventAnalysis {}
 impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
-    // TODO remove pub
-    pub fn new(
+    fn new(
         #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,

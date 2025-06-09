@@ -3,7 +3,9 @@ use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
     SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingSet};
+use crate::components::global::multi_stage::{
+    DoubleBufferingEventListener, EventListenerFactory, EventLoadingSet, event_listener,
+};
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
@@ -188,9 +190,18 @@ where
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
+        // if specialized {
+        // let event_listener_factory =
+        // EventListenerFactory::from_event_loading_set(EventLoadingSet::Lhs, config);
+        // } else {
+        let event_listener_factory =
+            EventListenerFactory::from_event_loading_set(EventLoadingSet::Full, config);
+        //}
+
         sync_cube();
 
         for _ in 0..num_loops {
+            // if !specialized || main flow
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
@@ -200,20 +211,17 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::B,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    EventLoadingSet::Full,
-                ),
+                event_listener_factory.event_listener(BufferId::B, &lhs_loader, &rhs_loader),
             );
+            // else
+            // fill stage rhs
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_cube();
 
+            // if !specialized || main flow
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
@@ -223,20 +231,17 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::A,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    EventLoadingSet::Full,
-                ),
+                event_listener_factory.event_listener(BufferId::A, &lhs_loader, &rhs_loader),
             );
+            // else
+            // fill stage rhs
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
             sync_cube();
         }
 
+        // if !specialized || main flow
         SMM::execute_with_listener::<
             DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
         >(
@@ -246,18 +251,14 @@ where
             &mut rhs_tile,
             acc,
             config.stage_config(),
-            DoubleBufferingEventListener::new(
-                BufferId::B,
-                &lhs_loader,
-                &rhs_loader,
-                config,
-                EventLoadingSet::Full,
-            ),
+            event_listener_factory.event_listener(BufferId::B, &lhs_loader, &rhs_loader),
         );
+        // else
+        // fill stage rhs
 
         sync_cube();
 
-        // Execute B
+        // if !specialized || main flow
         SMM::execute(
             &lhs_reader,
             &rhs_reader_b,
@@ -268,6 +269,7 @@ where
         );
 
         SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        // }
     }
 
     fn init_lhs_loader(
