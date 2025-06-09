@@ -174,22 +174,16 @@ where
         sync_cube();
 
         for _ in 0..num_loops {
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-            >(
+            execute_current_stage_and_load_next_buffer::<MP, SMM, LL, RL>(
                 &lhs_reader_a,
                 &rhs_reader_a,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::B,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    EventLoadingRange::Full,
-                ),
+                &lhs_loader,
+                &rhs_loader,
+                BufferId::B,
+                config,
             );
 
             // We always advance by 2 * k because Buffer B shares the same global memory state as Buffer A,
@@ -199,57 +193,44 @@ where
 
             sync_cube();
 
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-            >(
+            execute_current_stage_and_load_next_buffer::<MP, SMM, LL, RL>(
                 &lhs_reader_b,
                 &rhs_reader_b,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::A,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    EventLoadingRange::Full,
-                ),
+                &lhs_loader,
+                &rhs_loader,
+                BufferId::A,
+                config,
             );
 
             sync_cube();
         }
 
-        SMM::execute_with_listener::<
-            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-        >(
+        execute_current_stage_and_load_next_buffer::<MP, SMM, LL, RL>(
             &lhs_reader_a,
             &rhs_reader_a,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.stage_config(),
-            DoubleBufferingEventListener::new(
-                BufferId::B,
-                &lhs_loader,
-                &rhs_loader,
-                config,
-                EventLoadingRange::Full,
-            ),
+            &lhs_loader,
+            &rhs_loader,
+            BufferId::B,
+            config,
         );
 
         sync_cube();
 
-        SMM::execute(
+        execute_last_stage_and_write_results::<MP, SMM>(
             &lhs_reader_b,
             &rhs_reader_b,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.stage_config(),
+            &mut out_writer,
+            config,
         );
-
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
@@ -309,4 +290,73 @@ where
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.stage_config());
     }
+}
+
+#[cube]
+fn execute_current_stage_and_load_next_buffer<
+    MP: MatmulPrecision,
+    SMM: stage::StageMatmul<MP>,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+>(
+    lhs_reader: &SMM::LhsReader,
+    rhs_reader: &SMM::RhsReader,
+    lhs_tile: &mut SMM::LhsTile,
+    rhs_tile: &mut SMM::RhsTile,
+    acc: &mut SMM::Accumulator,
+    lhs_loader: &SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+    rhs_loader: &SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+    #[comptime] buffer_to_load: BufferId,
+    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
+) {
+    let event_listener = DoubleBufferingEventListener::new(
+        buffer_to_load,
+        lhs_loader,
+        rhs_loader,
+        config,
+        EventLoadingRange::Full,
+    );
+
+    SMM::execute_with_listener::<
+        DoubleBufferingEventListener<
+            SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+            SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+            DoubleBufferingGlobalConfig<SMM::Config>,
+        >,
+    >(
+        lhs_reader,
+        rhs_reader,
+        lhs_tile,
+        rhs_tile,
+        acc,
+        config.stage_config(),
+        event_listener,
+    );
+}
+
+#[cube]
+fn execute_last_stage_and_write_results<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>>(
+    lhs_reader: &SMM::LhsReader,
+    rhs_reader: &SMM::RhsReader,
+    lhs_tile: &mut SMM::LhsTile,
+    rhs_tile: &mut SMM::RhsTile,
+    acc: &mut SMM::Accumulator,
+    out_writer: &mut SMM::Writer,
+    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
+) {
+    SMM::execute(
+        lhs_reader,
+        rhs_reader,
+        lhs_tile,
+        rhs_tile,
+        acc,
+        config.stage_config(),
+    );
+
+    SMM::write_results::<DoubleBufferingGlobalConfig<SMM::Config>>(
+        acc,
+        out_writer,
+        config.stage_config(),
+        config,
+    );
 }
