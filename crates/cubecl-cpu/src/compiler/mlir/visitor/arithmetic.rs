@@ -6,6 +6,7 @@ use melior::{
     ir::Attribute,
 };
 
+use super::prelude::*;
 use crate::compiler::mlir::visitor::Visitor;
 
 impl<'a> Visitor<'a> {
@@ -13,7 +14,7 @@ impl<'a> Visitor<'a> {
         match arithmetic {
             Arithmetic::Abs(abs) => {
                 let value = self.get_variable(abs.input);
-                let result_type = self.item_to_type(abs.input.item);
+                let result_type = abs.input.item.to_type(self.context);
                 let abs = if abs.input.elem().is_int() {
                     self.append_operation_with_result(llvm::intr_abs(
                         self.context,
@@ -96,7 +97,7 @@ impl<'a> Visitor<'a> {
                 let lhs = self.get_variable(dot.lhs);
                 let rhs = self.get_variable(dot.rhs);
                 // This could be used if it wasn't broken and the documentation was usable https://mlir.llvm.org/docs/Dialects/Vector/#vectorcontract-vectorcontractionop
-                let result = self.elem_to_type(dot.lhs.elem());
+                let result = dot.lhs.elem().to_type(self.context);
                 if dot.lhs.elem().is_int() {
                     let multiplied =
                         self.append_operation_with_result(arith::muli(lhs, rhs, self.location));
@@ -149,7 +150,7 @@ impl<'a> Visitor<'a> {
                 let b = self.get_variable(fma.b);
                 let c = self.get_variable(fma.c);
 
-                let result_type = self.item_to_type(fma.a.item);
+                let result_type = fma.a.item.to_type(self.context);
                 let result = self.append_operation_with_result(vector::fma(
                     self.context,
                     result_type,
@@ -186,7 +187,7 @@ impl<'a> Visitor<'a> {
                 let squared =
                     self.append_operation_with_result(arith::mulf(value, value, self.location));
                 let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                let result = self.elem_to_type(magnitude.input.elem());
+                let result = magnitude.input.elem().to_type(self.context);
                 let sum = self.append_operation_with_result(vector::reduction(
                     self.context,
                     result,
@@ -277,7 +278,7 @@ impl<'a> Visitor<'a> {
                 let squared =
                     self.append_operation_with_result(arith::mulf(value, value, self.location));
                 let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                let result = self.elem_to_type(normalize.input.elem());
+                let result = normalize.input.elem().to_type(self.context);
                 let sum = self.append_operation_with_result(vector::reduction(
                     self.context,
                     result,
@@ -290,7 +291,7 @@ impl<'a> Visitor<'a> {
                     sum,
                     self.location,
                 ));
-                let vector_type = self.item_to_type(normalize.input.item);
+                let vector_type = normalize.input.item.to_type(self.context);
                 let square_root = self.append_operation_with_result(vector::splat(
                     self.context,
                     vector_type,

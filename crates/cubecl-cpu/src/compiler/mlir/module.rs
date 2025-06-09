@@ -81,7 +81,7 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition, opt: &Optimizer) {
-        Visitor::new(self.context, self.location).visit_kernel(kernel, &self.module, opt);
+        Visitor::visit_kernel(self.context, self.location, kernel, &self.module, opt);
     }
 
     pub(super) fn run_pass(&mut self) {
