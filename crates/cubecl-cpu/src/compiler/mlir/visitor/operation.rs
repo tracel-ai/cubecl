@@ -10,6 +10,8 @@ use melior::{
     ir::{Type, Value, attribute::IntegerAttribute, r#type::IntegerType},
 };
 
+use crate::compiler::mlir::visitor::prelude::IntoType;
+
 use super::Visitor;
 
 impl<'a> Visitor<'a> {
@@ -169,7 +171,7 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::CountOnes(unary_operator) => {
                 let value = self.get_variable(unary_operator.input);
-                let result_type = self.item_to_type(unary_operator.input.item);
+                let result_type = unary_operator.input.item.to_type(self.context);
                 let value: Value<'a, 'a> = self.append_operation_with_result(llvm::intr_ctpop(
                     value,
                     result_type,
@@ -209,7 +211,7 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::ReverseBits(unary_operator) => {
                 let value = self.get_variable(unary_operator.input);
-                let result_type = self.item_to_type(unary_operator.input.item);
+                let result_type = unary_operator.input.item.to_type(self.context);
                 self.append_operation_with_result(llvm::intr_bitreverse(
                     value,
                     result_type,
@@ -223,7 +225,7 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::LeadingZeros(unary_operator) => {
                 let value = self.get_variable(unary_operator.input);
-                let result_type = self.item_to_type(unary_operator.input.item);
+                let result_type = unary_operator.input.item.to_type(self.context);
                 let value = self.append_operation_with_result(llvm::intr_ctlz(
                     self.context,
                     value,
@@ -271,7 +273,7 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::FindFirstSet(unary_operator) => {
                 let value = self.get_variable(unary_operator.input);
-                let result_type = self.item_to_type(unary_operator.input.item);
+                let result_type = unary_operator.input.item.to_type(self.context);
                 let value = self.append_operation_with_result(llvm::intr_cttz(
                     self.context,
                     value,

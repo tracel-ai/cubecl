@@ -5,6 +5,7 @@ pub(super) mod instruction;
 pub(super) mod item;
 pub(super) mod operation;
 pub(super) mod operator;
+pub(super) mod prelude;
 pub(super) mod variable;
 
 use std::collections::HashMap;
@@ -18,9 +19,13 @@ use melior::{
         Attribute, Block, BlockLike, BlockRef, Identifier, Location, Operation, Region, RegionLike,
         Type, Value,
         attribute::{IntegerAttribute, StringAttribute, TypeAttribute},
-        r#type::FunctionType,
+        r#type::{FunctionType, MemRefType},
     },
 };
+
+use prelude::*;
+
+use super::external_function::add_external_function_to_module;
 
 pub struct Visitor<'a> {
     pub block_stack: Vec<BlockRef<'a, 'a>>,
@@ -32,49 +37,52 @@ pub struct Visitor<'a> {
     pub global_buffers: Vec<Value<'a, 'a>>,
     pub global_scalars: Vec<Value<'a, 'a>>,
 
-    pub cube_dim_x: Option<Value<'a, 'a>>,
-    pub cube_dim_y: Option<Value<'a, 'a>>,
-    pub cube_dim_z: Option<Value<'a, 'a>>,
-    pub cube_count_x: Option<Value<'a, 'a>>,
-    pub cube_count_y: Option<Value<'a, 'a>>,
-    pub cube_count_z: Option<Value<'a, 'a>>,
-    pub unit_pos_x: Option<Value<'a, 'a>>,
-    pub unit_pos_y: Option<Value<'a, 'a>>,
-    pub unit_pos_z: Option<Value<'a, 'a>>,
-    pub cube_pos_x: Option<Value<'a, 'a>>,
-    pub cube_pos_y: Option<Value<'a, 'a>>,
-    pub cube_pos_z: Option<Value<'a, 'a>>,
-    pub absolute_pos_x: Option<Value<'a, 'a>>,
-    pub absolute_pos_y: Option<Value<'a, 'a>>,
-    pub absolute_pos_z: Option<Value<'a, 'a>>,
-    pub absolute_pos: Option<Value<'a, 'a>>,
+    pub cube_dim_x: Value<'a, 'a>,
+    pub cube_dim_y: Value<'a, 'a>,
+    pub cube_dim_z: Value<'a, 'a>,
+    pub cube_count_x: Value<'a, 'a>,
+    pub cube_count_y: Value<'a, 'a>,
+    pub cube_count_z: Value<'a, 'a>,
+    pub unit_pos_x: Value<'a, 'a>,
+    pub unit_pos_y: Value<'a, 'a>,
+    pub unit_pos_z: Value<'a, 'a>,
+    pub cube_pos_x: Value<'a, 'a>,
+    pub cube_pos_y: Value<'a, 'a>,
+    pub cube_pos_z: Value<'a, 'a>,
+    pub absolute_pos_x: Value<'a, 'a>,
+    pub absolute_pos_y: Value<'a, 'a>,
+    pub absolute_pos_z: Value<'a, 'a>,
+    pub absolute_pos: Value<'a, 'a>,
 }
 
 impl<'a> Visitor<'a> {
-    pub fn new(context: &'a Context, location: Location<'a>) -> Self {
+    pub fn new(
+        context: &'a Context,
+        location: Location<'a>,
+        global_buffers: Vec<Value<'a, 'a>>,
+        global_scalars: Vec<Value<'a, 'a>>,
+        cube_dim_x: Value<'a, 'a>,
+        cube_dim_y: Value<'a, 'a>,
+        cube_dim_z: Value<'a, 'a>,
+        cube_count_x: Value<'a, 'a>,
+        cube_count_y: Value<'a, 'a>,
+        cube_count_z: Value<'a, 'a>,
+        unit_pos_x: Value<'a, 'a>,
+        unit_pos_y: Value<'a, 'a>,
+        unit_pos_z: Value<'a, 'a>,
+        cube_pos_x: Value<'a, 'a>,
+        cube_pos_y: Value<'a, 'a>,
+        cube_pos_z: Value<'a, 'a>,
+        absolute_pos_x: Value<'a, 'a>,
+        absolute_pos_y: Value<'a, 'a>,
+        absolute_pos_z: Value<'a, 'a>,
+        absolute_pos: Value<'a, 'a>,
+    ) -> Self {
         let current_local_variables = HashMap::new();
         let current_version_variables = HashMap::new();
         let current_mut_variables = HashMap::new();
-        let global_buffers = vec![];
-        let global_scalar_buffers = vec![];
         let block_stack = vec![];
 
-        let cube_dim_x = None;
-        let cube_dim_y = None;
-        let cube_dim_z = None;
-        let cube_count_x = None;
-        let cube_count_y = None;
-        let cube_count_z = None;
-        let unit_pos_x = None;
-        let unit_pos_y = None;
-        let unit_pos_z = None;
-        let cube_pos_x = None;
-        let cube_pos_y = None;
-        let cube_pos_z = None;
-        let absolute_pos_x = None;
-        let absolute_pos_y = None;
-        let absolute_pos_z = None;
-        let absolute_pos = None;
         Self {
             block_stack,
             context,
@@ -83,7 +91,7 @@ impl<'a> Visitor<'a> {
             current_version_variables,
             current_mut_variables,
             global_buffers,
-            global_scalars: global_scalar_buffers,
+            global_scalars,
             cube_dim_x,
             cube_dim_y,
             cube_dim_z,
@@ -119,45 +127,55 @@ impl<'a> Visitor<'a> {
     }
 
     pub(super) fn visit_kernel<'b: 'a>(
-        &'a mut self,
+        context: &'a Context,
+        location: Location<'a>,
         kernel: &'b KernelDefinition,
         module: &melior::ir::Module<'a>,
         opt: &Optimizer,
     ) {
-        let name = StringAttribute::new(self.context, "kernel");
+        let name = StringAttribute::new(context, "kernel");
 
         let attributes = &[(
-            Identifier::new(self.context, "llvm.emit_c_interface"),
-            Attribute::unit(self.context).into(),
+            Identifier::new(context, "llvm.emit_c_interface"),
+            Attribute::unit(context).into(),
         )];
 
         let mut inputs = Vec::with_capacity(kernel.buffers.len() + 9);
         let mut block_input = Vec::with_capacity(kernel.buffers.len());
 
+        let mut global_buffers = vec![];
+        let mut global_scalars = vec![];
+
         for binding in kernel.buffers.iter() {
-            let memref = self.memref_buffer_type(binding).into();
+            let inner_type = binding.item.elem.to_type(context);
+            let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
             inputs.push(memref);
-            block_input.push((memref, self.location));
+            block_input.push((memref, location));
         }
 
         for binding in kernel.scalars.iter() {
-            let memref = self.memref_scalar_type(binding).into();
-            inputs.push(memref);
-            block_input.push((memref, self.location));
+            let inner_type = binding.elem.to_type(context);
+            let scalar = if binding.count > 1 {
+                Type::vector(&[binding.count as u64], inner_type)
+            } else {
+                inner_type
+            };
+            inputs.push(scalar);
+            block_input.push((scalar, location));
         }
 
         for _ in 0..9 {
-            let index = Type::index(self.context);
+            let index = Type::index(context);
             inputs.push(index);
-            block_input.push((index, self.location));
+            block_input.push((index, location));
         }
 
-        let func_type = TypeAttribute::new(FunctionType::new(self.context, &inputs, &[]).into());
+        let func_type = TypeAttribute::new(FunctionType::new(context, &inputs, &[]).into());
 
-        let location = self.location;
-        self.add_external_function_to_module(module);
+        let location = location;
+        add_external_function_to_module(context, module);
         module.body().append_operation(func::func(
-            self.context,
+            context,
             name,
             func_type,
             {
@@ -168,15 +186,22 @@ impl<'a> Visitor<'a> {
                 let block = region.first_block().unwrap();
                 let argument_count = kernel.buffers.len();
                 for i in 0..argument_count {
-                    self.global_buffers.push(block.argument(i).unwrap().into());
+                    global_buffers.push(block.argument(i).unwrap().into());
                 }
 
                 let scalar = kernel.scalars.len();
                 for i in argument_count..argument_count + scalar {
-                    self.global_scalars.push(block.argument(i).unwrap().into());
+                    global_scalars.push(block.argument(i).unwrap().into());
                 }
 
-                self.insert_builtin_loop(block, opt);
+                Self::insert_builtin_loop(
+                    block,
+                    opt,
+                    context,
+                    location,
+                    global_buffers,
+                    global_scalars,
+                );
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -188,13 +213,20 @@ impl<'a> Visitor<'a> {
     }
 
     // TODO: cleanup this abomination by refactoring melior to make it at least not as bulky and verbose
-    pub fn insert_builtin_loop(&mut self, block: BlockRef<'a, 'a>, opt: &Optimizer) {
+    pub fn insert_builtin_loop(
+        block: BlockRef<'a, 'a>,
+        opt: &Optimizer,
+        context: &'a Context,
+        location: Location<'a>,
+        global_buffers: Vec<Value<'a, 'a>>,
+        global_scalars: Vec<Value<'a, 'a>>,
+    ) {
         let basic_block_id = opt.entry();
         let c0: Value<'_, '_> = block
             .append_operation(arith::constant(
-                self.context,
-                IntegerAttribute::new(Type::index(self.context), 0).into(),
-                self.location,
+                context,
+                IntegerAttribute::new(Type::index(context), 0).into(),
+                location,
             ))
             .result(0)
             .unwrap()
@@ -202,51 +234,60 @@ impl<'a> Visitor<'a> {
 
         let c1: Value<'_, '_> = block
             .append_operation(arith::constant(
-                self.context,
-                IntegerAttribute::new(Type::index(self.context), 1).into(),
-                self.location,
+                context,
+                IntegerAttribute::new(Type::index(context), 1).into(),
+                location,
             ))
             .result(0)
             .unwrap()
             .into();
 
-        let to_assign = [
-            &mut self.cube_dim_x,
-            &mut self.cube_dim_y,
-            &mut self.cube_dim_z,
-            &mut self.cube_count_x,
-            &mut self.cube_count_y,
-            &mut self.cube_count_z,
-            &mut self.unit_pos_x,
-            &mut self.unit_pos_y,
-            &mut self.unit_pos_z,
-        ];
-
-        for (i, v) in to_assign.into_iter().enumerate() {
-            *v = Some(
-                block
-                    .argument(self.global_buffers.len() + self.global_scalars.len() + i)
-                    .unwrap()
-                    .into(),
-            );
-        }
+        // TODO refactor this in a macro
+        let cube_dim_x = block
+            .argument(global_buffers.len() + global_scalars.len())
+            .unwrap()
+            .into();
+        let cube_dim_y = block
+            .argument(global_buffers.len() + global_scalars.len() + 1)
+            .unwrap()
+            .into();
+        let cube_dim_z = block
+            .argument(global_buffers.len() + global_scalars.len() + 2)
+            .unwrap()
+            .into();
+        let cube_count_x = block
+            .argument(global_buffers.len() + global_scalars.len() + 3)
+            .unwrap()
+            .into();
+        let cube_count_y = block
+            .argument(global_buffers.len() + global_scalars.len() + 4)
+            .unwrap()
+            .into();
+        let cube_count_z = block
+            .argument(global_buffers.len() + global_scalars.len() + 5)
+            .unwrap()
+            .into();
+        let unit_pos_x = block
+            .argument(global_buffers.len() + global_scalars.len() + 6)
+            .unwrap()
+            .into();
+        let unit_pos_y = block
+            .argument(global_buffers.len() + global_scalars.len() + 7)
+            .unwrap()
+            .into();
+        let unit_pos_z = block
+            .argument(global_buffers.len() + global_scalars.len() + 8)
+            .unwrap()
+            .into();
 
         let absolute_pos_tmp_0: Value<'a, 'a> = block
-            .append_operation(arith::muli(
-                self.cube_count_x.unwrap(),
-                self.cube_dim_x.unwrap(),
-                self.location,
-            ))
+            .append_operation(arith::muli(cube_count_x, cube_dim_x, location))
             .result(0)
             .unwrap()
             .into();
 
         let absolute_pos_tmp_1: Value<'a, 'a> = block
-            .append_operation(arith::muli(
-                self.cube_count_y.unwrap(),
-                self.cube_dim_y.unwrap(),
-                self.location,
-            ))
+            .append_operation(arith::muli(cube_count_y, cube_dim_y, location))
             .result(0)
             .unwrap()
             .into();
@@ -255,7 +296,7 @@ impl<'a> Visitor<'a> {
             .append_operation(arith::muli(
                 absolute_pos_tmp_0,
                 absolute_pos_tmp_1,
-                self.location,
+                location,
             ))
             .result(0)
             .unwrap()
@@ -264,159 +305,154 @@ impl<'a> Visitor<'a> {
         block.append_operation(
             scf::r#for(
                 c0,
-                self.cube_count_x.unwrap(),
+                cube_count_x,
                 c1,
                 {
                     let region = Region::new();
-                    let block = Block::new(&[(Type::index(&self.context), self.location)]);
-                    self.cube_pos_x = Some(block.argument(0).unwrap().into());
+                    let block = Block::new(&[(Type::index(&context), location)]);
+                    let cube_pos_x = block.argument(0).unwrap().into();
 
                     let absolute_pos_x_tmp = block
-                        .append_operation(arith::muli(
-                            self.cube_pos_x.unwrap(),
-                            self.cube_dim_x.unwrap(),
-                            self.location,
-                        ))
+                        .append_operation(arith::muli(cube_pos_x, cube_dim_x, location))
                         .result(0)
                         .unwrap()
                         .into();
-                    self.absolute_pos_x = Some(
-                        block
-                            .append_operation(arith::addi(
-                                absolute_pos_x_tmp,
-                                self.unit_pos_x.unwrap(),
-                                self.location,
-                            ))
-                            .result(0)
-                            .unwrap()
-                            .into(),
-                    );
+                    let absolute_pos_x = block
+                        .append_operation(arith::addi(absolute_pos_x_tmp, unit_pos_x, location))
+                        .result(0)
+                        .unwrap()
+                        .into();
 
                     block.append_operation(scf::r#for(
                         c0,
-                        self.cube_count_y.unwrap(),
+                        cube_count_y,
                         c1,
                         {
                             let region = Region::new();
-                            let block = Block::new(&[(Type::index(&self.context), self.location)]);
-                            self.cube_pos_y = Some(block.argument(0).unwrap().into());
+                            let block = Block::new(&[(Type::index(&context), location)]);
+                            let cube_pos_y = block.argument(0).unwrap().into();
 
                             let absolute_pos_y_tmp = block
-                                .append_operation(arith::muli(
-                                    self.cube_pos_y.unwrap(),
-                                    self.cube_dim_y.unwrap(),
-                                    self.location,
+                                .append_operation(arith::muli(cube_pos_y, cube_dim_y, location))
+                                .result(0)
+                                .unwrap()
+                                .into();
+                            let absolute_pos_y = block
+                                .append_operation(arith::addi(
+                                    absolute_pos_y_tmp,
+                                    unit_pos_y,
+                                    location,
                                 ))
                                 .result(0)
                                 .unwrap()
                                 .into();
-                            self.absolute_pos_y = Some(
-                                block
-                                    .append_operation(arith::addi(
-                                        absolute_pos_y_tmp,
-                                        self.unit_pos_y.unwrap(),
-                                        self.location,
-                                    ))
-                                    .result(0)
-                                    .unwrap()
-                                    .into(),
-                            );
-
                             let absolute_pos_tmp_3 = block
                                 .append_operation(arith::muli(
-                                    self.absolute_pos_y.unwrap(),
+                                    absolute_pos_y,
                                     absolute_pos_tmp_0,
-                                    self.location,
+                                    location,
                                 ))
                                 .result(0)
                                 .unwrap()
                                 .into();
-
                             block.append_operation(scf::r#for(
                                 c0,
-                                self.cube_count_y.unwrap(),
+                                cube_count_y,
                                 c1,
                                 {
                                     let region = Region::new();
-                                    let block =
-                                        Block::new(&[(Type::index(&self.context), self.location)]);
+                                    let block = Block::new(&[(Type::index(&context), location)]);
 
-                                    self.cube_pos_z = Some(block.argument(0).unwrap().into());
+                                    let cube_pos_z = block.argument(0).unwrap().into();
 
                                     let absolute_pos_z_tmp = block
                                         .append_operation(arith::muli(
-                                            self.cube_pos_z.unwrap(),
-                                            self.cube_dim_z.unwrap(),
-                                            self.location,
+                                            cube_pos_z, cube_dim_z, location,
                                         ))
                                         .result(0)
                                         .unwrap()
                                         .into();
-                                    self.absolute_pos_z = Some(
-                                        block
-                                            .append_operation(arith::addi(
-                                                absolute_pos_z_tmp,
-                                                self.unit_pos_z.unwrap(),
-                                                self.location,
-                                            ))
-                                            .result(0)
-                                            .unwrap()
-                                            .into(),
-                                    );
+                                    let absolute_pos_z = block
+                                        .append_operation(arith::addi(
+                                            absolute_pos_z_tmp,
+                                            unit_pos_z,
+                                            location,
+                                        ))
+                                        .result(0)
+                                        .unwrap()
+                                        .into();
 
                                     let absolute_pos_tmp_4 = block
                                         .append_operation(arith::muli(
-                                            self.absolute_pos_z.unwrap(),
+                                            absolute_pos_z,
                                             absolute_pos_tmp_2,
-                                            self.location,
+                                            location,
                                         ))
                                         .result(0)
                                         .unwrap()
                                         .into();
                                     let absolute_pos_tmp_5 = block
                                         .append_operation(arith::addi(
-                                            self.absolute_pos_x.unwrap(),
+                                            absolute_pos_x,
                                             absolute_pos_tmp_3,
-                                            self.location,
+                                            location,
                                         ))
                                         .result(0)
                                         .unwrap()
                                         .into();
 
-                                    self.absolute_pos = Some(
-                                        block
-                                            .append_operation(arith::addi(
-                                                absolute_pos_tmp_5,
-                                                absolute_pos_tmp_4,
-                                                self.location,
-                                            ))
-                                            .result(0)
-                                            .unwrap()
-                                            .into(),
-                                    );
+                                    let absolute_pos = block
+                                        .append_operation(arith::addi(
+                                            absolute_pos_tmp_5,
+                                            absolute_pos_tmp_4,
+                                            location,
+                                        ))
+                                        .result(0)
+                                        .unwrap()
+                                        .into();
 
                                     region.append_block(block);
                                     let block = region.first_block().unwrap();
-                                    self.block_stack.push(block);
-                                    self.visit_basic_block(basic_block_id, opt);
-                                    self.block_stack.pop();
-                                    block.append_operation(scf::r#yield(&[], self.location).into());
+                                    let mut visitor = Visitor::new(
+                                        context,
+                                        location,
+                                        global_buffers,
+                                        global_scalars,
+                                        cube_dim_x,
+                                        cube_dim_y,
+                                        cube_dim_z,
+                                        cube_count_x,
+                                        cube_count_y,
+                                        cube_count_z,
+                                        unit_pos_x,
+                                        unit_pos_y,
+                                        unit_pos_z,
+                                        cube_pos_x,
+                                        cube_pos_y,
+                                        cube_pos_z,
+                                        absolute_pos_x,
+                                        absolute_pos_y,
+                                        absolute_pos_z,
+                                        absolute_pos,
+                                    );
+                                    visitor.visit_basic_block(basic_block_id, opt);
+                                    block.append_operation(scf::r#yield(&[], location).into());
                                     region
                                 },
-                                self.location,
+                                location,
                             ));
-                            block.append_operation(scf::r#yield(&[], self.location).into());
+                            block.append_operation(scf::r#yield(&[], location).into());
                             region.append_block(block);
                             region
                         },
-                        self.location,
+                        location,
                     ));
 
-                    block.append_operation(scf::r#yield(&[], self.location).into());
+                    block.append_operation(scf::r#yield(&[], location).into());
                     region.append_block(block);
                     region
                 },
-                self.location,
+                location,
             )
             .into(),
         );

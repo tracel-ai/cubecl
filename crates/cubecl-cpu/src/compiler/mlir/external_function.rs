@@ -1,5 +1,5 @@
 use melior::{
-    ExecutionEngine,
+    Context, ExecutionEngine,
     dialect::func,
     ir::{
         BlockLike, Identifier, Location, Region, Type,
@@ -7,8 +7,6 @@ use melior::{
         r#type::FunctionType,
     },
 };
-
-use super::visitor::Visitor;
 
 extern "C" fn print_i(index: isize) {
     println!("{index}");
@@ -21,21 +19,18 @@ pub fn register_external_function(execution_engine: &ExecutionEngine) {
     }
 }
 
-impl<'a> Visitor<'a> {
-    pub fn add_external_function_to_module(&self, module: &melior::ir::Module<'a>) {
-        let func_type = TypeAttribute::new(
-            FunctionType::new(self.context, &[Type::index(self.context)], &[]).into(),
-        );
-        module.body().append_operation(func::func(
-            self.context,
-            StringAttribute::new(self.context, "print_i"),
-            func_type,
-            Region::new(),
-            &[(
-                Identifier::new(self.context, "sym_visibility"),
-                StringAttribute::new(self.context, "private").into(),
-            )],
-            Location::unknown(self.context),
-        ));
-    }
+pub fn add_external_function_to_module<'a>(context: &'a Context, module: &melior::ir::Module<'a>) {
+    let func_type =
+        TypeAttribute::new(FunctionType::new(context, &[Type::index(context)], &[]).into());
+    module.body().append_operation(func::func(
+        context,
+        StringAttribute::new(context, "print_i"),
+        func_type,
+        Region::new(),
+        &[(
+            Identifier::new(context, "sym_visibility"),
+            StringAttribute::new(context, "private").into(),
+        )],
+        Location::unknown(context),
+    ));
 }

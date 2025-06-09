@@ -13,6 +13,8 @@ use melior::{
     },
 };
 
+use crate::compiler::mlir::visitor::prelude::IntoType;
+
 use super::Visitor;
 
 impl<'a> Visitor<'a> {
@@ -25,7 +27,7 @@ impl<'a> Visitor<'a> {
                 self.current_version_variables.insert((id, version), value);
             }
             VariableKind::LocalMut { id } => {
-                let r#type = self.elem_to_type(variable.elem());
+                let r#type = variable.elem().to_type(self.context);
                 let memref_type = MemRefType::new(
                     r#type,
                     &[variable.vectorization_factor() as i64],
@@ -79,7 +81,7 @@ impl<'a> Visitor<'a> {
             if !lhs_value.r#type().is_vector() {
                 let vector_type = Type::vector(
                     &[vectorization_factor as u64],
-                    self.elem_to_type(lhs.elem()),
+                    lhs.elem().to_type(self.context),
                 );
                 lhs_value = self.append_operation_with_result(vector::splat(
                     self.context,
@@ -91,7 +93,7 @@ impl<'a> Visitor<'a> {
             if !rhs_value.r#type().is_vector() {
                 let vector_type = Type::vector(
                     &[vectorization_factor as u64],
-                    self.elem_to_type(rhs.elem()),
+                    rhs.elem().to_type(self.context),
                 );
                 rhs_value = self.append_operation_with_result(vector::splat(
                     self.context,
@@ -196,7 +198,7 @@ impl<'a> Visitor<'a> {
                     .get(&id)
                     .expect("Variable should have been declared before")
                     .clone();
-                let result_type = self.item_to_type(variable.item);
+                let result_type = variable.item.to_type(self.context);
                 let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
                 let zero = self.append_operation_with_result(arith::constant(
                     self.context,
@@ -219,7 +221,7 @@ impl<'a> Visitor<'a> {
             VariableKind::GlobalScalar(id) => {
                 let var = self.global_scalars[id as usize];
                 if variable.item.vectorization.is_some() {
-                    let result_type = self.item_to_type(variable.item);
+                    let result_type = variable.item.to_type(self.context);
                     self.append_operation_with_result(vector::load(
                         self.context,
                         result_type,
@@ -262,19 +264,22 @@ impl<'a> Visitor<'a> {
 
     pub fn get_builtin(&self, builtin: Builtin) -> Value<'a, 'a> {
         match builtin {
-            Builtin::AbsolutePos => self.absolute_pos.unwrap(),
-            Builtin::AbsolutePosX => self.absolute_pos_x.unwrap(),
-            Builtin::AbsolutePosY => self.absolute_pos_y.unwrap(),
-            Builtin::AbsolutePosZ => self.absolute_pos_z.unwrap(),
-            Builtin::CubeDimX => self.cube_dim_x.unwrap(),
-            Builtin::CubeDimY => self.cube_dim_y.unwrap(),
-            Builtin::CubeDimZ => self.cube_dim_z.unwrap(),
-            Builtin::CubeCountX => self.cube_count_x.unwrap(),
-            Builtin::CubeCountY => self.cube_count_y.unwrap(),
-            Builtin::CubeCountZ => self.cube_count_z.unwrap(),
-            Builtin::CubePosX => self.cube_count_x.unwrap(),
-            Builtin::CubePosY => self.cube_count_y.unwrap(),
-            Builtin::CubePosZ => self.cube_count_z.unwrap(),
+            Builtin::AbsolutePos => self.absolute_pos,
+            Builtin::AbsolutePosX => self.absolute_pos_x,
+            Builtin::AbsolutePosY => self.absolute_pos_y,
+            Builtin::AbsolutePosZ => self.absolute_pos_z,
+            Builtin::CubeDimX => self.cube_dim_x,
+            Builtin::CubeDimY => self.cube_dim_y,
+            Builtin::CubeDimZ => self.cube_dim_z,
+            Builtin::CubeCountX => self.cube_count_x,
+            Builtin::CubeCountY => self.cube_count_y,
+            Builtin::CubeCountZ => self.cube_count_z,
+            Builtin::CubePosX => self.cube_pos_x,
+            Builtin::CubePosY => self.cube_pos_y,
+            Builtin::CubePosZ => self.cube_pos_z,
+            Builtin::UnitPosX => self.unit_pos_x,
+            Builtin::UnitPosY => self.unit_pos_y,
+            Builtin::UnitPosZ => self.unit_pos_z,
             _ => {
                 let integer_type = Type::index(self.context);
                 let value = IntegerAttribute::new(integer_type, 0).into();
