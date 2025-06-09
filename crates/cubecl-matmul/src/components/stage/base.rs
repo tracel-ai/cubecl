@@ -2,15 +2,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::{
-    components::{
-        Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-        TilingScheme,
-        config::MatmulConfig,
-        global::{self, AccumulatorLoader, GlobalWriter},
-        tile::{ComputeResources, TileConfig},
-    },
-    kernels::matmul::MatmulSelection,
+use crate::components::{
+    ComputeResources, Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision,
+    MatrixLayout, TilingScheme,
+    config::MatmulConfig,
+    global::{self, AccumulatorLoader, GlobalWriter, SpecializerConfig},
+    tile::TileConfig,
 };
 
 use super::{StageEventListener, StageToTileReader, TilingLayout};
@@ -32,8 +29,9 @@ pub trait StageMatmulFamily:
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
-    fn resource_demand(selection: &MatmulSelection)
-    -> Result<ComputeResources, InvalidConfigError>;
+    fn computation_resources(
+        tiling_scheme: &TilingScheme,
+    ) -> Result<ComputeResources, InvalidConfigError>;
 }
 
 #[cube]
@@ -146,9 +144,6 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
-    /// Returns the number of planes in the cube
-    fn num_planes(&self) -> u32;
-
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 
@@ -157,6 +152,11 @@ pub trait StageConfig: MatmulConfig {
     fn num_stages(&self, ident: InputIdent) -> u32;
 
     fn tiling_scheme(&self) -> TilingScheme;
+
+    /// Number of planes that perform computation
+    fn num_compute_planes(&self) -> u32;
+
+    fn specializer_config(&self) -> SpecializerConfig;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

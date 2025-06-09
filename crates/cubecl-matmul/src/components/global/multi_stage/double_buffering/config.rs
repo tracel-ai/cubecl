@@ -1,7 +1,9 @@
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{GlobalConfig, load::LoaderMode, multi_stage::EventLoadingMode},
+        global::{
+            GlobalConfig, SpecializerConfig, load::LoaderMode, multi_stage::EventLoadingMode,
+        },
         stage::{self},
     },
     kernels::matmul::LoadingPrecomputeStrategy,
@@ -47,10 +49,6 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         }
     }
 
-    fn num_planes(&self) -> u32 {
-        self.num_planes
-    }
-
     fn plane_dim(&self) -> u32 {
         self.stage_config.plane_dim()
     }
@@ -89,6 +87,14 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
 
     fn event_loading_mode(&self, _ident: InputIdent) -> EventLoadingMode {
         EventLoadingMode::Relaxed
+    }
+
+    fn num_loading_planes(&self) -> u32 {
+        self.stage_config.specializer_config().loader_count()
+    }
+
+    fn specializer_config(&self) -> SpecializerConfig {
+        self.stage_config.specializer_config()
     }
 }
 

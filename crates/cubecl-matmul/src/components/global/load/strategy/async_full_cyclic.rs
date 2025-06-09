@@ -22,7 +22,7 @@ pub struct LoadingStrategy<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let total_units = config.num_planes() * config.plane_dim();
+        let total_units = config.num_loading_planes() * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
             * config.tiling_scheme().tiles_in_stage(ident);
 
@@ -45,7 +45,7 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        let total_units = config.plane_dim() * config.num_planes();
+        let total_units = config.plane_dim() * config.num_loading_planes();
         let line_size = config.global_line_size(input_ident);
 
         let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(input_ident) {

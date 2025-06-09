@@ -39,7 +39,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
             MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(input_ident),
             MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(input_ident),
         };
-        let unit_count = config.plane_dim() * config.num_planes();
+        let unit_count = config.plane_dim() * config.num_loading_planes();
 
         let num_tasks_per_unit = comptime!(div_ceil(num_slices, unit_count));
 
