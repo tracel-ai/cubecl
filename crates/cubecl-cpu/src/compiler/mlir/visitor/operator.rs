@@ -4,6 +4,8 @@ use melior::{
     ir::{BlockLike, Type, TypeLike, ValueLike},
 };
 
+use crate::compiler::mlir::visitor::prelude::IntoType;
+
 use super::Visitor;
 
 impl<'a> Visitor<'a> {
@@ -11,7 +13,7 @@ impl<'a> Visitor<'a> {
         match operator {
             Operator::Index(index) | Operator::UncheckedIndex(index) => {
                 let memref = self.get_memory(index.list);
-                let vector_type = self.item_to_type(index.list.item);
+                let vector_type = index.list.item.to_type(self.context);
                 let index = self.get_index(index.index, index.list.item);
                 let load_ssa = if out.item.vectorization.is_none() {
                     self.append_operation_with_result(memref::load(memref, &[index], self.location))
@@ -57,10 +59,10 @@ impl<'a> Visitor<'a> {
 
     pub fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
         let mut value = self.get_variable(to_cast);
-        let target = self.item_to_type(out.item);
+        let target = out.item.to_type(self.context);
 
         if to_cast.item.vectorization.is_none() && out.item.vectorization.is_some() {
-            let r#type = self.elem_to_type(to_cast.elem());
+            let r#type = to_cast.elem().to_type(self.context);
             let vector_type = Type::vector(&[out.vectorization_factor() as u64], r#type);
             value = self.append_operation_with_result(vector::splat(
                 self.context,
