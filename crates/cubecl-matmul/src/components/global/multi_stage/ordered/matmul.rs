@@ -1,13 +1,14 @@
 use crate::components::global::Quantization;
 use crate::components::global::load::{
-    BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoaderJob, SyncBufferLoadingStrategy,
-    SyncFullLoader, SyncFullLoaderJob, SyncFullLoadingStrategy, sync_full_ordered,
+    BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
+    SyncFullLoadingStrategy, sync_full_ordered,
 };
+use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingRange};
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::problem::MatmulLineSizes;
+use crate::components::stage::FullReaderFamily;
+use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
-use crate::components::stage::{FullReaderFamily, StageEventListener};
-use crate::components::stage::{FullStageToTileReader, StageEvent};
 use crate::components::{
     Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
     MatmulProblem, stage,
@@ -197,7 +198,13 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(
+                    BufferId::B,
+                    &lhs_loader,
+                    &rhs_loader,
+                    config,
+                    EventLoadingRange::Full,
+                ),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
@@ -214,7 +221,13 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(
+                    BufferId::A,
+                    &lhs_loader,
+                    &rhs_loader,
+                    config,
+                    EventLoadingRange::Full,
+                ),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
@@ -231,7 +244,13 @@ where
             &mut rhs_tile,
             acc,
             config.stage_config(),
-            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+            DoubleBufferingEventListener::new(
+                BufferId::B,
+                &lhs_loader,
+                &rhs_loader,
+                config,
+                EventLoadingRange::Full,
+            ),
         );
 
         sync_cube();
@@ -305,201 +324,5 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.stage_config());
-    }
-}
-
-#[cube]
-pub trait LhsLoaderEventListener: CubeType + Clone {
-    type State: CubeType;
-}
-
-#[cube]
-pub trait RhsLoaderEventListener: CubeType + Clone {
-    type State: CubeType;
-}
-
-#[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> LhsLoaderEventListener
-    for SyncFullLoader<MP, G, L>
-{
-    type State = SyncFullLoaderJob<MP, L>;
-}
-
-#[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> RhsLoaderEventListener
-    for SyncBufferLoader<MP, G, L>
-{
-    type State = SyncBufferLoaderJob<MP, L>;
-}
-
-#[derive(CubeType)]
-struct DoubleBufferingEventListener<
-    Lhs: LhsLoaderEventListener,
-    Rhs: RhsLoaderEventListener,
-    G: GlobalConfig,
-> {
-    #[cube(comptime)]
-    buffer_id: BufferId,
-    loader_lhs: Lhs,
-    loader_rhs: Rhs,
-    #[cube(comptime)]
-    config: G,
-    state_lhs: Sequence<Lhs::State>,
-    state_rhs: Sequence<Rhs::State>,
-}
-
-#[cube]
-impl<Lhs: LhsLoaderEventListener, Rhs: RhsLoaderEventListener, G: GlobalConfig>
-    DoubleBufferingEventListener<Lhs, Rhs, G>
-{
-    pub fn new(
-        #[comptime] buffer_id: BufferId,
-        loader_lhs: &Lhs,
-        loader_rhs: &Rhs,
-        #[comptime] config: G,
-    ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
-        DoubleBufferingEventListener::<Lhs, Rhs, G> {
-            buffer_id,
-            loader_lhs: comptime![loader_lhs.clone()],
-            loader_rhs: comptime![loader_rhs.clone()],
-            config,
-            state_lhs: Sequence::new(),
-            state_rhs: Sequence::new(),
-        }
-    }
-}
-
-#[cube]
-impl<
-    MP: MatmulPrecision,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
-    G: GlobalConfig,
-> StageEventListener
-    for DoubleBufferingEventListener<SyncFullLoader<MP, G, LL>, SyncBufferLoader<MP, G, RL>, G>
-{
-    fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
-        if let StageEvent::Begin = event {
-            this.init();
-        }
-
-        if let StageEvent::TmmCompleted { current, total } = event {
-            let analysis = this.analyse(current, total);
-
-            if comptime![
-                analysis.lhs_can_start
-                    && !analysis.lhs_completed
-                    && analysis.lhs_counter == current
-            ] {
-                let lhs_job = this.state_lhs.index_mut(0);
-
-                #[cfg(target_os = "macos")]
-                sync_plane();
-
-                SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
-            }
-
-            if comptime![!analysis.rhs_completed && analysis.rhs_counter == current] {
-                let rhs_job = this.state_rhs.index_mut(0);
-
-                #[cfg(target_os = "macos")]
-                sync_plane();
-
-                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
-            }
-        }
-
-        // Cleanup remaining tasks if any.
-        if let StageEvent::Finish = event {
-            let lhs_job = this.state_lhs.index_mut(0);
-            let lhs_num_task_executed = lhs_job.current.read().counter;
-            let rhs_job = this.state_rhs.index_mut(0);
-            let rhs_num_task_executed = rhs_job.current.read().counter;
-
-            #[cfg(target_os = "macos")]
-            if lhs_job.num_tasks - lhs_num_task_executed + rhs_job.num_tasks - rhs_num_task_executed
-                > 0
-            {
-                sync_plane();
-            }
-
-            #[unroll]
-            for _ in lhs_num_task_executed..lhs_job.num_tasks {
-                SyncFullLoader::execute_task(&mut this.loader_lhs, lhs_job, this.config);
-            }
-
-            #[unroll]
-            for _ in rhs_num_task_executed..rhs_job.num_tasks {
-                SyncBufferLoader::execute_task(&mut this.loader_rhs, rhs_job, this.config);
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-/// Analysis of [StageEvent] that reports when lhs and rhs should execute a task.
-struct EventAnalysis {
-    /// The event count to execute the next lhs task.
-    lhs_counter: u32,
-    lhs_can_start: bool,
-    /// If no more tasks need to be executed for lhs.
-    lhs_completed: bool,
-    /// The event count to execute the next rhs task.
-    rhs_counter: u32,
-    /// If no more tasks need to be executed for rhs.
-    rhs_completed: bool,
-}
-
-impl CubeDebug for EventAnalysis {}
-
-#[cube]
-impl<
-    MP: MatmulPrecision,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
-    G: GlobalConfig,
-> DoubleBufferingEventListener<SyncFullLoader<MP, G, LL>, SyncBufferLoader<MP, G, RL>, G>
-{
-    fn init(&mut self) {
-        let job_lhs = SyncFullLoader::create_job(&self.loader_lhs, self.config);
-        let job_rhs = SyncBufferLoader::create_job(&self.loader_rhs, self.buffer_id, self.config);
-
-        self.state_lhs.push(job_lhs);
-        self.state_rhs.push(job_rhs);
-    }
-
-    fn analyse(
-        &self,
-        #[comptime] current_event: u32,
-        #[comptime] event_count_total: u32,
-    ) -> comptime_type!(EventAnalysis) {
-        let lhs_job = self.state_lhs.index(0);
-        let rhs_job = self.state_rhs.index(0);
-        let num_tasks_total = comptime!(lhs_job.num_tasks + rhs_job.num_tasks);
-
-        let lhs_num_task_executed = lhs_job.current.read().counter;
-        let rhs_num_task_executed = rhs_job.current.read().counter;
-
-        // We cannot start loading Lhs before all were loaded in fragments
-        // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
-        let num_lhs_load_per_k = comptime!(
-            self.config.tiling_scheme().tiles_in_stage_m() / self.config.num_loading_planes()
-        );
-        let num_tmm_per_k =
-            comptime!(num_lhs_load_per_k * self.config.tiling_scheme().tiles_in_stage_n());
-        let lhs_can_start = current_event >= event_count_total - num_tmm_per_k;
-
-        comptime! {
-            let step = 1u32;
-            let start = event_count_total.saturating_sub(step * num_tasks_total);
-
-            EventAnalysis {
-                lhs_counter: lhs_num_task_executed * step + start,
-                lhs_can_start,
-                lhs_completed: lhs_num_task_executed >= lhs_job.num_tasks,
-                rhs_counter: rhs_num_task_executed * step + (lhs_job.num_tasks * step) + start,
-                rhs_completed: rhs_num_task_executed >= rhs_job.num_tasks,
-            }
-        }
     }
 }
