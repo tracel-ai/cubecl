@@ -1,12 +1,14 @@
 use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingRange};
+use crate::components::global::multi_stage::{
+    DoubleBufferingEventListener, EventListenerFactory, EventLoadingSet,
+};
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
-    MatmulProblem, stage,
+    Ident, InputIdent, InvalidConfigError, LoadOnlyRoleConfig, MatmulConfigFactory,
+    MatmulPrecision, MatmulProblem, stage,
 };
 use crate::components::{MatmulLineSizes, global};
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
@@ -39,13 +41,15 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        load_only_role_config: LoadOnlyRoleConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
-        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
-        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+            .as_plane_resources(selection.plane_dim)?
+            .get_count();
+        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            compute_planes + load_only_planes,
+            main_flow_planes + load_only_planes,
         ))
     }
 }
@@ -172,6 +176,8 @@ where
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
         let specializer = Specializer::new(config.specializer_config());
+        let event_listener_factory =
+            EventListenerFactory::from_event_loading_set(EventLoadingSet::Full, config);
 
         sync_cube();
 
@@ -185,6 +191,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
+                &event_listener_factory,
                 BufferId::B,
                 config,
             );
@@ -205,6 +212,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
+                &event_listener_factory,
                 BufferId::A,
                 config,
             );
@@ -221,6 +229,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
+            &event_listener_factory,
             BufferId::B,
             config,
         );
@@ -312,140 +321,52 @@ fn execute_current_stage_and_load_next_buffer<
     lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
     rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
     specializer: &Specializer,
+    event_listener_factory: &EventListenerFactory<
+        SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+        SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+        DoubleBufferingGlobalConfig<SMM::Config>,
+    >,
     #[comptime] buffer_to_load: BufferId,
     #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
 ) {
     #[allow(clippy::collapsible_else_if)]
-    if specializer.must_check_if_computer() {
-        #[allow(clippy::collapsible_else_if)]
-        if specializer.must_check_if_loader() {
-            if specializer.is_computer() && specializer.is_loader() {
-                execute_with_listener::<MP, SMM, LL, RL>(
-                    lhs_reader,
-                    rhs_reader,
-                    lhs_tile,
-                    rhs_tile,
-                    acc,
-                    lhs_loader,
-                    rhs_loader,
-                    buffer_to_load,
-                    config,
-                    EventLoadingRange::Full,
-                );
-            } else if specializer.is_computer() {
-                execute_with_listener::<MP, SMM, LL, RL>(
-                    lhs_reader,
-                    rhs_reader,
-                    lhs_tile,
-                    rhs_tile,
-                    acc,
-                    lhs_loader,
-                    rhs_loader,
-                    buffer_to_load,
-                    config,
-                    EventLoadingRange::None,
-                );
-            } else if specializer.is_loader() {
-                fill_stage::<MP, SMM, LL, RL>(lhs_loader, rhs_loader, buffer_to_load, config);
-            }
-        } else {
-            if specializer.is_computer() {
-                execute_with_listener::<MP, SMM, LL, RL>(
-                    lhs_reader,
-                    rhs_reader,
-                    lhs_tile,
-                    rhs_tile,
-                    acc,
-                    lhs_loader,
-                    rhs_loader,
-                    buffer_to_load,
-                    config,
-                    EventLoadingRange::Full,
-                );
-            } else {
-                fill_stage::<MP, SMM, LL, RL>(lhs_loader, rhs_loader, buffer_to_load, config);
-            }
-        }
-    } else {
-        #[allow(clippy::collapsible_else_if)]
-        if specializer.must_check_if_loader() {
-            if specializer.is_loader() {
-                execute_with_listener::<MP, SMM, LL, RL>(
-                    lhs_reader,
-                    rhs_reader,
-                    lhs_tile,
-                    rhs_tile,
-                    acc,
-                    lhs_loader,
-                    rhs_loader,
-                    buffer_to_load,
-                    config,
-                    EventLoadingRange::Full,
-                );
-            } else {
-                execute_with_listener::<MP, SMM, LL, RL>(
-                    lhs_reader,
-                    rhs_reader,
-                    lhs_tile,
-                    rhs_tile,
-                    acc,
-                    lhs_loader,
-                    rhs_loader,
-                    buffer_to_load,
-                    config,
-                    EventLoadingRange::None,
-                );
-            }
-        } else {
-            execute_with_listener::<MP, SMM, LL, RL>(
+    if specializer.can_be_load_only() {
+        if specializer.is_computer() {
+            SMM::execute_with_listener::<
+                DoubleBufferingEventListener<
+                    SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+                    SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+                    DoubleBufferingGlobalConfig<SMM::Config>,
+                >,
+            >(
                 lhs_reader,
                 rhs_reader,
                 lhs_tile,
                 rhs_tile,
                 acc,
-                lhs_loader,
-                rhs_loader,
-                buffer_to_load,
-                config,
-                EventLoadingRange::Full,
+                config.stage_config(),
+                event_listener_factory.event_listener(buffer_to_load, &lhs_loader, &rhs_loader),
             );
+        } else {
+            fill_stage::<MP, SMM, LL, RL>(lhs_loader, rhs_loader, buffer_to_load, config);
         }
+    } else {
+        SMM::execute_with_listener::<
+            DoubleBufferingEventListener<
+                SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+                SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+                DoubleBufferingGlobalConfig<SMM::Config>,
+            >,
+        >(
+            lhs_reader,
+            rhs_reader,
+            lhs_tile,
+            rhs_tile,
+            acc,
+            config.stage_config(),
+            event_listener_factory.event_listener(buffer_to_load, &lhs_loader, &rhs_loader),
+        );
     }
-}
-
-#[cube]
-fn execute_with_listener<
-    MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
->(
-    lhs_reader: &SMM::LhsReader,
-    rhs_reader: &SMM::RhsReader,
-    lhs_tile: &mut SMM::LhsTile,
-    rhs_tile: &mut SMM::RhsTile,
-    acc: &mut SMM::Accumulator,
-    lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-    rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-    #[comptime] buffer_to_load: BufferId,
-    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
-    #[comptime] range: EventLoadingRange,
-) {
-    SMM::execute_with_listener::<
-        DoubleBufferingEventListener<
-            SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-            SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-            DoubleBufferingGlobalConfig<SMM::Config>,
-        >,
-    >(
-        lhs_reader,
-        rhs_reader,
-        lhs_tile,
-        rhs_tile,
-        acc,
-        config.stage_config(),
-        DoubleBufferingEventListener::new(buffer_to_load, lhs_loader, rhs_loader, config, range),
-    );
 }
 
 #[cube]
@@ -476,7 +397,7 @@ fn execute_last_stage_and_write_results<MP: MatmulPrecision, SMM: stage::StageMa
     #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
 ) {
     #[allow(clippy::collapsible_else_if)]
-    if specializer.must_check_if_computer() {
+    if specializer.can_be_load_only() {
         if specializer.is_computer() {
             execute_and_write::<MP, SMM>(
                 lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, out_writer, config,

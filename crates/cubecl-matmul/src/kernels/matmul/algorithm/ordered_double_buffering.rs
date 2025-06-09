@@ -45,7 +45,7 @@ where
         if selection.tiling_scheme.stage_partitions_in_stage_n() > 1 {
             return Err(Box::new("Ordered does not support partitions > 1 in n"));
         }
-        Self::GlobalMatmul::cube_dim(selection, Self::loading_plane_count())
+        Self::GlobalMatmul::cube_dim(selection, Self::plane_role_config())
     }
 
     fn num_stages() -> NumStages {

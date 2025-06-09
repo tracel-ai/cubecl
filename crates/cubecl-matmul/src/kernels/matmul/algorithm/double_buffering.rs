@@ -2,13 +2,13 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::components::MatmulProblem;
 use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
 };
 use crate::components::tile;
+use crate::components::{LoadOnlyRoleConfig, MatmulProblem};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
@@ -146,6 +146,10 @@ where
 
     fn num_stages() -> NumStages {
         (2, 2).into()
+    }
+
+    fn plane_role_config() -> LoadOnlyRoleConfig {
+        LoadOnlyRoleConfig::Mirror
     }
 
     fn selection<R: Runtime>(

@@ -3,15 +3,15 @@ use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
     SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingRange};
+use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingSet};
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
-    MatmulProblem, stage,
+    Ident, InputIdent, InvalidConfigError, LoadOnlyRoleConfig, MatmulConfigFactory,
+    MatmulPrecision, MatmulProblem, stage,
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::kernels::MatmulAvailabilityError;
@@ -50,13 +50,15 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        load_only_role_config: LoadOnlyRoleConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
-        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
-        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+            .as_plane_resources(selection.plane_dim)?
+            .get_count();
+        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            compute_planes + load_only_planes,
+            main_flow_planes + load_only_planes,
         ))
     }
 }
@@ -203,7 +205,7 @@ where
                     &lhs_loader,
                     &rhs_loader,
                     config,
-                    EventLoadingRange::Full,
+                    EventLoadingSet::Full,
                 ),
             );
 
@@ -226,7 +228,7 @@ where
                     &lhs_loader,
                     &rhs_loader,
                     config,
-                    EventLoadingRange::Full,
+                    EventLoadingSet::Full,
                 ),
             );
 
@@ -249,7 +251,7 @@ where
                 &lhs_loader,
                 &rhs_loader,
                 config,
-                EventLoadingRange::Full,
+                EventLoadingSet::Full,
             ),
         );
 

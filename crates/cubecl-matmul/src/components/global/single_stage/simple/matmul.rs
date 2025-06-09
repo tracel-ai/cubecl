@@ -1,6 +1,6 @@
 use crate::{
     components::{
-        InputIdent, LoadingPlaneCount, MatmulPrecision,
+        InputIdent, LoadOnlyRoleConfig, MatmulPrecision,
         global::{
             GlobalMatmul, Quantization, Specializer, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
@@ -47,15 +47,15 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        load_only_role_config: LoadOnlyRoleConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
-        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?
+        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
             .as_plane_resources(selection.plane_dim)?
             .get_count();
-        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            compute_planes + load_only_planes,
+            main_flow_planes + load_only_planes,
         ))
     }
 }
@@ -175,19 +175,12 @@ where
         for _ in 0..num_loops {
             sync_cube();
 
-            if specializer.must_check_if_loader() {
-                if specializer.is_loader() {
-                    Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-                    Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-                }
-            } else {
-                Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-                Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-            }
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_cube();
 
-            if specializer.must_check_if_computer() {
+            if specializer.can_be_load_only() {
                 if specializer.is_computer() {
                     SMM::execute(
                         lhs_stage_reader,
@@ -213,7 +206,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        if specializer.must_check_if_computer() {
+        if specializer.can_be_load_only() {
             if specializer.is_computer() {
                 SMM::write_results::<Self::Config>(
                     acc,

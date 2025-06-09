@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::{
     components::{
-        Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory,
+        Ident, InputIdent, InvalidConfigError, LoadOnlyRoleConfig, MatmulConfigFactory,
         MatmulPrecision, MatrixLayout, TilingScheme,
         config::MatmulConfig,
         global::SpecializerConfig,
@@ -27,7 +27,7 @@ pub trait GlobalMatmulFamily:
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        loading_plane_count: LoadOnlyRoleConfig,
     ) -> Result<CubeDim, InvalidConfigError>;
 }
 

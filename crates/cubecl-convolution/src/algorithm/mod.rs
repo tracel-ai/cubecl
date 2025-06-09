@@ -1,6 +1,6 @@
 use cubecl_matmul::{
     components::{
-        InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulLineSizes, MatmulPrecision,
+        InputIdent, InvalidConfigError, LoadOnlyRoleConfig, MatmulLineSizes, MatmulPrecision,
         global::{args::MatmulArgs, load::LoaderMode},
         stage::{NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization},
         tile::TileMatmulFamily,
@@ -73,8 +73,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn loading_plane_count() -> LoadingPlaneCount {
-        LoadingPlaneCount::default()
+    fn loading_plane_count() -> LoadOnlyRoleConfig {
+        LoadOnlyRoleConfig::default()
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {

@@ -1,4 +1,4 @@
-use crate::components::LoadingPlaneCount;
+use crate::components::LoadOnlyRoleConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
@@ -24,7 +24,7 @@ pub struct StageInput {
     pub partition_buffering: stage::PartitionBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
-    pub loading_plane_count: LoadingPlaneCount,
+    pub loading_plane_count: LoadOnlyRoleConfig,
 }
 
 pub enum MultiRowStrategy {
@@ -61,7 +61,7 @@ pub trait Algorithm {
     type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
 
     fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        Self::GlobalMatmul::cube_dim(selection, Self::loading_plane_count())
+        Self::GlobalMatmul::cube_dim(selection, Self::plane_role_config())
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
@@ -95,7 +95,7 @@ pub trait Algorithm {
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
-                loading_plane_count: Self::loading_plane_count(),
+                loading_plane_count: Self::plane_role_config(),
             },
             loading_precompute_strategy: Self::loading_precompute_strategy(),
             loader_mode: Self::loader_mode(),
@@ -114,8 +114,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn loading_plane_count() -> LoadingPlaneCount {
-        LoadingPlaneCount::default()
+    fn plane_role_config() -> LoadOnlyRoleConfig {
+        LoadOnlyRoleConfig::None
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {

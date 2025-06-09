@@ -131,7 +131,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
                 .as_plane_resources(tile_config.plane_dim())
                 .unwrap_or_else(|e| panic!("{}", e))
                 .get_count();
-        let specializer_config = SpecializerConfig::from_loading_plane_count(
+        let specializer_config = SpecializerConfig::from_plane_roles_config(
             stage_input.loading_plane_count,
             compute_planes,
         );

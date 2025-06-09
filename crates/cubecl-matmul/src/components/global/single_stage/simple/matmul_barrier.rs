@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::InputIdent;
-use crate::components::LoadingPlaneCount;
+use crate::components::LoadOnlyRoleConfig;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
@@ -53,13 +53,15 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        load_only_role_config: LoadOnlyRoleConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
-        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
-        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+            .as_plane_resources(selection.plane_dim)?
+            .get_count();
+        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            compute_planes + load_only_planes,
+            main_flow_planes + load_only_planes,
         ))
     }
 }
