@@ -32,7 +32,7 @@ pub struct LoadingStrategy<T: TilingOrder> {
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
-        let num_planes = config.num_planes();
+        let num_planes = config.num_loading_planes();
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
 
         if num_tiles % num_planes != 0 {
@@ -71,7 +71,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] config: G,
     ) -> Self::Job<MP> {
         let line_size = config.global_line_size(input_ident);
-        let num_planes = config.num_planes();
+        let num_planes = config.num_loading_planes();
         let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
         let plane_dim = config.plane_dim();
 

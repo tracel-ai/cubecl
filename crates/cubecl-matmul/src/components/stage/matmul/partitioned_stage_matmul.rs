@@ -27,7 +27,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
         batch_offset: u32,
     ) -> Self::Writer<EO>;
 
-    fn position() -> u32;
+    fn position<S: StageConfig>(#[comptime] config: S) -> u32;
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32);
 }
@@ -91,8 +91,9 @@ where
         let m_acc_count = config.tiling_scheme().tiles_in_stage_partition_m();
         let n_acc_count = config.tiling_scheme().tiles_in_stage_partition_n();
         let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
-        let start_m = m_acc_count * (SP::position() / num_partitions_n);
-        let start_n = n_acc_count * (SP::position() % num_partitions_n);
+        let partition_position = SP::position::<Self::Config>(config);
+        let start_m = m_acc_count * (partition_position / num_partitions_n);
+        let start_n = n_acc_count * (partition_position % num_partitions_n);
 
         PartitionMatmul::<MP, TMM, RL, RR>::execute_with_listener::<SEL>(
             start_m,
@@ -138,17 +139,18 @@ where
             stage_config.tiling_scheme().elements_in_tile_mn() / out_smem_line_size;
         let m_iterations = global_config.tiling_scheme().tiles_in_stage_partition_m();
         let n_iterations = global_config.tiling_scheme().tiles_in_stage_partition_n();
+        let partition_position = SP::position::<Self::Config>(stage_config);
 
         let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * comptime!(SP::num_primitives(stage_config)),
             out_smem_line_size,
         );
-        let slice_start = num_tile_lines * SP::position();
+        let slice_start = num_tile_lines * partition_position;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
         let num_partitions_n = stage_config.tiling_scheme().stage_partitions_in_stage_n();
-        let m_offset = m_iterations * (SP::position() / num_partitions_n);
-        let n_offset = n_iterations * (SP::position() % num_partitions_n);
+        let m_offset = m_iterations * (partition_position / num_partitions_n);
+        let n_offset = n_iterations * (partition_position % num_partitions_n);
 
         let mut m_iter = comptime![0u32];
 

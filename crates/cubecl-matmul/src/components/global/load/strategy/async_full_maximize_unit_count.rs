@@ -32,7 +32,7 @@ impl LoadingValidation for LoadingStrategy {
                 config.tiling_scheme().elements_in_stage_row(ident) / line_size,
             ),
         };
-        let unit_count = config.plane_dim() * config.num_planes();
+        let unit_count = config.plane_dim() * config.num_loading_planes();
 
         if unit_count % num_slices != 0 {
             return Err(Box::new(
@@ -72,7 +72,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
             ),
         };
 
-        let unit_count = config.plane_dim() * config.num_planes();
+        let unit_count = config.plane_dim() * config.num_loading_planes();
 
         let units_per_slice = comptime!(unit_count / num_slices);
         let nth_slice = UNIT_POS / units_per_slice;

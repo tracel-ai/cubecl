@@ -89,7 +89,7 @@ impl<
                     if tensor_reader.x_offset.read()
                         > tensor_reader.shape_x - config.tiling_scheme().elements_in_stage_m()
                     {
-                        stage_memory.clear::<G::StageConfig>(ident, config.stage_config());
+                        stage_memory.clear::<G>(ident, config);
                     }
                 }
             }
@@ -100,7 +100,7 @@ impl<
                     if tensor_reader.y_offset.read()
                         > tensor_reader.shape_y - config.tiling_scheme().elements_in_stage_n()
                     {
-                        stage_memory.clear::<G::StageConfig>(ident, config.stage_config());
+                        stage_memory.clear::<G>(ident, config);
                     }
                 }
             }
@@ -140,7 +140,7 @@ impl<
 
     pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         this.stage_memory
-            .clear::<S>(this.ident, config.stage_config())
+            .clear::<single_stage::Config<S>>(this.ident, config)
     }
 
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {

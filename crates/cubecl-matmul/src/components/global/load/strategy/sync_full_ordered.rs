@@ -29,7 +29,7 @@ impl LoadingValidation for LoadingStrategy {
         }
 
         let line_size = config.global_line_size(ident);
-        let num_planes = config.num_planes();
+        let num_planes = config.num_loading_planes();
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
 
         if num_tiles % num_planes != 0 {
@@ -44,7 +44,7 @@ impl LoadingValidation for LoadingStrategy {
         let num_lines_per_tile =
             comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
-        let num_planes = config.num_planes();
+        let num_planes = config.num_loading_planes();
         let plane_dim = config.plane_dim();
         let rows_per_plane = config.tiling_scheme().tiles_in_stage_row(ident) / num_planes;
 
@@ -80,7 +80,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Self::Job<MP> {
         let line_size = config.global_line_size(input_ident);
-        let num_planes = config.num_planes();
+        let num_planes = config.num_loading_planes();
         let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
         let plane_dim = config.plane_dim();
 

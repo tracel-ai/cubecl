@@ -1,13 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::{
-    components::{
-        Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-        TileSize, config::MatmulConfig, stage::StageVectorization,
-        tile::compute_resource::ComputeResources,
-    },
-    kernels::matmul::MatmulSelection,
+use crate::components::{
+    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    TileSize, config::MatmulConfig, resource::ComputeResources, stage::StageVectorization,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -20,8 +16,7 @@ pub trait TileMatmulFamily:
     MatmulConfigFactory<Input = TileMatmulConfigInput, Config: TileConfig>
 {
     fn requires_tensor_cores() -> bool;
-    fn resource_demand(selection: &MatmulSelection)
-    -> Result<ComputeResources, InvalidConfigError>;
+    fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
     type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
 }

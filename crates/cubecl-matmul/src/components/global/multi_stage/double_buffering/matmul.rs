@@ -8,8 +8,8 @@ use crate::components::stage::StageEvent;
 use crate::components::stage::StageEventListener;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
-    stage,
+    Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
+    MatmulProblem, stage,
 };
 use crate::components::{MatmulLineSizes, global};
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
@@ -40,8 +40,16 @@ where
     type Matmul<MP: MatmulPrecision> =
         DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
+    fn cube_dim(
+        selection: &MatmulSelection,
+        loading_plane_count: LoadingPlaneCount,
+    ) -> Result<CubeDim, InvalidConfigError> {
+        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
+        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        Ok(CubeDim::new_2d(
+            selection.plane_dim,
+            compute_planes + load_only_planes,
+        ))
     }
 }
 

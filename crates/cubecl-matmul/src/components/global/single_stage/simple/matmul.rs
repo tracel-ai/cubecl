@@ -1,8 +1,8 @@
 use crate::{
     components::{
-        InputIdent, MatmulPrecision,
+        InputIdent, LoadingPlaneCount, MatmulPrecision,
         global::{
-            GlobalMatmul, Quantization, ZeroAccumulatorLoader,
+            GlobalMatmul, Quantization, Specializer, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
         },
@@ -45,8 +45,18 @@ where
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
+    fn cube_dim(
+        selection: &MatmulSelection,
+        loading_plane_count: LoadingPlaneCount,
+    ) -> Result<CubeDim, InvalidConfigError> {
+        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?
+            .as_plane_resources(selection.plane_dim)?
+            .get_count();
+        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        Ok(CubeDim::new_2d(
+            selection.plane_dim,
+            compute_planes + load_only_planes,
+        ))
     }
 }
 
@@ -160,28 +170,61 @@ where
         let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
         let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
+        let specializer = Specializer::new(config.specializer_config());
+
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            if specializer.must_check_if_loader() {
+                if specializer.is_loader(UNIT_POS_Y) {
+                    Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+                    Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+                }
+            } else {
+                Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+                Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            }
 
             sync_cube();
 
-            SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
-                &mut lhs_tile,
-                &mut rhs_tile,
-                acc,
-                config.stage_config(),
-            );
+            if specializer.must_check_if_computer() {
+                if specializer.is_computer(UNIT_POS_Y) {
+                    SMM::execute(
+                        lhs_stage_reader,
+                        rhs_stage_reader,
+                        &mut lhs_tile,
+                        &mut rhs_tile,
+                        acc,
+                        config.stage_config(),
+                    );
+                }
+            } else {
+                SMM::execute(
+                    lhs_stage_reader,
+                    rhs_stage_reader,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
+                    acc,
+                    config.stage_config(),
+                );
+            }
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        if specializer.must_check_if_computer() {
+            if specializer.is_computer(UNIT_POS_Y) {
+                SMM::write_results::<Self::Config>(
+                    acc,
+                    &mut out_writer,
+                    config.stage_config(),
+                    config,
+                );
+            }
+        } else {
+            SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        }
     }
 
     fn init_lhs_loader(
