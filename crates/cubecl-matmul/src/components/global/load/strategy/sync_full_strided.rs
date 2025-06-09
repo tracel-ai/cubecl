@@ -20,7 +20,7 @@ impl LoadingValidation for LoadingStrategy {
         let line_size = config.global_line_size(ident);
 
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
-        let total_units = config.num_planes() * config.plane_dim();
+        let total_units = config.num_loading_planes() * config.plane_dim();
 
         if num_stage_lines % total_units != 0 {
             return Err(Box::new(
@@ -44,7 +44,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
     ) -> Self::Job<MP> {
         let line_size = config.global_line_size(input_ident);
         let num_stage_lines = config.tiling_scheme().elements_in_stage(input_ident) / line_size;
-        let unit_count = config.num_planes() * config.plane_dim();
+        let unit_count = config.num_loading_planes() * config.plane_dim();
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 
         let unit_position_base = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;

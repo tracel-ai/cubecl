@@ -1,17 +1,20 @@
+use crate::components::ComputeResources;
 use crate::components::MatmulProblem;
+use crate::components::TilingScheme;
 use crate::components::global::PlaneWriter;
+use crate::components::global::Specializer;
+use crate::components::global::SpecializerConfig;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;
 use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
-use crate::components::tile::ComputeResources;
+use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulConfigInput;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision,
 };
 use crate::kernels::MatmulAvailabilityError;
-use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -37,12 +40,12 @@ impl StagePartitioner for PlanePartitioner {
         PlaneWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
     }
 
-    fn position() -> u32 {
-        UNIT_POS_Y
+    fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
+        Specializer::new(config.specializer_config()).plane_id_to_computer_index(UNIT_POS_Y)
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
-        config.num_planes()
+        config.num_compute_planes()
     }
 }
 
@@ -58,12 +61,12 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
 
-    fn resource_demand(
-        selection: &MatmulSelection,
+    fn computation_resources(
+        tiling_scheme: &TilingScheme,
     ) -> Result<ComputeResources, InvalidConfigError> {
-        if let ComputeResources::Planes(planes) = TMM::resource_demand(selection)? {
+        if let ComputeResources::Planes(planes) = TMM::computation_resources()? {
             Ok(ComputeResources::Planes(
-                planes * selection.tiling_scheme.stage_partitions_in_stage_mn(),
+                planes * tiling_scheme.stage_partitions_in_stage_mn(),
             ))
         } else {
             unreachable!("Plane matmul should not demand units")
@@ -79,11 +82,11 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_planes = config.num_planes();
+        let num_compute_planes = config.num_compute_planes();
 
-        if num_planes != num_planes_needed {
+        if num_compute_planes != num_planes_needed {
             return Err(Box::new(format!(
-                "Error: Number of planes {num_planes} should be {num_planes_needed}."
+                "Error: Number of compute planes {num_compute_planes} should be {num_planes_needed}."
             )));
         }
 
@@ -122,13 +125,24 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             tile_input, problem, line_sizes, cube_dim, cube_count, quantized,
         );
 
+        let compute_planes =
+            <Self as StageMatmulFamily>::computation_resources(&stage_input.tiling_scheme)
+                .unwrap_or_else(|e| panic!("{}", e))
+                .as_plane_resources(tile_config.plane_dim())
+                .unwrap_or_else(|e| panic!("{}", e))
+                .get_count();
+        let specializer_config = SpecializerConfig::from_loading_plane_count(
+            stage_input.loading_plane_count,
+            compute_planes,
+        );
+
         CommonStageConfig::new(
             tile_config,
             stage_input.tiling_scheme,
-            cube_dim.y,
             quantized,
             stage_input.partition_buffering,
             stage_input.num_stages,
+            specializer_config,
         )
     }
 }

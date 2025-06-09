@@ -27,7 +27,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
             let num_tiles_in_buffer = config.tiling_scheme().tiles_in_stage(ident);
             let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
 
-            let total_units = config.plane_dim() * config.num_planes();
+            let total_units = config.plane_dim() * config.num_loading_planes();
             let jump_length = total_units * line_size;
             let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
 
@@ -65,7 +65,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let tile_count_col = config.tiling_scheme().tiles_in_stage_col(input_ident);
 
         let num_lines_per_tile = tile_size / line_size;
-        let total_units = config.plane_dim() * config.num_planes();
+        let total_units = config.plane_dim() * config.num_loading_planes();
         let jump_length = total_units * line_size;
 
         let num_tiles_in_buffer = tile_count_row * tile_count_col;

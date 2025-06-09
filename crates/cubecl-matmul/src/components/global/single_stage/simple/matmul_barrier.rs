@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::InputIdent;
+use crate::components::LoadingPlaneCount;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
@@ -50,8 +51,16 @@ where
     type Matmul<MP: MatmulPrecision> =
         SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        SMM::resource_demand(selection)?.to_cube_dim(selection.plane_dim)
+    fn cube_dim(
+        selection: &MatmulSelection,
+        loading_plane_count: LoadingPlaneCount,
+    ) -> Result<CubeDim, InvalidConfigError> {
+        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
+        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        Ok(CubeDim::new_2d(
+            selection.plane_dim,
+            compute_planes + load_only_planes,
+        ))
     }
 }
 
