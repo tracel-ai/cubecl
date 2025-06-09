@@ -41,7 +41,7 @@ impl StagePartitioner for PlanePartitioner {
     }
 
     fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
-        Specializer::new(config.specializer_config()).plane_id_to_computer_index(UNIT_POS_Y)
+        Specializer::new(config.specializer_config()).plane_id_to_computer_index()
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {

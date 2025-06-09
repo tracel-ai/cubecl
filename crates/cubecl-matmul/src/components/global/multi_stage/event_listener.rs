@@ -144,26 +144,49 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
-            let lhs_job = this.state_lhs.index_mut(0);
-            let rhs_job = this.state_rhs.index_mut(0);
-            let lhs_num_tasks = L::Job::num_tasks(lhs_job);
-            let rhs_num_tasks = R::Job::num_tasks(rhs_job);
-            let lhs_num_task_executed = L::Job::current(lhs_job);
-            let rhs_num_task_executed = R::Job::current(rhs_job);
+            let lhs_len = this.state_lhs.len();
+            let rhs_len = this.state_rhs.len();
+
+            let mut lhs_num_tasks = comptime!(0u32);
+            let mut rhs_num_tasks = comptime!(0u32);
+            let mut lhs_num_task_executed = comptime!(0u32);
+            let mut rhs_num_task_executed = comptime!(0u32);
+
+            if comptime!(lhs_len > 0) {
+                let lhs_job = this.state_lhs.index_mut(0);
+                let num_tasks = L::Job::num_tasks(lhs_job);
+                let num_task_executed = L::Job::current(lhs_job);
+                comptime!(lhs_num_tasks += num_tasks);
+                comptime!(lhs_num_task_executed += num_task_executed);
+            }
+
+            if comptime!(rhs_len > 0) {
+                let rhs_job = this.state_rhs.index_mut(0);
+                let num_tasks = R::Job::num_tasks(rhs_job);
+                let num_task_executed = R::Job::current(rhs_job);
+                comptime!(rhs_num_tasks += num_tasks);
+                comptime!(rhs_num_task_executed += num_task_executed);
+            }
 
             #[cfg(target_os = "macos")]
             if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0 {
                 sync_plane();
             }
 
-            #[unroll]
-            for _ in lhs_num_task_executed..lhs_num_tasks {
-                L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            if comptime!(lhs_len > 0) {
+                let lhs_job = this.state_lhs.index_mut(0);
+                #[unroll]
+                for _ in lhs_num_task_executed..lhs_num_tasks {
+                    L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+                }
             }
 
-            #[unroll]
-            for _ in rhs_num_task_executed..rhs_num_tasks {
-                R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            if comptime!(rhs_len > 0) {
+                let rhs_job = this.state_rhs.index_mut(0);
+                #[unroll]
+                for _ in rhs_num_task_executed..rhs_num_tasks {
+                    R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+                }
             }
         }
     }

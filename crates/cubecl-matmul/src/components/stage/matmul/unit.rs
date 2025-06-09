@@ -42,8 +42,7 @@ impl StagePartitioner for UnitPartitioner {
     }
 
     fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
-        let plane_id =
-            Specializer::new(config.specializer_config()).plane_id_to_computer_index(UNIT_POS_Y);
+        let plane_id = Specializer::new(config.specializer_config()).plane_id_to_computer_index();
 
         UNIT_POS_X + config.plane_dim() * plane_id
     }

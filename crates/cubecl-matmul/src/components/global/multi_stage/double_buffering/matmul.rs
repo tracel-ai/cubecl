@@ -1,8 +1,8 @@
-use crate::components::global::Quantization;
 use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingRange};
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
     Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
@@ -171,6 +171,8 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
+        let specializer = Specializer::new(config.specializer_config());
+
         sync_cube();
 
         for _ in 0..num_loops {
@@ -180,8 +182,9 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                &lhs_loader,
-                &rhs_loader,
+                &mut lhs_loader,
+                &mut rhs_loader,
+                &specializer,
                 BufferId::B,
                 config,
             );
@@ -199,8 +202,9 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                &lhs_loader,
-                &rhs_loader,
+                &mut lhs_loader,
+                &mut rhs_loader,
+                &specializer,
                 BufferId::A,
                 config,
             );
@@ -214,8 +218,9 @@ where
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            &lhs_loader,
-            &rhs_loader,
+            &mut lhs_loader,
+            &mut rhs_loader,
+            &specializer,
             BufferId::B,
             config,
         );
@@ -229,6 +234,7 @@ where
             &mut rhs_tile,
             acc,
             &mut out_writer,
+            &specializer,
             config,
         );
     }
@@ -291,7 +297,6 @@ where
         SMM::zero_accumulator(acc, config.stage_config());
     }
 }
-
 #[cube]
 fn execute_current_stage_and_load_next_buffer<
     MP: MatmulPrecision,
@@ -304,19 +309,125 @@ fn execute_current_stage_and_load_next_buffer<
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulator,
-    lhs_loader: &SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-    rhs_loader: &SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+    lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+    rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+    specializer: &Specializer,
     #[comptime] buffer_to_load: BufferId,
     #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
 ) {
-    let event_listener = DoubleBufferingEventListener::new(
-        buffer_to_load,
-        lhs_loader,
-        rhs_loader,
-        config,
-        EventLoadingRange::Full,
-    );
+    if specializer.must_check_if_computer() {
+        if specializer.must_check_if_loader() {
+            if specializer.is_computer() && specializer.is_loader() {
+                execute_with_listener::<MP, SMM, LL, RL>(
+                    lhs_reader,
+                    rhs_reader,
+                    lhs_tile,
+                    rhs_tile,
+                    acc,
+                    lhs_loader,
+                    rhs_loader,
+                    buffer_to_load,
+                    config,
+                    EventLoadingRange::Full,
+                );
+            } else if specializer.is_computer() {
+                execute_with_listener::<MP, SMM, LL, RL>(
+                    lhs_reader,
+                    rhs_reader,
+                    lhs_tile,
+                    rhs_tile,
+                    acc,
+                    lhs_loader,
+                    rhs_loader,
+                    buffer_to_load,
+                    config,
+                    EventLoadingRange::None,
+                );
+            } else if specializer.is_loader() {
+                fill_stage::<MP, SMM, LL, RL>(lhs_loader, rhs_loader, buffer_to_load, config);
+            }
+        } else {
+            if specializer.is_computer() {
+                execute_with_listener::<MP, SMM, LL, RL>(
+                    lhs_reader,
+                    rhs_reader,
+                    lhs_tile,
+                    rhs_tile,
+                    acc,
+                    lhs_loader,
+                    rhs_loader,
+                    buffer_to_load,
+                    config,
+                    EventLoadingRange::Full,
+                );
+            } else {
+                fill_stage::<MP, SMM, LL, RL>(lhs_loader, rhs_loader, buffer_to_load, config);
+            }
+        }
+    } else {
+        if specializer.must_check_if_loader() {
+            if specializer.is_loader() {
+                execute_with_listener::<MP, SMM, LL, RL>(
+                    lhs_reader,
+                    rhs_reader,
+                    lhs_tile,
+                    rhs_tile,
+                    acc,
+                    lhs_loader,
+                    rhs_loader,
+                    buffer_to_load,
+                    config,
+                    EventLoadingRange::Full,
+                );
+            } else {
+                execute_with_listener::<MP, SMM, LL, RL>(
+                    lhs_reader,
+                    rhs_reader,
+                    lhs_tile,
+                    rhs_tile,
+                    acc,
+                    lhs_loader,
+                    rhs_loader,
+                    buffer_to_load,
+                    config,
+                    EventLoadingRange::None,
+                );
+            }
+        } else {
+            execute_with_listener::<MP, SMM, LL, RL>(
+                lhs_reader,
+                rhs_reader,
+                lhs_tile,
+                rhs_tile,
+                acc,
+                lhs_loader,
+                rhs_loader,
+                buffer_to_load,
+                config,
+                EventLoadingRange::Full,
+            );
+        }
+    }
+}
 
+#[cube]
+fn execute_with_listener<
+    MP: MatmulPrecision,
+    SMM: stage::StageMatmul<MP>,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+>(
+    lhs_reader: &SMM::LhsReader,
+    rhs_reader: &SMM::RhsReader,
+    lhs_tile: &mut SMM::LhsTile,
+    rhs_tile: &mut SMM::RhsTile,
+    acc: &mut SMM::Accumulator,
+    lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+    rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+    #[comptime] buffer_to_load: BufferId,
+    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
+    #[comptime] range: EventLoadingRange,
+) {
     SMM::execute_with_listener::<
         DoubleBufferingEventListener<
             SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
@@ -330,12 +441,52 @@ fn execute_current_stage_and_load_next_buffer<
         rhs_tile,
         acc,
         config.stage_config(),
-        event_listener,
+        DoubleBufferingEventListener::new(buffer_to_load, lhs_loader, rhs_loader, config, range),
     );
 }
 
 #[cube]
+fn fill_stage<
+    MP: MatmulPrecision,
+    SMM: stage::StageMatmul<MP>,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+>(
+    lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
+    rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
+    #[comptime] buffer_to_load: BufferId,
+    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
+) {
+    SyncBufferLoader::<MP, _, LL>::fill_stage(lhs_loader, buffer_to_load, config);
+    SyncBufferLoader::<MP, _, RL>::fill_stage(rhs_loader, buffer_to_load, config);
+}
+
+#[cube]
 fn execute_last_stage_and_write_results<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>>(
+    lhs_reader: &SMM::LhsReader,
+    rhs_reader: &SMM::RhsReader,
+    lhs_tile: &mut SMM::LhsTile,
+    rhs_tile: &mut SMM::RhsTile,
+    acc: &mut SMM::Accumulator,
+    out_writer: &mut SMM::Writer,
+    specializer: &Specializer,
+    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
+) {
+    if specializer.must_check_if_computer() {
+        if specializer.is_computer() {
+            execute_and_write::<MP, SMM>(
+                lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, out_writer, config,
+            );
+        }
+    } else {
+        execute_and_write::<MP, SMM>(
+            lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, out_writer, config,
+        );
+    }
+}
+
+#[cube]
+fn execute_and_write<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>>(
     lhs_reader: &SMM::LhsReader,
     rhs_reader: &SMM::RhsReader,
     lhs_tile: &mut SMM::LhsTile,

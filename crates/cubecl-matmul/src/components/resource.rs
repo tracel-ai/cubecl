@@ -58,11 +58,11 @@ impl Default for LoadingPlaneCount {
 impl LoadingPlaneCount {
     pub fn to_plane_roles(&self, compute_planes: u32) -> PlaneRoles {
         let overlap = self.get_overlap_count(compute_planes);
-        PlaneRoles {
-            load_only: self.load_only.resolve(compute_planes),
+        PlaneRoles::new(
+            self.load_only.resolve(compute_planes),
             overlap,
-            compute_only: compute_planes - overlap,
-        }
+            compute_planes - overlap,
+        )
     }
 
     fn get_overlap_count(&self, compute_planes: u32) -> u32 {
@@ -118,6 +118,17 @@ pub struct PlaneRoles {
 }
 
 impl PlaneRoles {
+    pub fn new(load_only: u32, overlap: u32, compute_only: u32) -> Self {
+        assert!(load_only + overlap > 0, "There are no loader planes");
+        assert!(compute_only + overlap > 0, "There are no computer planes");
+
+        Self {
+            load_only,
+            overlap,
+            compute_only,
+        }
+    }
+
     pub fn has_specialization(&self) -> bool {
         self.load_only > 0 || self.compute_only > 0
     }

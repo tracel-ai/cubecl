@@ -176,7 +176,7 @@ where
             sync_cube();
 
             if specializer.must_check_if_loader() {
-                if specializer.is_loader(UNIT_POS_Y) {
+                if specializer.is_loader() {
                     Self::LhsLoader::fill_stage(&mut lhs_loader, config);
                     Self::RhsLoader::fill_stage(&mut rhs_loader, config);
                 }
@@ -188,7 +188,7 @@ where
             sync_cube();
 
             if specializer.must_check_if_computer() {
-                if specializer.is_computer(UNIT_POS_Y) {
+                if specializer.is_computer() {
                     SMM::execute(
                         lhs_stage_reader,
                         rhs_stage_reader,
@@ -214,7 +214,7 @@ where
         }
 
         if specializer.must_check_if_computer() {
-            if specializer.is_computer(UNIT_POS_Y) {
+            if specializer.is_computer() {
                 SMM::write_results::<Self::Config>(
                     acc,
                     &mut out_writer,

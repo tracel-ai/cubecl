@@ -75,11 +75,11 @@ impl Specializer {
         comptime!(self.specializer_config.must_check_if_loader())
     }
 
-    pub fn is_loader(&self, plane_id: u32) -> bool {
+    pub fn is_loader(&self) -> bool {
         match comptime!(self.specializer_config.kind) {
             SpecializerKind::LoadOverlapCompute => {
                 let plane_roles = self.specializer_config.plane_roles;
-                plane_id < comptime!(plane_roles.load_only + plane_roles.overlap)
+                UNIT_POS_Y < comptime!(plane_roles.load_only + plane_roles.overlap)
             }
             SpecializerKind::NoSpecialization => {
                 comptime!(unreachable!("Should call must_check_if_loader prior"))
@@ -91,10 +91,10 @@ impl Specializer {
         comptime!(self.specializer_config.must_check_if_computer())
     }
 
-    pub fn is_computer(&self, plane_id: u32) -> bool {
+    pub fn is_computer(&self) -> bool {
         match comptime!(self.specializer_config.kind) {
             SpecializerKind::LoadOverlapCompute => {
-                plane_id >= self.specializer_config.plane_roles.load_only
+                UNIT_POS_Y >= self.specializer_config.plane_roles.load_only
             }
             SpecializerKind::NoSpecialization => {
                 comptime!(unreachable!("Should call must_check_if_computer prior"))
@@ -102,29 +102,16 @@ impl Specializer {
         }
     }
 
-    pub fn plane_id_to_loader_index(&self, plane_id: u32) -> u32 {
-        plane_id
+    pub fn plane_id_to_loader_index(&self) -> u32 {
+        UNIT_POS_Y
     }
 
-    pub fn plane_id_to_computer_index(&self, plane_id: u32) -> u32 {
+    pub fn plane_id_to_computer_index(&self) -> u32 {
         match comptime!(self.specializer_config.kind) {
             SpecializerKind::LoadOverlapCompute => {
-                plane_id - self.specializer_config.plane_roles.load_only
+                UNIT_POS_Y - self.specializer_config.plane_roles.load_only
             }
-            SpecializerKind::NoSpecialization => plane_id,
-        }
-    }
-
-    pub fn loader_index_to_plane_id(&self, loader_index: u32) -> u32 {
-        loader_index
-    }
-
-    pub fn computer_index_to_plane_id(&self, computer_index: u32) -> u32 {
-        match comptime!(self.specializer_config.kind) {
-            SpecializerKind::LoadOverlapCompute => {
-                self.specializer_config.plane_roles.load_only + computer_index
-            }
-            SpecializerKind::NoSpecialization => computer_index,
+            SpecializerKind::NoSpecialization => UNIT_POS_Y,
         }
     }
 }
