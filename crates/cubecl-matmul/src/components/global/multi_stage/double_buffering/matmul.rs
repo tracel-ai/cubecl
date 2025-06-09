@@ -315,7 +315,9 @@ fn execute_current_stage_and_load_next_buffer<
     #[comptime] buffer_to_load: BufferId,
     #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
 ) {
+    #[allow(clippy::collapsible_else_if)]
     if specializer.must_check_if_computer() {
+        #[allow(clippy::collapsible_else_if)]
         if specializer.must_check_if_loader() {
             if specializer.is_computer() && specializer.is_loader() {
                 execute_with_listener::<MP, SMM, LL, RL>(
@@ -365,6 +367,7 @@ fn execute_current_stage_and_load_next_buffer<
             }
         }
     } else {
+        #[allow(clippy::collapsible_else_if)]
         if specializer.must_check_if_loader() {
             if specializer.is_loader() {
                 execute_with_listener::<MP, SMM, LL, RL>(
@@ -472,6 +475,7 @@ fn execute_last_stage_and_write_results<MP: MatmulPrecision, SMM: stage::StageMa
     specializer: &Specializer,
     #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
 ) {
+    #[allow(clippy::collapsible_else_if)]
     if specializer.must_check_if_computer() {
         if specializer.is_computer() {
             execute_and_write::<MP, SMM>(
