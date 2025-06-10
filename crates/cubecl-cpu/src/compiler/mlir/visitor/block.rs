@@ -16,7 +16,7 @@ impl<'a> Visitor<'a> {
 
         let basic_block = opt.block(block_id);
 
-        let mut arguments = vec![];
+        let arguments = vec![];
 
         // for phi_nodes in basic_block.phi_nodes.borrow().iter() {
         //     let argument_type = phi_nodes.out.item.to_type(self.context);
@@ -24,7 +24,9 @@ impl<'a> Visitor<'a> {
         // }
 
         let block = Block::new(&arguments);
-        let this_block = self.current_region.append_block(block);
+        let this_block = self
+            .current_region
+            .insert_block_before(self.last_block, block);
         self.current_block = this_block;
 
         self.blocks.insert(block_id, this_block);
@@ -60,7 +62,9 @@ impl<'a> Visitor<'a> {
             //     default,
             //     branches,
             //     merge,
-            // } => {}
+            // } => {
+
+            // }
             //ControlFlow::Loop {
             //    body,
             //    continue_target,
