@@ -3,7 +3,7 @@ use std::ops::Deref;
 use cubecl_opt::{ControlFlow, NodeIndex, Optimizer};
 use melior::{
     dialect::cf,
-    ir::{Block, BlockLike, BlockRef, RegionLike},
+    ir::{Block, BlockLike, BlockRef, RegionLike, Value},
 };
 
 use super::prelude::*;
@@ -16,14 +16,26 @@ impl<'a> Visitor<'a> {
 
         let basic_block = opt.block(block_id);
 
-        let arguments = vec![];
-
-        // for phi_nodes in basic_block.phi_nodes.borrow().iter() {
-        //     let argument_type = phi_nodes.out.item.to_type(self.context);
-        //     arguments.push((argument_type, self.location));
-        // }
+        let arguments: Vec<_> = basic_block
+            .phi_nodes
+            .borrow()
+            .iter()
+            .map(|phi_node| {
+                let argument_type = phi_node.out.item.to_type(self.context);
+                for entry in phi_node.entries.iter() {
+                    self.blocks_args
+                        .entry((entry.block, block_id))
+                        .or_default()
+                        .push(entry.value);
+                }
+                (argument_type, self.location)
+            })
+            .collect();
 
         let block = Block::new(&arguments);
+        for (i, phi_node) in basic_block.phi_nodes.borrow().iter().enumerate() {
+            self.insert_variable(phi_node.out, block.argument(i).unwrap().into());
+        }
         let this_block = self
             .current_region
             .insert_block_before(self.last_block, block);
@@ -42,6 +54,9 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let condition = self.get_variable(*cond);
+                if let Some(merge) = merge {
+                    self.visit_basic_block(*merge, opt);
+                }
                 let true_successor = self.visit_basic_block(*then, opt);
                 let false_successor = self.visit_basic_block(*or_else, opt);
                 this_block.append_operation(cf::cond_br(
@@ -53,18 +68,47 @@ impl<'a> Visitor<'a> {
                     &[],
                     self.location,
                 ));
+            }
+            ControlFlow::Switch {
+                value,
+                default,
+                branches,
+                merge,
+            } => {
+                let case_values: Vec<_> = branches.iter().map(|(n, _)| *n as i64).collect();
+                let operand = self.get_variable(*value);
+                let operand_type = value.item.to_type(self.context);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, opt);
                 }
+                let default_block = self.visit_basic_block(*default, opt);
+                let attributes: Vec<Value<'a, 'a>> = self.get_block_args(block_id, *default);
+                let default_destination = (default_block.deref(), attributes.as_slice());
+                let blocks: Vec<_> = branches
+                    .iter()
+                    .map(|(_, block_id)| self.visit_basic_block(*block_id, opt))
+                    .collect();
+                let attributes_vec: Vec<Vec<Value<'a, 'a>>> = branches
+                    .iter()
+                    .map(|(_, dest)| self.get_block_args(block_id, *dest))
+                    .collect();
+                let case_destinations: Vec<_> = (0..branches.len())
+                    .into_iter()
+                    .map(|i| (blocks[i].deref(), attributes_vec[i].as_slice()))
+                    .collect();
+                this_block.append_operation(
+                    cf::switch(
+                        self.context,
+                        &case_values,
+                        operand,
+                        operand_type,
+                        default_destination,
+                        &case_destinations,
+                        self.location,
+                    )
+                    .unwrap(),
+                );
             }
-            // ControlFlow::Switch {
-            //     value,
-            //     default,
-            //     branches,
-            //     merge,
-            // } => {
-
-            // }
             //ControlFlow::Loop {
             //    body,
             //    continue_target,
@@ -80,8 +124,10 @@ impl<'a> Visitor<'a> {
                 this_block.append_operation(cf::br(&self.last_block, &[], self.location));
             }
             ControlFlow::None => {
-                let successor = self.visit_basic_block(opt.successors(block_id)[0], opt);
-                this_block.append_operation(cf::br(successor.deref(), &[], self.location));
+                let destination = opt.successors(block_id)[0];
+                let successor = self.visit_basic_block(destination, opt);
+                let block_arg = self.get_block_args(block_id, destination);
+                this_block.append_operation(cf::br(successor.deref(), &block_arg, self.location));
             }
             _ => todo!("{:?}", basic_block.control_flow),
         };

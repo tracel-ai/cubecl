@@ -10,7 +10,7 @@ pub(super) mod variable;
 
 use std::collections::HashMap;
 
-use cubecl_core::prelude::KernelDefinition;
+use cubecl_core::{ir::Variable, prelude::KernelDefinition};
 use cubecl_opt::{NodeIndex, Optimizer};
 use melior::{
     Context,
@@ -32,6 +32,7 @@ pub struct Visitor<'a> {
     pub current_block: BlockRef<'a, 'a>,
     pub last_block: BlockRef<'a, 'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
+    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<Variable>>,
     pub current_region: RegionRef<'a, 'a>,
     pub context: &'a Context,
     pub location: Location<'a>,
@@ -89,11 +90,13 @@ impl<'a> Visitor<'a> {
         let current_version_variables = HashMap::new();
         let current_mut_variables = HashMap::new();
         let blocks = HashMap::new();
+        let blocks_args = HashMap::new();
 
         Self {
             current_block,
             last_block,
             blocks,
+            blocks_args,
             current_region,
             context,
             location,
@@ -123,6 +126,19 @@ impl<'a> Visitor<'a> {
 
     pub fn block(&self) -> BlockRef<'a, 'a> {
         self.current_block.clone()
+    }
+
+    pub fn get_block_args(
+        &self,
+        block_id: NodeIndex,
+        destination: NodeIndex,
+    ) -> Vec<Value<'a, 'a>> {
+        self.blocks_args
+            .get(&(block_id, destination))
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|v| self.get_variable(*v))
+            .collect()
     }
 
     pub fn append_operation_with_result(
