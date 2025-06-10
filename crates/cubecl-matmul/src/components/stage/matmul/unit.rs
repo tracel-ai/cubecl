@@ -1,8 +1,8 @@
 use crate::components::ComputeResources;
 use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
-use crate::components::global::Specializer;
-use crate::components::global::SpecializerConfig;
+use crate::components::global::PlaneRoleConfig;
+use crate::components::global::RoleRule;
 use crate::components::global::UnitWriter;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
@@ -42,7 +42,7 @@ impl StagePartitioner for UnitPartitioner {
     }
 
     fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
-        let plane_id = Specializer::new(config.specializer_config()).plane_id_to_computer_index();
+        let plane_id = RoleRule::new(config.role_rule_config()).compute_index();
 
         UNIT_POS_X + config.plane_dim() * plane_id
     }
@@ -129,9 +129,10 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
                 .as_plane_resources(tile_config.plane_dim())
                 .unwrap_or_else(|e| panic!("{}", e))
                 .get_count();
-        let specializer_config = SpecializerConfig::from_plane_roles_config(
-            stage_input.loading_plane_count,
-            compute_planes,
+        let plane_role_config = PlaneRoleConfig::from_plane_roles(
+            stage_input
+                .load_specialization
+                .to_plane_roles(compute_planes),
         );
 
         CommonStageConfig::new(
@@ -140,7 +141,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
             quantized,
             stage_input.partition_buffering,
             stage_input.num_stages,
-            specializer_config,
+            plane_role_config,
         )
     }
 }

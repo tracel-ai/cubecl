@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::InputIdent;
-use crate::components::LoadOnlyRoleConfig;
+use crate::components::LoadSpecializationConfig;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
@@ -53,16 +53,19 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        load_only_role_config: LoadOnlyRoleConfig,
+        load_specialization: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
         let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
             .as_plane_resources(selection.plane_dim)?
             .get_count();
-        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
-        Ok(CubeDim::new_2d(
-            selection.plane_dim,
-            main_flow_planes + load_only_planes,
-        ))
+
+        if let LoadSpecializationConfig::None = load_specialization {
+            Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
+        } else {
+            Err(Box::new(
+                "Error: Specialization is unavailable for simple barrier matmul.",
+            ))
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::components::LoadOnlyRoleConfig;
+use crate::components::LoadSpecializationConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
@@ -24,7 +24,7 @@ pub struct StageInput {
     pub partition_buffering: stage::PartitionBuffering,
     pub stage_vectorization: StageVectorization,
     pub num_stages: NumStages,
-    pub loading_plane_count: LoadOnlyRoleConfig,
+    pub load_specialization: LoadSpecializationConfig,
 }
 
 pub enum MultiRowStrategy {
@@ -95,7 +95,7 @@ pub trait Algorithm {
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
-                loading_plane_count: Self::plane_role_config(),
+                load_specialization: Self::plane_role_config(),
             },
             loading_precompute_strategy: Self::loading_precompute_strategy(),
             loader_mode: Self::loader_mode(),
@@ -114,8 +114,8 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn plane_role_config() -> LoadOnlyRoleConfig {
-        LoadOnlyRoleConfig::None
+    fn plane_role_config() -> LoadSpecializationConfig {
+        LoadSpecializationConfig::None
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {

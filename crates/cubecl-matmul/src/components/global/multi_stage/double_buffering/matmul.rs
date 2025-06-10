@@ -1,13 +1,13 @@
 use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::multi_stage::{
-    DoubleBufferingEventListener, EventListenerFactory, EventLoadingSet,
+use crate::components::global::multi_stage::execute::{
+    execute_current_and_load_next, execute_last_and_write_results,
 };
-use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{GlobalConfig, LoadingSet, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadOnlyRoleConfig, MatmulConfigFactory,
+    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
     MatmulPrecision, MatmulProblem, stage,
 };
 use crate::components::{MatmulLineSizes, global};
@@ -41,15 +41,16 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        load_only_role_config: LoadOnlyRoleConfig,
+        load_specialization: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
         let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
             .as_plane_resources(selection.plane_dim)?
             .get_count();
-        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            main_flow_planes + load_only_planes,
+            load_specialization
+                .to_plane_roles(main_flow_planes)
+                .total_count(),
         ))
     }
 }
@@ -175,14 +176,18 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        let specializer = Specializer::new(config.specializer_config());
-        let event_listener_factory =
-            EventListenerFactory::from_event_loading_set(EventLoadingSet::Full, config);
+        // TODO builder pattern
+        let specializer = Specializer::new(
+            config.plane_role_config(),
+            LoadingSet::Full,
+            LoadingSet::Full,
+            LoadingSet::Full,
+        );
 
         sync_cube();
 
         for _ in 0..num_loops {
-            execute_current_stage_and_load_next_buffer::<MP, SMM, LL, RL>(
+            execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
                 &lhs_reader_a,
                 &rhs_reader_a,
                 &mut lhs_tile,
@@ -191,7 +196,6 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                &event_listener_factory,
                 BufferId::B,
                 config,
             );
@@ -203,7 +207,7 @@ where
 
             sync_cube();
 
-            execute_current_stage_and_load_next_buffer::<MP, SMM, LL, RL>(
+            execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
                 &lhs_reader_b,
                 &rhs_reader_b,
                 &mut lhs_tile,
@@ -212,7 +216,6 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                &event_listener_factory,
                 BufferId::A,
                 config,
             );
@@ -220,7 +223,7 @@ where
             sync_cube();
         }
 
-        execute_current_stage_and_load_next_buffer::<MP, SMM, LL, RL>(
+        execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
             &lhs_reader_a,
             &rhs_reader_a,
             &mut lhs_tile,
@@ -229,14 +232,13 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            &event_listener_factory,
             BufferId::B,
             config,
         );
 
         sync_cube();
 
-        execute_last_stage_and_write_results::<MP, SMM>(
+        execute_last_and_write_results::<MP, SMM, Self::Config>(
             &lhs_reader_b,
             &rhs_reader_b,
             &mut lhs_tile,
@@ -305,134 +307,4 @@ where
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.stage_config());
     }
-}
-#[cube]
-fn execute_current_stage_and_load_next_buffer<
-    MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
->(
-    lhs_reader: &SMM::LhsReader,
-    rhs_reader: &SMM::RhsReader,
-    lhs_tile: &mut SMM::LhsTile,
-    rhs_tile: &mut SMM::RhsTile,
-    acc: &mut SMM::Accumulator,
-    lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-    rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-    specializer: &Specializer,
-    event_listener_factory: &EventListenerFactory<
-        SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-        SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-        DoubleBufferingGlobalConfig<SMM::Config>,
-    >,
-    #[comptime] buffer_to_load: BufferId,
-    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
-) {
-    #[allow(clippy::collapsible_else_if)]
-    if specializer.can_be_load_only() {
-        if specializer.is_computer() {
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<
-                    SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-                    SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-                    DoubleBufferingGlobalConfig<SMM::Config>,
-                >,
-            >(
-                lhs_reader,
-                rhs_reader,
-                lhs_tile,
-                rhs_tile,
-                acc,
-                config.stage_config(),
-                event_listener_factory.event_listener(buffer_to_load, &lhs_loader, &rhs_loader),
-            );
-        } else {
-            fill_stage::<MP, SMM, LL, RL>(lhs_loader, rhs_loader, buffer_to_load, config);
-        }
-    } else {
-        SMM::execute_with_listener::<
-            DoubleBufferingEventListener<
-                SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-                SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-                DoubleBufferingGlobalConfig<SMM::Config>,
-            >,
-        >(
-            lhs_reader,
-            rhs_reader,
-            lhs_tile,
-            rhs_tile,
-            acc,
-            config.stage_config(),
-            event_listener_factory.event_listener(buffer_to_load, &lhs_loader, &rhs_loader),
-        );
-    }
-}
-
-#[cube]
-fn fill_stage<
-    MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
->(
-    lhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, LL>,
-    rhs_loader: &mut SyncBufferLoader<MP, DoubleBufferingGlobalConfig<SMM::Config>, RL>,
-    #[comptime] buffer_to_load: BufferId,
-    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
-) {
-    SyncBufferLoader::<MP, _, LL>::fill_stage(lhs_loader, buffer_to_load, config);
-    SyncBufferLoader::<MP, _, RL>::fill_stage(rhs_loader, buffer_to_load, config);
-}
-
-#[cube]
-fn execute_last_stage_and_write_results<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>>(
-    lhs_reader: &SMM::LhsReader,
-    rhs_reader: &SMM::RhsReader,
-    lhs_tile: &mut SMM::LhsTile,
-    rhs_tile: &mut SMM::RhsTile,
-    acc: &mut SMM::Accumulator,
-    out_writer: &mut SMM::Writer,
-    specializer: &Specializer,
-    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
-) {
-    #[allow(clippy::collapsible_else_if)]
-    if specializer.can_be_load_only() {
-        if specializer.is_computer() {
-            execute_and_write::<MP, SMM>(
-                lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, out_writer, config,
-            );
-        }
-    } else {
-        execute_and_write::<MP, SMM>(
-            lhs_reader, rhs_reader, lhs_tile, rhs_tile, acc, out_writer, config,
-        );
-    }
-}
-
-#[cube]
-fn execute_and_write<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>>(
-    lhs_reader: &SMM::LhsReader,
-    rhs_reader: &SMM::RhsReader,
-    lhs_tile: &mut SMM::LhsTile,
-    rhs_tile: &mut SMM::RhsTile,
-    acc: &mut SMM::Accumulator,
-    out_writer: &mut SMM::Writer,
-    #[comptime] config: DoubleBufferingGlobalConfig<SMM::Config>,
-) {
-    SMM::execute(
-        lhs_reader,
-        rhs_reader,
-        lhs_tile,
-        rhs_tile,
-        acc,
-        config.stage_config(),
-    );
-
-    SMM::write_results::<DoubleBufferingGlobalConfig<SMM::Config>>(
-        acc,
-        out_writer,
-        config.stage_config(),
-        config,
-    );
 }

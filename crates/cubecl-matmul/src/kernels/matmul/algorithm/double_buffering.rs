@@ -8,7 +8,7 @@ use crate::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
 };
 use crate::components::tile;
-use crate::components::{LoadOnlyRoleConfig, MatmulProblem};
+use crate::components::{LoadSpecializationConfig, MatmulProblem};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
@@ -148,8 +148,8 @@ where
         (2, 2).into()
     }
 
-    fn plane_role_config() -> LoadOnlyRoleConfig {
-        LoadOnlyRoleConfig::Mirror
+    fn plane_role_config() -> LoadSpecializationConfig {
+        LoadSpecializationConfig::Mirror
     }
 
     fn selection<R: Runtime>(

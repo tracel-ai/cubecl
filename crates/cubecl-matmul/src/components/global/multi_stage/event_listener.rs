@@ -1,11 +1,9 @@
-use std::marker::PhantomData;
-
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::InputIdent;
-use crate::components::global::GlobalConfig;
 use crate::components::global::load::BufferId;
+use crate::components::global::{GlobalConfig, LoadingSet};
 use crate::components::stage::{StageEvent, StageEventListener};
 
 #[derive(Copy, Clone)]
@@ -16,44 +14,8 @@ pub enum EventLoadingMode {
     Ordered,
 }
 
-#[derive(Copy, Clone)]
-pub enum EventLoadingSet {
-    // Load both Lhs and Rhs
-    Full,
-    // Load Lhs only
-    Lhs,
-    // Load Rhs only
-    Rhs,
-    // Don't perform loading
-    None,
-}
-
-impl EventLoadingSet {
-    pub fn should_fill_lhs(&self) -> bool {
-        match self {
-            EventLoadingSet::Full => true,
-            EventLoadingSet::Lhs => true,
-            EventLoadingSet::Rhs => false,
-            EventLoadingSet::None => false,
-        }
-    }
-
-    pub fn should_fill_rhs(&self) -> bool {
-        match self {
-            EventLoadingSet::Full => true,
-            EventLoadingSet::Lhs => false,
-            EventLoadingSet::Rhs => true,
-            EventLoadingSet::None => false,
-        }
-    }
-}
-
 #[derive(CubeType)]
-pub(crate) struct DoubleBufferingEventListener<
-    Lhs: JobExecutor<G>,
-    Rhs: JobExecutor<G>,
-    G: GlobalConfig,
-> {
+pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
     buffer_id: BufferId,
     loader_lhs: Lhs,
@@ -63,7 +25,7 @@ pub(crate) struct DoubleBufferingEventListener<
     state_lhs: Sequence<Lhs::Job>,
     state_rhs: Sequence<Rhs::Job>,
     #[cube(comptime)]
-    event_loading_set: EventLoadingSet,
+    event_loading_set: LoadingSet,
 }
 
 #[derive(Clone)]
@@ -94,12 +56,12 @@ impl CubeDebug for EventAnalysis {}
 impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
-    fn new(
+    pub fn new(
         #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
-        #[comptime] event_loading_set: EventLoadingSet,
+        #[comptime] event_loading_set: LoadingSet,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
@@ -278,49 +240,14 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     -> Self::Job;
 
     fn execute_task(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
+
+    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
+
+    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G);
 }
 
 #[cube]
 pub trait Job: CubeType {
     fn current(this: &Self) -> comptime_type!(u32);
     fn num_tasks(this: &Self) -> comptime_type!(u32);
-}
-
-#[derive(CubeType)]
-pub struct EventListenerFactory<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
-    #[cube(comptime)]
-    event_loading_set: EventLoadingSet,
-    #[cube(comptime)]
-    config: G,
-    #[cube(comptime)]
-    _phantom: PhantomData<(Lhs, Rhs)>,
-}
-
-#[cube]
-impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> EventListenerFactory<Lhs, Rhs, G> {
-    pub fn from_event_loading_set(
-        #[comptime] event_loading_set: EventLoadingSet,
-        #[comptime] config: G,
-    ) -> Self {
-        EventListenerFactory::<Lhs, Rhs, G> {
-            event_loading_set,
-            config,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn event_listener(
-        &self,
-        #[comptime] buffer_id: BufferId,
-        lhs_loader: &Lhs,
-        rhs_loader: &Rhs,
-    ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
-        DoubleBufferingEventListener::new(
-            buffer_id,
-            lhs_loader,
-            rhs_loader,
-            self.config,
-            self.event_loading_set,
-        )
-    }
 }

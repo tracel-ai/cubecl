@@ -154,7 +154,7 @@ impl TilingOrder for OrderedTilingOrder {
         if Ident::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
-        if config.specializer_config().has_specialization() {
+        if config.plane_role_config().has_specialization() {
             panic!("Ordered tiling order unimplemented for specialized")
         }
 
@@ -182,7 +182,7 @@ impl TilingOrder for OrderedTilingOrder {
         if Ident::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
-        if config.specializer_config().has_specialization() {
+        if config.plane_role_config().has_specialization() {
             panic!("Ordered tiling order unimplemented for specialized")
         }
 

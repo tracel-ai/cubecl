@@ -1,18 +1,18 @@
-use crate::components::global::Quantization;
 use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
     SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::components::global::multi_stage::{
-    DoubleBufferingEventListener, EventListenerFactory, EventLoadingSet, event_listener,
+use crate::components::global::multi_stage::execute::{
+    execute_current_and_load_next, execute_last_and_write_results,
 };
-use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{self, GlobalConfig, LoadingSet, ZeroAccumulatorLoader};
+use crate::components::global::{Quantization, Specializer};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadOnlyRoleConfig, MatmulConfigFactory,
+    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
     MatmulPrecision, MatmulProblem, stage,
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
@@ -52,15 +52,16 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        load_only_role_config: LoadOnlyRoleConfig,
+        load_specialization: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
         let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
             .as_plane_resources(selection.plane_dim)?
             .get_count();
-        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            main_flow_planes + load_only_planes,
+            load_specialization
+                .to_plane_roles(main_flow_planes)
+                .total_count(),
         ))
     }
 }
@@ -190,86 +191,77 @@ where
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
-        // if specialized {
-        // let event_listener_factory =
-        // EventListenerFactory::from_event_loading_set(EventLoadingSet::Lhs, config);
-        // } else {
-        let event_listener_factory =
-            EventListenerFactory::from_event_loading_set(EventLoadingSet::Full, config);
-        //}
+        let specializer = Specializer::new(
+            config.plane_role_config(),
+            LoadingSet::Lhs,
+            LoadingSet::Rhs,
+            LoadingSet::Full,
+        );
 
         sync_cube();
 
         for _ in 0..num_loops {
-            // if !specialized || main flow
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-            >(
+            execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
                 &lhs_reader,
                 &rhs_reader_a,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.stage_config(),
-                event_listener_factory.event_listener(BufferId::B, &lhs_loader, &rhs_loader),
+                &mut lhs_loader,
+                &mut rhs_loader,
+                &specializer,
+                BufferId::B,
+                config,
             );
-            // else
-            // fill stage rhs
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_cube();
 
-            // if !specialized || main flow
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-            >(
+            execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
                 &lhs_reader,
                 &rhs_reader_b,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.stage_config(),
-                event_listener_factory.event_listener(BufferId::A, &lhs_loader, &rhs_loader),
+                &mut lhs_loader,
+                &mut rhs_loader,
+                &specializer,
+                BufferId::A,
+                config,
             );
-            // else
-            // fill stage rhs
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
             sync_cube();
         }
 
-        // if !specialized || main flow
-        SMM::execute_with_listener::<
-            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-        >(
+        execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
             &lhs_reader,
             &rhs_reader_a,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.stage_config(),
-            event_listener_factory.event_listener(BufferId::B, &lhs_loader, &rhs_loader),
+            &mut lhs_loader,
+            &mut rhs_loader,
+            &specializer,
+            BufferId::B,
+            config,
         );
-        // else
-        // fill stage rhs
 
         sync_cube();
 
-        // if !specialized || main flow
-        SMM::execute(
+        execute_last_and_write_results::<MP, SMM, Self::Config>(
             &lhs_reader,
             &rhs_reader_b,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.stage_config(),
+            &mut out_writer,
+            &specializer,
+            config,
         );
-
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
-        // }
     }
 
     fn init_lhs_loader(

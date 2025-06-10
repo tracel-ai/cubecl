@@ -95,7 +95,7 @@ pub mod config {
     use cubecl_matmul::components::{
         InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
         global::{
-            GlobalConfig, SpecializerConfig, load::LoaderMode, multi_stage::EventLoadingMode,
+            GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode,
         },
     };
 
@@ -175,8 +175,8 @@ pub mod config {
             self.matmul.event_loading_mode(ident)
         }
 
-        fn specializer_config(&self) -> SpecializerConfig {
-            self.matmul.specializer_config()
+        fn plane_role_config(&self) -> PlaneRoleConfig {
+            self.matmul.plane_role_config()
         }
     }
 

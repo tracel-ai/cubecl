@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 
-use crate::components::InvalidConfigError;
+use crate::components::{InvalidConfigError, global::PlaneRoles};
 
 pub enum ComputeResources {
     Units(u32),
@@ -42,7 +42,7 @@ impl ComputeResources {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum LoadOnlyRoleConfig {
+pub enum LoadSpecializationConfig {
     /// Use the number of compute planes from the stage matmul.
     Mirror,
 
@@ -56,17 +56,10 @@ pub enum LoadOnlyRoleConfig {
     None,
 }
 
-impl LoadOnlyRoleConfig {
+impl LoadSpecializationConfig {
     pub fn to_plane_roles(&self, main_flow: u32) -> PlaneRoles {
-        PlaneRoles {
-            main_flow,
-            load_only: self.resolve(main_flow),
-        }
-    }
-
-    pub fn resolve(&self, main_flow_planes: u32) -> u32 {
-        match *self {
-            Self::Mirror => main_flow_planes,
+        let load_only = match *self {
+            Self::Mirror => main_flow,
             Self::MirrorRatio {
                 numerator,
                 denominator,
@@ -75,30 +68,15 @@ impl LoadOnlyRoleConfig {
                     numerator <= denominator,
                     "MirrorRatio must be between 0 and 1"
                 );
-                main_flow_planes * numerator / denominator
+                main_flow * numerator / denominator
             }
             Self::Fixed(n) => n,
             Self::None => 0,
+        };
+
+        PlaneRoles {
+            main_flow,
+            load_only,
         }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PlaneRoles {
-    pub main_flow: u32,
-    pub load_only: u32,
-}
-
-impl PlaneRoles {
-    pub fn has_specialization(&self) -> bool {
-        self.load_only > 0
-    }
-
-    pub fn loader_count(&self) -> u32 {
-        self.load_only + self.main_flow
-    }
-
-    pub fn computer_count(&self) -> u32 {
-        self.main_flow
     }
 }

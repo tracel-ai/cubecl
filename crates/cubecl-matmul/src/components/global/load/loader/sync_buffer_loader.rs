@@ -39,7 +39,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
 #[derive(Clone, CubeType)]
 pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
     tensor_reader: TensorReader<MP::EI>,
-    stage: StageMemory<MP::ES, L::TilingLayout>,
+    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
@@ -61,7 +61,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage =
+        let stage_memory =
             StageMemory::new::<G::StageConfig>(2u32, input_ident.as_ident(), config.stage_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
@@ -75,7 +75,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 
         SyncBufferLoader::<MP, G, L> {
             tensor_reader,
-            stage,
+            stage_memory,
             loading_job,
             quantization,
             input_ident,
@@ -87,7 +87,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         this: &Self,
         #[comptime] buffer_id: BufferId,
     ) -> BufferStageToTileReader<MP::ES, L::TilingLayout> {
-        BufferStageToTileReader::new(this.stage, buffer_id, this.input_ident)
+        BufferStageToTileReader::new(this.stage_memory, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
@@ -112,7 +112,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
-                &mut this.stage,
+                &mut this.stage_memory,
                 &this.quantization,
                 config,
             );
@@ -158,7 +158,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
             &mut job.loading,
             task_id,
             &this.tensor_reader,
-            &mut this.stage,
+            &mut this.stage_memory,
             &this.quantization,
             config,
         );
@@ -166,6 +166,33 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
         job.current.store(TaskCounter {
             counter: comptime!(task_id + 1u32),
         });
+    }
+
+    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G) {
+        let task_counter = job.current.read().counter;
+
+        for task_id in task_counter..job.num_tasks {
+            L::Job::<MP>::execute_task::<G>(
+                &mut job.loading,
+                task_id,
+                &this.tensor_reader,
+                &mut this.stage_memory,
+                &this.quantization,
+                config,
+            );
+        }
+
+        job.current.store(TaskCounter {
+            counter: comptime!(job.num_tasks),
+        });
+    }
+
+    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G) {
+        Self::execute_all_remaining_tasks(
+            this,
+            &mut Self::create_job(this, buffer_id, config),
+            config,
+        );
     }
 }
 

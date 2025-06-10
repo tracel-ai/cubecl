@@ -1,8 +1,8 @@
 use crate::{
     components::{
-        InputIdent, LoadOnlyRoleConfig, MatmulPrecision,
+        InputIdent, LoadSpecializationConfig, MatmulPrecision,
         global::{
-            GlobalMatmul, Quantization, Specializer, ZeroAccumulatorLoader,
+            GlobalMatmul, Quantization, ZeroAccumulatorLoader,
             load::{SyncFullLoader, SyncFullLoadingStrategy},
             single_stage::Config,
         },
@@ -47,16 +47,19 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        load_only_role_config: LoadOnlyRoleConfig,
+        load_specialization: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
         let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
             .as_plane_resources(selection.plane_dim)?
             .get_count();
-        let load_only_planes = load_only_role_config.resolve(main_flow_planes);
-        Ok(CubeDim::new_2d(
-            selection.plane_dim,
-            main_flow_planes + load_only_planes,
-        ))
+
+        if let LoadSpecializationConfig::None = load_specialization {
+            Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
+        } else {
+            Err(Box::new(
+                "Error: Specialization is unavailable for simple matmul.",
+            ))
+        }
     }
 }
 
@@ -170,8 +173,6 @@ where
         let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
         let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
-        let specializer = Specializer::new(config.specializer_config());
-
         for _ in 0..num_loops {
             sync_cube();
 
@@ -180,44 +181,20 @@ where
 
             sync_cube();
 
-            if specializer.can_be_load_only() {
-                if specializer.is_computer() {
-                    SMM::execute(
-                        lhs_stage_reader,
-                        rhs_stage_reader,
-                        &mut lhs_tile,
-                        &mut rhs_tile,
-                        acc,
-                        config.stage_config(),
-                    );
-                }
-            } else {
-                SMM::execute(
-                    lhs_stage_reader,
-                    rhs_stage_reader,
-                    &mut lhs_tile,
-                    &mut rhs_tile,
-                    acc,
-                    config.stage_config(),
-                );
-            }
+            SMM::execute(
+                lhs_stage_reader,
+                rhs_stage_reader,
+                &mut lhs_tile,
+                &mut rhs_tile,
+                acc,
+                config.stage_config(),
+            );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        if specializer.can_be_load_only() {
-            if specializer.is_computer() {
-                SMM::write_results::<Self::Config>(
-                    acc,
-                    &mut out_writer,
-                    config.stage_config(),
-                    config,
-                );
-            }
-        } else {
-            SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
-        }
+        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(
