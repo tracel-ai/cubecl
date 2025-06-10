@@ -59,13 +59,15 @@ impl<'a> Visitor<'a> {
                 }
                 let true_successor = self.visit_basic_block(*then, opt);
                 let false_successor = self.visit_basic_block(*or_else, opt);
+                let true_successor_operands = self.get_block_args(block_id, *then);
+                let false_successor_operands = self.get_block_args(block_id, *or_else);
                 this_block.append_operation(cf::cond_br(
                     self.context,
                     condition,
                     true_successor.deref(),
                     false_successor.deref(),
-                    &[],
-                    &[],
+                    &true_successor_operands,
+                    &false_successor_operands,
                     self.location,
                 ));
             }
@@ -109,17 +111,43 @@ impl<'a> Visitor<'a> {
                     .unwrap(),
                 );
             }
-            //ControlFlow::Loop {
-            //    body,
-            //    continue_target,
-            //    merge,
-            //} => todo!(),
-            //ControlFlow::LoopBreak {
-            //    break_cond,
-            //    body,
-            //    continue_target,
-            //    merge,
-            //} => todo!(),
+            ControlFlow::Loop {
+                body,
+                continue_target,
+                merge,
+            } => {
+                let body_block = self.visit_basic_block(*body, opt);
+                let destination_operands = self.get_block_args(block_id, *body);
+                self.visit_basic_block(*continue_target, opt);
+                self.visit_basic_block(*merge, opt);
+                this_block.append_operation(cf::br(
+                    body_block.deref(),
+                    &destination_operands,
+                    self.location,
+                ));
+            }
+            ControlFlow::LoopBreak {
+                break_cond,
+                body,
+                continue_target,
+                merge,
+            } => {
+                let condition = self.get_variable(*break_cond);
+                let body_block = self.visit_basic_block(*body, opt);
+                let next_block = self.visit_basic_block(*continue_target, opt);
+                self.visit_basic_block(*merge, opt);
+                let body_argument = self.get_block_args(block_id, *body);
+                let next_argument = self.get_block_args(block_id, *continue_target);
+                this_block.append_operation(cf::cond_br(
+                    self.context,
+                    condition,
+                    body_block.deref(),
+                    next_block.deref(),
+                    &body_argument,
+                    &next_argument,
+                    self.location,
+                ));
+            }
             ControlFlow::Return => {
                 this_block.append_operation(cf::br(&self.last_block, &[], self.location));
             }
@@ -129,7 +157,6 @@ impl<'a> Visitor<'a> {
                 let block_arg = self.get_block_args(block_id, destination);
                 this_block.append_operation(cf::br(successor.deref(), &block_arg, self.location));
             }
-            _ => todo!("{:?}", basic_block.control_flow),
         };
         this_block
     }
