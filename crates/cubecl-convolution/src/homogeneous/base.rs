@@ -94,9 +94,7 @@ pub mod config {
     use crate::{ConvGemmConfig, base::Dimensionality};
     use cubecl_matmul::components::{
         InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{
-            GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode,
-        },
+        global::{GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode},
     };
 
     use super::*;

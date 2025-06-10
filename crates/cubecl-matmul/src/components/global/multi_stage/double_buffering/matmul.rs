@@ -176,7 +176,6 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        // TODO builder pattern
         let specializer = Specializer::new(
             config.plane_role_config(),
             LoadingSet::Full,

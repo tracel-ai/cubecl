@@ -1,9 +1,7 @@
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{
-            GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode,
-        },
+        global::{GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode},
         stage::{self},
     },
     kernels::matmul::LoadingPrecomputeStrategy,
