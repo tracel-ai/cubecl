@@ -16,7 +16,7 @@ impl IntoType for Item {
         let inner_type = self.elem.to_type(context);
         match self.vectorization {
             Some(size) => Type::vector(&[size.get() as u64], inner_type),
-            None => inner_type,
+            _ => inner_type,
         }
     }
 }
