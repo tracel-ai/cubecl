@@ -426,7 +426,7 @@ where
         #[allow(unused_mut)]
         let mut result = self.channel.end_profile(token);
 
-        std::mem::drop(out);
+        core::mem::drop(out);
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
