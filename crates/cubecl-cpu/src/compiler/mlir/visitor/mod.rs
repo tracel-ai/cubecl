@@ -17,8 +17,9 @@ use melior::{
     dialect::{arith, func, scf},
     ir::{
         Attribute, Block, BlockLike, BlockRef, Identifier, Location, Operation, Region, RegionLike,
-        Type, Value,
+        RegionRef, Type, Value,
         attribute::{IntegerAttribute, StringAttribute, TypeAttribute},
+        operation::OperationLike,
         r#type::{FunctionType, MemRefType},
     },
 };
@@ -29,9 +30,9 @@ use super::external_function::add_external_function_to_module;
 
 pub struct Visitor<'a> {
     pub current_block: BlockRef<'a, 'a>,
-    pub last_block: Block<'a>,
+    pub last_block: BlockRef<'a, 'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
-    pub current_region: Region<'a>,
+    pub current_region: RegionRef<'a, 'a>,
     pub context: &'a Context,
     pub location: Location<'a>,
     pub current_local_variables: HashMap<u32, Value<'a, 'a>>,
@@ -61,8 +62,8 @@ pub struct Visitor<'a> {
 impl<'a> Visitor<'a> {
     pub fn new(
         current_block: BlockRef<'a, 'a>,
-        last_block: Block<'a>,
-        current_region: Region<'a>,
+        last_block: BlockRef<'a, 'a>,
+        current_region: RegionRef<'a, 'a>,
         context: &'a Context,
         location: Location<'a>,
         global_buffers: Vec<Value<'a, 'a>>,
@@ -422,47 +423,44 @@ impl<'a> Visitor<'a> {
 
                                     region.append_block(block);
                                     let current_block = region.first_block().unwrap();
-                                    current_block.append_operation(scf::execute_region(
+                                    let ops = current_block.append_operation(scf::execute_region(
                                         &[],
-                                        {
-                                            let current_region = Region::new();
-                                            let last_block = Block::new(&[]);
-                                            let mut visitor = Visitor::new(
-                                                current_block,
-                                                last_block,
-                                                current_region,
-                                                context,
-                                                location,
-                                                global_buffers,
-                                                global_scalars,
-                                                cube_dim_x,
-                                                cube_dim_y,
-                                                cube_dim_z,
-                                                cube_count_x,
-                                                cube_count_y,
-                                                cube_count_z,
-                                                unit_pos_x,
-                                                unit_pos_y,
-                                                unit_pos_z,
-                                                cube_pos_x,
-                                                cube_pos_y,
-                                                cube_pos_z,
-                                                absolute_pos_x,
-                                                absolute_pos_y,
-                                                absolute_pos_z,
-                                                absolute_pos,
-                                            );
-                                            visitor.visit_basic_block(basic_block_id, opt);
-                                            let current_region = visitor.current_region;
-                                            let last_block = visitor.last_block;
-                                            last_block.append_operation(
-                                                scf::r#yield(&[], location).into(),
-                                            );
-                                            current_region.append_block(last_block);
-                                            current_region
-                                        },
+                                        Region::new(),
                                         location,
                                     ));
+                                    let current_region = ops.region(0).unwrap();
+
+                                    let last_block = Block::new(&[]);
+                                    last_block.append_operation(scf::r#yield(&[], location).into());
+                                    let last_block = current_region.append_block(last_block);
+
+                                    let mut visitor = Visitor::new(
+                                        current_block,
+                                        last_block,
+                                        current_region,
+                                        context,
+                                        location,
+                                        global_buffers,
+                                        global_scalars,
+                                        cube_dim_x,
+                                        cube_dim_y,
+                                        cube_dim_z,
+                                        cube_count_x,
+                                        cube_count_y,
+                                        cube_count_z,
+                                        unit_pos_x,
+                                        unit_pos_y,
+                                        unit_pos_z,
+                                        cube_pos_x,
+                                        cube_pos_y,
+                                        cube_pos_z,
+                                        absolute_pos_x,
+                                        absolute_pos_y,
+                                        absolute_pos_z,
+                                        absolute_pos,
+                                    );
+                                    visitor.visit_basic_block(basic_block_id, opt);
+
                                     current_block.append_operation(scf::r#yield(&[], location));
                                     region
                                 },
