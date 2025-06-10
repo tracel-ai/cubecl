@@ -726,9 +726,9 @@ fn launch_ref<R: Runtime, E: Float>(
 }
 
 impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
-    type Args = (TensorHandle<R, E>, TensorHandle<R, E>);
+    type Input = (TensorHandle<R, E>, TensorHandle<R, E>);
 
-    fn prepare(&self) -> Self::Args {
+    fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
         let a = TensorHandle::<R, E>::empty(&client, vec![self.data_count]);
@@ -739,7 +739,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         (a, b)
     }
 
-    fn execute(&self, args: Self::Args) {
+    fn execute(&self, args: Self::Input) {
         let smem_size = args.1.shape[0] as u32;
         launch_ref::<R, E>(
             self.strategy,
@@ -767,7 +767,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
         self.client.profile(|| self.execute(args))
     }
 }

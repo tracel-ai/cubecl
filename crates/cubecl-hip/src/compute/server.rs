@@ -18,7 +18,6 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -35,6 +34,7 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
+    mem_alignment: usize,
 }
 
 #[derive(Debug)]
@@ -194,14 +194,13 @@ impl ComputeServer for HipServer {
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
     ) -> Vec<(server::Handle, Vec<usize>)> {
-        let align = <Self::Storage as ComputeStorage>::ALIGNMENT as usize;
-
         let mut total_size = 0;
         let mut strides = Vec::new();
         let mut sizes = Vec::new();
 
         for (shape, elem_size) in shapes.into_iter().zip(elem_sizes) {
-            let size = (shape.iter().product::<usize>() * elem_size).next_multiple_of(align);
+            let size =
+                (shape.iter().product::<usize>() * elem_size).next_multiple_of(self.mem_alignment);
             strides.push(contiguous_strides(shape));
             sizes.push(size);
             total_size += size;
@@ -561,8 +560,8 @@ impl HipContext {
 
 impl HipServer {
     /// Create a new hip server.
-    pub(crate) fn new(ctx: HipContext) -> Self {
-        Self { ctx }
+    pub(crate) fn new(mem_alignment: usize, ctx: HipContext) -> Self {
+        Self { ctx, mem_alignment }
     }
 
     fn get_context(&mut self) -> &mut HipContext {

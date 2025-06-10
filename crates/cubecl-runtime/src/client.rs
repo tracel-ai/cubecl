@@ -352,14 +352,16 @@ where
     ///
     /// Nb: this function will only allow one function at a time to be submitted when multi threading.
     /// Recursive measurements are not allowed and will deadlock.
-    pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
+    pub fn profile<O>(&self, func: impl FnOnce() -> O) -> ProfileDuration {
         #[cfg(multi_threading)]
         let stream_id = self.profile_aquire();
         let token = self.channel.start_profile();
 
-        func();
+        let out = func();
 
         let result = self.channel.end_profile(token);
+
+        core::mem::drop(out);
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);
