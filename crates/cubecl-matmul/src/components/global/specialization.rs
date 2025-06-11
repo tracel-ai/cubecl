@@ -37,12 +37,12 @@ impl LoadingSides {
     }
 
     pub fn includes(&self, ident: InputIdent) -> bool {
-        match (self, ident) {
+        matches!(
+            (self, ident),
             (LoadingSides::Both, _)
-            | (LoadingSides::Lhs, InputIdent::Lhs)
-            | (LoadingSides::Rhs, InputIdent::Rhs) => true,
-            _ => false,
-        }
+                | (LoadingSides::Lhs, InputIdent::Lhs)
+                | (LoadingSides::Rhs, InputIdent::Rhs)
+        )
     }
 }
 
