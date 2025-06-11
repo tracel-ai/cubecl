@@ -63,9 +63,10 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
+            MultiRowStrategy::Always,
+            // MultiRowStrategy::Adaptive {
+            //     minimum_stage_count: 8,
+            // },
             elem_stage,
             elem_acc,
         )

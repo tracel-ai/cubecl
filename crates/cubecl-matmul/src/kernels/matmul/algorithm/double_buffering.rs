@@ -4,13 +4,31 @@ use std::marker::PhantomData;
 
 use crate::components::MatmulProblem;
 use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
-use crate::components::global::load::SyncBufferLoadingStrategy;
-use crate::components::stage::{self, BufferReaderFamily, NumStages};
+use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise, SyncBufferLoadingStrategy};
+use crate::components::stage::{self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder};
 use crate::components::tile::{self, PlaneTile};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, plane_matmul_selection};
+
+pub type HybridDoubleBufferingAlgorithm<TMM> = DoubleBufferingAlgorithm<
+    TMM,
+    sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+    sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+>;
+
+pub type CyclicDoubleBufferingAlgorithm<TMM> = DoubleBufferingAlgorithm<
+    TMM,
+    sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+    sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+>;
+
+pub type TilewiseDoubleBufferingAlgorithm<TMM> = DoubleBufferingAlgorithm<
+    TMM,
+    sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+    sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+>;
 
 pub struct DoubleBufferingAlgorithm<
     TMM,
@@ -61,7 +79,7 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Never,
+            MultiRowStrategy::Always,
             // MultiRowStrategy::Adaptive {
             //     minimum_stage_count: 8,
             // },

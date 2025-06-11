@@ -144,27 +144,27 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
     run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
 
-    for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
-        let strategy = matmul::Strategy::Simple(loading);
-        run::<R, MP>(Default::default(), strategy);
-    }
+    // for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
+    //     let strategy = matmul::Strategy::Simple(loading);
+    //     run::<R, MP>(Default::default(), strategy);
+    // }
 
-    for loading in [
-        SyncBufferLoadingStrategy::Cyclic,
-        SyncBufferLoadingStrategy::Tilewise,
-        SyncBufferLoadingStrategy::Hybrid,
-    ] {
-        for tile in [
-            TileMatmulStrategy::Accelerated,
-            TileMatmulStrategy::Register,
-        ] {
-            let strategy = matmul::Strategy::DoubleBuffering(loading.clone(), tile.clone());
-            run::<R, MP>(Default::default(), strategy);
-        }
-    }
+    // for loading in [
+    //     SyncBufferLoadingStrategy::Cyclic,
+    //     SyncBufferLoadingStrategy::Tilewise,
+    //     SyncBufferLoadingStrategy::Hybrid,
+    // ] {
+    //     for tile in [
+    //         TileMatmulStrategy::Accelerated,
+    //         // TileMatmulStrategy::Register,
+    //     ] {
+    //         let strategy = matmul::Strategy::DoubleBuffering(loading.clone(), tile.clone());
+    //         run::<R, MP>(Default::default(), strategy);
+    //     }
+    // }
 
     if client
         .properties()

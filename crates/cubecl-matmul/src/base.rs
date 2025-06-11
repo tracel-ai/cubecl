@@ -279,8 +279,8 @@ fn launch_double_buffering<R: Runtime, MP: MatmulPrecision>(
             MP,
             DoubleBufferingAlgorithm<
                 AcceleratedMatmul,
-                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
                 sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
             >,
         >(client, lhs, lhs_scale, rhs, rhs_scale, out)
     };
@@ -289,8 +289,8 @@ fn launch_double_buffering<R: Runtime, MP: MatmulPrecision>(
             R,
             MP,
             DoubleUnitAlgorithm<
-                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
                 sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
             >,
         >(client, lhs, lhs_scale, rhs, rhs_scale, out)
     };
@@ -301,7 +301,7 @@ fn launch_double_buffering<R: Runtime, MP: MatmulPrecision>(
             MP,
             DoubleBufferingAlgorithm<
                 AcceleratedMatmul,
-                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+                sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
                 sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
             >,
         >(client, lhs, lhs_scale, rhs, rhs_scale, out)
@@ -311,7 +311,7 @@ fn launch_double_buffering<R: Runtime, MP: MatmulPrecision>(
             R,
             MP,
             DoubleUnitAlgorithm<
-                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+                sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
                 sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
             >,
         >(client, lhs, lhs_scale, rhs, rhs_scale, out)
