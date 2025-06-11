@@ -3,7 +3,7 @@ use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlo
 use crate::components::global::multi_stage::execute::{
     execute_current_and_load_next, execute_last_and_write_results,
 };
-use crate::components::global::{GlobalConfig, LoadingSet, ZeroAccumulatorLoader};
+use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
@@ -176,12 +176,7 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        let specializer = Specializer::new(
-            config.plane_role_config(),
-            LoadingSet::Full,
-            LoadingSet::Full,
-            LoadingSet::Full,
-        );
+        let specializer = Specializer::new(config.plane_role_config(), config.loading_sets());
 
         sync_cube();
 

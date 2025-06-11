@@ -48,7 +48,7 @@ impl StagePartitioner for UnitPartitioner {
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
-        config.num_compute_planes() * config.plane_dim()
+        config.num_main_flow_planes() * config.plane_dim()
     }
 }
 
@@ -81,7 +81,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for UnitMatmul
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_units_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_units = config.plane_dim() * config.num_compute_planes();
+        let num_units = config.plane_dim() * config.num_main_flow_planes();
 
         if num_units != num_units_needed {
             return Err(Box::new(format!(

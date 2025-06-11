@@ -60,8 +60,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tiling_scheme
     }
 
-    fn num_compute_planes(&self) -> u32 {
-        self.plane_role_config.computer_count()
+    fn num_main_flow_planes(&self) -> u32 {
+        self.plane_role_config.main_flow_count()
     }
 
     fn plane_role_config(&self) -> PlaneRoleConfig {

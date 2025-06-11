@@ -45,7 +45,7 @@ impl StagePartitioner for PlanePartitioner {
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
-        config.num_compute_planes()
+        config.num_main_flow_planes()
     }
 }
 
@@ -82,7 +82,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_compute_planes = config.num_compute_planes();
+        let num_compute_planes = config.num_main_flow_planes();
 
         if num_compute_planes != num_planes_needed {
             return Err(Box::new(format!(

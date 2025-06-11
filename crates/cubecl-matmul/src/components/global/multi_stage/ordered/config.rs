@@ -1,7 +1,10 @@
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode},
+        global::{
+            GlobalConfig, LoadingSet, LoadingSets, PlaneRoleConfig, load::LoaderMode,
+            multi_stage::EventLoadingMode,
+        },
         stage::{self},
     },
     kernels::matmul::LoadingPrecomputeStrategy,
@@ -93,12 +96,24 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
         }
     }
 
-    fn num_loading_planes(&self) -> u32 {
-        self.stage_config.plane_role_config().loader_count()
-    }
-
     fn plane_role_config(&self) -> PlaneRoleConfig {
         self.stage_config.plane_role_config()
+    }
+
+    fn loading_sets(&self) -> LoadingSets {
+        LoadingSets {
+            specialized_main_flow: LoadingSet::Lhs,
+            specialized_load_only: LoadingSet::Rhs,
+            no_specialization: LoadingSet::Full,
+        }
+    }
+
+    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
+        self.loading_sets().num_loading_planes(
+            self.plane_role_config().has_specialization(),
+            ident.into().as_input_ident(),
+            self.plane_role_config().plane_roles,
+        )
     }
 }
 

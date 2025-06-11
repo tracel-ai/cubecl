@@ -153,11 +153,9 @@ pub trait StageConfig: MatmulConfig {
 
     fn tiling_scheme(&self) -> TilingScheme;
 
-    /// Number of planes that perform computation
-    fn num_compute_planes(&self) -> u32;
-
     fn plane_role_config(&self) -> PlaneRoleConfig;
     fn role_rule_config(&self) -> RoleRuleConfig;
+    fn num_main_flow_planes(&self) -> u32;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

@@ -6,8 +6,7 @@ use crate::{
         Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
         MatmulPrecision, MatrixLayout, TilingScheme,
         config::MatmulConfig,
-        global::PlaneRoleConfig,
-        global::multi_stage::EventLoadingMode,
+        global::{LoadingSets, PlaneRoleConfig, multi_stage::EventLoadingMode},
         stage::{self, StageConfig},
     },
     kernels::matmul::MatmulSelection,
@@ -129,8 +128,9 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
-    fn num_loading_planes(&self) -> u32;
+    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32;
     fn plane_role_config(&self) -> PlaneRoleConfig;
+    fn loading_sets(&self) -> LoadingSets;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;

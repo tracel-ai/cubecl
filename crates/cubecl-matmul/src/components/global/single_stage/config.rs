@@ -1,7 +1,9 @@
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{self, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode},
+        global::{
+            self, LoadingSets, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode,
+        },
         stage,
     },
     kernels::matmul::LoadingPrecomputeStrategy,
@@ -87,12 +89,19 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         EventLoadingMode::Relaxed
     }
 
-    fn num_loading_planes(&self) -> u32 {
-        self.stage_config.plane_role_config().loader_count()
-    }
-
     fn plane_role_config(&self) -> PlaneRoleConfig {
         self.stage_config.plane_role_config()
+    }
+
+    fn num_loading_planes<I: Into<Ident>>(&self, _ident: I) -> u32 {
+        // Specialized is not available
+        self.stage_config().num_main_flow_planes()
+    }
+
+    fn loading_sets(&self) -> LoadingSets {
+        unimplemented!(
+            "Loading sets not available for simple matmul because specialization is not available"
+        )
     }
 }
 

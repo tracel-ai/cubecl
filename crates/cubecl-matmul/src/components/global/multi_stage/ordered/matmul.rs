@@ -5,7 +5,7 @@ use crate::components::global::load::{
 use crate::components::global::multi_stage::execute::{
     execute_current_and_load_next, execute_last_and_write_results,
 };
-use crate::components::global::{self, GlobalConfig, LoadingSet, ZeroAccumulatorLoader};
+use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
@@ -191,12 +191,7 @@ where
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
-        let specializer = Specializer::new(
-            config.plane_role_config(),
-            LoadingSet::Lhs,
-            LoadingSet::Rhs,
-            LoadingSet::Full,
-        );
+        let specializer = Specializer::new(config.plane_role_config(), config.loading_sets());
 
         sync_cube();
 

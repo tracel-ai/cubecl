@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::InputIdent;
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlaneRoles {
     pub main_flow: u32,
@@ -43,11 +45,54 @@ impl LoadingSet {
             LoadingSet::None => false,
         }
     }
+
+    pub fn includes(&self, ident: InputIdent) -> bool {
+        match (self, ident) {
+            (LoadingSet::Full, _)
+            | (LoadingSet::Lhs, InputIdent::Lhs)
+            | (LoadingSet::Rhs, InputIdent::Rhs) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct LoadingSets {
+    pub specialized_main_flow: LoadingSet,
+    pub specialized_load_only: LoadingSet,
+    // TODO it's always full
+    pub no_specialization: LoadingSet,
+}
+
+impl LoadingSets {
+    pub fn num_loading_planes(
+        &self,
+        specialized: bool,
+        ident: InputIdent,
+        plane_roles: PlaneRoles,
+    ) -> u32 {
+        let mut num_loading_planes = 0;
+
+        if specialized {
+            if self.specialized_main_flow.includes(ident) {
+                num_loading_planes += plane_roles.main_flow;
+            }
+            if self.specialized_load_only.includes(ident) {
+                num_loading_planes += plane_roles.load_only;
+            }
+        } else {
+            if self.no_specialization.includes(ident) {
+                num_loading_planes += plane_roles.main_flow;
+            }
+        }
+
+        num_loading_planes
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlaneRoleConfig {
-    plane_roles: PlaneRoles,
+    pub plane_roles: PlaneRoles,
     pub rule: RoleRuleConfig,
 }
 
@@ -61,7 +106,9 @@ pub enum RoleRuleConfig {
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum RoleRule {
     MainFlowOnly,
+    // Load-only planes are first, then come main flow
     LoadOnlyFirst(u32),
+    // Main flow planes are first, then come load-only
     LoadOnlyLast(u32),
 }
 
@@ -82,7 +129,11 @@ impl PlaneRoleConfig {
         self.plane_roles.load_only + self.plane_roles.main_flow
     }
 
-    pub fn computer_count(&self) -> u32 {
+    pub fn load_only_count(&self) -> u32 {
+        self.plane_roles.load_only
+    }
+
+    pub fn main_flow_count(&self) -> u32 {
         self.plane_roles.main_flow
     }
 
@@ -138,16 +189,14 @@ pub struct Specializer {
 impl Specializer {
     pub fn new(
         #[comptime] plane_role_config: PlaneRoleConfig,
-        #[comptime] specialized_main_flow: LoadingSet,
-        #[comptime] specialized_load_only: LoadingSet,
-        #[comptime] no_specialization: LoadingSet,
+        #[comptime] loading_sets: LoadingSets,
     ) -> Specializer {
         if plane_role_config.has_specialization() {
             Specializer {
                 kind: comptime! {
                     SpecializerKind::Specialized {
-                        main_flow_loading_set: specialized_main_flow,
-                        load_only_loading_set: specialized_load_only,
+                        main_flow_loading_set: loading_sets.specialized_main_flow,
+                        load_only_loading_set: loading_sets.specialized_load_only,
                         role_rule_config: plane_role_config.rule
                     }
                 },
@@ -155,7 +204,7 @@ impl Specializer {
         } else {
             Specializer {
                 kind: comptime! {SpecializerKind::NotSpecialized(
-                    no_specialization,
+                    loading_sets.no_specialization,
                 )},
             }
         }

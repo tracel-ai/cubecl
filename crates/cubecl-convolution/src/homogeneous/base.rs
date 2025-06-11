@@ -94,7 +94,10 @@ pub mod config {
     use crate::{ConvGemmConfig, base::Dimensionality};
     use cubecl_matmul::components::{
         InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{GlobalConfig, PlaneRoleConfig, load::LoaderMode, multi_stage::EventLoadingMode},
+        global::{
+            GlobalConfig, LoadingSets, PlaneRoleConfig, load::LoaderMode,
+            multi_stage::EventLoadingMode,
+        },
     };
 
     use super::*;
@@ -133,8 +136,8 @@ pub mod config {
             self.matmul.matrix_layout(ident)
         }
 
-        fn num_loading_planes(&self) -> u32 {
-            self.matmul.num_loading_planes()
+        fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
+            self.matmul.num_loading_planes(ident)
         }
 
         fn plane_dim(&self) -> u32 {
@@ -175,6 +178,10 @@ pub mod config {
 
         fn plane_role_config(&self) -> PlaneRoleConfig {
             self.matmul.plane_role_config()
+        }
+
+        fn loading_sets(&self) -> LoadingSets {
+            self.matmul.loading_sets()
         }
     }
 
