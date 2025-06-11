@@ -12,7 +12,7 @@ use crate::components::tile::{self, PlaneTile};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
-use super::{MatmulSelection, plane_matmul_selection, unit_matmul_selection};
+use super::{MatmulSelection, plane_matmul_selection};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
