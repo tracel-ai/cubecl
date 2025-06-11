@@ -154,11 +154,8 @@ impl TilingOrder for OrderedTilingOrder {
         if Ident::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
-        if config.specializer_config().has_specialization() {
-            panic!("Ordered tiling order unimplemented for specialized")
-        }
 
-        let group_rows = tile_count_rows / config.num_compute_planes();
+        let group_rows = tile_count_rows / config.num_main_flow_planes();
         let tiles_per_group = group_rows * tile_count_cols;
 
         let group = nth / tiles_per_group;
@@ -182,11 +179,8 @@ impl TilingOrder for OrderedTilingOrder {
         if Ident::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
-        if config.specializer_config().has_specialization() {
-            panic!("Ordered tiling order unimplemented for specialized")
-        }
 
-        let group_rows = tile_count_rows / config.num_compute_planes();
+        let group_rows = tile_count_rows / config.num_main_flow_planes();
         let group = row / group_rows;
 
         let local_row = row % group_rows;

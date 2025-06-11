@@ -2,7 +2,8 @@ use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{
-            GlobalConfig, SpecializerConfig, load::LoaderMode, multi_stage::EventLoadingMode,
+            GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+            multi_stage::EventLoadingMode,
         },
         stage::{self},
     },
@@ -89,12 +90,23 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         EventLoadingMode::Relaxed
     }
 
-    fn num_loading_planes(&self) -> u32 {
-        self.stage_config.specializer_config().loader_count()
+    fn plane_role_config(&self) -> PlaneRoleConfig {
+        self.stage_config.plane_role_config()
     }
 
-    fn specializer_config(&self) -> SpecializerConfig {
-        self.stage_config.specializer_config()
+    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
+        self.specialized_loading_sides().num_loading_planes(
+            self.plane_role_config().has_specialization(),
+            ident.into().as_input_ident(),
+            self.plane_role_config().plane_roles,
+        )
+    }
+
+    fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+        SpecializedLoadingSides {
+            main_flow: LoadingSides::Both,
+            load_only: LoadingSides::Both,
+        }
     }
 }
 

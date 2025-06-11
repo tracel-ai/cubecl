@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::InputIdent;
-use crate::components::global::GlobalConfig;
 use crate::components::global::load::BufferId;
+use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageEvent, StageEventListener};
 
 #[derive(Copy, Clone)]
@@ -14,44 +14,8 @@ pub enum EventLoadingMode {
     Ordered,
 }
 
-#[derive(Copy, Clone)]
-pub enum EventLoadingRange {
-    // Load both Lhs and Rhs
-    Full,
-    // Load Lhs only
-    Lhs,
-    // Load Rhs only
-    Rhs,
-    // Don't perform loading
-    None,
-}
-
-impl EventLoadingRange {
-    pub fn should_fill_lhs(&self) -> bool {
-        match self {
-            EventLoadingRange::Full => true,
-            EventLoadingRange::Lhs => true,
-            EventLoadingRange::Rhs => false,
-            EventLoadingRange::None => false,
-        }
-    }
-
-    pub fn should_fill_rhs(&self) -> bool {
-        match self {
-            EventLoadingRange::Full => true,
-            EventLoadingRange::Lhs => false,
-            EventLoadingRange::Rhs => true,
-            EventLoadingRange::None => false,
-        }
-    }
-}
-
 #[derive(CubeType)]
-pub(crate) struct DoubleBufferingEventListener<
-    Lhs: JobExecutor<G>,
-    Rhs: JobExecutor<G>,
-    G: GlobalConfig,
-> {
+pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
     buffer_id: BufferId,
     loader_lhs: Lhs,
@@ -61,7 +25,7 @@ pub(crate) struct DoubleBufferingEventListener<
     state_lhs: Sequence<Lhs::Job>,
     state_rhs: Sequence<Rhs::Job>,
     #[cube(comptime)]
-    event_loading_range: EventLoadingRange,
+    event_loading_side: LoadingSides,
 }
 
 #[derive(Clone)]
@@ -97,7 +61,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
-        #[comptime] event_loading_range: EventLoadingRange,
+        #[comptime] event_loading_side: LoadingSides,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
@@ -106,7 +70,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
-            event_loading_range,
+            event_loading_side,
         }
     }
 }
@@ -144,26 +108,49 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 
         // Cleanup remaining tasks if any.
         if let StageEvent::Finish = event {
-            let lhs_job = this.state_lhs.index_mut(0);
-            let rhs_job = this.state_rhs.index_mut(0);
-            let lhs_num_tasks = L::Job::num_tasks(lhs_job);
-            let rhs_num_tasks = R::Job::num_tasks(rhs_job);
-            let lhs_num_task_executed = L::Job::current(lhs_job);
-            let rhs_num_task_executed = R::Job::current(rhs_job);
+            let lhs_len = this.state_lhs.len();
+            let rhs_len = this.state_rhs.len();
+
+            let mut lhs_num_tasks = comptime!(0u32);
+            let mut rhs_num_tasks = comptime!(0u32);
+            let mut lhs_num_task_executed = comptime!(0u32);
+            let mut rhs_num_task_executed = comptime!(0u32);
+
+            if comptime!(lhs_len > 0) {
+                let lhs_job = this.state_lhs.index_mut(0);
+                let num_tasks = L::Job::num_tasks(lhs_job);
+                let num_task_executed = L::Job::current(lhs_job);
+                comptime!(lhs_num_tasks += num_tasks);
+                comptime!(lhs_num_task_executed += num_task_executed);
+            }
+
+            if comptime!(rhs_len > 0) {
+                let rhs_job = this.state_rhs.index_mut(0);
+                let num_tasks = R::Job::num_tasks(rhs_job);
+                let num_task_executed = R::Job::current(rhs_job);
+                comptime!(rhs_num_tasks += num_tasks);
+                comptime!(rhs_num_task_executed += num_task_executed);
+            }
 
             #[cfg(target_os = "macos")]
             if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0 {
                 sync_plane();
             }
 
-            #[unroll]
-            for _ in lhs_num_task_executed..lhs_num_tasks {
-                L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+            if comptime!(lhs_len > 0) {
+                let lhs_job = this.state_lhs.index_mut(0);
+                #[unroll]
+                for _ in lhs_num_task_executed..lhs_num_tasks {
+                    L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+                }
             }
 
-            #[unroll]
-            for _ in rhs_num_task_executed..rhs_num_tasks {
-                R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+            if comptime!(rhs_len > 0) {
+                let rhs_job = this.state_rhs.index_mut(0);
+                #[unroll]
+                for _ in rhs_num_task_executed..rhs_num_tasks {
+                    R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+                }
             }
         }
     }
@@ -172,12 +159,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 #[cube]
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
-        if comptime!(self.event_loading_range.should_fill_lhs()) {
+        if comptime!(self.event_loading_side.includes_lhs()) {
             self.state_lhs
                 .push(L::create_job(&self.loader_lhs, self.buffer_id, self.config));
         }
 
-        if comptime!(self.event_loading_range.should_fill_rhs()) {
+        if comptime!(self.event_loading_side.includes_rhs()) {
             self.state_rhs
                 .push(R::create_job(&self.loader_rhs, self.buffer_id, self.config));
         }
@@ -253,6 +240,10 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     -> Self::Job;
 
     fn execute_task(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
+
+    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
+
+    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G);
 }
 
 #[cube]

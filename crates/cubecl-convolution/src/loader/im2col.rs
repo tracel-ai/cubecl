@@ -87,7 +87,7 @@ impl SimpleIm2col {
         let line_size = config.global_line_size(ident);
 
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
-        let total_units = comptime!(config.num_loading_planes() * config.plane_dim());
+        let total_units = comptime!(config.num_loading_planes(ident) * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_stage_elements / jump_length;
 

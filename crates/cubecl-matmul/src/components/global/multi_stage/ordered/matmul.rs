@@ -1,17 +1,19 @@
-use crate::components::global::Quantization;
 use crate::components::global::load::{
     BufferId, LoadingValidation, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
     SyncFullLoadingStrategy, sync_full_ordered,
 };
-use crate::components::global::multi_stage::{DoubleBufferingEventListener, EventLoadingRange};
+use crate::components::global::multi_stage::execute::{
+    execute_current_and_load_next, execute_last_and_write_results,
+};
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{Quantization, Specializer};
 use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory, MatmulPrecision,
-    MatmulProblem, stage,
+    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
+    MatmulPrecision, MatmulProblem, stage,
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::kernels::MatmulAvailabilityError;
@@ -50,13 +52,16 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        load_specialization: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
-        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
-        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
+        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+            .as_plane_resources(selection.plane_dim)?
+            .get_count();
         Ok(CubeDim::new_2d(
             selection.plane_dim,
-            compute_planes + load_only_planes,
+            load_specialization
+                .to_plane_roles(main_flow_planes)
+                .total_count(),
         ))
     }
 }
@@ -186,25 +191,25 @@ where
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
+        let specializer = Specializer::new(
+            config.plane_role_config(),
+            config.specialized_loading_sides(),
+        );
+
         sync_cube();
 
         for _ in 0..num_loops {
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-            >(
+            execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
                 &lhs_reader,
                 &rhs_reader_a,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::B,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    EventLoadingRange::Full,
-                ),
+                &mut lhs_loader,
+                &mut rhs_loader,
+                &specializer,
+                BufferId::B,
+                config,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
@@ -212,22 +217,17 @@ where
 
             sync_cube();
 
-            SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-            >(
+            execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
                 &lhs_reader,
                 &rhs_reader_b,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                config.stage_config(),
-                DoubleBufferingEventListener::new(
-                    BufferId::A,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                    EventLoadingRange::Full,
-                ),
+                &mut lhs_loader,
+                &mut rhs_loader,
+                &specializer,
+                BufferId::A,
+                config,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
@@ -235,37 +235,31 @@ where
             sync_cube();
         }
 
-        SMM::execute_with_listener::<
-            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
-        >(
+        execute_current_and_load_next::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
             &lhs_reader,
             &rhs_reader_a,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.stage_config(),
-            DoubleBufferingEventListener::new(
-                BufferId::B,
-                &lhs_loader,
-                &rhs_loader,
-                config,
-                EventLoadingRange::Full,
-            ),
+            &mut lhs_loader,
+            &mut rhs_loader,
+            &specializer,
+            BufferId::B,
+            config,
         );
 
         sync_cube();
 
-        // Execute B
-        SMM::execute(
+        execute_last_and_write_results::<MP, SMM, Self::Config>(
             &lhs_reader,
             &rhs_reader_b,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            config.stage_config(),
+            &mut out_writer,
+            &specializer,
+            config,
         );
-
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
     }
 
     fn init_lhs_loader(

@@ -3,11 +3,12 @@ use cubecl_core::prelude::*;
 
 use crate::{
     components::{
-        Ident, InputIdent, InvalidConfigError, LoadingPlaneCount, MatmulConfigFactory,
+        Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
         MatmulPrecision, MatrixLayout, TilingScheme,
         config::MatmulConfig,
-        global::SpecializerConfig,
-        global::multi_stage::EventLoadingMode,
+        global::{
+            PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
+        },
         stage::{self, StageConfig},
     },
     kernels::matmul::MatmulSelection,
@@ -27,7 +28,7 @@ pub trait GlobalMatmulFamily:
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        loading_plane_count: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError>;
 }
 
@@ -129,8 +130,12 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
-    fn num_loading_planes(&self) -> u32;
-    fn specializer_config(&self) -> SpecializerConfig;
+    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn plane_role_config(&self) -> PlaneRoleConfig;
+    fn specialized_loading_sides(&self) -> SpecializedLoadingSides;
+    fn role_rule_config(&self) -> RoleRuleConfig {
+        self.plane_role_config().rule
+    }
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;

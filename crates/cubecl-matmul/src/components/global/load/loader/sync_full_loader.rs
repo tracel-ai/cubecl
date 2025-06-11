@@ -145,6 +145,33 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
             counter: comptime!(task_id + 1u32),
         });
     }
+
+    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G) {
+        let task_counter = job.current.read().counter;
+
+        for task_id in task_counter..job.num_tasks {
+            L::Job::<MP>::execute_task::<G>(
+                &mut job.loading,
+                task_id,
+                &this.tensor_reader,
+                &mut this.stage_memory,
+                &this.quantization,
+                config,
+            );
+        }
+
+        job.current.store(TaskCounter {
+            counter: comptime!(job.num_tasks),
+        });
+    }
+
+    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G) {
+        Self::execute_all_remaining_tasks(
+            this,
+            &mut Self::create_job(this, buffer_id, config),
+            config,
+        );
+    }
 }
 
 #[derive(CubeType)]

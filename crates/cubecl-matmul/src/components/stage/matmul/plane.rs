@@ -1,9 +1,9 @@
 use crate::components::ComputeResources;
 use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
+use crate::components::global::PlaneRoleConfig;
 use crate::components::global::PlaneWriter;
-use crate::components::global::Specializer;
-use crate::components::global::SpecializerConfig;
+use crate::components::global::RoleRule;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::shared::CommonStageConfig;
@@ -41,11 +41,11 @@ impl StagePartitioner for PlanePartitioner {
     }
 
     fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
-        Specializer::new(config.specializer_config()).plane_id_to_computer_index(UNIT_POS_Y)
+        RoleRule::new(config.role_rule_config()).compute_index()
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
-        config.num_compute_planes()
+        config.num_main_flow_planes()
     }
 }
 
@@ -82,7 +82,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_compute_planes = config.num_compute_planes();
+        let num_compute_planes = config.num_main_flow_planes();
 
         if num_compute_planes != num_planes_needed {
             return Err(Box::new(format!(
@@ -131,9 +131,10 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
                 .as_plane_resources(tile_config.plane_dim())
                 .unwrap_or_else(|e| panic!("{}", e))
                 .get_count();
-        let specializer_config = SpecializerConfig::from_loading_plane_count(
-            stage_input.loading_plane_count,
-            compute_planes,
+        let plane_role_config = PlaneRoleConfig::from_plane_roles(
+            stage_input
+                .load_specialization
+                .to_plane_roles(compute_planes),
         );
 
         CommonStageConfig::new(
@@ -142,7 +143,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulConfigFa
             quantized,
             stage_input.partition_buffering,
             stage_input.num_stages,
-            specializer_config,
+            plane_role_config,
         )
     }
 }

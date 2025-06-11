@@ -292,7 +292,7 @@ where
         let num_stages = num_stages::<R, MP>(
             client,
             problem,
-            stage_config.num_compute_planes(),
+            stage_config.num_main_flow_planes(),
             &stage_config.tiling_scheme(),
         );
 

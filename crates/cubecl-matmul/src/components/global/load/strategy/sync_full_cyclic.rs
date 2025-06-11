@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::components::MatmulPrecision;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::tensor_view::TensorReader;
-use crate::components::global::{GlobalConfig, Quantization};
+use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
@@ -26,7 +26,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
             let line_size = config.global_line_size(ident);
 
             let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
-            let total_units = config.num_loading_planes() * config.plane_dim();
+            let total_units = config.num_loading_planes(ident) * config.plane_dim();
 
             if num_stage_lines % total_units != 0 {
                 return Err(Box::new(
@@ -52,12 +52,15 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         let tile_num_elements = config.tiling_scheme().elements_in_tile(input_ident);
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
-        let total_units = comptime!(config.num_loading_planes() * config.plane_dim());
+        let total_units = comptime!(config.num_loading_planes(input_ident) * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_tasks_per_unit = comptime!(num_stage_elements.div_ceil(jump_length));
         let balanced_workload = num_tasks_per_unit % total_units == 0;
 
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_id = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         Job {

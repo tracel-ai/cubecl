@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, load::AsyncFullLoadingStrategy, tensor_view::TensorReader,
+        CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy,
+        tensor_view::TensorReader,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -22,7 +23,7 @@ pub struct LoadingStrategy<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let total_units = config.num_loading_planes() * config.plane_dim();
+        let total_units = config.num_loading_planes(ident) * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
             * config.tiling_scheme().tiles_in_stage(ident);
 
@@ -45,7 +46,7 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        let total_units = config.plane_dim() * config.num_loading_planes();
+        let total_units = config.plane_dim() * config.num_loading_planes(input_ident);
         let line_size = config.global_line_size(input_ident);
 
         let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(input_ident) {
@@ -63,7 +64,10 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
             comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(input_ident));
         let num_tasks_per_unit = num_slices.div_ceil(total_units);
 
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_id = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
 
         Job {
             unit_id,

@@ -1,5 +1,5 @@
 use crate::components::InputIdent;
-use crate::components::LoadingPlaneCount;
+use crate::components::LoadSpecializationConfig;
 use crate::components::MatmulPrecision;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::TmaLoader;
@@ -42,14 +42,19 @@ where
 
     fn cube_dim(
         selection: &MatmulSelection,
-        loading_plane_count: LoadingPlaneCount,
+        load_specialization: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError> {
-        let compute_planes = SMM::computation_resources(&selection.tiling_scheme)?.get_count();
-        let load_only_planes = loading_plane_count.load_only.resolve(compute_planes);
-        Ok(CubeDim::new_2d(
-            selection.plane_dim,
-            compute_planes + load_only_planes,
-        ))
+        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+            .as_plane_resources(selection.plane_dim)?
+            .get_count();
+
+        if let LoadSpecializationConfig::None = load_specialization {
+            Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
+        } else {
+            Err(Box::new(
+                "Error: Specialization is unavailable for simple tma matmul.",
+            ))
+        }
     }
 }
 

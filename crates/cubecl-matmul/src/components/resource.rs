@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 
-use crate::components::InvalidConfigError;
+use crate::components::{InvalidConfigError, global::PlaneRoles};
 
 pub enum ComputeResources {
     Units(u32),
@@ -42,46 +42,12 @@ impl ComputeResources {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LoadingPlaneCount {
-    pub overlap: PlaneCountMode,
-    pub load_only: PlaneCountMode,
-}
+pub enum LoadSpecializationConfig {
+    /// Use the number of compute planes from the stage matmul.
+    Mirror,
 
-impl Default for LoadingPlaneCount {
-    fn default() -> Self {
-        Self {
-            overlap: PlaneCountMode::Inherit,
-            load_only: PlaneCountMode::None,
-        }
-    }
-}
-impl LoadingPlaneCount {
-    pub fn to_plane_roles(&self, compute_planes: u32) -> PlaneRoles {
-        let overlap = self.get_overlap_count(compute_planes);
-        PlaneRoles {
-            load_only: self.load_only.resolve(compute_planes),
-            overlap,
-            compute_only: compute_planes - overlap,
-        }
-    }
-
-    fn get_overlap_count(&self, compute_planes: u32) -> u32 {
-        let overlap_count = self.overlap.resolve(compute_planes);
-        assert!(
-            overlap_count <= compute_planes,
-            "Overlap count cannot be more than compute planes"
-        );
-        overlap_count
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum PlaneCountMode {
-    /// Inherit full number of compute planes from the stage matmul.
-    Inherit,
-
-    /// Inherit a fractional amount of compute planes.
-    InheritFraction { numerator: u32, denominator: u32 },
+    /// Use a fractional amount of compute planes.
+    MirrorRatio { numerator: u32, denominator: u32 },
 
     /// Fixed number of planes.
     Fixed(u32),
@@ -90,43 +56,27 @@ pub enum PlaneCountMode {
     None,
 }
 
-impl PlaneCountMode {
-    pub fn resolve(&self, compute_planes: u32) -> u32 {
-        match *self {
-            PlaneCountMode::Inherit => compute_planes,
-            PlaneCountMode::InheritFraction {
+impl LoadSpecializationConfig {
+    pub fn to_plane_roles(&self, main_flow: u32) -> PlaneRoles {
+        let load_only = match *self {
+            Self::Mirror => main_flow,
+            Self::MirrorRatio {
                 numerator,
                 denominator,
             } => {
                 assert!(
                     numerator <= denominator,
-                    "InheritFraction must be between 0 and 1"
+                    "MirrorRatio must be between 0 and 1"
                 );
-                compute_planes * numerator / denominator
+                main_flow * numerator / denominator
             }
-            PlaneCountMode::Fixed(n) => n,
-            PlaneCountMode::None => 0,
+            Self::Fixed(n) => n,
+            Self::None => 0,
+        };
+
+        PlaneRoles {
+            main_flow,
+            load_only,
         }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PlaneRoles {
-    pub load_only: u32,
-    pub overlap: u32,
-    pub compute_only: u32,
-}
-
-impl PlaneRoles {
-    pub fn has_specialization(&self) -> bool {
-        self.load_only > 0 || self.compute_only > 0
-    }
-
-    pub fn loader_count(&self) -> u32 {
-        self.load_only + self.overlap
-    }
-
-    pub fn computer_count(&self) -> u32 {
-        self.compute_only + self.overlap
     }
 }

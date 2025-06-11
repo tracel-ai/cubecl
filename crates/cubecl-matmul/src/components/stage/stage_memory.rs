@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::GlobalConfig;
 use crate::components::global::load::BufferId;
+use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageConfig, TilingLayout};
 use crate::components::tile::Tile;
 use crate::components::{Ident, InputIdent, MatrixLayout};
@@ -95,10 +95,13 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
                 / config.stage_config().stage_line_size(ident.into())
         );
 
-        let unit_count = config.num_loading_planes() * config.plane_dim();
+        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
-        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_base_position = RoleRule::new(config.role_rule_config())
+            .load_index(ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
             let offset = unit_base_position + i * unit_count;
@@ -131,10 +134,13 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
 
         let matrix_layout = config.matrix_layout(ident.as_ident());
 
-        let unit_count = config.num_loading_planes() * config.plane_dim();
+        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_writes_per_unit = buffer_length.div_ceil(unit_count);
 
-        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_base_position = RoleRule::new(config.role_rule_config())
+            .load_index(ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
             let unit_position = unit_base_position + i * unit_count;

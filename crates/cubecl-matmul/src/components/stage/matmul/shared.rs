@@ -1,6 +1,6 @@
 use crate::components::{
     Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
-    global::{AccumulatorLoader, SpecializerConfig},
+    global::{AccumulatorLoader, PlaneRoleConfig, RoleRuleConfig},
     stage::{PartitionBuffering, StageConfig},
     tile::{TileConfig, TileMatmul},
 };
@@ -15,7 +15,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
-    specializer_config: SpecializerConfig,
+    plane_role_config: PlaneRoleConfig,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -60,12 +60,16 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tiling_scheme
     }
 
-    fn num_compute_planes(&self) -> u32 {
-        self.specializer_config.computer_count()
+    fn num_main_flow_planes(&self) -> u32 {
+        self.plane_role_config.main_flow_count()
     }
 
-    fn specializer_config(&self) -> SpecializerConfig {
-        self.specializer_config
+    fn plane_role_config(&self) -> PlaneRoleConfig {
+        self.plane_role_config
+    }
+
+    fn role_rule_config(&self) -> RoleRuleConfig {
+        self.plane_role_config.rule
     }
 }
 
@@ -79,7 +83,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         quantized: bool,
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
-        specializer_config: SpecializerConfig,
+        plane_role_config: PlaneRoleConfig,
     ) -> Self {
         Self {
             tile_config,
@@ -87,7 +91,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             partition_buffering,
             num_stages,
-            specializer_config,
+            plane_role_config,
         }
     }
 }
