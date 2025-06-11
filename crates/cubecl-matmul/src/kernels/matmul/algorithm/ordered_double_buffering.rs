@@ -8,8 +8,8 @@ use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::stage::{
     self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
-use crate::components::{tile, LoadSpecializationConfig};
 use crate::components::{InvalidConfigError, MatmulProblem};
+use crate::components::{LoadSpecializationConfig, tile};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
@@ -76,6 +76,6 @@ where
     }
 
     fn plane_role_config() -> LoadSpecializationConfig {
-        LoadSpecializationConfig::Mirror
+        LoadSpecializationConfig::Fixed(2)
     }
 }

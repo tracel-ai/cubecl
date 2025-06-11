@@ -95,7 +95,7 @@ pub mod config {
     use cubecl_matmul::components::{
         InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
         global::{
-            GlobalConfig, LoadingSets, PlaneRoleConfig, load::LoaderMode,
+            GlobalConfig, SpecializedLoadingSides, PlaneRoleConfig, load::LoaderMode,
             multi_stage::EventLoadingMode,
         },
     };
@@ -180,8 +180,8 @@ pub mod config {
             self.matmul.plane_role_config()
         }
 
-        fn loading_sets(&self) -> LoadingSets {
-            self.matmul.loading_sets()
+        fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+            self.matmul.specialized_loading_sides()
         }
     }
 

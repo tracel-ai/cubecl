@@ -1,3 +1,4 @@
+use crate::components::global::RoleRule;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
@@ -90,7 +91,9 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
-        let num_tiles_to_skip = UNIT_POS_Y * num_tiles_per_plane;
+        let num_tiles_to_skip = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides())
+            * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
         // Ordered is just a tilewise loader using the ordered tiling order

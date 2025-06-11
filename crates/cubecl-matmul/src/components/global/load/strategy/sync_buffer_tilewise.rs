@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::Quantization;
+use crate::components::global::{Quantization, RoleRule};
 use crate::components::global::load::SyncBufferLoadingStrategy;
 use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
@@ -91,7 +91,9 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let row_col_stride = num_stages * stage_width;
         let buffer_offset = stage_width * buffer_index;
 
-        let starting_tile_within_stage = UNIT_POS_Y * num_tiles_per_plane;
+        let starting_tile_within_stage = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides())
+            * num_tiles_per_plane;
         let row_col_index = starting_tile_within_stage / stage_width;
         let inner_offset = starting_tile_within_stage % stage_width;
         let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + buffer_offset;

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::InputIdent;
 use crate::components::global::load::BufferId;
-use crate::components::global::{GlobalConfig, LoadingSet};
+use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageEvent, StageEventListener};
 
 #[derive(Copy, Clone)]
@@ -25,7 +25,7 @@ pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>
     state_lhs: Sequence<Lhs::Job>,
     state_rhs: Sequence<Rhs::Job>,
     #[cube(comptime)]
-    event_loading_set: LoadingSet,
+    event_loading_side: LoadingSides,
 }
 
 #[derive(Clone)]
@@ -61,7 +61,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
-        #[comptime] event_loading_set: LoadingSet,
+        #[comptime] event_loading_side: LoadingSides,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
@@ -70,7 +70,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
-            event_loading_set,
+            event_loading_side,
         }
     }
 }
@@ -159,12 +159,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
 #[cube]
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
-        if comptime!(self.event_loading_set.should_fill_lhs()) {
+        if comptime!(self.event_loading_side.includes_lhs()) {
             self.state_lhs
                 .push(L::create_job(&self.loader_lhs, self.buffer_id, self.config));
         }
 
-        if comptime!(self.event_loading_set.should_fill_rhs()) {
+        if comptime!(self.event_loading_side.includes_rhs()) {
             self.state_rhs
                 .push(R::create_job(&self.loader_rhs, self.buffer_id, self.config));
         }

@@ -1,4 +1,5 @@
 use crate::components::global::GlobalConfig;
+use crate::components::global::LoadingSides;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
 use crate::components::global::SpecializerKind;
@@ -30,8 +31,8 @@ pub fn execute_current_and_load_next<
 ) {
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
-            main_flow_loading_set,
-            load_only_loading_set,
+            main_flow_loading_side,
+            load_only_loading_side,
             role_rule_config,
         } => {
             let rule = RoleRule::new(role_rule_config);
@@ -48,19 +49,19 @@ pub fn execute_current_and_load_next<
                         lhs_loader,
                         rhs_loader,
                         config,
-                        main_flow_loading_set,
+                        main_flow_loading_side,
                     ),
                 );
             } else {
-                if load_only_loading_set.should_fill_lhs() {
+                if load_only_loading_side.includes_lhs() {
                     LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
                 }
-                if load_only_loading_set.should_fill_rhs() {
+                if load_only_loading_side.includes_rhs() {
                     RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
                 }
             }
         }
-        SpecializerKind::NotSpecialized(loading_set) => {
+        SpecializerKind::NotSpecialized => {
             SMM::execute_with_listener::<DoubleBufferingEventListener<LJ, RJ, G>>(
                 lhs_reader,
                 rhs_reader,
@@ -73,7 +74,7 @@ pub fn execute_current_and_load_next<
                     lhs_loader,
                     rhs_loader,
                     config,
-                    loading_set,
+                    LoadingSides::Both,
                 ),
             );
         }
@@ -97,8 +98,8 @@ pub fn execute_last_and_write_results<
 ) {
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
-            main_flow_loading_set: _,
-            load_only_loading_set: _,
+            main_flow_loading_side: _,
+            load_only_loading_side: _,
             role_rule_config,
         } => {
             let rule = RoleRule::new(role_rule_config);
@@ -115,7 +116,7 @@ pub fn execute_last_and_write_results<
                 SMM::write_results::<G>(acc, out_writer, config.stage_config(), config);
             }
         }
-        SpecializerKind::NotSpecialized(_) => {
+        SpecializerKind::NotSpecialized => {
             SMM::execute(
                 lhs_reader,
                 rhs_reader,

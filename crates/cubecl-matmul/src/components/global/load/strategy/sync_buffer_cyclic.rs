@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::global::load::SyncBufferLoadingStrategy;
 use crate::components::global::tensor_view::TensorReader;
-use crate::components::global::{GlobalConfig, Quantization};
+use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
@@ -73,7 +73,10 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
         let balanced_workload = num_tasks_per_unit % total_units == 0;
 
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_id = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         Job {

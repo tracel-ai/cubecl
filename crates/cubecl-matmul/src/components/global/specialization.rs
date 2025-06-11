@@ -16,9 +16,9 @@ impl PlaneRoles {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum LoadingSet {
+pub enum LoadingSides {
     // Load both Lhs and Rhs
-    Full,
+    Both,
     // Load Lhs only
     Lhs,
     // Load Rhs only
@@ -27,66 +27,50 @@ pub enum LoadingSet {
     None,
 }
 
-impl LoadingSet {
-    pub fn should_fill_lhs(&self) -> bool {
-        match self {
-            LoadingSet::Full => true,
-            LoadingSet::Lhs => true,
-            LoadingSet::Rhs => false,
-            LoadingSet::None => false,
-        }
+impl LoadingSides {
+    pub fn includes_lhs(&self) -> bool {
+        self.includes(InputIdent::Lhs)
     }
 
-    pub fn should_fill_rhs(&self) -> bool {
-        match self {
-            LoadingSet::Full => true,
-            LoadingSet::Lhs => false,
-            LoadingSet::Rhs => true,
-            LoadingSet::None => false,
-        }
+    pub fn includes_rhs(&self) -> bool {
+        self.includes(InputIdent::Rhs)
     }
 
     pub fn includes(&self, ident: InputIdent) -> bool {
         match (self, ident) {
-            (LoadingSet::Full, _)
-            | (LoadingSet::Lhs, InputIdent::Lhs)
-            | (LoadingSet::Rhs, InputIdent::Rhs) => true,
+            (LoadingSides::Both, _)
+            | (LoadingSides::Lhs, InputIdent::Lhs)
+            | (LoadingSides::Rhs, InputIdent::Rhs) => true,
             _ => false,
         }
     }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LoadingSets {
-    pub specialized_main_flow: LoadingSet,
-    pub specialized_load_only: LoadingSet,
-    // TODO it's always full
-    pub no_specialization: LoadingSet,
+pub struct SpecializedLoadingSides {
+    pub main_flow: LoadingSides,
+    pub load_only: LoadingSides,
 }
 
-impl LoadingSets {
+impl SpecializedLoadingSides {
     pub fn num_loading_planes(
         &self,
         specialized: bool,
         ident: InputIdent,
         plane_roles: PlaneRoles,
     ) -> u32 {
-        let mut num_loading_planes = 0;
-
         if specialized {
-            if self.specialized_main_flow.includes(ident) {
+            let mut num_loading_planes = 0;
+            if self.main_flow.includes(ident) {
                 num_loading_planes += plane_roles.main_flow;
             }
-            if self.specialized_load_only.includes(ident) {
+            if self.load_only.includes(ident) {
                 num_loading_planes += plane_roles.load_only;
             }
+            num_loading_planes
         } else {
-            if self.no_specialization.includes(ident) {
-                num_loading_planes += plane_roles.main_flow;
-            }
+            plane_roles.main_flow
         }
-
-        num_loading_planes
     }
 }
 
@@ -125,14 +109,6 @@ impl PlaneRoleConfig {
         Self { plane_roles, rule }
     }
 
-    pub fn loader_count(&self) -> u32 {
-        self.plane_roles.load_only + self.plane_roles.main_flow
-    }
-
-    pub fn load_only_count(&self) -> u32 {
-        self.plane_roles.load_only
-    }
-
     pub fn main_flow_count(&self) -> u32 {
         self.plane_roles.main_flow
     }
@@ -167,16 +143,40 @@ impl RoleRule {
             RoleRule::LoadOnlyLast(_) => UNIT_POS_Y,
         }
     }
+
+    pub fn load_index(
+        self,
+        #[comptime] ident: InputIdent,
+        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
+    ) -> u32 {
+        match self {
+            RoleRule::MainFlowOnly => UNIT_POS_Y,
+            RoleRule::LoadOnlyFirst(load_only) => {
+                if !specialized_loading_sides.load_only.includes(ident) {
+                    UNIT_POS_Y - load_only
+                } else {
+                    UNIT_POS_Y
+                }
+            }
+            RoleRule::LoadOnlyLast(main_flow) => {
+                if !specialized_loading_sides.main_flow.includes(ident) {
+                    UNIT_POS_Y - main_flow
+                } else {
+                    UNIT_POS_Y
+                }
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum SpecializerKind {
     Specialized {
-        main_flow_loading_set: LoadingSet,
-        load_only_loading_set: LoadingSet,
+        main_flow_loading_side: LoadingSides,
+        load_only_loading_side: LoadingSides,
         role_rule_config: RoleRuleConfig,
     },
-    NotSpecialized(LoadingSet),
+    NotSpecialized,
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -189,23 +189,21 @@ pub struct Specializer {
 impl Specializer {
     pub fn new(
         #[comptime] plane_role_config: PlaneRoleConfig,
-        #[comptime] loading_sets: LoadingSets,
+        #[comptime] loading_sides: SpecializedLoadingSides,
     ) -> Specializer {
         if plane_role_config.has_specialization() {
             Specializer {
                 kind: comptime! {
                     SpecializerKind::Specialized {
-                        main_flow_loading_set: loading_sets.specialized_main_flow,
-                        load_only_loading_set: loading_sets.specialized_load_only,
+                        main_flow_loading_side: loading_sides.main_flow,
+                        load_only_loading_side: loading_sides.load_only,
                         role_rule_config: plane_role_config.rule
                     }
                 },
             }
         } else {
             Specializer {
-                kind: comptime! {SpecializerKind::NotSpecialized(
-                    loading_sets.no_specialization,
-                )},
+                kind: comptime! {SpecializerKind::NotSpecialized},
             }
         }
     }

@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, load::AsyncFullLoadingStrategy, tensor_view::TensorReader,
+        CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy,
+        tensor_view::TensorReader,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -63,7 +64,10 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
             comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(input_ident));
         let num_tasks_per_unit = num_slices.div_ceil(total_units);
 
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_id = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
 
         Job {
             unit_id,
