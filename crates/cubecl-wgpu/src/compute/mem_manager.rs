@@ -3,9 +3,7 @@ use cubecl_core::{
     server::{Binding, Handle},
 };
 use cubecl_runtime::{
-    memory_management::{
-        MemoryDeviceProperties, MemoryManagement, MemoryPoolOptions, PoolType, StorageExclude,
-    },
+    memory_management::{MemoryDeviceProperties, MemoryManagement, StorageExclude},
     storage::ComputeStorage,
 };
 use wgpu::BufferUsages;
@@ -15,7 +13,6 @@ use super::{WgpuResource, WgpuStorage};
 #[derive(Debug)]
 pub(crate) struct WgpuMemManager {
     memory_pool: MemoryManagement<WgpuStorage>,
-    memory_pool_queries: MemoryManagement<WgpuStorage>,
     pending_operations: StorageExclude,
 }
 
@@ -42,50 +39,10 @@ impl WgpuMemManager {
             memory_config.clone(),
         );
 
-        // Memory pool for timing queries.
-        let memory_pool_queries = MemoryManagement::from_configuration(
-            WgpuStorage::new(
-                memory_properties.alignment as usize,
-                device.clone(),
-                BufferUsages::COPY_SRC | BufferUsages::QUERY_RESOLVE,
-            ),
-            &memory_properties,
-            MemoryConfiguration::Custom {
-                pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages {
-                        // Size only needs to be 2 u64, but at leas alignment size.
-                        // Assume alignment is enough.
-                        max_alloc_size: memory_properties.alignment,
-                    },
-                    dealloc_period: None,
-                }],
-            },
-        );
-
         Self {
             memory_pool: memory_main,
-            memory_pool_queries,
             pending_operations: StorageExclude::default(),
         }
-    }
-
-    pub(crate) fn query(&mut self, num_values: u64) -> (Handle, WgpuResource) {
-        let size = num_values * size_of::<u64>() as u64;
-
-        let handle = Handle::new(
-            self.memory_pool_queries.reserve(size, None),
-            None,
-            None,
-            size,
-        );
-
-        let binding = handle.clone().binding();
-        let resource = self
-            .memory_pool_queries
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        (handle, resource)
     }
 
     pub(crate) fn reserve(&mut self, size: u64, exclude_pending_operations: bool) -> Handle {
@@ -98,38 +55,22 @@ impl WgpuMemManager {
     }
 
     pub(crate) fn get_resource(&mut self, binding: Binding) -> WgpuResource {
-        match self.memory_pool.get(binding.memory.clone()) {
-            Some(handle) => {
-                let handle = match binding.offset_start {
-                    Some(offset) => handle.offset_start(offset),
-                    None => handle,
-                };
-                let handle = match binding.offset_end {
-                    Some(offset) => handle.offset_end(offset),
-                    None => handle,
-                };
-                // Assume this resource is now used for something. That means we can't copy to it anymore,
-                // as any copy will get ordered first.
-                self.pending_operations.exclude_storage(handle.id);
-                self.memory_pool.storage().get(&handle)
-            }
-            None => {
-                let handle = self
-                    .memory_pool_queries
-                    .get(binding.memory.clone())
-                    .expect("Failed to find storage!");
-
-                let handle = match binding.offset_start {
-                    Some(offset) => handle.offset_start(offset),
-                    None => handle,
-                };
-                let handle = match binding.offset_end {
-                    Some(offset) => handle.offset_end(offset),
-                    None => handle,
-                };
-                self.memory_pool_queries.storage().get(&handle)
-            }
-        }
+        let handle = self
+            .memory_pool
+            .get(binding.memory.clone())
+            .expect("Failed to find storage!");
+        let handle = match binding.offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match binding.offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        // Assume this resource is now used for something. That means we can't copy to it anymore,
+        // as any copy will get ordered first.
+        self.pending_operations.exclude_storage(handle.id);
+        self.memory_pool.storage().get(&handle)
     }
 
     pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

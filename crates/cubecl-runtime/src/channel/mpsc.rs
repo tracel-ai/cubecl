@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use cubecl_common::{
     ExecutionMode,
-    benchmark::ProfileDuration,
     future::{DynFut, spawn_detached_fut},
+    profile::ProfileDuration,
 };
 
 use super::ComputeChannel;
