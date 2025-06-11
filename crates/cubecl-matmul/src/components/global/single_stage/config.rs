@@ -1,11 +1,8 @@
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{
-            self, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
-            multi_stage::EventLoadingMode,
-        },
-        stage,
+            self, load::LoaderMode, multi_stage::EventLoadingMode, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides
+        }, stage, Ident, InputIdent, MatmulConfig, MatrixLayout
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
@@ -100,7 +97,11 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-        unimplemented!("Specialization not available for simple matmul")
+        SpecializedLoadingSides {
+            main_flow: LoadingSides::Both,
+            // Specialized is not available
+            load_only: LoadingSides::None,
+        }
     }
 }
 
