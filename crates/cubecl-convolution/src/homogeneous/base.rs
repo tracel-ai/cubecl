@@ -95,7 +95,7 @@ pub mod config {
     use cubecl_matmul::components::{
         InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
         global::{
-            GlobalConfig, SpecializedLoadingSides, PlaneRoleConfig, load::LoaderMode,
+            GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
             multi_stage::EventLoadingMode,
         },
     };

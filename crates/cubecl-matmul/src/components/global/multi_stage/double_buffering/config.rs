@@ -2,7 +2,7 @@ use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{
-            GlobalConfig, LoadingSides, SpecializedLoadingSides, PlaneRoleConfig, load::LoaderMode,
+            GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
             multi_stage::EventLoadingMode,
         },
         stage::{self},

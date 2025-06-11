@@ -8,8 +8,8 @@ use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::stage::{
     self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
 };
+use crate::components::tile;
 use crate::components::{InvalidConfigError, MatmulProblem};
-use crate::components::{LoadSpecializationConfig, tile};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
@@ -45,15 +45,11 @@ where
         if selection.tiling_scheme.stage_partitions_in_stage_n() > 1 {
             return Err(Box::new("Ordered does not support partitions > 1 in n"));
         }
-        Self::GlobalMatmul::cube_dim(selection, Self::plane_role_config())
+        Self::GlobalMatmul::cube_dim(selection, Self::load_specialization_config())
     }
 
     fn num_stages() -> NumStages {
         (1, 2).into()
-    }
-
-    fn partition_buffering_strategy() -> stage::PartitionBuffering {
-        stage::PartitionBuffering::Single
     }
 
     fn selection<R: Runtime>(
@@ -73,9 +69,5 @@ where
             elem_stage,
             elem_acc,
         )
-    }
-
-    fn plane_role_config() -> LoadSpecializationConfig {
-        LoadSpecializationConfig::Fixed(2)
     }
 }

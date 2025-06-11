@@ -191,7 +191,10 @@ where
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
 
-        let specializer = Specializer::new(config.plane_role_config(), config.specialized_loading_sides());
+        let specializer = Specializer::new(
+            config.plane_role_config(),
+            config.specialized_loading_sides(),
+        );
 
         sync_cube();
 

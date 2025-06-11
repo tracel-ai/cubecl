@@ -61,7 +61,7 @@ pub trait Algorithm {
     type BatchMatmul: batch::BatchMatmulFamily<Input = GlobalInput<StageInput>>;
 
     fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        Self::GlobalMatmul::cube_dim(selection, Self::plane_role_config())
+        Self::GlobalMatmul::cube_dim(selection, Self::load_specialization_config())
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
@@ -95,7 +95,7 @@ pub trait Algorithm {
                 partition_buffering,
                 stage_vectorization,
                 num_stages: Self::num_stages(),
-                load_specialization: Self::plane_role_config(),
+                load_specialization: Self::load_specialization_config(),
             },
             loading_precompute_strategy: Self::loading_precompute_strategy(),
             loader_mode: Self::loader_mode(),
@@ -114,7 +114,7 @@ pub trait Algorithm {
         LoaderMode::Relaxed
     }
 
-    fn plane_role_config() -> LoadSpecializationConfig {
+    fn load_specialization_config() -> LoadSpecializationConfig {
         LoadSpecializationConfig::None
     }
 

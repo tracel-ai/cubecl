@@ -176,7 +176,10 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        let specializer = Specializer::new(config.plane_role_config(), config.specialized_loading_sides());
+        let specializer = Specializer::new(
+            config.plane_role_config(),
+            config.specialized_loading_sides(),
+        );
 
         sync_cube();
 

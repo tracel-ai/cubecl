@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{Quantization, RoleRule};
 use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::global::{Quantization, RoleRule};
 use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
