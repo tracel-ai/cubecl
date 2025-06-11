@@ -59,7 +59,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, MP>(
+        match matmul::launch::<R, MP>(
             &self.strategy,
             &self.client,
             lhs,
@@ -67,8 +67,12 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             rhs,
             rhs_scale,
             out,
-        )
-        .unwrap()
+        ) {
+            Ok(val) => return (),
+            Err(err) => {
+                println!("{err:?}");
+            }
+        }
     }
 
     fn name(&self) -> String {
