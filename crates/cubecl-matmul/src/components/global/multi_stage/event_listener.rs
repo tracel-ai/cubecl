@@ -90,8 +90,8 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
             if comptime![analysis.lhs.should_execute(current)] {
                 let lhs_job = this.state_lhs.index_mut(0);
 
-                #[cfg(target_os = "macos")]
-                sync_plane();
+                // #[cfg(target_os = "macos")]
+                // sync_plane();
 
                 L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
             }
@@ -99,8 +99,8 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
             if comptime![analysis.rhs.should_execute(current)] {
                 let rhs_job = this.state_rhs.index_mut(0);
 
-                #[cfg(target_os = "macos")]
-                sync_plane();
+                // #[cfg(target_os = "macos")]
+                // sync_plane();
 
                 R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
             }
@@ -132,10 +132,10 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
                 comptime!(rhs_num_task_executed += num_task_executed);
             }
 
-            #[cfg(target_os = "macos")]
-            if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0 {
-                sync_plane();
-            }
+            // #[cfg(target_os = "macos")]
+            // if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0 {
+            //     sync_plane();
+            // }
 
             if comptime!(lhs_len > 0) {
                 let lhs_job = this.state_lhs.index_mut(0);

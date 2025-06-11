@@ -2,6 +2,11 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
 use cubecl_std::tensor::TensorHandle;
 
+use crate::{
+    components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise},
+    kernels::matmul::double_unit::DoubleUnitAlgorithm,
+};
+
 use super::{
     components::{
         MatmulPrecision,
@@ -35,11 +40,22 @@ use super::{
 pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
-    DoubleBuffering(SyncBufferLoadingStrategy),
+    DoubleBuffering(SyncBufferLoadingStrategy, TileMatmulStrategy),
     SimpleUnit,
     OrderedDoubleBuffering,
     Naive,
     Tiling2D(Tiling2dConfig),
+    #[default]
+    Auto,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum TileMatmulStrategy {
+    /// Uses tensor cores instructions.
+    Accelerated,
+    /// Uses normal instructions.
+    Register,
+    /// Start with tensor cores and fallback on units if no tensor cores instructions is supported.
     #[default]
     Auto,
 }
@@ -178,23 +194,18 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 )
             }
         },
-        Strategy::DoubleBuffering(loading_strategy) => match loading_strategy {
-            SyncBufferLoadingStrategy::Cyclic => {
-                matmul::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client, lhs, lhs_scale, rhs, rhs_scale, out,
-                )
-            }
-            SyncBufferLoadingStrategy::Tilewise => {
-                matmul::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client, lhs, lhs_scale, rhs, rhs_scale, out,
-                )
-            }
-            SyncBufferLoadingStrategy::Hybrid => {
-                matmul::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client, lhs, lhs_scale, rhs, rhs_scale, out,
-                )
-            }
-        },
+        Strategy::DoubleBuffering(loading_strategy, tile_strategy) => {
+            launch_double_buffering::<R, MP>(
+                loading_strategy,
+                tile_strategy,
+                client,
+                lhs,
+                lhs_scale,
+                rhs,
+                rhs_scale,
+                out,
+            )
+        }
         Strategy::OrderedDoubleBuffering => {
             matmul::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<AcceleratedMatmul>>(
                 client, lhs, lhs_scale, rhs, rhs_scale, out,
@@ -234,5 +245,89 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
 
             Ok(())
         }
+    }
+}
+
+fn launch_double_buffering<R: Runtime, MP: MatmulPrecision>(
+    strategy: &SyncBufferLoadingStrategy,
+    tile_strategy: &TileMatmulStrategy,
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: &TensorHandleRef<R>,
+    lhs_scale: &Option<TensorHandleRef<R>>,
+    rhs: &TensorHandleRef<R>,
+    rhs_scale: &Option<TensorHandleRef<R>>,
+    out: &TensorHandleRef<R>,
+) -> Result<(), MatmulLaunchError> {
+    let cyclic_acc = || {
+        matmul::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+            client, lhs, lhs_scale, rhs, rhs_scale, out,
+        )
+    };
+    let cyclic_reg = || {
+        matmul::launch_ref::<
+            R,
+            MP,
+            DoubleUnitAlgorithm<
+                sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+                sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+            >,
+        >(client, lhs, lhs_scale, rhs, rhs_scale, out)
+    };
+    let tilewise_acc = || {
+        matmul::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+            client, lhs, lhs_scale, rhs, rhs_scale, out,
+        )
+    };
+    let tilewise_reg = || {
+        matmul::launch_ref::<
+            R,
+            MP,
+            DoubleUnitAlgorithm<
+                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+                sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+            >,
+        >(client, lhs, lhs_scale, rhs, rhs_scale, out)
+    };
+    let hybrid_acc = || {
+        matmul::launch_ref::<
+            R,
+            MP,
+            DoubleUnitAlgorithm<
+                sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+                sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+            >,
+        >(client, lhs, lhs_scale, rhs, rhs_scale, out)
+    };
+    let hybrid_reg = || {
+        matmul::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+            client, lhs, lhs_scale, rhs, rhs_scale, out,
+        )
+    };
+
+    match strategy {
+        SyncBufferLoadingStrategy::Cyclic => match tile_strategy {
+            TileMatmulStrategy::Accelerated => cyclic_acc(),
+            TileMatmulStrategy::Register => cyclic_reg(),
+            TileMatmulStrategy::Auto => match cyclic_acc() {
+                Ok(val) => Ok(val),
+                Err(_) => cyclic_reg(),
+            },
+        },
+        SyncBufferLoadingStrategy::Tilewise => match tile_strategy {
+            TileMatmulStrategy::Accelerated => tilewise_acc(),
+            TileMatmulStrategy::Register => tilewise_reg(),
+            TileMatmulStrategy::Auto => match tilewise_acc() {
+                Ok(val) => Ok(val),
+                Err(_) => tilewise_reg(),
+            },
+        },
+        SyncBufferLoadingStrategy::Hybrid => match tile_strategy {
+            TileMatmulStrategy::Accelerated => hybrid_acc(),
+            TileMatmulStrategy::Register => hybrid_reg(),
+            TileMatmulStrategy::Auto => match hybrid_acc() {
+                Ok(val) => Ok(val),
+                Err(_) => hybrid_reg(),
+            },
+        },
     }
 }

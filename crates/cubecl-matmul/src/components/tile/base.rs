@@ -12,9 +12,18 @@ pub struct TileMatmulConfigInput {
     pub tile_size: TileSize,
 }
 
+pub trait PrimitiveTile {}
+pub struct PlaneTile;
+pub struct UnitTile;
+
+impl PrimitiveTile for PlaneTile {}
+impl PrimitiveTile for UnitTile {}
+
 pub trait TileMatmulFamily:
     MatmulConfigFactory<Input = TileMatmulConfigInput, Config: TileConfig>
 {
+    type PrimitiveTile: PrimitiveTile;
+
     fn requires_tensor_cores() -> bool;
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 

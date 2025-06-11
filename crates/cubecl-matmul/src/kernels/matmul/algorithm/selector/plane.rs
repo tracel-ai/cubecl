@@ -1,5 +1,3 @@
-use std::cmp::min;
-
 use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
@@ -40,7 +38,8 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // The number of planes that can send tasks to tensor cores.
     //
     // Going over 8 might use too much shared memory.
-    let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
+    // let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
+    let tensor_cores_channels = 4;
 
     let partition_shape_n = find_tiles_in_partition_n(
         problem.m,
@@ -77,6 +76,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .with_stage_size(partitions_per_stage)
         .build()
         .unwrap();
+    println!("TilingScheme {tiling_scheme:?}");
 
     MatmulSelection {
         tiling_scheme,

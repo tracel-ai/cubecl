@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_matmul as matmul;
+use cubecl_matmul::{self as matmul, TileMatmulStrategy};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
 use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
 
@@ -15,6 +15,7 @@ const TRANSPOSE_LHS: bool = true;
 const TRANSPOSE_RHS: bool = false;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
+    type Output = ();
     type Input = (
         TensorHandle<R, MP::EI>,
         Option<TensorHandle<R, f32>>,
@@ -54,7 +55,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         (lhs, None, rhs, None)
     }
 
-    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Input) {
+    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Input) -> Self::Output {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
@@ -67,7 +68,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             rhs_scale,
             out,
         )
-        .unwrap();
+        .unwrap()
     }
 
     fn name(&self) -> String {
@@ -140,11 +141,30 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
     // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
-    run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Cyclic),
-    );
+    // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
+    for loading in [
+        SyncLoadingStrategy::Cyclic,
+        SyncLoadingStrategy::Tilewise,
+        SyncLoadingStrategy::Strided,
+    ] {
+        let strategy = matmul::Strategy::Simple(loading);
+        run::<R, MP>(Default::default(), strategy);
+    }
+
+    for loading in [
+        SyncBufferLoadingStrategy::Cyclic,
+        SyncBufferLoadingStrategy::Tilewise,
+        SyncBufferLoadingStrategy::Hybrid,
+    ] {
+        for tile in [
+            TileMatmulStrategy::Accelerated,
+            TileMatmulStrategy::Register,
+        ] {
+            let strategy = matmul::Strategy::DoubleBuffering(loading.clone(), tile.clone());
+            run::<R, MP>(Default::default(), strategy);
+        }
+    }
+
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
@@ -157,10 +177,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
     // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),

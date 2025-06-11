@@ -10,11 +10,13 @@ use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 
-use super::{Tile, TileMatmulConfigInput};
+use super::{PlaneTile, Tile, TileMatmulConfigInput};
 
 pub struct AcceleratedMatmul;
 
 impl TileMatmulFamily for AcceleratedMatmul {
+    type PrimitiveTile = PlaneTile;
+
     type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
 
     fn requires_tensor_cores() -> bool {

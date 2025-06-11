@@ -8,11 +8,11 @@ use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
     self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
 };
-use crate::components::tile;
+use crate::components::tile::{self, PlaneTile};
 use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
-use super::{MatmulSelection, plane_matmul_selection};
+use super::{MatmulSelection, plane_matmul_selection, unit_matmul_selection};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
@@ -28,7 +28,7 @@ pub struct HybridDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedParti
 
 impl<TMM, P> base::Algorithm for CyclicDoubleBufferingAlgorithm<TMM, P>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<PrimitiveTile = PlaneTile>,
     P: Partitioner,
 {
     type TileMatmul = TMM;
@@ -60,7 +60,7 @@ where
         elem_stage: Elem,
         elem_acc: Elem,
     ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
+        plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
@@ -75,7 +75,7 @@ where
 
 impl<TMM, P> base::Algorithm for TilewiseDoubleBufferingAlgorithm<TMM, P>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<PrimitiveTile = PlaneTile>,
     P: Partitioner,
 {
     type TileMatmul = TMM;
@@ -123,7 +123,7 @@ where
 
 impl<TMM, P> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM, P>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<PrimitiveTile = PlaneTile>,
     P: Partitioner,
 {
     type TileMatmul = TMM;

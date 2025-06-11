@@ -5,25 +5,33 @@ use std::marker::PhantomData;
 use crate::components::{
     MatmulLineSizes, MatmulProblem, MatrixLayout,
     batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
-    global::{self, load::sync_buffer_cyclic},
-    stage::{self, BufferReaderFamily, NumStages, RowMajorTilingOrder},
+    global::{self, load::SyncBufferLoadingStrategy},
+    stage::{self, BufferReaderFamily, NumStages},
     tile,
 };
 
-pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedPartitioner> {
+pub struct DoubleUnitAlgorithm<
+    LL: SyncBufferLoadingStrategy,
+    LR: SyncBufferLoadingStrategy,
+    Dispatch = batch::TransposedPartitioner,
+> {
     pub _dispatch: PhantomData<Dispatch>,
+    pub _ll: PhantomData<LL>,
+    pub _lr: PhantomData<LR>,
 }
 
-impl<P> base::Algorithm for DoubleUnitAlgorithm<P>
+impl<LL, LR, P> base::Algorithm for DoubleUnitAlgorithm<LL, LR, P>
 where
+    LL: SyncBufferLoadingStrategy,
+    LR: SyncBufferLoadingStrategy,
     P: Partitioner,
 {
     type TileMatmul = tile::register_matmul::RegisterMatmul;
     type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        LL,
+        LR,
     >;
 
     type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<

@@ -13,7 +13,7 @@ use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 
-use super::{Tile, TileMatmulConfigInput};
+use super::{Tile, TileMatmulConfigInput, UnitTile};
 
 /// Uses one unit to perform a small matmul entirely using its registers
 pub struct RegisterMatmul;
@@ -28,6 +28,7 @@ pub enum ProductType {
 }
 
 impl TileMatmulFamily for RegisterMatmul {
+    type PrimitiveTile = UnitTile;
     type Matmul<MP: MatmulPrecision> = RegisterMatmul;
 
     fn requires_tensor_cores() -> bool {
