@@ -68,7 +68,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             rhs_scale,
             out,
         ) {
-            Ok(val) => return (),
+            Ok(_) => return (),
             Err(err) => {
                 println!("{err:?}");
             }
@@ -144,13 +144,10 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
-    // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
-    for loading in [
-        SyncLoadingStrategy::Cyclic,
-        SyncLoadingStrategy::Tilewise,
-        // SyncLoadingStrategy::Strided,
-    ] {
+    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
+
+    for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
         let strategy = matmul::Strategy::Simple(loading);
         run::<R, MP>(Default::default(), strategy);
     }
@@ -168,23 +165,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             run::<R, MP>(Default::default(), strategy);
         }
     }
-
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(SyncBufferLoadingStrategy::Hybrid),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
-    // );
 
     if client
         .properties()
