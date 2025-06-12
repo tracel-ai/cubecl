@@ -134,8 +134,8 @@ impl<'a> Visitor<'a> {
             } => {
                 let condition = self.get_variable(*break_cond);
                 let body_block = self.visit_basic_block(*body, opt);
-                let next_block = self.visit_basic_block(*continue_target, opt);
-                self.visit_basic_block(*merge, opt);
+                self.visit_basic_block(*continue_target, opt);
+                let next_block = self.visit_basic_block(*merge, opt);
                 let body_argument = self.get_block_args(block_id, *body);
                 let next_argument = self.get_block_args(block_id, *continue_target);
                 this_block.append_operation(cf::cond_br(

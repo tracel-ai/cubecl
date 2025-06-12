@@ -8,6 +8,9 @@ impl<'a> Visitor<'a> {
             Some(out) => {
                 self.visit_operation_with_out(&instruction.operation, out);
             }
+            None => {
+                self.visit_operation(&instruction.operation);
+            }
             _ => {
                 todo!("Implement operation without out");
             }

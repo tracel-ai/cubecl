@@ -15,6 +15,8 @@ use crate::compiler::mlir::visitor::prelude::IntoType;
 use super::Visitor;
 
 impl<'a> Visitor<'a> {
+    pub fn visit_operation(&mut self, operation: &Operation) {}
+
     pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
         match operation {
             Operation::Operator(operator) => {
@@ -183,8 +185,11 @@ impl<'a> Visitor<'a> {
                     | Elem::Int(IntKind::I16)
                     | Elem::UInt(UIntKind::U16) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
-                        if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type);
+                        if unary_operator.input.item.is_vectorized() {
+                            r#type = Type::vector(
+                                &[unary_operator.input.vectorization_factor() as u64],
+                                r#type,
+                            );
                         }
 
                         self.append_operation_with_result(arith::extui(
@@ -196,8 +201,11 @@ impl<'a> Visitor<'a> {
                     Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
                     Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
-                        if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type);
+                        if unary_operator.input.item.is_vectorized() {
+                            r#type = Type::vector(
+                                &[unary_operator.input.vectorization_factor() as u64],
+                                r#type,
+                            );
                         }
 
                         self.append_operation_with_result(arith::trunci(
@@ -240,10 +248,13 @@ impl<'a> Visitor<'a> {
                     | Elem::Int(IntKind::I16)
                     | Elem::UInt(UIntKind::U16) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
-                        if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
-                        }
 
+                        if unary_operator.input.item.is_vectorized() {
+                            r#type = Type::vector(
+                                &[unary_operator.input.vectorization_factor() as u64],
+                                r#type,
+                            );
+                        }
                         let value = self.append_operation_with_result(arith::extui(
                             value,
                             r#type,
@@ -258,8 +269,11 @@ impl<'a> Visitor<'a> {
                     Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
                     Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
-                        if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        if unary_operator.input.item.is_vectorized() {
+                            r#type = Type::vector(
+                                &[unary_operator.input.vectorization_factor() as u64],
+                                r#type,
+                            );
                         }
 
                         self.append_operation_with_result(arith::trunci(
@@ -311,8 +325,11 @@ impl<'a> Visitor<'a> {
                     | Elem::Int(IntKind::I16)
                     | Elem::UInt(UIntKind::U16) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
-                        if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        if unary_operator.input.item.is_vectorized() {
+                            r#type = Type::vector(
+                                &[unary_operator.input.vectorization_factor() as u64],
+                                r#type,
+                            );
                         }
 
                         self.append_operation_with_result(arith::extui(
@@ -324,8 +341,11 @@ impl<'a> Visitor<'a> {
                     Elem::Int(IntKind::I32) | Elem::UInt(UIntKind::U32) => value,
                     Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64) => {
                         let mut r#type = IntegerType::new(self.context, 32).into();
-                        if let Some(vectorization) = unary_operator.input.item.vectorization {
-                            r#type = Type::vector(&[vectorization.get() as u64], r#type).into();
+                        if unary_operator.input.item.is_vectorized() {
+                            r#type = Type::vector(
+                                &[unary_operator.input.vectorization_factor() as u64],
+                                r#type,
+                            );
                         }
 
                         self.append_operation_with_result(arith::trunci(

@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use cubecl_core::ir::{
     Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, Variable, VariableKind,
 };
@@ -174,9 +176,10 @@ impl<'a> Visitor<'a> {
                     attribute,
                     self.location,
                 ));
-                match variable.item.vectorization {
-                    Some(vectorization) => {
-                        let vector = Type::vector(&[vectorization.get() as u64], const_type);
+                match variable.item.is_vectorized() {
+                    true => {
+                        let vector =
+                            Type::vector(&[variable.vectorization_factor() as u64], const_type);
                         self.append_operation_with_result(vector::splat(
                             self.context,
                             vector,
@@ -184,7 +187,7 @@ impl<'a> Visitor<'a> {
                             self.location,
                         ))
                     }
-                    None => value,
+                    false => value,
                 }
             }
             VariableKind::Versioned { id, version } => self
@@ -206,7 +209,7 @@ impl<'a> Visitor<'a> {
                     integer,
                     self.location,
                 ));
-                if variable.item.vectorization.is_some() {
+                if variable.item.is_vectorized() {
                     self.append_operation_with_result(vector::load(
                         self.context,
                         result_type,
@@ -220,7 +223,7 @@ impl<'a> Visitor<'a> {
             }
             VariableKind::GlobalScalar(id) => {
                 let var = self.global_scalars[id as usize];
-                if variable.item.vectorization.is_some() {
+                if variable.item.is_vectorized() {
                     let result_type = variable.item.to_type(self.context);
                     self.append_operation_with_result(vector::load(
                         self.context,
@@ -243,8 +246,8 @@ impl<'a> Visitor<'a> {
             Type::index(self.context),
             self.location,
         ));
-        if let Some(vectorization) = target_item.vectorization {
-            let vectorization = vectorization.get() as i64;
+        if target_item.is_vectorized() {
+            let vectorization = target_item.vectorization.map(NonZero::get).unwrap_or(1u8) as i64;
             let shift = vectorization.ilog2() as i64;
             let constant = self.append_operation_with_result(arith::constant(
                 self.context,
