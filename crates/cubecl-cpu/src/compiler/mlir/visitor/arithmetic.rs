@@ -1,6 +1,6 @@
-use cubecl_core::ir::{Arithmetic, Variable};
+use cubecl_core::ir::{Arithmetic, Item, Variable};
 use tracel_llvm::melior::dialect::ods::llvm as llvm_ods;
-use tracel_llvm::melior::ir::BlockLike;
+use tracel_llvm::melior::ir::{BlockLike, Value};
 use tracel_llvm::melior::{
     dialect::{arith, llvm, ods::vector},
     ir::Attribute,
@@ -14,22 +14,7 @@ impl<'a> Visitor<'a> {
         match arithmetic {
             Arithmetic::Abs(abs) => {
                 let value = self.get_variable(abs.input);
-                let result_type = abs.input.item.to_type(self.context);
-                let abs = if abs.input.elem().is_int() {
-                    self.append_operation_with_result(llvm::intr_abs(
-                        self.context,
-                        value,
-                        false,
-                        result_type,
-                        self.location,
-                    ))
-                } else {
-                    self.append_operation_with_result(llvm_ods::intr_fabs(
-                        self.context,
-                        value,
-                        self.location,
-                    ))
-                };
+                let abs = self.get_absolute_val(abs.input.item, value);
                 self.insert_variable(out, abs);
             }
             Arithmetic::Add(add) => {
@@ -99,29 +84,33 @@ impl<'a> Visitor<'a> {
                 // This could be used if it wasn't broken and the documentation was usable https://mlir.llvm.org/docs/Dialects/Vector/#vectorcontract-vectorcontractionop
                 let result = dot.lhs.elem().to_type(self.context);
                 if dot.lhs.elem().is_int() {
-                    let multiplied =
+                    let mut operation =
                         self.append_operation_with_result(arith::muli(lhs, rhs, self.location));
-                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                    let reduction = self.append_operation_with_result(vector::reduction(
-                        self.context,
-                        result,
-                        multiplied,
-                        kind,
-                        self.location,
-                    ));
-                    self.insert_variable(out, reduction);
+                    if dot.lhs.item.is_vectorized() {
+                        let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                        operation = self.append_operation_with_result(vector::reduction(
+                            self.context,
+                            result,
+                            operation,
+                            kind,
+                            self.location,
+                        ));
+                    }
+                    self.insert_variable(out, operation);
                 } else {
-                    let multiplied =
+                    let mut operation =
                         self.append_operation_with_result(arith::mulf(lhs, rhs, self.location));
-                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                    let reduction = self.append_operation_with_result(vector::reduction(
-                        self.context,
-                        result,
-                        multiplied,
-                        kind,
-                        self.location,
-                    ));
-                    self.insert_variable(out, reduction);
+                    if dot.lhs.item.is_vectorized() {
+                        let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                        operation = self.append_operation_with_result(vector::reduction(
+                            self.context,
+                            result,
+                            operation,
+                            kind,
+                            self.location,
+                        ));
+                    }
+                    self.insert_variable(out, operation);
                 }
             }
             Arithmetic::Erf(_) => {
@@ -184,20 +173,22 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Magnitude(magnitude) => {
                 let value = self.get_variable(magnitude.input);
-                let squared =
+                let mut squared =
                     self.append_operation_with_result(arith::mulf(value, value, self.location));
-                let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                let result = magnitude.input.elem().to_type(self.context);
-                let sum = self.append_operation_with_result(vector::reduction(
-                    self.context,
-                    result,
-                    squared,
-                    kind,
-                    self.location,
-                ));
+                if magnitude.input.item.is_vectorized() {
+                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                    let result = magnitude.input.elem().to_type(self.context);
+                    squared = self.append_operation_with_result(vector::reduction(
+                        self.context,
+                        result,
+                        squared,
+                        kind,
+                        self.location,
+                    ));
+                }
                 let squared = self.append_operation_with_result(llvm_ods::intr_sqrt(
                     self.context,
-                    sum,
+                    squared,
                     self.location,
                 ));
                 self.insert_variable(out, squared);
@@ -275,35 +266,46 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Normalize(normalize) => {
                 let value = self.get_variable(normalize.input);
-                let squared =
-                    self.append_operation_with_result(arith::mulf(value, value, self.location));
-                let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                let result = normalize.input.elem().to_type(self.context);
-                let sum = self.append_operation_with_result(vector::reduction(
-                    self.context,
-                    result,
-                    squared,
-                    kind,
-                    self.location,
-                ));
-                let square_root = self.append_operation_with_result(llvm_ods::intr_sqrt(
-                    self.context,
-                    sum,
-                    self.location,
-                ));
-                let vector_type = normalize.input.item.to_type(self.context);
-                let square_root = self.append_operation_with_result(vector::splat(
-                    self.context,
-                    vector_type,
-                    square_root,
-                    self.location,
-                ));
-                let value = self.append_operation_with_result(arith::divf(
-                    value,
-                    square_root,
-                    self.location,
-                ));
-                self.insert_variable(out, value);
+                let result = match normalize.input.item.is_vectorized() {
+                    true => {
+                        let squared = self.append_operation_with_result(arith::mulf(
+                            value,
+                            value,
+                            self.location,
+                        ));
+                        let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                        let result = normalize.input.elem().to_type(self.context);
+                        let reduced = self.append_operation_with_result(vector::reduction(
+                            self.context,
+                            result,
+                            squared,
+                            kind,
+                            self.location,
+                        ));
+                        let square_root = self.append_operation_with_result(llvm_ods::intr_sqrt(
+                            self.context,
+                            reduced,
+                            self.location,
+                        ));
+                        let vector_type = normalize.input.item.to_type(self.context);
+                        let square_root = self.append_operation_with_result(vector::splat(
+                            self.context,
+                            vector_type,
+                            square_root,
+                            self.location,
+                        ));
+                        self.append_operation_with_result(arith::divf(
+                            value,
+                            square_root,
+                            self.location,
+                        ))
+                    }
+                    false => {
+                        let abs = self.get_absolute_val(normalize.input.item, value);
+                        self.append_operation_with_result(arith::divf(value, abs, self.location))
+                    }
+                };
+                self.insert_variable(out, result);
             }
             Arithmetic::Powf(powf) => {
                 let base = self.get_variable(powf.lhs);
@@ -381,6 +383,25 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+        }
+    }
+
+    fn get_absolute_val(&self, item: Item, value: Value<'a, 'a>) -> Value<'a, 'a> {
+        let result_type = item.to_type(self.context);
+        if item.elem.is_int() {
+            self.append_operation_with_result(llvm::intr_abs(
+                self.context,
+                value,
+                false,
+                result_type,
+                self.location,
+            ))
+        } else {
+            self.append_operation_with_result(llvm_ods::intr_fabs(
+                self.context,
+                value,
+                self.location,
+            ))
         }
     }
 }
