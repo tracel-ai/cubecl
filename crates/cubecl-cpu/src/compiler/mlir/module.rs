@@ -1,6 +1,6 @@
 /// This module emulate all CubeCL constant using the equivalent MLIR skeleton on top of the kernel
 /// ```
-/// let module = melior::ir::Module::parse(
+/// let module = tracel_llvm::melior::ir::Module::parse(
 ///     context,
 ///     r#"
 ///     module {
@@ -52,7 +52,7 @@ use std::path::PathBuf;
 
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_opt::Optimizer;
-use melior::{
+use tracel_llvm::melior::{
     Context, ExecutionEngine,
     ir::{
         Location,
@@ -64,7 +64,7 @@ use melior::{
 use super::visitor::Visitor;
 
 pub(super) struct Module<'a> {
-    module: melior::ir::Module<'a>,
+    module: tracel_llvm::melior::ir::Module<'a>,
     location: Location<'a>,
     context: &'a Context,
 }
@@ -72,7 +72,7 @@ pub(super) struct Module<'a> {
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context) -> Self {
         let location = Location::unknown(context);
-        let module = melior::ir::Module::new(location);
+        let module = tracel_llvm::melior::ir::Module::new(location);
         Self {
             module,
             context,

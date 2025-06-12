@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use cubecl_core::{ir::Variable, prelude::KernelDefinition};
 use cubecl_opt::{NodeIndex, Optimizer};
-use melior::{
+use tracel_llvm::melior::{
     Context,
     dialect::{arith, func, scf},
     ir::{
@@ -156,7 +156,7 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         kernel: &'b KernelDefinition,
-        module: &melior::ir::Module<'a>,
+        module: &tracel_llvm::melior::ir::Module<'a>,
         opt: &Optimizer,
     ) {
         let name = StringAttribute::new(context, "kernel");

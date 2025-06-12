@@ -1,5 +1,5 @@
 use cubecl_core::ir::Item;
-use melior::{
+use tracel_llvm::melior::{
     Context,
     dialect::{arith, ods::vector},
     ir::{

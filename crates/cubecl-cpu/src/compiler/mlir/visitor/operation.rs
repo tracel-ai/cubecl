@@ -1,8 +1,8 @@
 use cubecl_core::ir::{
     Bitwise, Comparison, Elem, IntKind, Metadata, Operation, UIntKind, Variable,
 };
-use melior::dialect::{index, llvm};
-use melior::{
+use tracel_llvm::melior::dialect::{index, llvm};
+use tracel_llvm::melior::{
     dialect::{
         arith::{self, CmpfPredicate, CmpiPredicate},
         memref,

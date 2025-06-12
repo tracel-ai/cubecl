@@ -14,12 +14,12 @@ pub use visitor::elem::register_supported_types;
 use std::fmt::{Debug, Display};
 
 use cubecl_core::{prelude::KernelDefinition, server::ScalarBinding};
-use melior::{
+use module::Module;
+use tracel_llvm::melior::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
     utility::{register_all_dialects, register_all_llvm_translations, register_all_passes},
 };
-use module::Module;
 
 const MAX_BUFFER_SIZE: usize = 256;
 

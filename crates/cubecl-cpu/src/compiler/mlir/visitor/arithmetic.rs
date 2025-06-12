@@ -1,7 +1,7 @@
 use cubecl_core::ir::{Arithmetic, Variable};
-use melior::dialect::ods::llvm as llvm_ods;
-use melior::ir::BlockLike;
-use melior::{
+use tracel_llvm::melior::dialect::ods::llvm as llvm_ods;
+use tracel_llvm::melior::ir::BlockLike;
+use tracel_llvm::melior::{
     dialect::{arith, llvm, ods::vector},
     ir::Attribute,
 };

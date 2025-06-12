@@ -1,5 +1,5 @@
 use cubecl_core::ir::{Elem, Operator, Variable};
-use melior::{
+use tracel_llvm::melior::{
     dialect::{arith, memref, ods::vector},
     ir::{BlockLike, Type, TypeLike, ValueLike},
 };
