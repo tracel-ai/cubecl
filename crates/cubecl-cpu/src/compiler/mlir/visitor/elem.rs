@@ -4,12 +4,12 @@ use cubecl_core::ir::FloatKind;
 use cubecl_core::ir::IntKind;
 use cubecl_core::ir::UIntKind;
 use cubecl_runtime::DeviceProperties;
-use melior::Context;
-use melior::dialect::index;
-use melior::ir::Type;
-use melior::ir::Value;
-use melior::ir::ValueLike;
-use melior::ir::r#type::IntegerType;
+use tracel_llvm::melior::Context;
+use tracel_llvm::melior::dialect::index;
+use tracel_llvm::melior::ir::Type;
+use tracel_llvm::melior::ir::Value;
+use tracel_llvm::melior::ir::ValueLike;
+use tracel_llvm::melior::ir::r#type::IntegerType;
 
 use super::Visitor;
 use super::prelude::IntoType;
