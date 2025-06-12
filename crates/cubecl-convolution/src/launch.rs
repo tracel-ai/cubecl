@@ -11,7 +11,7 @@ use cubecl_matmul::{
         MatmulLineSizes,
         global::args::{ConcreteOutputFactory, MatmulArgs},
     },
-    kernels::MatmulLaunchError,
+    kernels::MatmulSetupError,
 };
 
 use super::{
@@ -203,7 +203,7 @@ where
         &cube_dim,
         &cube_count,
     )
-    .map_err(MatmulLaunchError::InvalidConfig)?;
+    .map_err(MatmulSetupError::InvalidConfig)?;
 
     Alg::check_availability::<R, MP>(client, &config)?;
 

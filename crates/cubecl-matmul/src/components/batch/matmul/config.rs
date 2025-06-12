@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use cubecl_core::{CubeCount, CubeDim};
+
 use crate::components::{
     MatmulConfig,
     batch::{BatchConfig, matmul::partitioner::Partitioner},
@@ -11,8 +13,7 @@ use crate::components::{
 pub struct PartitionedBatchConfig<G: GlobalConfig, P: Partitioner> {
     global_config: G,
     cube_count: (u32, u32, u32),
-    quantized: bool,
-    _c: PhantomData<P>,
+    _phantom: PhantomData<P>,
 }
 
 impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, P> {
@@ -48,19 +49,26 @@ impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, 
     }
 
     fn quantized(&self) -> bool {
-        self.quantized
+        self.global_config().quantized()
+    }
+
+    fn cube_dim(&self) -> CubeDim {
+        self.global_config.cube_dim()
+    }
+
+    fn cube_count(&self) -> CubeCount {
+        CubeCount::Static(self.cube_count.0, self.cube_count.1, self.cube_count.2)
     }
 }
 
 impl<G: GlobalConfig, P: Partitioner> MatmulConfig for PartitionedBatchConfig<G, P> {}
 
 impl<G: GlobalConfig, P: Partitioner> PartitionedBatchConfig<G, P> {
-    pub fn new(global_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
+    pub fn new(global_config: G, cube_count: (u32, u32, u32)) -> Self {
         Self {
             global_config,
             cube_count,
-            quantized,
-            _c: PhantomData,
+            _phantom: PhantomData,
         }
     }
 

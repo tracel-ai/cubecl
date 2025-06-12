@@ -2,16 +2,17 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::components::MatmulChecker;
-use crate::components::stage::PartitionedStageConfig;
+use crate::components::stage::{NumStages, PartitionedStageConfig};
 use crate::components::tile::Tile;
+use crate::components::{AvailableLineSizes, MatmulChecker};
 use crate::components::{
-    ComputeResources, Ident, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatrixLayout, TilingScheme,
+    Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
+use crate::kernels::MatmulSetupError;
+use crate::kernels::matmul::MatmulSelection;
 
 use super::{StageEventListener, TilingLayout};
 
@@ -42,17 +43,12 @@ pub trait StageMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: Stage
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
-    fn computation_resources(
-        tiling_scheme: &TilingScheme,
-    ) -> Result<ComputeResources, InvalidConfigError>;
-
     fn setup(
-        stage_input: Self::Input,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        quantized: bool,
-    ) -> Self::Config;
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+        num_stages: NumStages,
+    ) -> Result<Self::Config, MatmulSetupError>;
 }
 
 #[cube]
@@ -160,10 +156,11 @@ pub trait StageConfig: MatmulConfig {
     fn tile_config(self) -> Self::TileConfig;
 
     /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
@@ -177,6 +174,7 @@ pub trait StageConfig: MatmulConfig {
     fn plane_role_config(&self) -> PlaneRoleConfig;
     fn role_rule_config(&self) -> RoleRuleConfig;
     fn num_main_flow_planes(&self) -> u32;
+    fn quantized(&self) -> bool;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

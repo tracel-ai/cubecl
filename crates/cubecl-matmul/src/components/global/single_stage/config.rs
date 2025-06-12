@@ -1,3 +1,5 @@
+use cubecl_core::CubeDim;
+
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
@@ -14,14 +16,10 @@ use crate::{
 /// Configuration for single stage matmuls
 pub struct SingleStageConfig<S: stage::StageConfig> {
     stage_config: S,
+    num_planes: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
     check_k_bounds: bool,
-    lhs_layout: MatrixLayout,
-    rhs_layout: MatrixLayout,
-    lhs_line_size: u32,
-    rhs_line_size: u32,
-    out_line_size: u32,
     pub k_step: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
@@ -35,19 +33,11 @@ impl<S: stage::StageConfig> global::GlobalConfig for SingleStageConfig<S> {
     }
 
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
+        self.stage_config.global_line_size(ident)
     }
 
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.stage_config.matrix_layout(Ident::Out),
-        }
+        self.stage_config.matrix_layout(ident)
     }
 
     fn plane_dim(&self) -> u32 {
@@ -106,6 +96,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for SingleStageConfig<S> {
             load_only: LoadingSides::None,
         }
     }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for SingleStageConfig<S> {}
@@ -114,28 +108,20 @@ impl<S: stage::StageConfig> SingleStageConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         stage_config: S,
+        num_planes: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
     ) -> Self {
         Self {
             stage_config,
+            num_planes,
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
             k_step,
             precompute_job,
             loader_mode,

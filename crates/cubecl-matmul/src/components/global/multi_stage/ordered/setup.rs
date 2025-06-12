@@ -1,9 +1,9 @@
+use crate::components::AvailableLineSizes;
 use crate::components::global::GlobalConfig;
 use crate::components::global::load::{
     LoadingValidation, SyncBufferLoadingStrategy, SyncFullLoadingStrategy,
 };
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
-use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{
@@ -11,8 +11,8 @@ use crate::components::{
     MatmulProblem, stage,
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
-use crate::kernels::MatmulAvailabilityError;
 use crate::kernels::matmul::{GlobalInput, MatmulSelection};
+use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
@@ -38,47 +38,44 @@ where
     >;
     type Input = GlobalInput<SMM::Input>;
 
-    fn cube_dim(
-        selection: &MatmulSelection,
-        load_specialization: LoadSpecializationConfig,
-    ) -> Result<CubeDim, InvalidConfigError> {
-        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
-            .as_plane_resources(selection.plane_dim)?
-            .get_count();
-        Ok(CubeDim::new_2d(
-            selection.plane_dim,
-            load_specialization
-                .to_plane_roles(main_flow_planes)
-                .total_count(),
-        ))
-    }
-
     fn setup(
-        input: Self::Input,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        quantized: bool,
-    ) -> Self::Config {
-        let stage_config = SMM::setup(input.stage_input, problem, line_sizes, cube_dim, quantized);
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError> {
+        // TODO inject loader info here
+        let stage_config = SMM::setup(problem, selection, available_line_sizes, (1, 2).into())?;
+
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        OrderedDoubleBufferingGlobalConfig::new(
+        // num_planes = ..
+        // fn cube_dim(
+        //     selection: &MatmulSelection,
+        //     load_specialization: LoadSpecializationConfig,
+        // ) -> Result<CubeDim, InvalidConfigError> {
+        //     let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+        //         .as_plane_resources(selection.plane_dim)?
+        //         .get_count();
+        //     Ok(CubeDim::new_2d(
+        //         selection.plane_dim,
+        //         load_specialization
+        //             .to_plane_roles(main_flow_planes)
+        //             .total_count(),
+        //     ))
+        // }
+
+        Ok(OrderedDoubleBufferingGlobalConfig::new(
             stage_config,
+            // num_planes,
+            todo!(),
             problem.m as u32 % stage_shape_m != 0,
             problem.n as u32 % stage_shape_n != 0,
             problem.k as u32 % (2 * stage_shape_k) != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            line_sizes.lhs as u32,
-            line_sizes.rhs as u32,
-            line_sizes.out as u32,
-            cube_dim.y,
-            input.loading_precompute_strategy,
-            input.loader_mode,
-        )
+            selection.loading_precompute_strategy,
+            selection.loader_mode,
+        ))
     }
 }
 

@@ -1,8 +1,10 @@
+use crate::components::AvailableLineSizes;
 use crate::components::ComputeResources;
 use crate::components::MatmulChecker;
 use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
 use crate::components::global::PlaneRoleConfig;
+use crate::components::stage::NumStages;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::matmul::config::PartitionedStageConfig;
@@ -10,9 +12,11 @@ use crate::components::stage::matmul::plane_partitioned::PlaneMatmul;
 use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::tile::TileSetupInput;
-use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulPrecision};
+use crate::components::tiling_scheme;
+use crate::components::{InvalidConfigError, MatmulPrecision};
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulSetupError;
+use crate::kernels::matmul::MatmulSelection;
 use crate::kernels::matmul::StageInput;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -32,51 +36,44 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
 
     type Input = StageInput;
 
-    fn computation_resources(
-        tiling_scheme: &TilingScheme,
-    ) -> Result<ComputeResources, InvalidConfigError> {
-        if let ComputeResources::Planes(planes) = TMM::computation_resources()? {
-            Ok(ComputeResources::Planes(
-                planes * tiling_scheme.stage_partitions_in_stage_mn(),
-            ))
-        } else {
-            unreachable!("Plane matmul should not demand units")
-        }
-    }
-
     fn setup(
-        stage_input: Self::Input,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        quantized: bool,
-    ) -> Self::Config {
-        let tile_input = TileSetupInput {
-            vectorization: stage_input.stage_vectorization,
-            tile_size: stage_input.tiling_scheme.tile_size,
-        };
-        let tile_config = TMM::setup(tile_input, problem, line_sizes, cube_dim);
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+        num_stages: NumStages,
+    ) -> Result<Self::Config, MatmulSetupError> {
+        let tile_config = TMM::setup(problem, selection, available_line_sizes)?;
 
-        let compute_planes =
-            <Self as StageMatmulFamily>::computation_resources(&stage_input.tiling_scheme)
-                .unwrap_or_else(|e| panic!("{}", e))
-                .as_plane_resources(tile_config.plane_dim())
-                .unwrap_or_else(|e| panic!("{}", e))
-                .get_count();
+        let compute_resources =
+            if let ComputeResources::Planes(planes) = TMM::computation_resources()? {
+                ComputeResources::Planes(
+                    planes * selection.tiling_scheme.stage_partitions_in_stage_mn(),
+                )
+            } else {
+                panic!()
+                // TODO Activate
+                // return Err(Box::new(
+                //     "Error: Tried to use a plane stage matmul with a unit tile matmul.".to_string(),
+                // ));
+            };
+
+        let compute_planes = compute_resources
+            .as_plane_resources(tile_config.plane_dim())?
+            .get_count();
         let plane_role_config = PlaneRoleConfig::from_plane_roles(
-            stage_input
-                .load_specialization
+            selection
+                .load_specialization_config
                 .to_plane_roles(compute_planes),
         );
 
-        PartitionedStageConfig::new(
+        Ok(PartitionedStageConfig::new(
             tile_config,
-            stage_input.tiling_scheme,
-            quantized,
-            stage_input.partition_buffering,
-            stage_input.num_stages,
+            selection.tiling_scheme,
+            selection.quantized,
+            selection.partition_buffering,
+            num_stages,
             plane_role_config,
-        )
+        ))
     }
 }
 

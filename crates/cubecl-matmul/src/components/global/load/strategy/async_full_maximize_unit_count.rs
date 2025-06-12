@@ -59,7 +59,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let line_size = config.stage_config().stage_line_size(input_ident.into());
+        let line_size = config.stage_config().stage_line_size(input_ident);
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (

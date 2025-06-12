@@ -40,32 +40,8 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
-
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
-
-    fn num_stages() -> NumStages {
-        (2, 2).into()
-    }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
-            elem_stage,
-            elem_acc,
-        )
-    }
 }
 
 impl<TMM, P> base::Algorithm for TilewiseDoubleBufferingAlgorithm<TMM, P>
@@ -81,32 +57,8 @@ where
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
     >;
-
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
-
-    fn num_stages() -> NumStages {
-        (2, 2).into()
-    }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
-            elem_stage,
-            elem_acc,
-        )
-    }
 }
 
 impl<TMM, P> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM, P>
@@ -121,30 +73,6 @@ where
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
-
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
-
-    fn num_stages() -> NumStages {
-        (2, 2).into()
-    }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
-            elem_stage,
-            elem_acc,
-        )
-    }
 }

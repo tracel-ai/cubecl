@@ -1,11 +1,11 @@
 use crate::{
     components::{
-        InputRuntimeArg, MatmulChecker, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        AvailableLineSizes, InputRuntimeArg, MatmulChecker, MatmulPrecision, MatmulProblem,
         MatmulSpec, OutputRuntimeArg, TilingScheme,
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
-    kernels::matmul::MatmulSelection,
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -19,16 +19,11 @@ pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulChecker<Config: Batch
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
     type Input;
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
-
     fn setup(
-        input: Self::Input,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        quantized: bool,
-    ) -> Self::Config;
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Entry point
     ///
@@ -99,4 +94,7 @@ pub trait BatchConfig: MatmulConfig {
     fn tiling_scheme(&self) -> TilingScheme {
         self.global_config().tiling_scheme()
     }
+
+    fn cube_dim(&self) -> CubeDim;
+    fn cube_count(&self) -> CubeCount;
 }

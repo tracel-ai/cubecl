@@ -3,15 +3,15 @@ use cubecl_core::prelude::*;
 
 use crate::{
     components::{
-        Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulChecker,
-        MatmulLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
+        AvailableLineSizes, Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig,
+        MatmulChecker, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
         config::MatmulConfig,
         global::{
             PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
         },
         stage::{self, StageConfig},
     },
-    kernels::matmul::MatmulSelection,
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption,
@@ -25,18 +25,11 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: Glob
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
     type Input;
 
-    fn cube_dim(
-        selection: &MatmulSelection,
-        loading_plane_count: LoadSpecializationConfig,
-    ) -> Result<CubeDim, InvalidConfigError>;
-
     fn setup(
-        input: Self::Input,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        quantized: bool,
-    ) -> Self::Config;
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
 }
 
 #[cube]
@@ -165,4 +158,10 @@ pub trait GlobalConfig: MatmulConfig {
     fn loader_mode(&self) -> LoaderMode;
 
     fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
+
+    fn quantized(&self) -> bool {
+        self.stage_config().quantized()
+    }
+
+    fn cube_dim(&self) -> CubeDim;
 }

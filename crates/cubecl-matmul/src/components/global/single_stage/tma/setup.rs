@@ -1,3 +1,4 @@
+use crate::components::AvailableLineSizes;
 use crate::components::LoadSpecializationConfig;
 use crate::components::MatmulChecker;
 use crate::components::MatmulPrecision;
@@ -5,9 +6,9 @@ use crate::components::global::GlobalConfig as _;
 use crate::components::global::load::TmaTiling;
 use crate::components::global::single_stage::SingleStageConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
-use crate::components::problem::MatmulLineSizes;
 use crate::components::stage::StageConfig;
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::{GlobalInput, MatmulSelection};
 use std::any::TypeId;
 use std::marker::PhantomData;
@@ -36,56 +37,49 @@ where
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
     type Input = GlobalInput<SMM::Input>;
 
-    fn cube_dim(
-        selection: &MatmulSelection,
-        load_specialization: LoadSpecializationConfig,
-    ) -> Result<CubeDim, InvalidConfigError> {
-        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
-            .as_plane_resources(selection.plane_dim)?
-            .get_count();
-
-        if let LoadSpecializationConfig::None = load_specialization {
-            Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
-        } else {
-            Err(Box::new(
-                "Error: Specialization is unavailable for simple tma matmul.",
-            ))
-        }
-    }
-
     fn setup(
-        input: Self::Input,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        quantized: bool,
-    ) -> Self::Config {
-        let mut line_sizes = line_sizes.clone();
-
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError> {
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        line_sizes.lhs = 1;
-        line_sizes.rhs = 1;
+        available_line_sizes.lhs = vec![1];
+        available_line_sizes.rhs = vec![1];
 
-        let stage_config = SMM::setup(input.stage_input, problem, &line_sizes, cube_dim, quantized);
+        let stage_config = SMM::setup(problem, selection, available_line_sizes, (1, 1).into())?;
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        SingleStageConfig::new(
+        // fn cube_dim(
+        //     selection: &MatmulSelection,
+        //     load_specialization: LoadSpecializationConfig,
+        // ) -> Result<CubeDim, InvalidConfigError> {
+        //     let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
+        //         .as_plane_resources(selection.plane_dim)?
+        //         .get_count();
+
+        //     if let LoadSpecializationConfig::None = load_specialization {
+        //         Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
+        //     } else {
+        //         Err(Box::new(
+        //             "Error: Specialization is unavailable for simple tma matmul.",
+        //         ))
+        //     }
+        // }
+
+        Ok(SingleStageConfig::new(
             stage_config,
+            // num_planes,
+            todo!(),
             problem.m as u32 % stage_shape_m != 0,
             problem.n as u32 % stage_shape_n != 0,
             problem.k as u32 % stage_shape_k != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            line_sizes.lhs as u32,
-            line_sizes.rhs as u32,
-            line_sizes.out as u32,
             stage_shape_k,
-            input.loading_precompute_strategy,
-            input.loader_mode,
-        )
+            selection.loading_precompute_strategy,
+            selection.loader_mode,
+        ))
     }
 }
 

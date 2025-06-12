@@ -18,7 +18,7 @@ pub trait Partitioner: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq 
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
         #[comptime] cubes_for_batches: u32,
-    ) -> comptime_type!(CubeCount);
+    ) -> comptime_type!((u32, u32, u32));
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
@@ -71,8 +71,8 @@ impl Partitioner for NaturalPartitioner {
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
         #[comptime] cubes_for_batches: u32,
-    ) -> comptime_type!(CubeCount) {
-        comptime! {CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)}
+    ) -> comptime_type!((u32, u32, u32)) {
+        comptime! {(cubes_for_m, cubes_for_n, cubes_for_batches)}
     }
 }
 
@@ -102,8 +102,8 @@ impl Partitioner for TransposedPartitioner {
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
         #[comptime] cubes_for_batches: u32,
-    ) -> comptime_type!(CubeCount) {
-        comptime! {CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)}
+    ) -> comptime_type!((u32, u32, u32)) {
+        comptime! {(cubes_for_n, cubes_for_m, cubes_for_batches)}
     }
 }
 
@@ -135,8 +135,8 @@ impl<const W: u32> Partitioner for SwizzleNaturalPartitioner<W> {
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
         #[comptime] cubes_for_batches: u32,
-    ) -> comptime_type!(CubeCount) {
-        comptime! {CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)}
+    ) -> comptime_type!((u32, u32, u32)) {
+        comptime! {(cubes_for_m, cubes_for_n, cubes_for_batches)}
     }
 }
 
@@ -168,7 +168,7 @@ impl<const W: u32> Partitioner for SwizzleTransposedPartitioner<W> {
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
         #[comptime] cubes_for_batches: u32,
-    ) -> comptime_type!(CubeCount) {
-        comptime! {CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)}
+    ) -> comptime_type!((u32, u32, u32)) {
+        comptime! {(cubes_for_n, cubes_for_m, cubes_for_batches)}
     }
 }

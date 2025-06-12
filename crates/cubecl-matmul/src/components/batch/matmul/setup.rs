@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::AvailableLineSizes;
 use crate::components::InvalidConfigError;
 use crate::components::MatmulChecker;
 use crate::components::batch::BatchConfig as _;
@@ -11,10 +12,11 @@ use crate::components::batch::matmul::partition::GlobalPartitionMatmul;
 use crate::components::batch::matmul::partitioner::Partitioner;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSpec, OutputRuntimeArg,
+    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
+    OutputRuntimeArg,
 };
 use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::MatmulSelection;
 use cubecl_core::prelude::*;
 
@@ -34,34 +36,24 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
     type Matmul<MP: MatmulPrecision> = PartitionedBatchMatmul<MP, GMM::Matmul<MP>, S, P>;
     type Input = GMM::Input;
 
-    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+    fn setup(
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError> {
+        let global_config = GMM::setup(problem, selection, available_line_sizes)?;
+
         let elements_in_m = selection.tiling_scheme.elements_in_global_partition_m();
         let elements_in_n = selection.tiling_scheme.elements_in_global_partition_n();
 
-        P::create_cube_count(
+        let cube_count = P::create_cube_count(
             (problem.m as u32).div_ceil(elements_in_m),
             (problem.n as u32).div_ceil(elements_in_n),
             (problem.num_batches() as u32)
                 .div_ceil(selection.tiling_scheme.global_partition_size.batches),
-        )
-    }
+        );
 
-    fn setup(
-        input: Self::Input,
-        problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        quantized: bool,
-    ) -> Self::Config {
-        let global_config = GMM::setup(input, problem, line_sizes, cube_dim, quantized);
-        let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
-            (*x, *y, *z)
-        } else {
-            panic!("Dynamic cube count unsupported")
-        };
-
-        PartitionedBatchConfig::new(global_config, cube_count, quantized)
+        Ok(PartitionedBatchConfig::new(global_config, cube_count))
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(

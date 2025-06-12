@@ -6,7 +6,7 @@ use cubecl_core as cubecl;
 
 use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 
-use super::MatmulLaunchError;
+use super::MatmulSetupError;
 
 #[cube(launch_unchecked)]
 fn matmul_kernel<N: Numeric>(
@@ -86,7 +86,7 @@ pub fn launch_ref<R: Runtime, E: Numeric>(
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     let lhs = TensorHandle::<R, E>::from_ref(lhs);
     let rhs = TensorHandle::<R, E>::from_ref(rhs);
 
@@ -99,7 +99,7 @@ pub fn launch<R: Runtime, E: Numeric>(
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,
     out: &TensorHandleRef<'_, R>,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     let (cube_dim_x, cube_dim_y) = (32, 8);
     let ndims = lhs.shape.len();
     let dim1 = ndims - 1;
@@ -181,7 +181,7 @@ fn simple_cube_count(
     output_shape: &[usize],
     cube_dim_x: usize,
     cube_dim_y: usize,
-) -> Result<CubeCount, MatmulLaunchError> {
+) -> Result<CubeCount, MatmulSetupError> {
     let ndims = lhs_shape.len();
     let num_rows = lhs_shape[ndims - 2];
     let num_cols = rhs_shape[ndims - 1];
@@ -199,7 +199,7 @@ fn simple_cube_count(
     let max_cube_count = u16::MAX as u32;
 
     if cubes_x > max_cube_count || cubes_y > max_cube_count || num_iter > max_cube_count {
-        return Err(MatmulLaunchError::Unavailable(
+        return Err(MatmulSetupError::Unavailable(
             super::MatmulAvailabilityError::CubeCountTooBig(result),
         ));
     }

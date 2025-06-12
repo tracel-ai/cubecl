@@ -1,3 +1,5 @@
+use cubecl_core::CubeDim;
+
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
@@ -14,15 +16,10 @@ use crate::{
 /// Configuration for the pipelined global matmul
 pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub stage_config: S,
+    num_planes: u32,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
     pub check_k_bounds: bool,
-    pub lhs_layout: MatrixLayout,
-    pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u32,
-    pub rhs_line_size: u32,
-    pub out_line_size: u32,
-    pub num_planes: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
 }
@@ -35,19 +32,11 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     }
 
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
+        self.stage_config.global_line_size(ident)
     }
 
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.stage_config.matrix_layout(Ident::Out),
-        }
+        self.stage_config.matrix_layout(ident)
     }
 
     fn plane_dim(&self) -> u32 {
@@ -108,6 +97,10 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
             load_only: LoadingSides::Both,
         }
     }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
@@ -116,29 +109,19 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         stage_config: S,
+        num_planes: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-        num_planes: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
     ) -> Self {
         Self {
             stage_config,
+            num_planes,
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
-            num_planes,
             precompute_job,
             loader_mode,
         }

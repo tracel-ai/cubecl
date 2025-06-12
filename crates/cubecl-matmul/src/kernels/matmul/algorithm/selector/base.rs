@@ -1,16 +1,19 @@
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
+use crate::components::global::load::LoaderMode;
+use crate::components::stage::{PartitionBuffering, StageVectorization};
 use crate::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg, TilingScheme,
+    InputRuntimeArg, LoadSpecializationConfig, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg,
+    TilingScheme,
 };
-use crate::kernels::matmul::Algorithm;
+use crate::kernels::matmul::{Algorithm, LoadingPrecomputeStrategy};
 use crate::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,
         global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
     },
-    kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
+    kernels::{MatmulSetupError, matmul::base::matmul_cube_preparation},
 };
 use cubecl_core::frontend::CubePrimitive;
 
@@ -18,6 +21,12 @@ use cubecl_core::frontend::CubePrimitive;
 pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
+    pub stage_vectorization: StageVectorization,
+    pub quantized: bool,
+    pub partition_buffering: PartitionBuffering,
+    pub loading_precompute_strategy: LoadingPrecomputeStrategy,
+    pub loader_mode: LoaderMode,
+    pub load_specialization_config: LoadSpecializationConfig,
 }
 
 /// Select which kernel to launch for the given Algorithm.
@@ -32,9 +41,10 @@ pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
+    // Option of MAX line sizes, overridable in components
     line_sizes: Option<MatmulLineSizes>,
     plane_dim: u32,
-) -> Result<(), MatmulLaunchError>
+) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
@@ -81,7 +91,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: Option<MatmulLineSizes>,
     plane_dim: u32,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     let selection = A::selection::<R>(
         client,
         &problem,

@@ -32,21 +32,4 @@ where
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Never,
-            elem_stage,
-            elem_acc,
-        )
-    }
 }

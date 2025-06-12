@@ -31,11 +31,15 @@ impl<T: TileConfig> StageConfig for PartitionedStageConfig<T> {
         self.tile_config
     }
 
-    fn stage_line_size(&self, ident: Ident) -> u32 {
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
         self.tile_config.stage_line_size(ident)
     }
 
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+        self.tile_config.global_line_size(ident)
+    }
+
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
         self.tile_config.matrix_layout(ident)
     }
 
@@ -68,6 +72,10 @@ impl<T: TileConfig> StageConfig for PartitionedStageConfig<T> {
 
     fn role_rule_config(&self) -> RoleRuleConfig {
         self.plane_role_config.rule
+    }
+
+    fn quantized(&self) -> bool {
+        self.quantized
     }
 }
 

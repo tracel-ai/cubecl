@@ -1,10 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{
-    Ident, InvalidConfigError, MatmulChecker, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
-    stage::StageVectorization, tile::tile_data::Tile,
+use crate::{
+    components::{
+        AvailableLineSizes, Ident, InvalidConfigError, MatmulChecker, MatmulPrecision,
+        MatmulProblem, MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
+        stage::StageVectorization, tile::tile_data::Tile,
+    },
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -20,11 +23,10 @@ pub trait TileMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: TileCo
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
     fn setup(
-        input: TileSetupInput,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-    ) -> Self::Config;
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
 }
 
 /// Provides matrix multiplication operations at the tile level.
@@ -111,10 +113,12 @@ pub trait TileConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the shape of the tiles in the three axes m, k and n.
     fn tile_size(&self) -> &TileSize;

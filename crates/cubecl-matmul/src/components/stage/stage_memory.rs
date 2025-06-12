@@ -92,7 +92,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
             self.num_stages * config.tiling_scheme().elements_in_stage(ident)
-                / config.stage_config().stage_line_size(ident.into())
+                / config.stage_config().stage_line_size(ident)
         );
 
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();

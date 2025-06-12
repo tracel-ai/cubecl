@@ -33,37 +33,6 @@ where
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
-
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
-
-    fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
-        if selection.tiling_scheme.stage_partitions_in_stage_n() > 1 {
-            return Err(Box::new("Ordered does not support partitions > 1 in n"));
-        }
-        Self::GlobalMatmul::cube_dim(selection, Self::load_specialization_config())
-    }
-
-    fn num_stages() -> NumStages {
-        (1, 2).into()
-    }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
-            elem_stage,
-            elem_acc,
-        )
-    }
 }

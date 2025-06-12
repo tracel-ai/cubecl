@@ -1,14 +1,15 @@
 use std::fmt::Display;
 
-use crate::components::problem::MatmulLineSizes;
 use crate::components::resource::ComputeResources;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
-use crate::components::tile::{TileConfig, TileMatmulFamily, TileSetupInput};
+use crate::components::tile::{TileConfig, TileMatmulFamily};
 use crate::components::{
-    Ident, InvalidConfigError, MatmulChecker, MatmulPrecision, MatmulProblem, MatrixLayout,
+    AvailableLineSizes, Ident, InvalidConfigError, MatmulChecker, MatmulPrecision, MatmulProblem,
+    MatrixLayout,
 };
-use crate::kernels::MatmulAvailabilityError;
+use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use cubecl_core::Feature;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::*;
@@ -25,31 +26,53 @@ impl TileMatmulFamily for RegisterMatmul {
     }
 
     fn setup(
-        input: TileSetupInput,
         problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-    ) -> Self::Config {
-        let (lhs_line_size, rhs_line_size, stage_line_size_update) =
-            if input.vectorization.stage_line_size == 0 {
-                (line_sizes.lhs as u32, line_sizes.rhs as u32, false)
+        selection: &MatmulSelection,
+        available_line_sizes: &mut AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError> {
+        let max_lhs = match problem.lhs_layout {
+            MatrixLayout::RowMajor => selection.tiling_scheme.elements_in_tile_k(),
+            MatrixLayout::ColMajor => selection.tiling_scheme.elements_in_tile_m(),
+        } as u8;
+        let max_rhs = match problem.rhs_layout {
+            MatrixLayout::RowMajor => selection.tiling_scheme.elements_in_tile_n(),
+            MatrixLayout::ColMajor => selection.tiling_scheme.elements_in_tile_k(),
+        } as u8;
+        let max_out = selection.tiling_scheme.elements_in_tile_n() as u8;
+
+        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, Some(max_lhs));
+        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, Some(max_rhs));
+        let out_global_line_size = available_line_sizes.maximize_out(problem, Some(max_out));
+
+        let stage_vectorization = selection.stage_vectorization;
+
+        let (lhs_stage_line_size, rhs_stage_line_size, stage_line_size_update) =
+            if stage_vectorization.stage_line_size == 0 {
+                (
+                    lhs_global_line_size as u32,
+                    rhs_global_line_size as u32,
+                    false,
+                )
             } else {
                 (
-                    input.vectorization.stage_line_size as u32,
-                    input.vectorization.stage_line_size as u32,
+                    stage_vectorization.stage_line_size as u32,
+                    stage_vectorization.stage_line_size as u32,
                     true,
                 )
             };
-        RegisterConfig::new(
-            input.tile_size,
-            cube_dim.x,
+
+        Ok(RegisterConfig::new(
+            selection.tiling_scheme,
+            selection.plane_dim,
             problem.lhs_layout,
             problem.rhs_layout,
             stage_line_size_update,
-            lhs_line_size,
-            rhs_line_size,
-            line_sizes.out as u32,
-        )
+            lhs_global_line_size as u32,
+            rhs_global_line_size as u32,
+            out_global_line_size as u32,
+            lhs_stage_line_size as u32,
+            rhs_stage_line_size as u32,
+        ))
     }
 }
 
