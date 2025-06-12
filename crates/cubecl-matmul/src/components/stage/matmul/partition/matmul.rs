@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
+use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
 use crate::components::MatmulPrecision;
 use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::matmul::config::CommonStageConfig;
-use crate::components::stage::matmul::partition::fragments::Accumulators;
-use crate::components::stage::matmul::partition::fragments::{RhsTile, RhsTileExpand};
+use crate::components::stage::matmul::config::PartitionedStageConfig;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile;
 use cubecl::prelude::*;
@@ -39,7 +38,7 @@ where
         lhs_fragment: &mut Sequence<TMM::Lhs>,
         rhs_fragments: &mut RhsTile<TMM::Rhs>,
         acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
         listener: SEL,
     ) {
         match rhs_fragments {
@@ -69,7 +68,7 @@ where
     }
 
     pub fn init_tile_inputs(
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
     ) -> (Sequence<TMM::Lhs>, RhsTile<TMM::Rhs>) {
         let tile_config = config.tile_config();
         let mut lhs = Sequence::new();
@@ -91,14 +90,14 @@ where
     }
 
     pub fn init_accumulator(
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
     ) -> Accumulators<MP, TMM> {
         Accumulators::<MP, TMM>::new(config)
     }
 
     pub fn zero_accumulator(
         acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
     ) {
         acc.zero(config);
     }
@@ -106,7 +105,7 @@ where
     pub fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
         acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
     ) {
         acc.fill::<L>(loader, config);
     }
@@ -121,7 +120,7 @@ where
         lhs_fragment: &mut Sequence<TMM::Lhs>,
         rhs_fragment: &mut TMM::Rhs,
         acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
         mut listener: SEL,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
@@ -228,7 +227,7 @@ where
         lhs_fragment: &mut Sequence<TMM::Lhs>,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
         acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: CommonStageConfig<TMM::Config>,
+        #[comptime] config: PartitionedStageConfig<TMM::Config>,
         mut listener: SEL,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);

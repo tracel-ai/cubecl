@@ -7,7 +7,7 @@ use crate::components::{
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
-pub struct CommonStageConfig<T: TileConfig> {
+pub struct PartitionedStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
     pub quantized: bool,
@@ -24,7 +24,7 @@ pub struct StageVectorization {
     pub stage_elem_padding: u8,
 }
 
-impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
+impl<T: TileConfig> StageConfig for PartitionedStageConfig<T> {
     type TileConfig = T;
 
     fn tile_config(self) -> Self::TileConfig {
@@ -71,9 +71,9 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     }
 }
 
-impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
+impl<T: TileConfig> MatmulConfig for PartitionedStageConfig<T> {}
 
-impl<T: TileConfig> CommonStageConfig<T> {
+impl<T: TileConfig> PartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tile_config: T,

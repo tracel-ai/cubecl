@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::MatmulChecker;
-use crate::components::stage::CommonStageConfig;
+use crate::components::stage::PartitionedStageConfig;
 use crate::components::tile::Tile;
 use crate::components::{
     ComputeResources, Ident, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
@@ -21,7 +21,7 @@ pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
         this: &Self,
         row: u32,
         col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
+        #[comptime] config: PartitionedStageConfig<TC>,
     ) -> Tile<ES>;
 }
 

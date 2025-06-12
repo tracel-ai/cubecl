@@ -5,10 +5,8 @@ use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::matmul::config::CommonStageConfig;
-use crate::components::stage::matmul::partition::Accumulators;
-use crate::components::stage::matmul::partition::PartitionMatmul;
-use crate::components::stage::matmul::partition::RhsTile;
+use crate::components::stage::matmul::config::PartitionedStageConfig;
+use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::{global, tile};
 use core::marker::PhantomData;
@@ -51,7 +49,7 @@ where
     RR: StageToTileReader<MP::ES>,
     SP: StagePartitioner,
 {
-    type Config = CommonStageConfig<TMM::Config>;
+    type Config = PartitionedStageConfig<TMM::Config>;
 
     type LhsReader = RL;
     type RhsReader = RR;
@@ -131,7 +129,7 @@ where
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TMM>,
         out: &mut Self::Writer,
-        #[comptime] stage_config: CommonStageConfig<TMM::Config>,
+        #[comptime] stage_config: PartitionedStageConfig<TMM::Config>,
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = stage_config.stage_line_size(Ident::Out);

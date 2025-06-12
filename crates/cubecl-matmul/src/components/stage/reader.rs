@@ -4,7 +4,7 @@ use crate::components::stage::ReaderFamily;
 use crate::components::stage::StageMemory;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::TilingLayout;
-use crate::components::stage::CommonStageConfig;
+use crate::components::stage::PartitionedStageConfig;
 use crate::components::tile::Tile;
 use crate::components::tile::TileConfig;
 use cubecl_core as cubecl;
@@ -39,9 +39,9 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileRead
         this: &Self,
         row: u32,
         col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
+        #[comptime] config: PartitionedStageConfig<TC>,
     ) -> Tile<ES> {
-        this.stage_memory.get_tile::<CommonStageConfig<TC>>(
+        this.stage_memory.get_tile::<PartitionedStageConfig<TC>>(
             row,
             col,
             0u32,
@@ -87,9 +87,9 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for BufferStageToTileRe
         this: &Self,
         row: u32,
         col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
+        #[comptime] config: PartitionedStageConfig<TC>,
     ) -> Tile<ES> {
-        this.stage_memory.get_tile::<CommonStageConfig<TC>>(
+        this.stage_memory.get_tile::<PartitionedStageConfig<TC>>(
             row,
             col,
             comptime!(this.buffer_id.to_index()),

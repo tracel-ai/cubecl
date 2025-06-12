@@ -4,9 +4,9 @@ use crate::components::MatmulProblem;
 use crate::components::TilingScheme;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::PartitionBuffering;
+use crate::components::stage::PartitionedStageConfig;
 use crate::components::stage::ReaderFamily;
-use crate::components::stage::matmul::config::CommonStageConfig;
-use crate::components::stage::matmul::partitioned_stage::plane_partitioned::PlaneMatmul;
+use crate::components::stage::matmul::unit_partitioned::UnitMatmul;
 use crate::components::stage::{StageConfig, StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
@@ -18,29 +18,27 @@ use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
-    _phantom: PhantomData<(TMM, LRF, RRF)>,
+pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
+    _phantom: PhantomData<(TMM, RF)>,
 }
 
-impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFamily
-    for PlaneMatmulFamily<TMM, LRF, RRF>
-{
-    type LhsReader = LRF;
-    type RhsReader = RRF;
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFamily<TMM, RF> {
+    type LhsReader = RF;
+    type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
+        UnitMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
 
     type Input = StageInput;
 
     fn computation_resources(
         tiling_scheme: &TilingScheme,
     ) -> Result<ComputeResources, InvalidConfigError> {
-        if let ComputeResources::Planes(planes) = TMM::computation_resources()? {
-            Ok(ComputeResources::Planes(
-                planes * tiling_scheme.stage_partitions_in_stage_mn(),
+        if let ComputeResources::Units(units) = TMM::computation_resources()? {
+            Ok(ComputeResources::Units(
+                units * tiling_scheme.stage_partitions_in_stage_mn(),
             ))
         } else {
-            unreachable!("Plane matmul should not demand units")
+            unreachable!("Unit matmul should not demand planes")
         }
     }
 
@@ -69,7 +67,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
                 .to_plane_roles(compute_planes),
         );
 
-        CommonStageConfig::new(
+        PartitionedStageConfig::new(
             tile_config,
             stage_input.tiling_scheme,
             quantized,
@@ -80,22 +78,19 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     }
 }
 
-impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulChecker
-    for PlaneMatmulFamily<TMM, LRF, RRF>
-{
-    type Config = CommonStageConfig<TMM::Config>;
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulChecker for UnitMatmulFamily<TMM, RF> {
+    type Config = PartitionedStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_compute_planes = config.num_main_flow_planes();
+        let num_units_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
+        let num_units = config.plane_dim() * config.num_main_flow_planes();
 
-        if num_compute_planes != num_planes_needed {
+        if num_units != num_units_needed {
             return Err(Box::new(format!(
-                "Error: Number of compute planes {num_compute_planes} should be {num_planes_needed}."
+                "Error: Number of units {num_units} should be {num_units_needed}."
             )));
         }
 
-        // TODO we should allow buffering on m dimension
         if config.partition_buffering() == PartitionBuffering::Double
             && config.tiling_scheme().tiles_in_stage_partition_n() < 2
         {
@@ -104,7 +99,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulChecker
             ));
         }
 
-        TMM::check_config(&config.tile_config())
+        <TMM as MatmulChecker>::check_config(&config.tile_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

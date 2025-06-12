@@ -1,8 +1,8 @@
 use crate::components::global::RoleRule;
 use crate::components::global::UnitWriter;
+use crate::components::stage::matmul::partitioned_matmul::PartitionedStageMatmul;
+use crate::components::stage::matmul::partitioned_matmul::StagePartitioner;
 use crate::components::stage::StageConfig;
-use crate::components::stage::matmul::partitioned_stage::matmul::PartitionedStageMatmul;
-use crate::components::stage::matmul::partitioned_stage::matmul::StagePartitioner;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};

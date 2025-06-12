@@ -1,12 +1,9 @@
 use crate::{
     components::{
-        InputRuntimeArg, MatmulLaunch, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec,
-        OutputRuntimeArg, Quantized, TilingScheme,
+        InputRuntimeArg, MatmulChecker, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, OutputRuntimeArg, TilingScheme,
         config::MatmulConfig,
-        global::{
-            self, GlobalConfig as _, Quantization,
-            args::{self, MatmulArgs, TensorInput, TensorOutput},
-        },
+        global::{self, GlobalConfig as _, Quantization},
     },
     kernels::matmul::MatmulSelection,
 };
@@ -18,9 +15,8 @@ use cubecl_std::{
 };
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
-pub trait BatchMatmulFamily: 'static + Send + Sync {
-    type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
-    type Config: BatchConfig;
+pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulChecker {
+    type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config: BatchConfig>;
     type Input;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
@@ -103,44 +99,4 @@ pub trait BatchConfig: MatmulConfig {
     fn tiling_scheme(&self) -> TilingScheme {
         self.global_config().tiling_scheme()
     }
-}
-
-type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
-type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
-
-#[cube(launch_unchecked)]
-pub(crate) fn matmul<
-    Args: MatmulArgs,
-    EI: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    EO: Numeric,
-    BMM: BatchMatmulFamily,
->(
-    inputs: &Input<Args, EI>,
-    output: &mut Output<Args, EO>,
-    #[comptime] config: BMM::Config,
-) {
-    let mut state = Args::init_state(inputs, output);
-
-    let lhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
-
-    let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
-    let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
-    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
-
-    if config.quantized() {
-        let quantization = Args::quantization::<(EI, ES, EA, EO, Quantized)>(&state);
-        BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
-            lhs,
-            rhs,
-            out,
-            CubeOption::new_Some(quantization),
-            config,
-        );
-    } else {
-        BMM::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
-    };
 }
