@@ -1,7 +1,7 @@
 use cubecl_core::ir::{
     Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, Variable, VariableKind,
 };
-use melior::{
+use tracel_llvm::melior::{
     dialect::{
         index, memref,
         ods::{arith, vector},

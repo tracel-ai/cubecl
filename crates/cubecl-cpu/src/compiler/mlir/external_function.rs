@@ -1,4 +1,4 @@
-use melior::{
+use tracel_llvm::melior::{
     Context, ExecutionEngine,
     dialect::func,
     ir::{
@@ -19,7 +19,10 @@ pub fn register_external_function(execution_engine: &ExecutionEngine) {
     }
 }
 
-pub fn add_external_function_to_module<'a>(context: &'a Context, module: &melior::ir::Module<'a>) {
+pub fn add_external_function_to_module<'a>(
+    context: &'a Context,
+    module: &tracel_llvm::melior::ir::Module<'a>,
+) {
     let func_type =
         TypeAttribute::new(FunctionType::new(context, &[Type::index(context)], &[]).into());
     module.body().append_operation(func::func(
