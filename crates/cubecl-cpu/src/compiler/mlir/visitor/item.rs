@@ -11,13 +11,15 @@ use tracel_llvm::melior::{
 use super::prelude::*;
 
 impl IntoType for Item {
-    // TODO check if vector<1xelem> is better represented as elem alone
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
         let inner_type = self.elem.to_type(context);
         match self.vectorization {
-            Some(size) => Type::vector(&[size.get() as u64], inner_type),
+            Some(size) if size.get() > 1 => Type::vector(&[size.get() as u64], inner_type),
             _ => inner_type,
         }
+    }
+    fn is_vectorized(self) -> bool {
+        matches!(self.vectorization, Some(size) if size.get() > 1)
     }
 }
 
@@ -29,13 +31,16 @@ impl<'a> Visitor<'a> {
             constant.into(),
             self.location,
         ));
-        let vector = item.to_type(self.context);
-        self.append_operation_with_result(vector::splat(
-            self.context,
-            vector,
-            constant,
-            self.location,
-        ))
+        let result_type = item.to_type(self.context);
+        match item.is_vectorized() {
+            true => self.append_operation_with_result(vector::splat(
+                self.context,
+                result_type,
+                constant,
+                self.location,
+            )),
+            false => constant,
+        }
     }
 
     pub fn create_int_constant_from_item(&self, item: Item, constant: i64) -> Value<'a, 'a> {
@@ -46,12 +51,15 @@ impl<'a> Visitor<'a> {
             constant.into(),
             self.location,
         ));
-        let vector = item.to_type(self.context);
-        self.append_operation_with_result(vector::splat(
-            self.context,
-            vector,
-            constant,
-            self.location,
-        ))
+        let result_type = item.to_type(self.context);
+        match item.is_vectorized() {
+            true => self.append_operation_with_result(vector::splat(
+                self.context,
+                result_type,
+                constant,
+                self.location,
+            )),
+            false => constant,
+        }
     }
 }
