@@ -1,141 +1,22 @@
 use std::marker::PhantomData;
 
 use crate::components::InputIdent;
-use crate::components::LoadSpecializationConfig;
 use crate::components::MatmulPrecision;
+use crate::components::global::GlobalConfig;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::load::AsyncLoader;
-use crate::components::global::single_stage::Config;
-use crate::components::problem::MatmulLineSizes;
-use crate::components::stage::StageConfig;
+use crate::components::global::single_stage::SingleStageConfig;
+use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
-use crate::components::stage::{FullReaderFamily, FullStageToTileReader};
-use crate::kernels::matmul::GlobalInput;
-use crate::kernels::matmul::MatmulSelection;
-use crate::{
-    components::{
-        Ident, InvalidConfigError, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage,
-    },
-    kernels::MatmulAvailabilityError,
-};
 use barrier::Barrier;
-use cubecl_core::Feature;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-
-pub struct SimpleBarrierMatmulFamily<
-    SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
-> {
-    _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
-}
-
-impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
-where
-    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
-{
-    type Matmul<MP: MatmulPrecision> =
-        SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
-
-    type Config = Config<SMM::Config>;
-    type Input = GlobalInput<SMM::Input>;
-
-    fn cube_dim(
-        selection: &MatmulSelection,
-        load_specialization: LoadSpecializationConfig,
-    ) -> Result<CubeDim, InvalidConfigError> {
-        let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
-            .as_plane_resources(selection.plane_dim)?
-            .get_count();
-
-        if let LoadSpecializationConfig::None = load_specialization {
-            Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
-        } else {
-            Err(Box::new(
-                "Error: Specialization is unavailable for simple barrier matmul.",
-            ))
-        }
-    }
-
-    fn setup(
-        input: Self::Input,
-        problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        quantized: bool,
-    ) -> Self::Config {
-        let stage_config = SMM::setup(
-            input.stage_input,
-            problem,
-            line_sizes,
-            cube_dim,
-            cube_count,
-            quantized,
-        );
-        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
-
-        Config::new(
-            stage_config,
-            problem.m as u32 % stage_shape_m != 0,
-            problem.n as u32 % stage_shape_n != 0,
-            problem.k as u32 % stage_shape_k != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            line_sizes.lhs as u32,
-            line_sizes.rhs as u32,
-            line_sizes.out as u32,
-            stage_shape_k,
-            input.loading_precompute_strategy,
-            input.loader_mode,
-        )
-    }
-}
-
-// impl<SMM, LL, RL> MatmulChecker for SimpleBarrierMatmulFamily<SMM, LL, RL>
-// where
-//     SMM: stage::StageMatmulFamily,
-//     LL: AsyncFullLoadingStrategy,
-//     RL: AsyncFullLoadingStrategy,
-// {
-//     type Input = GlobalInput<SMM::Input>;
-//     type Config = Config<SMM::Config>;
-
-//     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-//         LL::check(config, Ident::Lhs)?;
-//         RL::check(config, Ident::Rhs)?;
-//         SMM::check_config(&config.stage_config())
-//     }
-
-//     fn check_availability<R: Runtime, MP: MatmulPrecision>(
-//         client: &ComputeClient<R::Server, R::Channel>,
-//         config: &Self::Config,
-//     ) -> Result<(), MatmulAvailabilityError> {
-//         SMM::check_availability::<R, MP>(client, &config.stage_config())?;
-
-//         if !client.properties().feature_enabled(Feature::Barrier) {
-//             return Err(MatmulAvailabilityError::BarrierUnavailable);
-//         }
-
-//         Ok(())
-//     }
-// }
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
@@ -163,7 +44,7 @@ where
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Config = Config<SMM::Config>;
+    type Config = SingleStageConfig<SMM::Config>;
     type LhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, LL>;
     type RhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;

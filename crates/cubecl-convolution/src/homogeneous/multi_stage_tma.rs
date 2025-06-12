@@ -68,7 +68,7 @@ where
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
-    type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
+    type Config = ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
@@ -256,7 +256,7 @@ impl<SMM> ConvolutionConfigFactory for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
+    type Config = config::ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
     type Input = GlobalInput<SMM::Input>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -297,7 +297,7 @@ where
         );
 
         config::ConvolutionConfig::new(
-            single_stage::Config::new(
+            single_stage::SingleStageConfig::new(
                 stage_config,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,

@@ -53,7 +53,7 @@ where
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
-    type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
+    type Config = ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
     type RhsLoader =
         SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
@@ -183,7 +183,7 @@ impl<SMM> ConvolutionConfigFactory for SimpleConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
+    type Config = config::ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
     type Input = GlobalInput<SMM::Input>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -209,7 +209,7 @@ where
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         config::ConvolutionConfig::new(
-            single_stage::Config::new(
+            single_stage::SingleStageConfig::new(
                 stage_config,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,

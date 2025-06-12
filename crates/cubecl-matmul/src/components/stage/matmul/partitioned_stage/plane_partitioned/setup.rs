@@ -31,7 +31,6 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
 
     type Input = StageInput;
-    type Config = CommonStageConfig<TMM::Config>;
 
     fn computation_resources(
         tiling_scheme: &TilingScheme,
@@ -84,7 +83,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
 impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> MatmulChecker
     for PlaneMatmulFamily<TMM, LRF, RRF>
 {
-    type Config = CommonStageConfig<<TMM as MatmulChecker>::Config>;
+    type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_planes_needed = config.tiling_scheme().stage_partitions_in_stage_mn();

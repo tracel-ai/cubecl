@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
+use crate::components::MatmulChecker;
 use crate::components::stage::CommonStageConfig;
 use crate::components::tile::Tile;
 use crate::components::{
@@ -28,12 +29,11 @@ pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
 }
 
-pub trait StageMatmulFamily: Send + Sync + 'static {
+pub trait StageMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: StageConfig> {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
 
     type Input;
-    type Config: StageConfig;
 
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,

@@ -1,16 +1,17 @@
-use crate::components::{
-    InputIdent, MatmulPrecision,
-    global::{
-        GlobalMatmul, Quantization, ZeroAccumulatorLoader,
-        load::{SyncFullLoader, SyncFullLoadingStrategy},
-        single_stage::SingleStageConfig,
-    },
-    stage::{FullStageToTileReader, StageMatmul},
-};
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use crate::components::InputIdent;
+use crate::components::MatmulPrecision;
+use crate::components::global::GlobalMatmul;
+use crate::components::global::ZeroAccumulatorLoader;
+use crate::components::global::load::TmaLoader;
+use crate::components::global::load::arrive_tma;
+use crate::components::global::single_stage::SingleStageConfig;
+use crate::components::global::{Quantization, load::TmaReader};
+use crate::components::stage::StageMatmul;
+use barrier::Barrier;
+use cubecl_core::prelude::{barrier::BarrierLevel, *};
+use cubecl_core::{self as cubecl};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
@@ -18,32 +19,19 @@ use crate::components::global::GlobalConfig;
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleMatmul<
-    MP: MatmulPrecision,
-    SMM: StageMatmul<MP>,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
-> {
+pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = FullStageToTileReader<MP::ES, LL::TilingLayout>,
-            RhsReader = FullStageToTileReader<MP::ES, RL::TilingLayout>,
-        >,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    SMM: StageMatmul<MP, LhsReader = TmaReader<MP>, RhsReader = TmaReader<MP>>,
 {
     type Config = SingleStageConfig<SMM::Config>;
-    type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
+    type LhsLoader = TmaLoader<MP, SMM::Config>;
+    type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -59,20 +47,27 @@ where
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
+        let num_elems_stages = config.tiling_scheme().elements_in_stage_nk()
+            + config.tiling_scheme().elements_in_stage_mk();
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
-        let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
-        let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
+        let barrier = Barrier::<MP::ES>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            // Start loading
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
 
-            sync_cube();
+            arrive_tma::<MP::ES>(&barrier, num_elems_stages);
+
+            barrier.wait();
+
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             SMM::execute(
                 lhs_stage_reader,
@@ -94,16 +89,16 @@ where
         lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
-        _nth_batch: u32,
-        batch_offset: u32,
+        nth_batch: u32,
+        _batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
+        Self::LhsLoader::new::<Self::Config>(
+            lhs.as_tensor_map(),
             x_offset,
             y_offset,
-            batch_offset,
+            nth_batch,
             quantization,
             InputIdent::Lhs,
             config,
@@ -114,16 +109,16 @@ where
         rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
-        _nth_batch: u32,
-        batch_offset: u32,
+        nth_batch: u32,
+        _batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
+        Self::RhsLoader::new::<Self::Config>(
+            rhs.as_tensor_map(),
             x_offset,
             y_offset,
-            batch_offset,
+            nth_batch,
             quantization,
             InputIdent::Rhs,
             config,

@@ -123,7 +123,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
     pub fn fill_stage(
         this: &mut Self,
         barrier: &Barrier<MP::ES>,
-        #[comptime] config: single_stage::Config<S>,
+        #[comptime] config: single_stage::SingleStageConfig<S>,
     ) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident.as_ident());

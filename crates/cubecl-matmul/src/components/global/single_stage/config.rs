@@ -1,15 +1,18 @@
 use crate::{
     components::{
+        Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{
-            self, load::LoaderMode, multi_stage::EventLoadingMode, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides
-        }, stage, Ident, InputIdent, MatmulConfig, MatrixLayout
+            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+            multi_stage::EventLoadingMode,
+        },
+        stage,
     },
     kernels::matmul::LoadingPrecomputeStrategy,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for single stage matmuls
-pub struct Config<S: stage::StageConfig> {
+pub struct SingleStageConfig<S: stage::StageConfig> {
     stage_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
@@ -24,7 +27,7 @@ pub struct Config<S: stage::StageConfig> {
     loader_mode: LoaderMode,
 }
 
-impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for SingleStageConfig<S> {
     type StageConfig = S;
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -105,9 +108,9 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
+impl<S: stage::StageConfig> MatmulConfig for SingleStageConfig<S> {}
 
-impl<S: stage::StageConfig> Config<S> {
+impl<S: stage::StageConfig> SingleStageConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         stage_config: S,

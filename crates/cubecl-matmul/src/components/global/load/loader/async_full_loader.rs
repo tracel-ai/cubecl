@@ -118,16 +118,16 @@ impl<
     pub fn fill_stage(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] config: single_stage::Config<S>,
+        #[comptime] config: single_stage::SingleStageConfig<S>,
     ) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<MP, single_stage::Config<S>>(this.ident, config),
+            CubeOption::None => L::new_job::<MP, single_stage::SingleStageConfig<S>>(this.ident, config),
         };
 
         let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
-            L::Job::<MP>::execute_task::<CM, single_stage::Config<S>>(
+            L::Job::<MP>::execute_task::<CM, single_stage::SingleStageConfig<S>>(
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
@@ -138,9 +138,9 @@ impl<
         }
     }
 
-    pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+    pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::SingleStageConfig<S>) {
         this.stage_memory
-            .clear::<single_stage::Config<S>>(this.ident, config)
+            .clear::<single_stage::SingleStageConfig<S>>(this.ident, config)
     }
 
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {

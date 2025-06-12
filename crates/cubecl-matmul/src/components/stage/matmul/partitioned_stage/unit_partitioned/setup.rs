@@ -29,7 +29,6 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
         UnitMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
 
     type Input = StageInput;
-    type Config = CommonStageConfig<TMM::Config>;
 
     fn computation_resources(
         tiling_scheme: &TilingScheme,
@@ -80,7 +79,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
 }
 
 impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulChecker for UnitMatmulFamily<TMM, RF> {
-    type Config = <Self as StageMatmulFamily>::Config;
+    type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         let num_units_needed = config.tiling_scheme().stage_partitions_in_stage_mn();
