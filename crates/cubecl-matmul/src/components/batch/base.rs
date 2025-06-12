@@ -1,6 +1,7 @@
 use crate::{
     components::{
-        MatmulLaunch, MatmulPrecision, MatmulProblem, Quantized, TilingScheme,
+        InputRuntimeArg, MatmulLaunch, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec,
+        OutputRuntimeArg, Quantized, TilingScheme,
         config::MatmulConfig,
         global::{
             self, GlobalConfig as _, Quantization,
@@ -17,10 +18,35 @@ use cubecl_std::{
 };
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
-pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
+pub trait BatchMatmulFamily: 'static + Send + Sync {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
+    type Config: BatchConfig;
+    type Input;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
+
+    fn setup(
+        input: Self::Input,
+        problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        quantized: bool,
+    ) -> Self::Config;
+
+    /// Entry point
+    ///
+    /// # Safety
+    ///
+    /// Out-of-bounds can happen
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        cube_dim: CubeDim,
+        cube_count: CubeCount,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        config: Self::Config,
+    );
 }
 
 #[cube]

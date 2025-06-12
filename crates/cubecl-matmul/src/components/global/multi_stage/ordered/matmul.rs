@@ -12,8 +12,8 @@ use crate::components::stage::FullReaderFamily;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
-    MatmulPrecision, MatmulProblem, stage,
+    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulPrecision,
+    MatmulProblem, stage,
 };
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::kernels::MatmulAvailabilityError;
@@ -50,6 +50,9 @@ where
         RL,
     >;
 
+    type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
+    type Input = GlobalInput<SMM::Input>;
+
     fn cube_dim(
         selection: &MatmulSelection,
         load_specialization: LoadSpecializationConfig,
@@ -64,30 +67,8 @@ where
                 .total_count(),
         ))
     }
-}
 
-impl<SMM, RL> MatmulConfigFactory for OrderedDoubleBufferingMatmulFamily<SMM, RL>
-where
-    SMM: stage::StageMatmulFamily,
-    RL: SyncBufferLoadingStrategy,
-{
-    type Input = GlobalInput<SMM::Input>;
-    type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        <LL as LoadingValidation>::check::<Self::Config>(config, Ident::Lhs)?;
-        RL::check::<Self::Config>(config, Ident::Rhs)?;
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config)
-    }
-
-    fn make_config(
+    fn setup(
         input: Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
@@ -95,7 +76,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let stage_config = SMM::make_config(
+        let stage_config = SMM::setup(
             input.stage_input,
             problem,
             line_sizes,
@@ -123,6 +104,28 @@ where
         )
     }
 }
+
+// impl<SMM, RL> MatmulChecker for OrderedDoubleBufferingMatmulFamily<SMM, RL>
+// where
+//     SMM: stage::StageMatmulFamily,
+//     RL: SyncBufferLoadingStrategy,
+// {
+//     type Input = GlobalInput<SMM::Input>;
+//     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
+
+//     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+//         <LL as LoadingValidation>::check::<Self::Config>(config, Ident::Lhs)?;
+//         RL::check::<Self::Config>(config, Ident::Rhs)?;
+//         SMM::check_config(&config.stage_config())
+//     }
+
+//     fn check_availability<R: Runtime, MP: MatmulPrecision>(
+//         client: &ComputeClient<R::Server, R::Channel>,
+//         config: &Self::Config,
+//     ) -> Result<(), MatmulAvailabilityError> {
+//         SMM::check_availability::<R, MP>(client, &config.stage_config)
+//     }
+// }
 
 /// Performs matrix multiplication at the global level.
 /// Uses double buffering with two shared memory buffers for `Rhs`,

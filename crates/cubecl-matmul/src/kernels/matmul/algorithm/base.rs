@@ -4,8 +4,8 @@ use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
 use crate::components::stage::{NumStages, PartitionBuffering, StageVectorization};
 use crate::components::{
-    InvalidConfigError, MatmulConfigFactory, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    TilingScheme, batch, global, stage, tile,
+    InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
+    global, stage, tile,
 };
 use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
@@ -123,14 +123,14 @@ pub trait Algorithm {
     }
 
     #[allow(clippy::type_complexity, clippy::result_large_err)]
-    fn make_config(
-        input: <Self::BatchMatmul as MatmulConfigFactory>::Input,
+    fn setup(
+        input: <Self::BatchMatmul as BatchMatmulFamily>::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
-    ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
+    ) -> Result<<Self::BatchMatmul as BatchMatmulFamily>::Config, MatmulLaunchError> {
         #[cfg(target_os = "macos")]
         if cube_dim.num_elems() >= 512 {
             return Err(MatmulLaunchError::Unavailable(
@@ -138,20 +138,19 @@ pub trait Algorithm {
             ));
         }
 
-        let config = Self::BatchMatmul::make_config(
-            input, problem, line_sizes, cube_dim, cube_count, quantized,
-        );
+        let config =
+            Self::BatchMatmul::setup(input, problem, line_sizes, cube_dim, cube_count, quantized);
         problem.check_config(&config)?;
         problem.check_line_sizes(line_sizes)?;
-        Self::BatchMatmul::check_config(&config)?;
         Ok(config)
     }
 
     #[allow(clippy::result_large_err)]
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        config: &<Self::BatchMatmul as MatmulConfigFactory>::Config,
+        config: &<Self::BatchMatmul as MatmulChecker>::Config,
     ) -> Result<(), MatmulAvailabilityError> {
+        Self::BatchMatmul::check_config(&config)?;
         Self::BatchMatmul::check_availability::<R, MP>(client, config)
     }
 

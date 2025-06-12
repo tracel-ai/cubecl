@@ -5,13 +5,13 @@ use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
+use crate::components::stage::matmul::config::CommonStageConfig;
+use crate::components::stage::matmul::partition::fragments::Accumulators;
+use crate::components::stage::matmul::partition::fragments::{RhsTile, RhsTileExpand};
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-
-use super::shared::Accumulators;
 
 pub struct PartitionMatmul<
     MP: MatmulPrecision,

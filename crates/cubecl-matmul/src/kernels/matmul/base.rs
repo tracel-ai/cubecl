@@ -1,6 +1,6 @@
 use crate::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
+    InputRuntimeArg, MatmulLaunch, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec,
+    MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::matmul::MatmulSelection;
@@ -286,7 +286,7 @@ pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     line_sizes: &MatmulLineSizes,
-    config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
+    config_input: <A::BatchMatmul as MatmulChecker>::Input,
     selection: MatmulSelection,
 ) -> Result<(), MatmulLaunchError> {
     let cube_dim = A::cube_dim(&selection)?;
@@ -313,9 +313,9 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     line_sizes: &MatmulLineSizes,
     cube_dim: CubeDim,
     cube_count: CubeCount,
-    config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
+    config_input: <D::BatchMatmul as MatmulChecker>::Input,
 ) -> Result<(), MatmulLaunchError> {
-    let config = D::make_config(
+    let config = D::setup(
         config_input,
         &problem,
         line_sizes,

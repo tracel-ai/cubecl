@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server};
 
 use crate::components::Ident;
-use crate::components::MatmulConfigFactory;
+use crate::components::MatmulChecker;
 use crate::components::MatmulLaunch;
 use crate::components::MatmulProblem;
 use crate::components::MatrixLayout;
@@ -26,7 +26,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 pub fn test_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: MatmulProblem,
-    input: <A::BatchMatmul as MatmulConfigFactory>::Input,
+    input: <A::BatchMatmul as MatmulChecker>::Input,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
@@ -69,7 +69,7 @@ pub fn test_matmul_algorithm<A, P, R>(
 
     let cube_count = A::cube_count(&selection, &problem);
 
-    let config = match A::make_config(
+    let config = match A::setup(
         input,
         &problem,
         &line_sizes,

@@ -5,16 +5,16 @@ use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::matmul::partition_matmul::PartitionMatmul;
-use crate::components::stage::shared::{CommonStageConfig, RhsTile};
+use crate::components::stage::matmul::config::CommonStageConfig;
+use crate::components::stage::matmul::partition::Accumulators;
+use crate::components::stage::matmul::partition::PartitionMatmul;
+use crate::components::stage::matmul::partition::RhsTile;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::{global, tile};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
-use super::shared::Accumulators;
 
 #[cube]
 pub trait StagePartitioner: Send + Sync + 'static {

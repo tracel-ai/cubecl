@@ -17,7 +17,7 @@ use crate::kernels::matmul::GlobalInput;
 use crate::kernels::matmul::MatmulSelection;
 use crate::{
     components::{
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
+        Ident, InvalidConfigError, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage,
     },
@@ -51,6 +51,9 @@ where
     type Matmul<MP: MatmulPrecision> =
         SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 
+    type Config = Config<SMM::Config>;
+    type Input = GlobalInput<SMM::Input>;
+
     fn cube_dim(
         selection: &MatmulSelection,
         load_specialization: LoadSpecializationConfig,
@@ -67,37 +70,8 @@ where
             ))
         }
     }
-}
 
-impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
-where
-    SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
-{
-    type Input = GlobalInput<SMM::Input>;
-    type Config = Config<SMM::Config>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        LL::check(config, Ident::Lhs)?;
-        RL::check(config, Ident::Rhs)?;
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config())?;
-
-        if !client.properties().feature_enabled(Feature::Barrier) {
-            return Err(MatmulAvailabilityError::BarrierUnavailable);
-        }
-
-        Ok(())
-    }
-
-    fn make_config(
+    fn setup(
         input: Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
@@ -105,7 +79,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let stage_config = SMM::make_config(
+        let stage_config = SMM::setup(
             input.stage_input,
             problem,
             line_sizes,
@@ -133,6 +107,35 @@ where
         )
     }
 }
+
+// impl<SMM, LL, RL> MatmulChecker for SimpleBarrierMatmulFamily<SMM, LL, RL>
+// where
+//     SMM: stage::StageMatmulFamily,
+//     LL: AsyncFullLoadingStrategy,
+//     RL: AsyncFullLoadingStrategy,
+// {
+//     type Input = GlobalInput<SMM::Input>;
+//     type Config = Config<SMM::Config>;
+
+//     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+//         LL::check(config, Ident::Lhs)?;
+//         RL::check(config, Ident::Rhs)?;
+//         SMM::check_config(&config.stage_config())
+//     }
+
+//     fn check_availability<R: Runtime, MP: MatmulPrecision>(
+//         client: &ComputeClient<R::Server, R::Channel>,
+//         config: &Self::Config,
+//     ) -> Result<(), MatmulAvailabilityError> {
+//         SMM::check_availability::<R, MP>(client, &config.stage_config())?;
+
+//         if !client.properties().feature_enabled(Feature::Barrier) {
+//             return Err(MatmulAvailabilityError::BarrierUnavailable);
+//         }
+
+//         Ok(())
+//     }
+// }
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage

@@ -2,22 +2,13 @@ use crate::components::InputIdent;
 use crate::components::global::load::BufferId;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::StageMemory;
+use crate::components::stage::StageToTileReader;
 use crate::components::stage::TilingLayout;
-use crate::components::stage::shared::CommonStageConfig;
+use crate::components::stage::CommonStageConfig;
 use crate::components::tile::Tile;
 use crate::components::tile::TileConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-#[cube]
-pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn read_tile<TC: TileConfig>(
-        this: &Self,
-        row: u32,
-        col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
-    ) -> Tile<ES>;
-}
 
 #[derive(CubeType)]
 pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {

@@ -3,7 +3,6 @@ pub mod global;
 pub mod stage;
 pub mod tile;
 
-mod base;
 mod config;
 mod problem;
 mod resource;
@@ -11,7 +10,6 @@ mod size;
 mod spec;
 mod tiling_scheme;
 
-pub use base::*;
 pub use config::*;
 pub use config::{Ident, MatmulConfig, MatrixLayout, as_cmma_layout};
 pub use problem::*;

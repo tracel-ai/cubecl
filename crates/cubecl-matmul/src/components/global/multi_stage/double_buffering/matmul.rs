@@ -7,8 +7,8 @@ use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::{BufferStageToTileReader, StageConfig};
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
-    MatmulPrecision, MatmulProblem, stage,
+    Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulPrecision,
+    MatmulProblem, stage,
 };
 use crate::components::{MatmulLineSizes, global};
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
@@ -38,6 +38,8 @@ where
 {
     type Matmul<MP: MatmulPrecision> =
         DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
+    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
+    type Input = GlobalInput<SMM::Input>;
 
     fn cube_dim(
         selection: &MatmulSelection,
@@ -53,31 +55,8 @@ where
                 .total_count(),
         ))
     }
-}
 
-impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
-where
-    SMM: stage::StageMatmulFamily,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
-{
-    type Input = GlobalInput<SMM::Input>;
-    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        LL::check::<Self::Config>(config, Ident::Lhs)?;
-        RL::check::<Self::Config>(config, Ident::Rhs)?;
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config)
-    }
-
-    fn make_config(
+    fn setup(
         input: Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
@@ -85,7 +64,7 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let stage_config = SMM::make_config(
+        let stage_config = SMM::setup(
             input.stage_input,
             problem,
             line_sizes,
@@ -113,6 +92,29 @@ where
         )
     }
 }
+
+// impl<SMM, LL, RL> MatmulChecker for DoubleBufferingMatmulFamily<SMM, LL, RL>
+// where
+//     SMM: stage::StageMatmulFamily,
+//     LL: SyncBufferLoadingStrategy,
+//     RL: SyncBufferLoadingStrategy,
+// {
+//     type Input = GlobalInput<SMM::Input>;
+//     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
+
+//     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+//         LL::check::<Self::Config>(config, Ident::Lhs)?;
+//         RL::check::<Self::Config>(config, Ident::Rhs)?;
+//         SMM::check_config(&config.stage_config())
+//     }
+
+//     fn check_availability<R: Runtime, MP: MatmulPrecision>(
+//         client: &ComputeClient<R::Server, R::Channel>,
+//         config: &Self::Config,
+//     ) -> Result<(), MatmulAvailabilityError> {
+//         SMM::check_availability::<R, MP>(client, &config.stage_config)
+//     }
+// }
 
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,

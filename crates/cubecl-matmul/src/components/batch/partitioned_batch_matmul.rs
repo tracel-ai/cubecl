@@ -9,7 +9,7 @@ use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
     MatmulProblem, MatmulSpec, OutputRuntimeArg,
 };
-use crate::components::{MatmulConfigFactory, MatmulLaunch, batch, config::MatmulConfig, global};
+use crate::components::{MatmulLaunch, batch, config::MatmulConfig, global};
 use crate::kernels::MatmulAvailabilityError;
 use crate::kernels::matmul::MatmulSelection;
 use cubecl_core as cubecl;
@@ -33,6 +33,8 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
     for PartitionedBatchMatmulFamily<GMM, S, P>
 {
     type Matmul<MP: MatmulPrecision> = PartitionedBatchMatmul<MP, GMM::Matmul<MP>, S, P>;
+    type Config = Config<GMM::Config, P>;
+    type Input = GMM::Input;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
         let elements_in_m = selection.tiling_scheme.elements_in_global_partition_m();
@@ -45,26 +47,8 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
                 .div_ceil(selection.tiling_scheme.global_partition_size.batches),
         )
     }
-}
 
-impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulConfigFactory
-    for PartitionedBatchMatmulFamily<GMM, S, C>
-{
-    type Config = Config<GMM::Config, C>;
-    type Input = GMM::Input;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        GMM::check_config(&config.global_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R, MP>(client, &config.global_config)
-    }
-
-    fn make_config(
+    fn setup(
         input: Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
@@ -72,8 +56,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulCo
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let global_config =
-            GMM::make_config(input, problem, line_sizes, cube_dim, cube_count, quantized);
+        let global_config = GMM::setup(input, problem, line_sizes, cube_dim, cube_count, quantized);
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
         } else {
@@ -82,11 +65,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulCo
 
         Config::new(global_config, cube_count, quantized)
     }
-}
 
-impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulLaunch
-    for PartitionedBatchMatmulFamily<GMM, S, C>
-{
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
@@ -102,6 +81,21 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulLa
         }
     }
 }
+
+// impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, C: Partitioner> MatmulChecker
+//     for PartitionedBatchMatmulFamily<GMM, S, C>
+// {
+//     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+//         GMM::check_config(&config.global_config())
+//     }
+
+//     fn check_availability<R: Runtime, MP: MatmulPrecision>(
+//         client: &ComputeClient<R::Server, R::Channel>,
+//         config: &Self::Config,
+//     ) -> Result<(), MatmulAvailabilityError> {
+//         GMM::check_availability::<R, MP>(client, &config.global_config)
+//     }
+// }
 
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to handle multiple global matmuls.

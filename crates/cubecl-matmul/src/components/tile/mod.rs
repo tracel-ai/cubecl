@@ -1,6 +1,8 @@
-pub mod accelerated_matmul;
-pub mod register_matmul;
+pub mod accelerated;
+pub mod register;
 
 mod base;
+mod tile_data;
 
 pub use base::*;
+pub use tile_data::*;

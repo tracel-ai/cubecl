@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 
 use crate::{
     components::{
-        Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
-        MatmulPrecision, MatrixLayout, TilingScheme,
+        Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulLineSizes,
+        MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
         config::MatmulConfig,
         global::{
             PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
@@ -21,15 +21,24 @@ use cubecl_std::{
 use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
-pub trait GlobalMatmulFamily:
-    MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
-{
+pub trait GlobalMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+    type Config: GlobalConfig;
+    type Input;
 
     fn cube_dim(
         selection: &MatmulSelection,
         loading_plane_count: LoadSpecializationConfig,
     ) -> Result<CubeDim, InvalidConfigError>;
+
+    fn setup(
+        input: Self::Input,
+        problem: &MatmulProblem,
+        line_sizes: &MatmulLineSizes,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        quantized: bool,
+    ) -> Self::Config;
 }
 
 #[cube]

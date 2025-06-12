@@ -23,7 +23,7 @@ use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
+        InvalidConfigError, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{self, FullReaderFamily},
     },
@@ -39,6 +39,9 @@ where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
+
+    type Config = Config<SMM::Config>;
+    type Input = GlobalInput<SMM::Input>;
 
     fn cube_dim(
         selection: &MatmulSelection,
@@ -56,52 +59,8 @@ where
             ))
         }
     }
-}
 
-impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
-where
-    SMM: stage::StageMatmulFamily,
-{
-    type Input = GlobalInput<SMM::Input>;
-    type Config = Config<SMM::Config>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config())?;
-
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        if !client
-            .properties()
-            .feature_enabled(Feature::Tma(TmaFeature::Base))
-        {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        Ok(())
-    }
-
-    fn make_config(
+    fn setup(
         input: Self::Input,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
@@ -116,7 +75,7 @@ where
         line_sizes.lhs = 1;
         line_sizes.rhs = 1;
 
-        let stage_config = SMM::make_config(
+        let stage_config = SMM::setup(
             input.stage_input,
             problem,
             &line_sizes,
@@ -144,6 +103,50 @@ where
         )
     }
 }
+
+// impl<SMM> MatmulChecker for SimpleTmaMatmulFamily<SMM>
+// where
+//     SMM: stage::StageMatmulFamily,
+// {
+//     type Input = GlobalInput<SMM::Input>;
+//     type Config = Config<SMM::Config>;
+
+//     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+//         SMM::check_config(&config.stage_config())
+//     }
+
+//     fn check_availability<R: Runtime, MP: MatmulPrecision>(
+//         client: &ComputeClient<R::Server, R::Channel>,
+//         config: &Self::Config,
+//     ) -> Result<(), MatmulAvailabilityError> {
+//         SMM::check_availability::<R, MP>(client, &config.stage_config())?;
+
+//         let ei_id = TypeId::of::<MP::EI>();
+//         let es_id = TypeId::of::<MP::ES>();
+//         let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+//         if ei_id != es_id && !is_tf32 {
+//             return Err(MatmulAvailabilityError::TmaUnavailable);
+//         }
+
+//         let ei_id = TypeId::of::<MP::EI>();
+//         let es_id = TypeId::of::<MP::ES>();
+//         let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+//         if ei_id != es_id && !is_tf32 {
+//             return Err(MatmulAvailabilityError::TmaUnavailable);
+//         }
+
+//         if !client
+//             .properties()
+//             .feature_enabled(Feature::Tma(TmaFeature::Base))
+//         {
+//             return Err(MatmulAvailabilityError::TmaUnavailable);
+//         }
+
+//         Ok(())
+//     }
+// }
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
