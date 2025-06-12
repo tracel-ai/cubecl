@@ -54,6 +54,12 @@ pub enum LoadingPrecomputeStrategy {
     Always,
 }
 
+impl Default for LoadingPrecomputeStrategy {
+    fn default() -> LoadingPrecomputeStrategy {
+        LoadingPrecomputeStrategy::Never
+    }
+}
+
 impl From<LoadingPrecomputeStrategy> for bool {
     fn from(strategy: LoadingPrecomputeStrategy) -> Self {
         match strategy {
@@ -76,6 +82,16 @@ pub trait Algorithm {
         available_line_sizes: &mut AvailableLineSizes,
     ) -> Result<<Self::BatchMatmul as MatmulChecker>::Config, MatmulSetupError> {
         Self::BatchMatmul::setup(problem, selection, available_line_sizes)
+    }
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> MatmulSelection {
+        Self::TileMatmul::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc)
     }
 
     // fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {

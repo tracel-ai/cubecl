@@ -8,7 +8,7 @@ use crate::components::{
     AvailableLineSizes, Ident, InvalidConfigError, MatmulChecker, MatmulPrecision, MatmulProblem,
     MatrixLayout,
 };
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::matmul::{MatmulSelection, unit_matmul_selection};
 use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use cubecl_core::Feature;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -73,6 +73,16 @@ impl TileMatmulFamily for RegisterMatmul {
             lhs_stage_line_size as u32,
             rhs_stage_line_size as u32,
         ))
+    }
+
+    fn selection<R: Runtime>(
+        _client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        _elem_stage: Elem,
+        _elem_acc: Elem,
+    ) -> MatmulSelection {
+        unit_matmul_selection(problem, plane_dim)
     }
 }
 

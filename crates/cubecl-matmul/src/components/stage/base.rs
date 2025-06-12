@@ -182,3 +182,9 @@ pub enum PartitionBuffering {
     Single,
     Double,
 }
+
+impl Default for PartitionBuffering {
+    fn default() -> Self {
+        PartitionBuffering::Double
+    }
+}

@@ -24,6 +24,15 @@ pub struct StageVectorization {
     pub stage_elem_padding: u8,
 }
 
+impl Default for StageVectorization {
+    fn default() -> Self {
+        Self {
+            stage_line_size: 0,
+            stage_elem_padding: 0,
+        }
+    }
+}
+
 impl<T: TileConfig> StageConfig for PartitionedStageConfig<T> {
     type TileConfig = T;
 

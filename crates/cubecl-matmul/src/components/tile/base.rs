@@ -1,5 +1,5 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, ir::Elem};
 
 use crate::{
     components::{
@@ -27,6 +27,14 @@ pub trait TileMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: TileCo
         selection: &MatmulSelection,
         available_line_sizes: &mut AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> MatmulSelection;
 }
 
 /// Provides matrix multiplication operations at the tile level.

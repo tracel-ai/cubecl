@@ -57,3 +57,9 @@ pub enum LoaderMode {
     /// May reduce performance if workloads are imbalanced.
     Relaxed,
 }
+
+impl Default for LoaderMode {
+    fn default() -> LoaderMode {
+        LoaderMode::Relaxed
+    }
+}

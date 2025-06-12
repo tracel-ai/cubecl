@@ -80,3 +80,9 @@ impl LoadSpecializationConfig {
         }
     }
 }
+
+impl Default for LoadSpecializationConfig {
+    fn default() -> LoadSpecializationConfig {
+        LoadSpecializationConfig::None
+    }
+}
