@@ -17,7 +17,7 @@ use cubecl_matmul::{
     components::{
         InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
         global::args::TensorMapArgs,
-        stage::{FullReaderFamily, NumStages, plane_matmul::PlaneMatmulFamily},
+        stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
     kernels::matmul::MatmulSelection,
@@ -72,7 +72,7 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     {
         check_problem_tma(problem)?;
 
-        let config = Self::GlobalConvolution::make_config::<R, MP>(
+        let config = Self::GlobalConvolution::setup::<R, MP>(
             client, input, problem, line_sizes, cube_dim, cube_count,
         );
         Self::GlobalConvolution::check_config(&config)?;

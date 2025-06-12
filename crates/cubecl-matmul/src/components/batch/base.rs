@@ -15,8 +15,8 @@ use cubecl_std::{
 };
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
-pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulChecker {
-    type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config: BatchConfig>;
+pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulChecker<Config: BatchConfig> {
+    type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
     type Input;
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;

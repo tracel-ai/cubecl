@@ -6,11 +6,9 @@ use cubecl_core::prelude::*;
 use crate::components::Ident;
 use crate::components::MatmulProblem;
 use crate::components::MatrixLayout;
-use crate::components::{MatmulChecker, global::args::TensorMapArgs};
-use crate::components::{
-    MatmulLaunch,
-    global::args::{ConcreteInputsFactory, TensorMapInputs},
-};
+use crate::components::batch::BatchMatmulFamily;
+use crate::components::global::args::TensorMapArgs;
+use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
 use crate::kernels::matmul::Algorithm;
 use crate::kernels::matmul::MatmulSelection;
 use crate::tests::test_utils::Sample;
@@ -23,7 +21,7 @@ use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: MatmulProblem,
-    input: <A::BatchMatmul as MatmulChecker>::Input,
+    input: <A::BatchMatmul as BatchMatmulFamily>::Input,
     selection: MatmulSelection,
 ) where
     A: Algorithm,

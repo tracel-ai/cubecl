@@ -1,36 +1,38 @@
-use super::{MatmulSelection, base, unit_matmul_selection};
+use super::{MatmulSelection, unit_matmul_selection};
 use cubecl_core::{ir::Elem, prelude::*};
 use std::marker::PhantomData;
 
-use crate::components::{
-    MatmulLineSizes, MatmulProblem, MatrixLayout,
-    batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
-    global::{self, load::sync_buffer_cyclic},
-    stage::{self, BufferReaderFamily, NumStages, RowMajorTilingOrder},
-    tile,
+use crate::{
+    components::{
+        MatmulLineSizes, MatmulProblem, MatrixLayout,
+        batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+        global::{
+            load::sync_buffer_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+        },
+        stage::{BufferReaderFamily, NumStages, RowMajorTilingOrder, UnitMatmulFamily},
+        tile::register::RegisterMatmul,
+    },
+    kernels::matmul::Algorithm,
 };
 
 pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedPartitioner> {
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<P> base::Algorithm for DoubleUnitAlgorithm<P>
+impl<P> Algorithm for DoubleUnitAlgorithm<P>
 where
     P: Partitioner,
 {
-    type TileMatmul = tile::register_matmul::RegisterMatmul;
-    type StageMatmul = stage::unit_matmul::UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
-    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+    type TileMatmul = RegisterMatmul;
+    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
-        Self::GlobalMatmul,
-        RowMajorGlobalPartitionMatmul,
-        P,
-    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 
     fn num_stages() -> NumStages {
         (2, 2).into()

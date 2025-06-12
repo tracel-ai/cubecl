@@ -2,15 +2,18 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
+use crate::components::batch;
+use crate::components::batch::{
+    PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul,
+};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::sync_buffer_cyclic;
+use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
-    self, BufferReaderFamily, FullReaderFamily, NumStages, RowMajorTilingOrder,
+    BufferReaderFamily, FullReaderFamily, NumStages, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
 use crate::components::{InvalidConfigError, MatmulProblem};
-use crate::components::{batch, global};
 
 use super::base::{self, MultiRowStrategy};
 use super::{MatmulSelection, plane_matmul_selection};
@@ -25,21 +28,14 @@ where
     P: Partitioner,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        FullReaderFamily,
-        BufferReaderFamily,
-    >;
-    type GlobalMatmul = global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily<
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, BufferReaderFamily>;
+    type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
-        Self::GlobalMatmul,
-        RowMajorGlobalPartitionMatmul,
-        P,
-    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 
     fn cube_dim(selection: &MatmulSelection) -> Result<CubeDim, InvalidConfigError> {
         if selection.tiling_scheme.stage_partitions_in_stage_n() > 1 {

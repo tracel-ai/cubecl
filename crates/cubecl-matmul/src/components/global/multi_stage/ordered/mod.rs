@@ -4,6 +4,7 @@ mod setup;
 
 pub use config::*;
 pub use matmul::*;
+pub use setup::OrderedDoubleBufferingMatmulFamily;
 
 use crate::components::global::load::sync_full_ordered;
 

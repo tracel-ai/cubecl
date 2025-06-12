@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::InvalidConfigError;
 use crate::components::MatmulChecker;
+use crate::components::batch::BatchConfig as _;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::batch::entry_point::matmul;
 use crate::components::batch::matmul::config::PartitionedBatchConfig;

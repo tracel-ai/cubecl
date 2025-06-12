@@ -91,7 +91,7 @@ pub trait Algorithm {
         cube_count: &CubeCount,
     ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, InvalidConfigError>
     {
-        let config = Self::GlobalConvolution::make_config::<R, MP>(
+        let config = Self::GlobalConvolution::setup::<R, MP>(
             client, input, problem, line_sizes, cube_dim, cube_count,
         );
         Self::GlobalConvolution::check_config(&config)?;

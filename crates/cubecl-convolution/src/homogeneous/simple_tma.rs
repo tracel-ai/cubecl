@@ -196,13 +196,13 @@ where
         SMM::check_config(&config.stage_config())
     }
 
-    fn make_config<R: Runtime, MP: MatmulPrecision>(
+    fn setup<R: Runtime, MP: MatmulPrecision>(
         _client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         cube_dim: &CubeDim,
-        cube_count: &CubeCount,
+        _cube_count: &CubeCount,
     ) -> Self::Config {
         let mut line_sizes = line_sizes.clone();
 
@@ -211,12 +211,11 @@ where
         line_sizes.lhs = 1;
         line_sizes.rhs = 1;
 
-        let stage_config = SMM::make_config(
+        let stage_config = SMM::setup(
             input.stage_input,
             &problem.as_matmul_problem(),
             &line_sizes,
             cube_dim,
-            cube_count,
             false,
         );
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();

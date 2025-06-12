@@ -1,11 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     MatmulPrecision,
     batch::shared::swizzle,
     global::{self, Quantization},
+};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
 #[derive(CubeType)]

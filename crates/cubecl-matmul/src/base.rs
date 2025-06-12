@@ -2,6 +2,8 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
 use cubecl_std::tensor::TensorHandle;
 
+use crate::components::tile::accelerated::AcceleratedMatmul;
+
 use super::{
     components::{
         MatmulPrecision,
@@ -10,7 +12,6 @@ use super::{
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
-        tile::accelerated_matmul::AcceleratedMatmul,
     },
     kernels::{
         MatmulLaunchError,

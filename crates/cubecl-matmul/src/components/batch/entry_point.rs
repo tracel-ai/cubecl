@@ -1,3 +1,4 @@
+use crate::components::MatmulChecker;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -21,11 +22,11 @@ pub(crate) fn matmul<
     ES: Numeric,
     EA: Numeric,
     EO: Numeric,
-    BMM: BatchMatmulFamily,
+    BMMF: BatchMatmulFamily,
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    #[comptime] config: BMM::Config,
+    #[comptime] config: <BMMF as MatmulChecker>::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
 
@@ -39,7 +40,7 @@ pub(crate) fn matmul<
 
     if config.quantized() {
         let quantization = Args::quantization::<(EI, ES, EA, EO, Quantized)>(&state);
-        BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
+        BMMF::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
             lhs,
             rhs,
             out,
@@ -47,6 +48,6 @@ pub(crate) fn matmul<
             config,
         );
     } else {
-        BMM::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
+        BMMF::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
     };
 }

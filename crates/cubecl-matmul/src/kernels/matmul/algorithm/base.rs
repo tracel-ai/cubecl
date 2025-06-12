@@ -1,4 +1,3 @@
-use crate::components::LoadSpecializationConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::LoaderMode;
@@ -7,6 +6,7 @@ use crate::components::{
     InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem, TilingScheme, batch,
     global, stage, tile,
 };
+use crate::components::{LoadSpecializationConfig, MatmulChecker};
 use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
@@ -130,7 +130,7 @@ pub trait Algorithm {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         quantized: bool,
-    ) -> Result<<Self::BatchMatmul as BatchMatmulFamily>::Config, MatmulLaunchError> {
+    ) -> Result<<Self::BatchMatmul as MatmulChecker>::Config, MatmulLaunchError> {
         #[cfg(target_os = "macos")]
         if cube_dim.num_elems() >= 512 {
             return Err(MatmulLaunchError::Unavailable(
@@ -140,6 +140,7 @@ pub trait Algorithm {
 
         let config =
             Self::BatchMatmul::setup(input, problem, line_sizes, cube_dim, cube_count, quantized);
+        Self::BatchMatmul::check_config(&config)?;
         problem.check_config(&config)?;
         problem.check_line_sizes(line_sizes)?;
         Ok(config)
@@ -150,7 +151,6 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         config: &<Self::BatchMatmul as MatmulChecker>::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        Self::BatchMatmul::check_config(&config)?;
         Self::BatchMatmul::check_availability::<R, MP>(client, config)
     }
 

@@ -15,7 +15,7 @@ use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
     InputIdent,
     global::args::TensorArgs,
-    stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+    stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,
 };
 use cubecl_matmul::kernels::matmul::MatmulSelection;

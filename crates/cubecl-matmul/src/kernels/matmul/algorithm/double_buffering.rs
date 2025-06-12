@@ -3,10 +3,12 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::components::MatmulProblem;
-use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
+use crate::components::batch::{
+    PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul,
+};
 use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
-    self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
+    BufferReaderFamily, ColMajorTilingOrder, NumStages, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
 use crate::components::{batch, global};
@@ -32,22 +34,15 @@ where
     P: Partitioner,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        BufferReaderFamily,
-        BufferReaderFamily,
-    >;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
-        Self::GlobalMatmul,
-        RowMajorGlobalPartitionMatmul,
-        P,
-    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 
     fn num_stages() -> NumStages {
         (2, 2).into()
@@ -79,23 +74,16 @@ where
     P: Partitioner,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        BufferReaderFamily,
-        BufferReaderFamily,
-    >;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        // Other tiling orders are not supported
+        // Not sure if other tiling orders are supported
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
-        Self::GlobalMatmul,
-        RowMajorGlobalPartitionMatmul,
-        P,
-    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 
     fn num_stages() -> NumStages {
         (2, 2).into()
@@ -127,22 +115,15 @@ where
     P: Partitioner,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        BufferReaderFamily,
-        BufferReaderFamily,
-    >;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
 
-    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
-        Self::GlobalMatmul,
-        RowMajorGlobalPartitionMatmul,
-        P,
-    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 
     fn num_stages() -> NumStages {
         (2, 2).into()
