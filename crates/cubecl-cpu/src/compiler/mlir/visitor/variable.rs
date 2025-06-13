@@ -1,7 +1,7 @@
 use std::num::NonZero;
 
 use cubecl_core::ir::{
-    Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, Variable, VariableKind,
+    Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, VariableKind,
 };
 use tracel_llvm::melior::{
     dialect::{
@@ -9,15 +9,12 @@ use tracel_llvm::melior::{
         ods::{arith, vector},
     },
     ir::{
-        BlockLike, Type, TypeLike, Value, ValueLike,
         attribute::{FloatAttribute, IntegerAttribute},
         r#type::{IntegerType, MemRefType},
     },
 };
 
-use crate::compiler::mlir::visitor::prelude::IntoType;
-
-use super::Visitor;
+use super::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn insert_variable(&mut self, variable: Variable, value: Value<'a, 'a>) {
