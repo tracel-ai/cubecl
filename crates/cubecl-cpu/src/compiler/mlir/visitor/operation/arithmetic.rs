@@ -1,13 +1,11 @@
-use cubecl_core::ir::{Arithmetic, Item, Variable};
-use tracel_llvm::melior::dialect::ods::llvm as llvm_ods;
-use tracel_llvm::melior::ir::{BlockLike, Value};
+use cubecl_core::ir::{Arithmetic, Item};
 use tracel_llvm::melior::{
+    dialect::ods::llvm as llvm_ods,
     dialect::{arith, llvm, ods::vector},
     ir::Attribute,
 };
 
-use super::prelude::*;
-use crate::compiler::mlir::visitor::Visitor;
+use crate::compiler::mlir::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: Variable) {

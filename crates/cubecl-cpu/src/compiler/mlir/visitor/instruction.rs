@@ -11,9 +11,6 @@ impl<'a> Visitor<'a> {
             None => {
                 self.visit_operation(&instruction.operation);
             }
-            _ => {
-                todo!("Implement operation without out");
-            }
         }
     }
 }

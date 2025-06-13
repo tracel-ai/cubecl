@@ -1,25 +1,21 @@
-pub(super) mod arithmetic;
 pub(super) mod block;
 pub(super) mod elem;
 pub(super) mod instruction;
 pub(super) mod item;
 pub(super) mod operation;
-pub(super) mod operator;
 pub(super) mod prelude;
 pub(super) mod variable;
 
 use std::collections::HashMap;
 
-use cubecl_core::{ir::Variable, prelude::KernelDefinition};
+use cubecl_core::prelude::KernelDefinition;
 use cubecl_opt::{NodeIndex, Optimizer};
 use tracel_llvm::melior::{
     Context,
     dialect::{arith, func, scf},
     ir::{
-        Attribute, Block, BlockLike, BlockRef, Identifier, Location, Operation, Region, RegionLike,
-        RegionRef, Type, Value,
+        Attribute, Block, BlockRef, Identifier, Location, Operation, Region, RegionRef,
         attribute::{IntegerAttribute, StringAttribute, TypeAttribute},
-        operation::OperationLike,
         r#type::{FunctionType, MemRefType},
     },
 };
