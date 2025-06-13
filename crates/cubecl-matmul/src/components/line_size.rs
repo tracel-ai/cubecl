@@ -1,4 +1,6 @@
-use cubecl_core::tensor_line_size_parallel;
+use cubecl_core::{
+    LineSizeError, Runtime, ir::Elem, tensor_line_size_parallel, try_tensor_line_size_parallel,
+};
 
 use crate::components::{MatmulProblem, MatrixLayout};
 use std::fmt::Debug;
@@ -17,8 +19,22 @@ pub struct AvailableLineSizes {
 }
 
 impl AvailableLineSizes {
-    pub fn maximize_lhs(&self, problem: &MatmulProblem, ceiling: Option<u8>) -> u8 {
-        tensor_line_size_parallel(
+    pub fn from_elem_types<R: Runtime>(elem_in: &Elem, elem_out: &Elem) -> Self {
+        let in_available: Vec<u8> = R::line_size_elem(elem_in).collect();
+        let out_available = R::line_size_elem(elem_out).collect();
+        AvailableLineSizes {
+            lhs: in_available.clone(),
+            rhs: in_available,
+            out: out_available,
+        }
+    }
+
+    pub fn maximize_lhs(
+        &self,
+        problem: &MatmulProblem,
+        ceiling: Option<u8>,
+    ) -> Result<u8, LineSizeError> {
+        try_tensor_line_size_parallel(
             self.lhs
                 .clone()
                 .into_iter()
@@ -35,8 +51,12 @@ impl AvailableLineSizes {
         )
     }
 
-    pub fn maximize_rhs(&self, problem: &MatmulProblem, ceiling: Option<u8>) -> u8 {
-        tensor_line_size_parallel(
+    pub fn maximize_rhs(
+        &self,
+        problem: &MatmulProblem,
+        ceiling: Option<u8>,
+    ) -> Result<u8, LineSizeError> {
+        try_tensor_line_size_parallel(
             self.rhs
                 .clone()
                 .into_iter()
@@ -53,8 +73,12 @@ impl AvailableLineSizes {
         )
     }
 
-    pub fn maximize_out(&self, problem: &MatmulProblem, ceiling: Option<u8>) -> u8 {
-        tensor_line_size_parallel(
+    pub fn maximize_out(
+        &self,
+        problem: &MatmulProblem,
+        ceiling: Option<u8>,
+    ) -> Result<u8, LineSizeError> {
+        try_tensor_line_size_parallel(
             self.out
                 .clone()
                 .into_iter()
@@ -63,5 +87,15 @@ impl AvailableLineSizes {
             &[problem.n, 1],
             1,
         )
+    }
+}
+
+impl From<MatmulLineSizes> for AvailableLineSizes {
+    fn from(line_sizes: MatmulLineSizes) -> Self {
+        AvailableLineSizes {
+            lhs: vec![line_sizes.lhs],
+            rhs: vec![line_sizes.rhs],
+            out: vec![line_sizes.out],
+        }
     }
 }

@@ -1,12 +1,13 @@
 use cubecl_matmul::{
     components::{
-        InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulLineSizes, MatmulPrecision,
+        AvailableLineSizes, InputIdent, InvalidConfigError, LoadSpecializationConfig,
+        MatmulLineSizes, MatmulPrecision,
         global::{args::MatmulArgs, load::LoaderMode},
         stage::{NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization},
         tile::TileMatmulFamily,
     },
     kernels::{
-        MatmulAvailabilityError,
+        MatmulAvailabilityError, MatmulSetupError,
         matmul::{
             GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy, StageInput,
         },
@@ -31,8 +32,14 @@ pub trait Algorithm {
 
     type Args: MatmulArgs;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
-    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
+    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
+        let m_stage = selection.tiling_scheme.elements_in_stage_m();
+        let n_stage = selection.tiling_scheme.elements_in_stage_n();
+        let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
+        let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
+
+        CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
+    }
 
     fn global_input(selection: &MatmulSelection) -> GlobalInput<StageInput> {
         let partition_buffering = if selection.tiling_scheme.tiles_in_stage_partition_n() > 1 {
@@ -82,20 +89,14 @@ pub trait Algorithm {
     }
 
     /// Make a convolution config from a convolution problem, and launch options
-    fn make_config<R: Runtime, MP: MatmulPrecision>(
+    fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        input: <Self::GlobalConvolution as ConvolutionConfigFactory>::Input,
         problem: &ConvolutionProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-    ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, InvalidConfigError>
+        selection: &MatmulSelection,
+        available_line_sizes: AvailableLineSizes,
+    ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, MatmulSetupError>
     {
-        let config = Self::GlobalConvolution::setup::<R, MP>(
-            client, input, problem, line_sizes, cube_dim, cube_count,
-        );
-        Self::GlobalConvolution::check_config(&config)?;
-        Ok(config)
+        Self::GlobalConvolution::setup::<R, MP>(client, problem, selection, available_line_sizes)
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
@@ -121,11 +122,11 @@ pub trait Algorithm {
         elem_acc: Elem,
     ) -> MatmulSelection;
 
-    fn line_sizes(
-        problem: &ConvolutionProblem,
-        in_available: impl Iterator<Item = u8> + Clone,
-        out_available: impl Iterator<Item = u8> + Clone,
-    ) -> MatmulLineSizes {
-        MatmulLineSizes::new_maximized(&problem.as_matmul_problem(), in_available, out_available)
-    }
+    // fn line_sizes(
+    //     problem: &ConvolutionProblem,
+    //     in_available: impl Iterator<Item = u8> + Clone,
+    //     out_available: impl Iterator<Item = u8> + Clone,
+    // ) -> MatmulLineSizes {
+    //     MatmulLineSizes::new_maximized(&problem.as_matmul_problem(), in_available, out_available)
+    // }
 }

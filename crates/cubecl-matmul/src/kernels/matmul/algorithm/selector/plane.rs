@@ -78,10 +78,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    MatmulSelection {
-        tiling_scheme,
-        plane_dim,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 fn change_rows_per_plane(

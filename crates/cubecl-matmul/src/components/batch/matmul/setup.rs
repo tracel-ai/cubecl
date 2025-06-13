@@ -35,25 +35,17 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
 {
     type Matmul<MP: MatmulPrecision> = PartitionedBatchMatmul<MP, GMM::Matmul<MP>, S, P>;
     type Input = GMM::Input;
+    type Partitioner = P;
 
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup(problem, selection, available_line_sizes)?;
 
-        let elements_in_m = selection.tiling_scheme.elements_in_global_partition_m();
-        let elements_in_n = selection.tiling_scheme.elements_in_global_partition_n();
 
-        let cube_count = P::create_cube_count(
-            (problem.m as u32).div_ceil(elements_in_m),
-            (problem.n as u32).div_ceil(elements_in_n),
-            (problem.num_batches() as u32)
-                .div_ceil(selection.tiling_scheme.global_partition_size.batches),
-        );
-
-        Ok(PartitionedBatchConfig::new(global_config, cube_count))
+        Ok(PartitionedBatchConfig::new(global_config))
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
@@ -75,7 +67,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
 impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> MatmulChecker
     for PartitionedBatchMatmulFamily<GMM, S, P>
 {
-    type Config = PartitionedBatchConfig<GMM::Config, P>;
+    type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         GMM::check_config(&config.global_config())

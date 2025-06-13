@@ -1,7 +1,8 @@
 use crate::{
     components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulChecker, MatmulPrecision, MatmulProblem,
-        MatmulSpec, OutputRuntimeArg, TilingScheme,
+        AvailableLineSizes, InputRuntimeArg, MatmulChecker, MatmulLineSizes, MatmulPrecision,
+        MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingScheme,
+        batch::Partitioner,
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
@@ -18,11 +19,12 @@ use cubecl_std::{
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulChecker<Config: BatchConfig> {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
     type Input;
+    type Partitioner: Partitioner;
 
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Entry point
@@ -79,15 +81,6 @@ pub trait BatchConfig: MatmulConfig {
     /// Convert itself to the underlying global matmul config
     fn global_config(&self) -> Self::GlobalConfig;
 
-    /// Returns the largest m dimension supported with these configs
-    fn max_problem_m(&self) -> u32;
-
-    /// Returns the largest n dimension supported with these configs
-    fn max_problem_n(&self) -> u32;
-
-    /// Returns the largest number of batches supported with these configs
-    fn max_problem_batches(&self) -> u32;
-
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;
 
@@ -95,6 +88,8 @@ pub trait BatchConfig: MatmulConfig {
         self.global_config().tiling_scheme()
     }
 
+    // TODO make a launch config over batch config
     fn cube_dim(&self) -> CubeDim;
-    fn cube_count(&self) -> CubeCount;
+    // fn cube_count(&self) -> CubeCount;
+    fn line_sizes(&self) -> MatmulLineSizes;
 }

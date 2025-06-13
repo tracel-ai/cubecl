@@ -28,7 +28,7 @@ impl TileMatmulFamily for RegisterMatmul {
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let max_lhs = match problem.lhs_layout {
             MatrixLayout::RowMajor => selection.tiling_scheme.elements_in_tile_k(),
@@ -40,9 +40,9 @@ impl TileMatmulFamily for RegisterMatmul {
         } as u8;
         let max_out = selection.tiling_scheme.elements_in_tile_n() as u8;
 
-        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, Some(max_lhs));
-        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, Some(max_rhs));
-        let out_global_line_size = available_line_sizes.maximize_out(problem, Some(max_out));
+        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, Some(max_lhs))?;
+        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, Some(max_rhs))?;
+        let out_global_line_size = available_line_sizes.maximize_out(problem, Some(max_out))?;
 
         let stage_vectorization = selection.stage_vectorization;
 

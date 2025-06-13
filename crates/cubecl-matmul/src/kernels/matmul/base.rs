@@ -1,6 +1,6 @@
 use crate::components::batch::{BatchConfig, BatchMatmulFamily};
 use crate::components::{
-    InputRuntimeArg, MatmulChecker, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec,
+    AvailableLineSizes, InputRuntimeArg, MatmulChecker, MatmulPrecision, MatmulProblem, MatmulSpec,
     MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
@@ -280,48 +280,17 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     }
 }
 
-#[allow(clippy::result_large_err)]
-pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
-    problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
-    config_input: <A::BatchMatmul as BatchMatmulFamily>::Input,
-    selection: MatmulSelection,
-) -> Result<(), MatmulSetupError> {
-    let cube_dim = A::cube_dim(&selection)?;
-    let cube_count = A::cube_count(&selection, &problem);
-
-    launch_matmul::<MS, R, A>(
-        client,
-        input,
-        output,
-        problem,
-        line_sizes,
-        cube_dim,
-        cube_count,
-        config_input,
-    )
-}
-
 #[allow(clippy::too_many_arguments, clippy::result_large_err)]
-fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
+pub fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
-    problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
     cube_dim: CubeDim,
     cube_count: CubeCount,
-    config_input: <D::BatchMatmul as BatchMatmulFamily>::Input,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
+    config: <A::BatchMatmul as MatmulChecker>::Config,
 ) -> Result<(), MatmulSetupError> {
-    let config = D::setup(&problem, selection, available_line_sizes)?;
-
-    // D::check_availability::<R, MS::Precision>(client, &config)?;
-
     unsafe {
-        D::BatchMatmul::launch_unchecked::<MS, R>(
+        A::BatchMatmul::launch_unchecked::<MS, R>(
             client, cube_dim, cube_count, input, output, config,
         );
     };

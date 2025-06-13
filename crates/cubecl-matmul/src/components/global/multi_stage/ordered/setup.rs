@@ -41,7 +41,7 @@ where
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         // TODO inject loader info here
         let stage_config = SMM::setup(problem, selection, available_line_sizes, (1, 2).into())?;

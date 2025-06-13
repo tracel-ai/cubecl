@@ -25,11 +25,11 @@ impl TileMatmulFamily for AcceleratedMatmul {
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, None);
-        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, None);
-        let out_global_line_size = available_line_sizes.maximize_out(problem, None);
+        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, None)?;
+        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, None)?;
+        let out_global_line_size = available_line_sizes.maximize_out(problem, None)?;
 
         let stage_vectorization = selection.stage_vectorization;
 

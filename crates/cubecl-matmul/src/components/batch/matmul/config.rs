@@ -1,51 +1,19 @@
-use std::marker::PhantomData;
-
-use cubecl_core::{CubeCount, CubeDim};
+use cubecl_core::CubeDim;
 
 use crate::components::{
-    MatmulConfig,
-    batch::{BatchConfig, matmul::partitioner::Partitioner},
-    global::GlobalConfig,
+    Ident, MatmulConfig, MatmulLineSizes, batch::BatchConfig, global::GlobalConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the OneToOneBatchMatmul
-pub struct PartitionedBatchConfig<G: GlobalConfig, P: Partitioner> {
+pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
-    cube_count: (u32, u32, u32),
-    _phantom: PhantomData<P>,
 }
 
-impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, P> {
+impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
         self.global_config
-    }
-
-    fn max_problem_m(&self) -> u32 {
-        self.cube_count_m()
-            * self
-                .global_config
-                .tiling_scheme()
-                .elements_in_global_partition_m()
-    }
-
-    fn max_problem_n(&self) -> u32 {
-        self.cube_count_n()
-            * self
-                .global_config
-                .tiling_scheme()
-                .elements_in_global_partition_n()
-    }
-
-    fn max_problem_batches(&self) -> u32 {
-        self.cube_count_batch()
-            * self
-                .global_config
-                .tiling_scheme()
-                .global_partition_size
-                .batches
     }
 
     fn quantized(&self) -> bool {
@@ -56,31 +24,19 @@ impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, 
         self.global_config.cube_dim()
     }
 
-    fn cube_count(&self) -> CubeCount {
-        CubeCount::Static(self.cube_count.0, self.cube_count.1, self.cube_count.2)
+    fn line_sizes(&self) -> MatmulLineSizes {
+        MatmulLineSizes {
+            lhs: self.global_config.global_line_size(Ident::Lhs) as u8,
+            rhs: self.global_config.global_line_size(Ident::Rhs) as u8,
+            out: self.global_config.global_line_size(Ident::Out) as u8,
+        }
     }
 }
 
-impl<G: GlobalConfig, P: Partitioner> MatmulConfig for PartitionedBatchConfig<G, P> {}
+impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
-impl<G: GlobalConfig, P: Partitioner> PartitionedBatchConfig<G, P> {
-    pub fn new(global_config: G, cube_count: (u32, u32, u32)) -> Self {
-        Self {
-            global_config,
-            cube_count,
-            _phantom: PhantomData,
-        }
-    }
-
-    fn cube_count_m(&self) -> u32 {
-        P::cube_count_m(self.cube_count)
-    }
-
-    fn cube_count_n(&self) -> u32 {
-        P::cube_count_n(self.cube_count)
-    }
-
-    fn cube_count_batch(&self) -> u32 {
-        P::cube_count_batches(self.cube_count)
+impl<G: GlobalConfig> PartitionedBatchConfig<G> {
+    pub fn new(global_config: G) -> Self {
+        Self { global_config }
     }
 }

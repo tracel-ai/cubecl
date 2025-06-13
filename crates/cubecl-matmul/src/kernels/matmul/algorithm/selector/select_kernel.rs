@@ -1,19 +1,22 @@
+use cubecl_core::ir::Elem;
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
+use crate::components::batch::BatchConfig;
 use crate::components::global::load::LoaderMode;
-use crate::components::stage::{PartitionBuffering, StageVectorization};
+use crate::components::stage::{PartitionBuffering, StageConfig, StageVectorization};
 use crate::components::{
-    InputRuntimeArg, LoadSpecializationConfig, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg,
-    TilingScheme,
+    AvailableLineSizes, InputRuntimeArg, LoadSpecializationConfig, MatmulLineSizes,
+    MatmulPrecision, OutputRuntimeArg, TilingScheme,
 };
+use crate::kernels::matmul::base::launch_matmul;
 use crate::kernels::matmul::{Algorithm, LoadingPrecomputeStrategy};
 use crate::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,
         global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
     },
-    kernels::{MatmulSetupError, matmul::base::matmul_cube_preparation},
+    kernels::MatmulSetupError,
 };
 use cubecl_core::frontend::CubePrimitive;
 
@@ -29,31 +32,28 @@ pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
-    // Option of MAX line sizes, overridable in components
-    line_sizes: Option<MatmulLineSizes>,
+    forced_line_sizes: Option<MatmulLineSizes>,
     plane_dim: u32,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let selection = A::selection::<R>(
-        client,
-        &problem,
-        plane_dim,
-        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
-        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
-    );
+    let elem_in = <MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked();
+    let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
+    let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
+    let elem_out = <MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked();
 
-    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
-        &problem,
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
-        &selection,
-    ));
+    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
+    let available_line_sizes =
+        find_available_line_sizes::<MS, R>(forced_line_sizes, &elem_in, &elem_out);
+    let config = A::setup(&problem, &selection, available_line_sizes)?;
+    let line_sizes = config.line_sizes();
 
-    matmul_cube_preparation::<MS, R, A>(
+    launch_matmul::<MS, R, A>(
         client,
+        config.cube_dim(),
+        A::cube_count(&problem, &config),
         <InputArg<MS> as ConcreteInputsFactory>::create(
             lhs,
             lhs_scale,
@@ -64,10 +64,7 @@ where
             &line_sizes,
         ),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
-        problem,
-        &line_sizes,
-        A::global_input(&selection),
-        selection,
+        config,
     )
 }
 
@@ -77,31 +74,40 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
-    line_sizes: Option<MatmulLineSizes>,
+    forced_line_sizes: Option<MatmulLineSizes>,
     plane_dim: u32,
 ) -> Result<(), MatmulSetupError> {
-    let selection = A::selection::<R>(
-        client,
-        &problem,
-        plane_dim,
-        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
-        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
-    );
+    let elem_in = <MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked();
+    let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
+    let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
+    let elem_out = <MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked();
 
-    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
-        &problem,
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
-        &selection,
-    ));
+    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
+    let available_line_sizes =
+        find_available_line_sizes::<MS, R>(forced_line_sizes, &elem_in, &elem_out);
+    let config = A::setup(&problem, &selection, available_line_sizes)?;
 
-    matmul_cube_preparation::<MS, R, A>(
+    launch_matmul::<MS, R, A>(
         client,
+        config.cube_dim(),
+        A::cube_count(&problem, &config),
         input,
         output,
-        problem,
-        &line_sizes,
-        A::global_input(&selection),
-        selection,
+        config,
     )
+}
+
+// TODO
+// At the moment, because of fusion, we can force line sizes
+// But this may make the matmul kernel setup fail.
+// Would be better to add a constraint on fusion
+fn find_available_line_sizes<MS: MatmulSpec, R: Runtime>(
+    forced_line_sizes: Option<MatmulLineSizes>,
+    elem_in: &Elem,
+    elem_out: &Elem,
+) -> AvailableLineSizes {
+    match forced_line_sizes {
+        Some(forced_line_sizes) => forced_line_sizes.into(),
+        None => AvailableLineSizes::from_elem_types::<R>(elem_in, elem_out),
+    }
 }

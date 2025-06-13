@@ -79,7 +79,7 @@ pub trait Algorithm {
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<<Self::BatchMatmul as MatmulChecker>::Config, MatmulSetupError> {
         Self::BatchMatmul::setup(problem, selection, available_line_sizes)
     }
@@ -98,9 +98,12 @@ pub trait Algorithm {
     //     Self::GlobalMatmul::cube_dim(selection, Self::load_specialization_config())
     // }
 
-    // fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-    //     Self::BatchMatmul::cube_count(selection, problem)
-    // }
+    fn cube_count(
+        problem: &MatmulProblem,
+        config: &<Self::BatchMatmul as MatmulChecker>::Config,
+    ) -> CubeCount {
+        problem.cube_count::<Self::BatchMatmul>(config)
+    }
 
     // fn line_sizes(
     //     problem: &MatmulProblem,

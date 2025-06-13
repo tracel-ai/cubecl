@@ -168,7 +168,7 @@ impl Elem {
         }
     }
 
-    /// Get the size in bytes.
+    /// Get the size in bits.
     pub const fn size_bits(&self) -> usize {
         match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {

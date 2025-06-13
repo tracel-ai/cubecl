@@ -28,7 +28,7 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: Glob
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 }
 

@@ -25,7 +25,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: TileCo
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     fn selection<R: Runtime>(

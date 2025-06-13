@@ -11,8 +11,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
-        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError,
+        MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{SyncFullLoader, sync_full_cyclic},
@@ -23,7 +23,10 @@ use cubecl_matmul::{
             StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::matmul::GlobalInput,
+    kernels::{
+        MatmulSetupError,
+        matmul::{GlobalInput, MatmulSelection},
+    },
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -192,36 +195,30 @@ where
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
         _client: &ComputeClient<R::Server, R::Channel>,
-        input: Self::Input,
         problem: &ConvolutionProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        _cube_count: &CubeCount,
-    ) -> Self::Config {
+        selection: &MatmulSelection,
+        available_line_sizes: AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError> {
         let stage_config = SMM::setup(
-            input.stage_input,
             &problem.as_matmul_problem(),
-            line_sizes,
-            cube_dim,
-            false,
-        );
+            selection,
+            available_line_sizes,
+            (1, 1).into(),
+        )?;
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        config::ConvolutionConfig::new(
+        Ok(config::ConvolutionConfig::new(
             single_stage::SingleStageConfig::new(
                 stage_config,
+                todo!(),
+                // num_planes,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
                 true,
-                problem.lhs_layout,
-                problem.rhs_layout,
-                line_sizes.lhs as u32,
-                line_sizes.rhs as u32,
-                line_sizes.out as u32,
                 stage_k,
-                input.loading_precompute_strategy,
-                input.loader_mode,
+                selection.loading_precompute_strategy,
+                selection.loader_mode,
             ),
             &problem.kernel_size,
             &problem.stride,
@@ -229,7 +226,7 @@ where
             &problem.padding,
             problem.dimensionality,
             1,
-        )
+        ))
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

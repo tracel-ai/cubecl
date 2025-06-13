@@ -1,4 +1,7 @@
-use crate::components::{MatmulKind, MatmulProblem, TilingScheme};
+use crate::{
+    components::{MatmulKind, MatmulProblem, TilingScheme},
+    kernels::matmul::MatmulSelectionBuilder,
+};
 
 use super::MatmulSelection;
 
@@ -30,11 +33,7 @@ fn general_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSele
         .build()
         .unwrap();
 
-    // TODO matmulselection builder
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (M, K) @ (K, 1) → (M, 1)
@@ -47,10 +46,7 @@ fn matvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSelec
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (1, K) @ (K, N) → (1, N)
@@ -63,10 +59,7 @@ fn vecmat_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSelec
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (1, 1) @ (1, N) → (1, N)
@@ -79,10 +72,7 @@ fn scalarvec_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSe
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (M, 1) @ (1, 1) → (M, 1)
@@ -95,10 +85,7 @@ fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSe
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (1, K) @ (K, 1) → (1, 1)
@@ -110,10 +97,7 @@ fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Matm
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (M, 1) @ (1, N) → (M, N)
@@ -127,10 +111,7 @@ fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Matm
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// (1, 1) @ (1, 1) → (1, 1)
@@ -142,10 +123,7 @@ fn scalar_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> Mat
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// Returns the factor pair `(a, b)` of `n` minimizing their difference,

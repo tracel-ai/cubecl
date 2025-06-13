@@ -1,6 +1,7 @@
 use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
+    algorithm::simple_tma::check_problem_tma,
     base::{
         Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
         ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -11,21 +12,24 @@ use crate::{
         weight_tma::{TmaWeightLoader, TmaWeightTiling},
     },
 };
-use cubecl_core::prelude::*;
 use cubecl_core::{
     self as cubecl,
     prelude::barrier::{Barrier, BarrierLevel},
 };
+use cubecl_core::{ir::Elem, prelude::*};
 use cubecl_matmul::{
     components::{
-        EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
-        MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError,
+        MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
         global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulAvailabilityError, matmul::GlobalInput},
+    kernels::{
+        MatmulAvailabilityError, MatmulSetupError,
+        matmul::{GlobalInput, MatmulSelection},
+    },
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -265,26 +269,24 @@ where
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        input: Self::Input,
         problem: &ConvolutionProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        _cube_count: &CubeCount,
-    ) -> Self::Config {
-        let mut line_sizes = line_sizes.clone();
+        selection: &MatmulSelection,
+        mut available_line_sizes: AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError> {
+        check_problem_tma(problem)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        line_sizes.lhs = 1;
-        line_sizes.rhs = 1;
+        available_line_sizes.lhs = vec![1];
+        available_line_sizes.rhs = vec![1];
 
         let stage_config = SMM::setup(
-            input.stage_input,
             &problem.as_matmul_problem(),
-            &line_sizes,
-            cube_dim,
-            false,
-        );
+            selection,
+            available_line_sizes,
+            // Not the same as num_stages
+            (1, 1).into(),
+        )?;
 
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
@@ -295,21 +297,18 @@ where
             &stage_config.tiling_scheme(),
         );
 
-        config::ConvolutionConfig::new(
+        Ok(config::ConvolutionConfig::new(
             single_stage::SingleStageConfig::new(
                 stage_config,
                 // TODO: Find the correct condition to avoid check bounds.
+                todo!(),
+                // plane_dim: u32,
                 true,
                 true,
                 true,
-                problem.lhs_layout,
-                problem.rhs_layout,
-                line_sizes.lhs as u32,
-                line_sizes.rhs as u32,
-                line_sizes.out as u32,
                 stage_k,
-                input.loading_precompute_strategy,
-                input.loader_mode,
+                selection.loading_precompute_strategy,
+                selection.loader_mode,
             ),
             &problem.kernel_size,
             &problem.stride,
@@ -317,7 +316,7 @@ where
             &problem.padding,
             problem.dimensionality,
             num_stages,
-        )
+        ))
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

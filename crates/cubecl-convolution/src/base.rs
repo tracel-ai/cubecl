@@ -2,11 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        AvailableLineSizes, InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem,
         MatmulSpec, MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
-    kernels::MatmulAvailabilityError,
+    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmod,
@@ -98,12 +98,10 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        input: Self::Input,
         problem: &ConvolutionProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-    ) -> Self::Config;
+        selection: &MatmulSelection,
+        available_line_sizes: AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,

@@ -40,7 +40,7 @@ where
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        mut available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`

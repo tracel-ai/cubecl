@@ -83,10 +83,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         .build()
         .unwrap();
 
-    let selection = MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    };
+    let selection = MatmulSelection::builder(tiling_scheme, plane_dim).build();
 
     test_convolution_algorithm::<A, Args, P, R>(
         client,

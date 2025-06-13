@@ -1,5 +1,5 @@
-use cubecl_core::{CubeCount, CubeDim, ir::Elem};
-use std::fmt::Debug;
+use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::Elem};
+use std::fmt::{Debug, Display};
 
 use crate::components::{InvalidConfigError, TileSize};
 
@@ -8,6 +8,7 @@ pub enum MatmulSetupError {
     InvalidProblem(MatmulInvalidProblem),
     InvalidConfig(InvalidConfigError),
     Unimplemented(MatmulUnimplementedError),
+    LineSize(LineSizeError),
 }
 
 pub enum MatmulAvailabilityError {
@@ -66,6 +67,18 @@ impl From<MatmulUnimplementedError> for MatmulSetupError {
     }
 }
 
+impl From<LineSizeError> for MatmulSetupError {
+    fn from(value: LineSizeError) -> Self {
+        Self::LineSize(value)
+    }
+}
+
+impl Display for MatmulSetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl Debug for MatmulSetupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -92,6 +105,12 @@ impl Debug for MatmulSetupError {
                 writeln!(
                     f,
                     "Unable to launch matmul because the feature is not ready: {err:?}"
+                )
+            }
+            MatmulSetupError::LineSize(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because could not find supported line size: {err:?}"
                 )
             }
         }

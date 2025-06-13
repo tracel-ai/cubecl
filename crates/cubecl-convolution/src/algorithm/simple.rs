@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::ir::Elem;
 use cubecl_core::{
-    CubeCount, CubeDim, Runtime,
+    CubeCount, Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
@@ -35,23 +35,6 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorArgs;
-
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        CubeDim::new(
-            selection.plane_dim,
-            selection.tiling_scheme.tiles_in_stage_m(),
-            1,
-        )
-    }
-
-    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
-        let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
-        let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
-
-        CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
-    }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,

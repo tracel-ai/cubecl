@@ -37,7 +37,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
     fn setup(
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: &mut AvailableLineSizes,
+        available_line_sizes: AvailableLineSizes,
         num_stages: NumStages,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config = TMM::setup(problem, selection, available_line_sizes)?;
