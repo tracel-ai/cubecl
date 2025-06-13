@@ -1,12 +1,7 @@
-use cubecl_core::ir::{Elem, Operator, Variable};
-use tracel_llvm::melior::{
-    dialect::{arith, memref, ods::vector},
-    ir::{BlockLike, Type, TypeLike, ValueLike},
-};
+use cubecl_core::ir::{Elem, Operator};
+use tracel_llvm::melior::dialect::{arith, memref, ods::vector};
 
-use crate::compiler::mlir::visitor::prelude::IntoType;
-
-use super::Visitor;
+use crate::compiler::mlir::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {

@@ -1,18 +1,14 @@
-use cubecl_core::Feature;
-use cubecl_core::ir::Elem;
-use cubecl_core::ir::FloatKind;
-use cubecl_core::ir::IntKind;
-use cubecl_core::ir::UIntKind;
+use cubecl_core::{
+    Feature,
+    ir::{Elem, FloatKind, IntKind, UIntKind},
+};
 use cubecl_runtime::DeviceProperties;
-use tracel_llvm::melior::Context;
-use tracel_llvm::melior::dialect::index;
-use tracel_llvm::melior::ir::Type;
-use tracel_llvm::melior::ir::Value;
-use tracel_llvm::melior::ir::ValueLike;
-use tracel_llvm::melior::ir::r#type::IntegerType;
+use tracel_llvm::melior::{
+    dialect::index,
+    ir::{ValueLike, r#type::IntegerType},
+};
 
-use super::Visitor;
-use super::prelude::IntoType;
+use super::prelude::*;
 
 impl IntoType for Elem {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
