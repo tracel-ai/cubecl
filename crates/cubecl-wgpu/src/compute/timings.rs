@@ -10,6 +10,7 @@ use crate::WgpuResource;
 pub struct Timings {
     timestamps: HashMap<ProfilingToken, Timestamp>,
     init_tokens: Vec<ProfilingToken>,
+    query_set_pool: Vec<QuerySet>,
     query_sets: HashMap<QuerySetId, QuerySetItem>,
     current: Option<u64>,
     counter_token: u64,
@@ -129,11 +130,15 @@ impl Timings {
         device: &wgpu::Device,
     ) -> &mut QuerySetItem {
         let (query_set_id, num_ref) = query_set_info;
-        let query_set = device.create_query_set(&QuerySetDescriptor {
-            label: Some("CubeCL profile queries"),
-            ty: QueryType::Timestamp,
-            count: 2,
-        });
+        let query_set = if let Some(pool) = self.query_set_pool.pop() {
+            pool
+        } else {
+            device.create_query_set(&QuerySetDescriptor {
+                label: Some("CubeCL profile queries"),
+                ty: QueryType::Timestamp,
+                count: 2,
+            })
+        };
 
         let slot = QuerySetItem { query_set, num_ref };
         self.query_sets.insert(query_set_id, slot);
@@ -171,7 +176,11 @@ impl Timings {
 
     fn cleanup_query_sets(&mut self) {
         for key in self.cleanups.drain(..) {
-            self.query_sets.remove(&key);
+            let removed = self
+                .query_sets
+                .remove(&key)
+                .expect("Unknown query set cleaned up");
+            self.query_set_pool.push(removed.query_set);
         }
     }
 }
