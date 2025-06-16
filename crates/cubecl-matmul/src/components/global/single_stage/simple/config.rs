@@ -7,6 +7,7 @@ use crate::{
             self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
             load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
+            shared::shared_global_config_validation,
         },
         stage,
     },
@@ -136,6 +137,8 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
     ) -> Result<Self, MatmulSetupError> {
         LL::check(&self, Ident::Lhs)?;
         RL::check(&self, Ident::Rhs)?;
+        shared_global_config_validation(self)?;
+
         Ok(self)
     }
 }

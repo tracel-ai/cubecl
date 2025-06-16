@@ -1,4 +1,4 @@
-use cubecl_core::{client::ComputeClient, CubeDim, Runtime};
+use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::{
     components::{
@@ -44,6 +44,10 @@ impl<G: GlobalConfig> PartitionedBatchConfig<G> {
         client: &ComputeClient<R::Server, R::Channel>,
         global_config: G,
     ) -> Result<Self, MatmulSetupError> {
-        Ok(Self { global_config })
+        Self { global_config }.validate()
+    }
+
+    fn validate(self) -> Result<Self, MatmulSetupError> {
+        Ok(self)
     }
 }

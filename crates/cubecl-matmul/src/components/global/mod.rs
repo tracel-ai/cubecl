@@ -8,6 +8,7 @@ pub mod tensor_view;
 mod accumulator_loader;
 mod base;
 mod copy_mechanism;
+mod shared;
 mod specialization;
 mod write;
 

@@ -7,6 +7,7 @@ use crate::{
             GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
             load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
+            shared::shared_global_config_validation,
         },
         stage::{self},
     },
@@ -141,6 +142,8 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     ) -> Result<Self, MatmulSetupError> {
         LL::check::<Self>(&self, Ident::Lhs)?;
         RL::check::<Self>(&self, Ident::Rhs)?;
+        shared_global_config_validation(self)?;
+
         Ok(self)
     }
 }
