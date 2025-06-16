@@ -1,6 +1,9 @@
 use cubecl_core::CubeDim;
 
-use crate::components::{InvalidConfigError, global::PlaneRoles};
+use crate::components::{
+    InvalidConfigError,
+    global::{LoaderTasks, PlaneRoles},
+};
 
 pub enum ComputeResources {
     Units(u32),
@@ -41,43 +44,88 @@ impl ComputeResources {
     }
 }
 
+/// Configuration for how each input tensor (LHS and RHS) is loaded,
+/// specifying the plane roles responsible for loading them.
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum LoadSpecializationConfig {
-    /// Use the number of compute planes from the stage matmul.
-    Mirror,
+pub struct LoadSpecializationConfig {
+    /// Load strategy for the LHS (left-hand side) tensor.
+    pub lhs: SpecializationTensorConfig,
+    /// Load strategy for the RHS (right-hand side) tensor.
+    pub rhs: SpecializationTensorConfig,
+}
 
-    /// Use a fractional amount of compute planes.
-    MirrorRatio { numerator: u32, denominator: u32 },
-
-    /// Fixed number of planes.
-    Fixed(u32),
-
-    /// No planes.
+/// Determines which types of planes are responsible for loading a tensor.
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum SpecializationTensorConfig {
+    /// The tensor is loaded exclusively by planes that participate in the main computation flow.
     #[default]
-    None,
+    MainFlowOnly,
+
+    /// The tensor is loaded exclusively by planes dedicated to loading (load-only planes),
+    /// which do not participate in computation.
+    LoadFlowOnly,
 }
 
 impl LoadSpecializationConfig {
-    pub fn to_plane_roles(&self, main_flow: u32) -> PlaneRoles {
-        let load_only = match *self {
-            Self::Mirror => main_flow,
-            Self::MirrorRatio {
-                numerator,
-                denominator,
-            } => {
-                assert!(
-                    numerator <= denominator,
-                    "MirrorRatio must be between 0 and 1"
-                );
-                main_flow * numerator / denominator
-            }
-            Self::Fixed(n) => n,
-            Self::None => 0,
-        };
+    pub fn has_specialization(&self) -> bool {
+        self.lhs.has_specialization() || self.rhs.has_specialization()
+    }
+}
 
-        PlaneRoles {
-            main_flow,
-            load_only,
+impl SpecializationTensorConfig {
+    pub fn has_specialization(&self) -> bool {
+        match self {
+            SpecializationTensorConfig::MainFlowOnly => false,
+            SpecializationTensorConfig::LoadFlowOnly => true,
         }
     }
+}
+
+impl LoadSpecializationConfig {
+    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: LoaderTasks) -> PlaneRoles {
+        PlaneRoles {
+            main_flow,
+            load_only: self.find_num_load_only(main_flow, loader_tasks),
+        }
+    }
+
+    fn find_num_load_only(&self, main_flow: u32, loader_tasks: LoaderTasks) -> u32 {
+        use SpecializationTensorConfig::*;
+
+        let ideal_load_only = match (self.lhs, self.rhs) {
+            (MainFlowOnly, MainFlowOnly) => 0,
+            (MainFlowOnly, LoadFlowOnly) => loader_tasks.rhs,
+            (LoadFlowOnly, MainFlowOnly) => loader_tasks.lhs,
+            (LoadFlowOnly, LoadFlowOnly) => gcd(loader_tasks.lhs, loader_tasks.rhs),
+        };
+
+        // Don't stray too far from main_flow
+        best_divisor_close_to_reference(ideal_load_only, main_flow)
+    }
+}
+
+fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        let r = a % b;
+        a = b;
+        b = r;
+    }
+    a
+}
+
+fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 {
+    let mut best = 1;
+    let mut best_dist = reference.abs_diff(1);
+
+    for d in 1..=dividible_value {
+        if dividible_value % d == 0 {
+            let dist = reference.abs_diff(d);
+            if dist < best_dist || (dist == best_dist && d > best) {
+                best = d;
+                best_dist = dist;
+            }
+        }
+    }
+
+    best
 }

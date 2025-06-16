@@ -283,6 +283,7 @@ where
             available_line_sizes,
             // Not the same as num_stages
             (1, 1).into(),
+            None,
         )?;
 
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();

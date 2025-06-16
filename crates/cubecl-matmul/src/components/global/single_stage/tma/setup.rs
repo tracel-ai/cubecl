@@ -1,5 +1,4 @@
 use crate::components::AvailableLineSizes;
-use crate::components::LoadSpecializationConfig;
 use crate::components::MatmulPrecision;
 use crate::components::global::load::NoLoadingValidation;
 use crate::components::global::load::TmaTiling;
@@ -47,19 +46,20 @@ where
             selection,
             available_line_sizes,
             (1, 1).into(),
+            None,
         )?;
+
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        let num_planes =
-            if let LoadSpecializationConfig::None = selection.load_specialization_config {
-                stage_config.num_main_flow_planes()
-            } else {
-                return Err(MatmulSetupError::InvalidConfig(Box::new(
-                    "Error: Specialization is unavailable for simple tma matmul.",
-                )));
-            };
+        let num_planes = if !selection.load_specialization_config.has_specialization() {
+            stage_config.num_main_flow_planes()
+        } else {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Error: Specialization is unavailable for simple tma matmul.",
+            )));
+        };
 
         SimpleTmaConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
             client,

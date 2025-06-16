@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::AvailableLineSizes;
+use crate::components::global::LoaderTasksMap;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
 use crate::components::{
@@ -48,6 +49,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,
         num_stages: NumStages,
+        loader_tasks: Option<LoaderTasksMap>,
     ) -> Result<Self::Config, MatmulSetupError>;
 }
 

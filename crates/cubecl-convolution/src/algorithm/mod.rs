@@ -53,7 +53,7 @@ pub trait Algorithm {
     }
 
     fn load_specialization() -> LoadSpecializationConfig {
-        LoadSpecializationConfig::None
+        LoadSpecializationConfig::default()
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {
