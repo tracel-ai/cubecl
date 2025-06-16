@@ -4,10 +4,7 @@ use cubecl_core::{Feature, Runtime};
 
 use crate::components::config::MatmulConfig;
 use crate::components::tile::TileConfig;
-use crate::components::tile::register::setup::RegisterMatmulConfigError;
-use crate::components::{
-    Ident, InvalidConfigError, MatmulPrecision, MatrixLayout, TileSize, TilingScheme,
-};
+use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
 use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use cubecl_core::frontend::CubePrimitive;
 

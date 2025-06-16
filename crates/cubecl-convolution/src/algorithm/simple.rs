@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::ir::Elem;
 use cubecl_core::{
-    CubeCount, Runtime,
+    Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };

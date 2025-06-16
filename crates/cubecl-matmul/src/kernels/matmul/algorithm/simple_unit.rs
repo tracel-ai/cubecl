@@ -1,18 +1,13 @@
-use super::{MatmulSelection, base, unit_matmul_selection};
-use cubecl_core::{ir::Elem, prelude::*};
+use super::base;
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulLineSizes, MatmulProblem, MatrixLayout,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
         single_stage::simple::SimpleMatmulFamily,
     },
-    stage::{
-        ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, RowMajorTilingOrder,
-        UnitMatmulFamily,
-    },
+    stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
     tile::register::RegisterMatmul,
 };
 

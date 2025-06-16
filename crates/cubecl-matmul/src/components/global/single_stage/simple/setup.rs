@@ -12,13 +12,10 @@ use crate::{
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::{
-    components::{
-        Ident, InvalidConfigError, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, FullReaderFamily},
-    },
-    kernels::MatmulAvailabilityError,
+use crate::components::{
+    MatmulProblem,
+    global::GlobalMatmulFamily,
+    stage::{self, FullReaderFamily},
 };
 
 pub struct SimpleMatmulFamily<

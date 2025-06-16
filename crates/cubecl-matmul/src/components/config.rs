@@ -3,10 +3,6 @@ use cubecl_core::prelude::*;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::kernels::MatmulAvailabilityError;
-
-use super::MatmulPrecision;
-
 pub type InvalidConfigError = Box<dyn Display>;
 
 pub struct FormattedConfigError {

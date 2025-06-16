@@ -11,12 +11,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError,
-        MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg,
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulPrecision,
+        MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
-            single_stage::{self, simple::SimpleConfig},
+            single_stage::simple::SimpleConfig,
         },
         stage::{
             ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,

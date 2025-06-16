@@ -1,6 +1,4 @@
-use cubecl_core::{
-    LineSizeError, Runtime, ir::Elem, tensor_line_size_parallel, try_tensor_line_size_parallel,
-};
+use cubecl_core::{LineSizeError, Runtime, ir::Elem, try_tensor_line_size_parallel};
 
 use crate::components::{MatmulProblem, MatrixLayout};
 use std::fmt::Debug;

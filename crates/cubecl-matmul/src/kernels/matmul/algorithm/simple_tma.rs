@@ -1,10 +1,7 @@
-use super::{MatmulSelection, MultiRowStrategy, plane_matmul_selection};
 use core::marker::PhantomData;
-use cubecl_core::{ir::Elem, prelude::*};
 
 use crate::{
     components::{
-        MatmulLineSizes, MatmulProblem,
         batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
         global::single_stage::tma::SimpleTmaMatmulFamily,
         stage::{FullReaderFamily, PlaneMatmulFamily},

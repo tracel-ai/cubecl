@@ -1,4 +1,4 @@
-use std::{any::TypeId, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     algorithm::simple_tma::check_problem_tma,
@@ -19,18 +19,18 @@ use cubecl_core::{
 };
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
-        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
+        AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulSpec,
+        OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, arrive_tma},
-            single_stage::{self, tma::SimpleTmaConfig},
+            single_stage::tma::SimpleTmaConfig,
         },
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

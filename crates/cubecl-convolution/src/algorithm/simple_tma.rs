@@ -2,21 +2,19 @@ use std::marker::PhantomData;
 
 use cubecl_core::ir::Elem;
 use cubecl_core::{
-    CubeCount, CubeDim, Runtime,
+    CubeCount, Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
-use cubecl_matmul::kernels::MatmulSetupError;
 
 use crate::{
-    base::{ConvolutionConfigFactory, ConvolutionProblem, Dimensionality},
+    base::{ConvolutionProblem, Dimensionality},
     homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     selection::convolution_matmul_selection,
 };
 use cubecl_matmul::components::stage::NumStages;
-use cubecl_matmul::components::{AvailableLineSizes, MatmulLineSizes};
 use cubecl_matmul::components::{
-    InputIdent, InvalidConfigError, MatmulPrecision,
+    InputIdent, InvalidConfigError,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,

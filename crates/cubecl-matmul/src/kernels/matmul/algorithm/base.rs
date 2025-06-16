@@ -1,16 +1,9 @@
-use crate::components::LoadSpecializationConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
-use crate::components::global::load::LoaderMode;
-use crate::components::stage::{
-    NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization,
-};
+use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    TilingScheme, stage,
-};
-use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
+use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem};
+use crate::kernels::MatmulSetupError;
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 

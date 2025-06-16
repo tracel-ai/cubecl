@@ -1,34 +1,30 @@
 use std::marker::PhantomData;
 
 use cubecl_core::{
-    CubeCount, CubeDim, Runtime,
+    Runtime,
     client::ComputeClient,
     ir::Elem,
     prelude::{Numeric, TensorHandleRef},
 };
 
 use crate::{
-    base::{ConvolutionConfigFactory, ConvolutionProblem},
-    homogeneous::multi_stage_tma::MultiStageTmaConvolutionFamily,
+    base::ConvolutionProblem, homogeneous::multi_stage_tma::MultiStageTmaConvolutionFamily,
     selection::convolution_matmul_selection,
 };
 
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, InputIdent, InvalidConfigError, MatmulLineSizes, MatmulPrecision,
+        InputIdent,
         global::args::TensorMapArgs,
         stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::matmul::MatmulSelection,
 };
 
 use cubecl_std::tensor::TensorHandle;
 
-use super::{
-    Algorithm,
-    simple_tma::{check_problem_tma, into_tensor_handle_tma},
-};
+use super::{Algorithm, simple_tma::into_tensor_handle_tma};
 
 pub const TMA_STRIDE_ALIGN: usize = 16;
 

@@ -1,9 +1,7 @@
-use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
-use cubecl_core::{ir::Elem, prelude::*};
+use super::base;
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulProblem,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},

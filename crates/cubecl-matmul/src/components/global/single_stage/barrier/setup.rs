@@ -8,17 +8,9 @@ use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
+use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::MatmulSelection;
-use crate::{
-    components::{
-        Ident, InvalidConfigError, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage,
-    },
-    kernels::MatmulAvailabilityError,
-};
-use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 pub struct SimpleBarrierMatmulFamily<

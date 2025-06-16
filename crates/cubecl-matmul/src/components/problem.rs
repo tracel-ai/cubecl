@@ -1,12 +1,9 @@
 use cubecl_core::CubeCount;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    components::batch::{BatchConfig, BatchMatmulFamily, Partitioner},
-    kernels::matmul::MatmulSelection,
-};
+use crate::components::batch::{BatchConfig, BatchMatmulFamily, Partitioner};
 
-use super::{Ident, MatmulProblemSize, MatrixLayout, batch};
+use super::{Ident, MatmulProblemSize, MatrixLayout};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data

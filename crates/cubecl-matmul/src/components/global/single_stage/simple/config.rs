@@ -109,7 +109,7 @@ impl<S: stage::StageConfig> MatmulConfig for SimpleConfig<S> {}
 impl<S: stage::StageConfig> SimpleConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,

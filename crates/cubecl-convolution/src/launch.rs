@@ -7,14 +7,8 @@ use half::f16;
 
 use crate::ConvGemmConfig;
 use crate::base::ConvolutionLaunch;
+use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::components::{self, AvailableLineSizes, InputIdent, MatmulPrecision};
-use cubecl_matmul::{
-    components::{
-        MatmulLineSizes,
-        global::args::{ConcreteOutputFactory, MatmulArgs},
-    },
-    kernels::MatmulSetupError,
-};
 
 use super::{
     ConvLaunchError,

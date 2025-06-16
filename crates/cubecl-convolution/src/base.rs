@@ -2,11 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem,
-        MatmulSpec, MatrixLayout, OutputRuntimeArg,
+        AvailableLineSizes, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
+        MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
-    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmod,

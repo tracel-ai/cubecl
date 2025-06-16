@@ -5,15 +5,10 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
 use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder};
+use crate::components::{Ident, InputIdent, MatmulPrecision, MatrixLayout, global::Quantization};
 use crate::components::{
-    Ident, InputIdent, MatmulPrecision, MatrixLayout,
-    global::{Quantization, single_stage},
-};
-use crate::components::{
-    global::{self, GlobalConfig, tensor_view::MappedTensorReader},
-    stage::{
-        self, ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder,
-    },
+    global::{GlobalConfig, tensor_view::MappedTensorReader},
+    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder},
 };
 
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;

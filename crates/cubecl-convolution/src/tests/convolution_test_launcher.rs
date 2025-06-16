@@ -6,11 +6,10 @@ use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use crate::ConvGemmConfig;
 use crate::algorithm::Algorithm;
+use crate::args::ConvInputsLaunch;
 use crate::base::ConvolutionLaunch;
 use crate::base::ConvolutionProblem;
-use crate::{args::ConvInputsLaunch, base::ConvolutionConfigFactory};
 use cubecl_matmul::components::InputIdent;
-use cubecl_matmul::components::MatmulLineSizes;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::tests::test_utils::Sample;
 use cubecl_matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};

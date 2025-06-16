@@ -1,4 +1,3 @@
-use crate::components::global::load::LoaderMode;
 use crate::components::stage::PartitionBuffering;
 use crate::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
 use crate::components::{MatmulProblemSize, TilingScheme};

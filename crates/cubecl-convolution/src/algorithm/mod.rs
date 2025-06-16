@@ -1,13 +1,12 @@
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, InputIdent, InvalidConfigError, LoadSpecializationConfig,
-        MatmulLineSizes, MatmulPrecision,
+        AvailableLineSizes, InputIdent, LoadSpecializationConfig, MatmulPrecision,
         global::{args::MatmulArgs, load::LoaderMode},
-        stage::{NumStages, PartitionBuffering, StageMatmulFamily, StageVectorization},
+        stage::{NumStages, PartitionBuffering, StageMatmulFamily},
         tile::TileMatmulFamily,
     },
     kernels::{
-        MatmulAvailabilityError, MatmulSetupError,
+        MatmulSetupError,
         matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
     },
 };

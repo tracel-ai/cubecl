@@ -1,4 +1,4 @@
-use std::{any::TypeId, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     algorithm::simple_tma::check_problem_tma,
@@ -24,13 +24,13 @@ use cubecl_matmul::{
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, arrive_tma},
-            single_stage::{self, tma::SimpleTmaConfig},
+            single_stage::tma::SimpleTmaConfig,
         },
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

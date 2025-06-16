@@ -3,14 +3,11 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::batch::BatchConfig;
-use crate::components::global::load::LoaderMode;
-use crate::components::stage::{PartitionBuffering, StageConfig, StageVectorization};
 use crate::components::{
-    AvailableLineSizes, InputRuntimeArg, LoadSpecializationConfig, MatmulLineSizes,
-    MatmulPrecision, OutputRuntimeArg, TilingScheme,
+    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg,
 };
+use crate::kernels::matmul::Algorithm;
 use crate::kernels::matmul::base::launch_matmul;
-use crate::kernels::matmul::{Algorithm, LoadingPrecomputeStrategy};
 use crate::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,

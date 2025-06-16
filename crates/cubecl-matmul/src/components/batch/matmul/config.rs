@@ -41,7 +41,7 @@ impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
     pub fn new<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server, R::Channel>,
         global_config: G,
     ) -> Result<Self, MatmulSetupError> {
         Self { global_config }.validate()

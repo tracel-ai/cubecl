@@ -1,24 +1,17 @@
 use crate::components::AvailableLineSizes;
 use crate::components::LoadSpecializationConfig;
 use crate::components::MatmulPrecision;
-use crate::components::global::GlobalConfig as _;
 use crate::components::global::load::NoLoadingValidation;
-use crate::components::global::load::TmaLoader;
 use crate::components::global::load::TmaTiling;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
-use crate::kernels::MatmulAvailabilityError;
 use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::MatmulSelection;
-use std::any::TypeId;
 use std::marker::PhantomData;
 
-use cubecl_core::Feature;
 use cubecl_core::Runtime;
-use cubecl_core::TmaFeature;
 use cubecl_core::client::ComputeClient;
-use cubecl_core::tf32;
 
 use crate::components::{
     MatmulProblem,

@@ -81,7 +81,7 @@ impl<T: TileConfig> MatmulConfig for PlanePartitionedStageConfig<T> {}
 impl<T: TileConfig> PlanePartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server, R::Channel>,
         tile_config: T,
         tiling_scheme: TilingScheme,
         quantized: bool,

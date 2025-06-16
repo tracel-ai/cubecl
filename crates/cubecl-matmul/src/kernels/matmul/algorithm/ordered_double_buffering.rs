@@ -1,22 +1,17 @@
-use cubecl_core::ir::Elem;
-use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::components::batch;
 use crate::components::batch::{
     PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul,
 };
-use crate::components::global::GlobalMatmulFamily;
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
-    BufferReaderFamily, FullReaderFamily, NumStages, PlaneMatmulFamily, RowMajorTilingOrder,
+    BufferReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
-use crate::components::{InvalidConfigError, MatmulProblem};
 
-use super::base::{self, MultiRowStrategy};
-use super::{MatmulSelection, plane_matmul_selection};
+use super::base;
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
