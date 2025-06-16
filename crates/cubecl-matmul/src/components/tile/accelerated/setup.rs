@@ -57,8 +57,8 @@ impl TileMatmulFamily for AcceleratedMatmul {
             lhs_global_line_size as u32,
             rhs_global_line_size as u32,
             out_global_line_size as u32,
-            lhs_stage_line_size as u32,
-            rhs_stage_line_size as u32,
+            lhs_stage_line_size,
+            rhs_stage_line_size,
         )
     }
 

@@ -55,8 +55,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
                 .to_plane_roles(compute_planes),
         );
 
-        UnitPartitionedStageConfig::new::<MP, R>(
-            client,
+        UnitPartitionedStageConfig::new(
             tile_config,
             selection.tiling_scheme,
             selection.quantized,

@@ -1,8 +1,6 @@
-use cubecl_core::{Runtime, client::ComputeClient};
-
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
+        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
         global::{PlaneRoleConfig, RoleRuleConfig},
         stage::{NumStages, PartitionBuffering, StageConfig},
         tile::TileConfig,
@@ -80,8 +78,7 @@ impl<T: TileConfig> MatmulConfig for UnitPartitionedStageConfig<T> {}
 
 impl<T: TileConfig> UnitPartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<MP: MatmulPrecision, R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+    pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,
         quantized: bool,

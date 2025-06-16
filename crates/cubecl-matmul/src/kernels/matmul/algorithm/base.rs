@@ -18,18 +18,13 @@ pub enum MultiRowStrategy {
     Adaptive { minimum_stage_count: usize },
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LoadingPrecomputeStrategy {
     /// Don't precompute anything in loading jobs
+    #[default]
     Never,
     /// Precompute values that are shared across tasks
     Always,
-}
-
-impl Default for LoadingPrecomputeStrategy {
-    fn default() -> LoadingPrecomputeStrategy {
-        LoadingPrecomputeStrategy::Never
-    }
 }
 
 impl From<LoadingPrecomputeStrategy> for bool {

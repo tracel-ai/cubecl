@@ -3,10 +3,10 @@ use std::marker::PhantomData;
 use crate::components::AvailableLineSizes;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::batch::entry_point::matmul;
-use crate::components::batch::matmul::config::PartitionedBatchConfig;
-use crate::components::batch::matmul::matmul::PartitionedBatchMatmul;
-use crate::components::batch::matmul::partition::GlobalPartitionMatmul;
-use crate::components::batch::matmul::partitioner::Partitioner;
+use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
+use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
+use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
+use crate::components::batch::partitioned_matmul::partitioner::Partitioner;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -41,7 +41,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup::<MP, R>(client, problem, selection, available_line_sizes)?;
 
-        PartitionedBatchConfig::new::<MP, R>(client, global_config)
+        PartitionedBatchConfig::new(global_config)
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(

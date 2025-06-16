@@ -43,7 +43,7 @@ where
 
     let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
     let available_line_sizes =
-        find_available_line_sizes::<MS, R>(forced_line_sizes, &elem_in, &elem_out);
+        find_available_line_sizes::<R>(forced_line_sizes, &elem_in, &elem_out);
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, available_line_sizes)?;
 
     let line_sizes = config.line_sizes();
@@ -82,7 +82,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
 
     let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
     let available_line_sizes =
-        find_available_line_sizes::<MS, R>(forced_line_sizes, &elem_in, &elem_out);
+        find_available_line_sizes::<R>(forced_line_sizes, &elem_in, &elem_out);
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, available_line_sizes)?;
 
     launch_matmul::<MS, R, A>(
@@ -99,7 +99,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
 // At the moment, because of fusion, we can force line sizes
 // But this may make the matmul kernel setup fail.
 // Would be better to add a constraint on fusion
-fn find_available_line_sizes<MS: MatmulSpec, R: Runtime>(
+fn find_available_line_sizes<R: Runtime>(
     forced_line_sizes: Option<MatmulLineSizes>,
     elem_in: &Elem,
     elem_out: &Elem,

@@ -41,7 +41,7 @@ impl ComputeResources {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LoadSpecializationConfig {
     /// Use the number of compute planes from the stage matmul.
     Mirror,
@@ -53,6 +53,7 @@ pub enum LoadSpecializationConfig {
     Fixed(u32),
 
     /// No planes.
+    #[default]
     None,
 }
 
@@ -78,11 +79,5 @@ impl LoadSpecializationConfig {
             main_flow,
             load_only,
         }
-    }
-}
-
-impl Default for LoadSpecializationConfig {
-    fn default() -> LoadSpecializationConfig {
-        LoadSpecializationConfig::None
     }
 }

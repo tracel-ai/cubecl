@@ -61,7 +61,7 @@ where
                 )));
             };
 
-        SimpleBarrierConfig::new::<LL, RL, MP, R>(
+        SimpleBarrierConfig::new::<LL, RL, R>(
             client,
             stage_config,
             num_planes,

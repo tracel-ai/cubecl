@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
+use cubecl_core::{CubeCount, CubeDim};
 
 use crate::{
     components::{
-        Ident, MatmulConfig, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
         batch::{BatchConfig, Partitioner},
         global::GlobalConfig,
     },
@@ -58,10 +58,7 @@ impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, 
 impl<G: GlobalConfig, P: Partitioner> MatmulConfig for PartitionedBatchConfig<G, P> {}
 
 impl<G: GlobalConfig, P: Partitioner> PartitionedBatchConfig<G, P> {
-    pub fn new<MP: MatmulPrecision, R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
-        global_config: G,
-    ) -> Result<Self, MatmulSetupError> {
+    pub fn new(global_config: G) -> Result<Self, MatmulSetupError> {
         Self {
             global_config,
             _phantom: PhantomData,

@@ -1,8 +1,8 @@
 mod base;
 mod entry_point;
-mod matmul;
+mod partitioned_matmul;
 mod shared;
 
 pub use base::*;
-pub use matmul::*;
+pub use partitioned_matmul::*;
 pub use shared::*;

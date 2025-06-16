@@ -177,14 +177,9 @@ pub trait StageConfig: MatmulConfig {
     fn quantized(&self) -> bool;
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PartitionBuffering {
     Single,
+    #[default]
     Double,
-}
-
-impl Default for PartitionBuffering {
-    fn default() -> Self {
-        PartitionBuffering::Double
-    }
 }

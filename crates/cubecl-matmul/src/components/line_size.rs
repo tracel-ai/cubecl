@@ -37,7 +37,7 @@ impl AvailableLineSizes {
             self.lhs
                 .clone()
                 .into_iter()
-                .filter(|x| ceiling.map_or(true, |c| x <= &c)),
+                .filter(|x| ceiling.is_none_or(|c| x <= &c)),
             &[problem.m, problem.k],
             &match problem.lhs_layout {
                 MatrixLayout::RowMajor => [problem.k, 1],
@@ -59,7 +59,7 @@ impl AvailableLineSizes {
             self.rhs
                 .clone()
                 .into_iter()
-                .filter(|x| ceiling.map_or(true, |c| x <= &c)),
+                .filter(|x| ceiling.is_none_or(|c| x <= &c)),
             &[problem.k, problem.n],
             &match problem.rhs_layout {
                 MatrixLayout::RowMajor => [problem.n, 1],
@@ -81,7 +81,7 @@ impl AvailableLineSizes {
             self.out
                 .clone()
                 .into_iter()
-                .filter(|x| ceiling.map_or(true, |c| x <= &c)),
+                .filter(|x| ceiling.is_none_or(|c| x <= &c)),
             &[problem.k, problem.n],
             &[problem.n, 1],
             1,

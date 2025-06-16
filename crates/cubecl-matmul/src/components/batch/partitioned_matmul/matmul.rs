@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::components::MatmulPrecision;
-use crate::components::batch::matmul::config::PartitionedBatchConfig;
-use crate::components::batch::matmul::partition::{
+use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
+use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::matmul::partitioner::Partitioner;
+use crate::components::batch::partitioned_matmul::partitioner::Partitioner;
 use crate::components::batch::{BatchConfig as _, BatchMatmul};
 use crate::components::global;
 use crate::components::global::Quantization;

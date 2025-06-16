@@ -50,7 +50,7 @@ impl LoadingValidation for NoLoadingValidation {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Controls bounds checking for loader operations.
 ///
 /// This **does not** disable tensor read bounds checks.
@@ -62,11 +62,6 @@ pub enum LoaderMode {
     Strict,
     /// Inserts runtime checks only when an out-of-bounds access will occur.
     /// May reduce performance if workloads are imbalanced.
+    #[default]
     Relaxed,
-}
-
-impl Default for LoaderMode {
-    fn default() -> LoaderMode {
-        LoaderMode::Relaxed
-    }
 }

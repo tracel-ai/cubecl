@@ -2,7 +2,7 @@ use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
+        Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{
             self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
             load::{LoaderMode, LoadingValidation},
@@ -108,7 +108,7 @@ impl<S: stage::StageConfig> MatmulConfig for SimpleBarrierConfig<S> {}
 
 impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,
         num_planes: u32,
@@ -130,7 +130,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
             loader_mode,
         }
         .validate::<LL, RL>()?
-        .check_availability::<MP, R>(client)
+        .check_availability::<R>(client)
     }
 
     fn validate<LL: LoadingValidation, RL: LoadingValidation>(
@@ -143,7 +143,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
         Ok(self)
     }
 
-    fn check_availability<MP: MatmulPrecision, R: Runtime>(
+    fn check_availability<R: Runtime>(
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
