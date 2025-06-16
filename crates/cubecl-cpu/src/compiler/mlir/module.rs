@@ -117,7 +117,7 @@ impl<'a> Module<'a> {
         self.module.as_operation().verify();
     }
 
-    pub(super) fn into_execution_engine(&self) -> ExecutionEngine {
+    pub(super) fn into_execution_engine(self) -> ExecutionEngine {
         ExecutionEngine::new(&self.module, 0, &[], true)
     }
 }

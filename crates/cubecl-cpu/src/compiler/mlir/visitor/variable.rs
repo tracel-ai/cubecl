@@ -32,8 +32,7 @@ impl<'a> Visitor<'a> {
                     &[variable.vectorization_factor() as i64],
                     None,
                     None,
-                )
-                .into();
+                );
                 let memref = self
                     .current_mut_variables
                     .get(&id)
@@ -109,11 +108,10 @@ impl<'a> Visitor<'a> {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
                 self.global_buffers[id as usize]
             }
-            VariableKind::LocalMut { id } => self
+            VariableKind::LocalMut { id } => *self
                 .current_mut_variables
                 .get(&id)
-                .expect("Variable should have been declared before")
-                .clone(),
+                .expect("Variable should have been declared before"),
             _ => todo!(
                 "This variable isn't backed by memory or implemented: {}",
                 variable
@@ -122,11 +120,10 @@ impl<'a> Visitor<'a> {
     }
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
-            VariableKind::LocalConst { id } => self
+            VariableKind::LocalConst { id } => *self
                 .current_local_variables
                 .get(&id)
-                .expect("Variable should have been declared before")
-                .clone(),
+                .expect("Variable should have been declared before"),
             VariableKind::Builtin(builtin) => self.get_builtin(builtin),
             VariableKind::ConstantScalar(constant_scalar_value) => {
                 let (const_type, attribute) = match constant_scalar_value {
@@ -187,17 +184,15 @@ impl<'a> Visitor<'a> {
                     false => value,
                 }
             }
-            VariableKind::Versioned { id, version } => self
+            VariableKind::Versioned { id, version } => *self
                 .current_version_variables
                 .get(&(id, version))
-                .expect("Variable should have been declared before")
-                .clone(),
+                .expect("Variable should have been declared before"),
             VariableKind::LocalMut { id } => {
-                let memref = self
+                let memref = *self
                     .current_mut_variables
                     .get(&id)
-                    .expect("Variable should have been declared before")
-                    .clone();
+                    .expect("Variable should have been declared before");
                 let result_type = variable.item.to_type(self.context);
                 let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
                 let zero = self.append_operation_with_result(arith::constant(

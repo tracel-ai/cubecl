@@ -67,6 +67,7 @@ pub struct Visitor<'a> {
 }
 
 impl<'a> Visitor<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         current_block: BlockRef<'a, 'a>,
         last_block: BlockRef<'a, 'a>,
@@ -134,7 +135,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn block(&self) -> BlockRef<'a, 'a> {
-        self.current_block.clone()
+        self.current_block
     }
 
     pub fn get_block_args(
@@ -213,7 +214,7 @@ impl<'a> Visitor<'a> {
 
         let attributes = &[(
             Identifier::new(context, "llvm.emit_c_interface"),
-            Attribute::unit(context).into(),
+            Attribute::unit(context),
         )];
 
         let mut inputs = Vec::with_capacity(kernel.buffers.len() + 9);
@@ -248,7 +249,6 @@ impl<'a> Visitor<'a> {
 
         let func_type = TypeAttribute::new(FunctionType::new(context, &inputs, &[]).into());
 
-        let location = location;
         add_external_function_to_module(context, module);
         module.body().append_operation(func::func(
             context,
@@ -380,175 +380,166 @@ impl<'a> Visitor<'a> {
             .unwrap()
             .into();
 
-        block.append_operation(
-            scf::r#for(
-                c0,
-                cube_count_x,
-                c1,
-                {
-                    let region = Region::new();
-                    let block = Block::new(&[(Type::index(&context), location)]);
-                    let cube_pos_x = block.argument(0).unwrap().into();
+        block.append_operation(scf::r#for(
+            c0,
+            cube_count_x,
+            c1,
+            {
+                let region = Region::new();
+                let block = Block::new(&[(Type::index(context), location)]);
+                let cube_pos_x = block.argument(0).unwrap().into();
 
-                    let absolute_pos_x_tmp = block
-                        .append_operation(arith::muli(cube_pos_x, cube_dim_x, location))
-                        .result(0)
-                        .unwrap()
-                        .into();
-                    let absolute_pos_x = block
-                        .append_operation(arith::addi(absolute_pos_x_tmp, unit_pos_x, location))
-                        .result(0)
-                        .unwrap()
-                        .into();
+                let absolute_pos_x_tmp = block
+                    .append_operation(arith::muli(cube_pos_x, cube_dim_x, location))
+                    .result(0)
+                    .unwrap()
+                    .into();
+                let absolute_pos_x = block
+                    .append_operation(arith::addi(absolute_pos_x_tmp, unit_pos_x, location))
+                    .result(0)
+                    .unwrap()
+                    .into();
 
-                    block.append_operation(scf::r#for(
-                        c0,
-                        cube_count_y,
-                        c1,
-                        {
-                            let region = Region::new();
-                            let block = Block::new(&[(Type::index(&context), location)]);
-                            let cube_pos_y = block.argument(0).unwrap().into();
+                block.append_operation(scf::r#for(
+                    c0,
+                    cube_count_y,
+                    c1,
+                    {
+                        let region = Region::new();
+                        let block = Block::new(&[(Type::index(context), location)]);
+                        let cube_pos_y = block.argument(0).unwrap().into();
 
-                            let absolute_pos_y_tmp = block
-                                .append_operation(arith::muli(cube_pos_y, cube_dim_y, location))
-                                .result(0)
-                                .unwrap()
-                                .into();
-                            let absolute_pos_y = block
-                                .append_operation(arith::addi(
-                                    absolute_pos_y_tmp,
-                                    unit_pos_y,
-                                    location,
-                                ))
-                                .result(0)
-                                .unwrap()
-                                .into();
-                            let absolute_pos_tmp_3 = block
-                                .append_operation(arith::muli(
-                                    absolute_pos_y,
-                                    absolute_pos_tmp_0,
-                                    location,
-                                ))
-                                .result(0)
-                                .unwrap()
-                                .into();
-                            block.append_operation(scf::r#for(
-                                c0,
-                                cube_count_y,
-                                c1,
-                                {
-                                    let region = Region::new();
-                                    let block = Block::new(&[(Type::index(&context), location)]);
-
-                                    let cube_pos_z = block.argument(0).unwrap().into();
-
-                                    let absolute_pos_z_tmp = block
-                                        .append_operation(arith::muli(
-                                            cube_pos_z, cube_dim_z, location,
-                                        ))
-                                        .result(0)
-                                        .unwrap()
-                                        .into();
-                                    let absolute_pos_z = block
-                                        .append_operation(arith::addi(
-                                            absolute_pos_z_tmp,
-                                            unit_pos_z,
-                                            location,
-                                        ))
-                                        .result(0)
-                                        .unwrap()
-                                        .into();
-
-                                    let absolute_pos_tmp_4 = block
-                                        .append_operation(arith::muli(
-                                            absolute_pos_z,
-                                            absolute_pos_tmp_2,
-                                            location,
-                                        ))
-                                        .result(0)
-                                        .unwrap()
-                                        .into();
-                                    let absolute_pos_tmp_5 = block
-                                        .append_operation(arith::addi(
-                                            absolute_pos_x,
-                                            absolute_pos_tmp_3,
-                                            location,
-                                        ))
-                                        .result(0)
-                                        .unwrap()
-                                        .into();
-
-                                    let absolute_pos = block
-                                        .append_operation(arith::addi(
-                                            absolute_pos_tmp_5,
-                                            absolute_pos_tmp_4,
-                                            location,
-                                        ))
-                                        .result(0)
-                                        .unwrap()
-                                        .into();
-
-                                    region.append_block(block);
-                                    let current_block = region.first_block().unwrap();
-                                    let ops = current_block.append_operation(scf::execute_region(
-                                        &[],
-                                        Region::new(),
-                                        location,
-                                    ));
-                                    let current_region = ops.region(0).unwrap();
-
-                                    let last_block = Block::new(&[]);
-                                    last_block.append_operation(scf::r#yield(&[], location).into());
-                                    let last_block = current_region.append_block(last_block);
-
-                                    let mut visitor = Visitor::new(
-                                        current_block,
-                                        last_block,
-                                        module,
-                                        current_region,
-                                        context,
-                                        location,
-                                        global_buffers,
-                                        global_scalars,
-                                        cube_dim_x,
-                                        cube_dim_y,
-                                        cube_dim_z,
-                                        cube_count_x,
-                                        cube_count_y,
-                                        cube_count_z,
-                                        unit_pos_x,
-                                        unit_pos_y,
-                                        unit_pos_z,
-                                        cube_pos_x,
-                                        cube_pos_y,
-                                        cube_pos_z,
-                                        absolute_pos_x,
-                                        absolute_pos_y,
-                                        absolute_pos_z,
-                                        absolute_pos,
-                                    );
-                                    visitor.visit_basic_block(basic_block_id, opt);
-
-                                    current_block.append_operation(scf::r#yield(&[], location));
-                                    region
-                                },
+                        let absolute_pos_y_tmp = block
+                            .append_operation(arith::muli(cube_pos_y, cube_dim_y, location))
+                            .result(0)
+                            .unwrap()
+                            .into();
+                        let absolute_pos_y = block
+                            .append_operation(arith::addi(absolute_pos_y_tmp, unit_pos_y, location))
+                            .result(0)
+                            .unwrap()
+                            .into();
+                        let absolute_pos_tmp_3 = block
+                            .append_operation(arith::muli(
+                                absolute_pos_y,
+                                absolute_pos_tmp_0,
                                 location,
-                            ));
-                            block.append_operation(scf::r#yield(&[], location).into());
-                            region.append_block(block);
-                            region
-                        },
-                        location,
-                    ));
+                            ))
+                            .result(0)
+                            .unwrap()
+                            .into();
+                        block.append_operation(scf::r#for(
+                            c0,
+                            cube_count_y,
+                            c1,
+                            {
+                                let region = Region::new();
+                                let block = Block::new(&[(Type::index(context), location)]);
 
-                    block.append_operation(scf::r#yield(&[], location).into());
-                    region.append_block(block);
-                    region
-                },
-                location,
-            )
-            .into(),
-        );
+                                let cube_pos_z = block.argument(0).unwrap().into();
+
+                                let absolute_pos_z_tmp = block
+                                    .append_operation(arith::muli(cube_pos_z, cube_dim_z, location))
+                                    .result(0)
+                                    .unwrap()
+                                    .into();
+                                let absolute_pos_z = block
+                                    .append_operation(arith::addi(
+                                        absolute_pos_z_tmp,
+                                        unit_pos_z,
+                                        location,
+                                    ))
+                                    .result(0)
+                                    .unwrap()
+                                    .into();
+
+                                let absolute_pos_tmp_4 = block
+                                    .append_operation(arith::muli(
+                                        absolute_pos_z,
+                                        absolute_pos_tmp_2,
+                                        location,
+                                    ))
+                                    .result(0)
+                                    .unwrap()
+                                    .into();
+                                let absolute_pos_tmp_5 = block
+                                    .append_operation(arith::addi(
+                                        absolute_pos_x,
+                                        absolute_pos_tmp_3,
+                                        location,
+                                    ))
+                                    .result(0)
+                                    .unwrap()
+                                    .into();
+
+                                let absolute_pos = block
+                                    .append_operation(arith::addi(
+                                        absolute_pos_tmp_5,
+                                        absolute_pos_tmp_4,
+                                        location,
+                                    ))
+                                    .result(0)
+                                    .unwrap()
+                                    .into();
+
+                                region.append_block(block);
+                                let current_block = region.first_block().unwrap();
+                                let ops = current_block.append_operation(scf::execute_region(
+                                    &[],
+                                    Region::new(),
+                                    location,
+                                ));
+                                let current_region = ops.region(0).unwrap();
+
+                                let last_block = Block::new(&[]);
+                                last_block.append_operation(scf::r#yield(&[], location));
+                                let last_block = current_region.append_block(last_block);
+
+                                let mut visitor = Visitor::new(
+                                    current_block,
+                                    last_block,
+                                    module,
+                                    current_region,
+                                    context,
+                                    location,
+                                    global_buffers,
+                                    global_scalars,
+                                    cube_dim_x,
+                                    cube_dim_y,
+                                    cube_dim_z,
+                                    cube_count_x,
+                                    cube_count_y,
+                                    cube_count_z,
+                                    unit_pos_x,
+                                    unit_pos_y,
+                                    unit_pos_z,
+                                    cube_pos_x,
+                                    cube_pos_y,
+                                    cube_pos_z,
+                                    absolute_pos_x,
+                                    absolute_pos_y,
+                                    absolute_pos_z,
+                                    absolute_pos,
+                                );
+                                visitor.visit_basic_block(basic_block_id, opt);
+
+                                current_block.append_operation(scf::r#yield(&[], location));
+                                region
+                            },
+                            location,
+                        ));
+                        block.append_operation(scf::r#yield(&[], location));
+                        region.append_block(block);
+                        region
+                    },
+                    location,
+                ));
+
+                block.append_operation(scf::r#yield(&[], location));
+                region.append_block(block);
+                region
+            },
+            location,
+        ));
     }
 }

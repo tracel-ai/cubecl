@@ -22,7 +22,7 @@ pub fn add_external_function_to_module<'a>(
     let integer_type = IntegerType::new(context, 32).into();
     let func_type = TypeAttribute::new(llvm::r#type::function(
         integer_type,
-        &[llvm::r#type::pointer(&context, 0)],
+        &[llvm::r#type::pointer(context, 0)],
         true,
     ));
     module.body().append_operation(llvm::func(
