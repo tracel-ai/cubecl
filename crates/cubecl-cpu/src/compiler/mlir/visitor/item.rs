@@ -18,7 +18,7 @@ impl IntoType for Item {
             _ => inner_type,
         }
     }
-    fn is_vectorized(self) -> bool {
+    fn is_vectorized(&self) -> bool {
         matches!(self.vectorization, Some(size) if size.get() > 1)
     }
 }

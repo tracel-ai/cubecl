@@ -95,7 +95,6 @@ impl<'a> Visitor<'a> {
                     .map(|(_, dest)| self.get_block_args(block_id, *dest))
                     .collect();
                 let case_destinations: Vec<_> = (0..branches.len())
-                    .into_iter()
                     .map(|i| (blocks[i].deref(), attributes_vec[i].as_slice()))
                     .collect();
                 this_block.append_operation(

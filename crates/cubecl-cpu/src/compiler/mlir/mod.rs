@@ -84,7 +84,8 @@ impl MlirEngine {
         self.execution_engine.dump_to_object_file(path);
     }
 
-    /// This function will make the program segfault if args is reallocated
+    /// # Safety
+    /// This function will make the program segfault if args is reallocated.
     pub unsafe fn push_buffer(&mut self, pointer: &mut [u8]) {
         let first_box = LineMemRef::new(pointer);
         self.args_zero_indirection.push(first_box);
@@ -107,6 +108,8 @@ impl MlirEngine {
         }
     }
 
+    /// # Safety
+    /// MLIR kernel needs valid reference and will SEGFAULT if bad pointer are sent.
     pub unsafe fn run_kernel(&mut self) {
         unsafe {
             self.execution_engine

@@ -8,7 +8,7 @@ pub use tracel_llvm::melior::{
 
 pub trait IntoType {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a>;
-    fn is_vectorized(self) -> bool
+    fn is_vectorized(&self) -> bool
     where
         Self: Sized,
     {
