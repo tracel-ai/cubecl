@@ -87,6 +87,7 @@ futures-lite = { version = "2.3.0", default-features = false }
 # CubeCL-CPU
 sysinfo = "0.35.1"
 tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "b7a423b19dcde89f01f7293216385c565270ba41" }
+libc = "0.2.172"
 
 [profile.dev]
 debug = 0     # Speed up compilation time and not necessary.

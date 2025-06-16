@@ -5,7 +5,7 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
-    storage::{BytesStorage, ComputeStorage},
+    storage::BytesStorage,
 };
 use sysinfo::System;
 
@@ -61,9 +61,10 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let storage = BytesStorage::default();
 
     const LINUX_PAGE_SIZE: u64 = 4 * 1024;
+    const ALIGNMENT: u64 = 4;
     let mem_properties = MemoryDeviceProperties {
         max_page_size: LINUX_PAGE_SIZE,
-        alignment: BytesStorage::ALIGNMENT,
+        alignment: ALIGNMENT,
     };
 
     let memory_management =

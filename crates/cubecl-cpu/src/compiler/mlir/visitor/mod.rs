@@ -12,11 +12,19 @@ use cubecl_core::prelude::KernelDefinition;
 use cubecl_opt::{NodeIndex, Optimizer};
 use tracel_llvm::melior::{
     Context,
-    dialect::{arith, func, scf},
+    dialect::{
+        arith, func,
+        llvm::{
+            self,
+            attributes::{Linkage, linkage},
+        },
+        ods::llvm as llvm_ods,
+        scf,
+    },
     ir::{
-        Attribute, Block, BlockRef, Identifier, Location, Operation, Region, RegionRef,
+        Attribute, Block, BlockRef, Identifier, Location, Module, Operation, Region, RegionRef,
         attribute::{IntegerAttribute, StringAttribute, TypeAttribute},
-        r#type::{FunctionType, MemRefType},
+        r#type::{FunctionType, IntegerType, MemRefType},
     },
 };
 
@@ -27,6 +35,7 @@ use super::external_function::add_external_function_to_module;
 pub struct Visitor<'a> {
     pub current_block: BlockRef<'a, 'a>,
     pub last_block: BlockRef<'a, 'a>,
+    pub module: &'a Module<'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
     pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<Variable>>,
     pub current_region: RegionRef<'a, 'a>,
@@ -37,6 +46,7 @@ pub struct Visitor<'a> {
     pub current_mut_variables: HashMap<u32, Value<'a, 'a>>,
     pub global_buffers: Vec<Value<'a, 'a>>,
     pub global_scalars: Vec<Value<'a, 'a>>,
+    pub str_counter: usize,
 
     pub cube_dim_x: Value<'a, 'a>,
     pub cube_dim_y: Value<'a, 'a>,
@@ -60,6 +70,7 @@ impl<'a> Visitor<'a> {
     pub fn new(
         current_block: BlockRef<'a, 'a>,
         last_block: BlockRef<'a, 'a>,
+        module: &'a Module<'a>,
         current_region: RegionRef<'a, 'a>,
         context: &'a Context,
         location: Location<'a>,
@@ -87,10 +98,11 @@ impl<'a> Visitor<'a> {
         let current_mut_variables = HashMap::new();
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
-
+        let str_counter = 0;
         Self {
             current_block,
             last_block,
+            module,
             blocks,
             blocks_args,
             current_region,
@@ -99,6 +111,7 @@ impl<'a> Visitor<'a> {
             current_local_variables,
             current_version_variables,
             current_mut_variables,
+            str_counter,
             global_buffers,
             global_scalars,
             cube_dim_x,
@@ -135,6 +148,47 @@ impl<'a> Visitor<'a> {
             .iter()
             .map(|v| self.get_variable(*v))
             .collect()
+    }
+
+    pub fn append_global_str(&mut self, str_to_append: &str) -> String {
+        let key = "str".to_string() + &self.str_counter.to_string();
+        let str_value = StringAttribute::new(self.context, str_to_append).into();
+        let str_type = llvm::r#type::array(
+            IntegerType::new(self.context, 8).into(),
+            str_to_append.len() as u32,
+        );
+        self.str_counter += 1;
+        self.module.body().append_operation(
+            llvm_ods::mlir_global(
+                self.context,
+                {
+                    let region = Region::new();
+                    let block = Block::new(&[]);
+                    let constant = block
+                        .append_operation(
+                            llvm_ods::mlir_constant(
+                                self.context,
+                                str_type,
+                                str_value,
+                                self.location,
+                            )
+                            .into(),
+                        )
+                        .result(0)
+                        .unwrap()
+                        .into();
+                    block.append_operation(llvm::r#return(Some(constant), self.location));
+                    region.append_block(block);
+                    region
+                },
+                TypeAttribute::new(str_type),
+                StringAttribute::new(self.context, &key),
+                linkage(self.context, Linkage::Internal),
+                self.location,
+            )
+            .into(),
+        );
+        key
     }
 
     pub fn append_operation_with_result(
@@ -218,6 +272,7 @@ impl<'a> Visitor<'a> {
 
                 Self::insert_builtin_loop(
                     block,
+                    module,
                     opt,
                     context,
                     location,
@@ -237,6 +292,7 @@ impl<'a> Visitor<'a> {
     // TODO: cleanup this abomination by refactoring melior to make it at least not as bulky and verbose
     pub fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
+        module: &tracel_llvm::melior::ir::Module<'a>,
         opt: &Optimizer,
         context: &'a Context,
         location: Location<'a>,
@@ -449,6 +505,7 @@ impl<'a> Visitor<'a> {
                                     let mut visitor = Visitor::new(
                                         current_block,
                                         last_block,
+                                        module,
                                         current_region,
                                         context,
                                         location,
