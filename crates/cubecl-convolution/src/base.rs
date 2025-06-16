@@ -91,10 +91,6 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
 pub trait ConvolutionConfigFactory: Send + Sync + 'static {
     /// Configuration tailored to the matmul implementation
     type Config: ConvGemmConfig;
-    type Input;
-
-    /// Asserts that the configuration for this matmul will lead to a valid computation
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError>;
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -102,11 +98,6 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError>;
 }
 
 /// Provides launch entry point to solve a matmul

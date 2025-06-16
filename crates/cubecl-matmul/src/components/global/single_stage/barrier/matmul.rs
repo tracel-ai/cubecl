@@ -8,7 +8,7 @@ use crate::components::global::Quantization;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::load::AsyncLoader;
-use crate::components::global::single_stage::SingleStageConfig;
+use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
 use barrier::Barrier;
@@ -44,9 +44,9 @@ where
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Config = SingleStageConfig<SMM::Config>;
-    type LhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, LL>;
-    type RhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, RL>;
+    type Config = SimpleBarrierConfig<SMM::Config>;
+    type LhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, LL, Self::Config>;
+    type RhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, RL, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -115,7 +115,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(
+        Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
@@ -135,7 +135,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
+        Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,

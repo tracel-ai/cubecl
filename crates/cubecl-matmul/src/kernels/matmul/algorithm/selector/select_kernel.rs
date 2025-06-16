@@ -47,7 +47,8 @@ where
     let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
     let available_line_sizes =
         find_available_line_sizes::<MS, R>(forced_line_sizes, &elem_in, &elem_out);
-    let config = A::setup(&problem, &selection, available_line_sizes)?;
+    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, available_line_sizes)?;
+
     let line_sizes = config.line_sizes();
 
     launch_matmul::<MS, R, A>(
@@ -85,7 +86,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
     let available_line_sizes =
         find_available_line_sizes::<MS, R>(forced_line_sizes, &elem_in, &elem_out);
-    let config = A::setup(&problem, &selection, available_line_sizes)?;
+    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, available_line_sizes)?;
 
     launch_matmul::<MS, R, A>(
         client,

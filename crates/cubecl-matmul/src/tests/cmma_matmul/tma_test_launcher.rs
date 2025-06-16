@@ -64,7 +64,12 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &P::EG::as_elem_native_unchecked(),
     );
 
-    let config = match A::setup(&problem, &selection, available_line_sizes) {
+    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+        &client,
+        &problem,
+        &selection,
+        available_line_sizes,
+    ) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");

@@ -1,3 +1,5 @@
+use crate::components::global::load::LoaderMode;
+use crate::components::stage::PartitionBuffering;
 use crate::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
 use crate::components::{MatmulProblemSize, TilingScheme};
 use crate::kernels::matmul::{Algorithm, MatmulSelection};
@@ -37,7 +39,17 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         .build()
         .unwrap();
 
-    let selection = MatmulSelection::builder(tiling_scheme, plane_dim).build();
+    let partition_buffering = if tiling_scheme.tiles_in_stage_partition_n() > 1 {
+        PartitionBuffering::Double
+    } else {
+        PartitionBuffering::Single
+    };
+
+    let selection = MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(partition_buffering)
+        .build();
+
+    println!("{:?}", selection);
 
     test_matmul_algorithm::<A, P, R>(client, problem, selection);
 }

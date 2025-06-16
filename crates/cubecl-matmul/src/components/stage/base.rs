@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::components::stage::{NumStages, PartitionedStageConfig};
+use crate::components::AvailableLineSizes;
+use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, MatmulChecker};
 use crate::components::{
     Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     config::MatmulConfig,
@@ -18,11 +18,11 @@ use super::{StageEventListener, TilingLayout};
 
 #[cube]
 pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn read_tile<TC: TileConfig>(
+    fn read_tile<S: StageConfig>(
         this: &Self,
         row: u32,
         col: u32,
-        #[comptime] config: PartitionedStageConfig<TC>,
+        #[comptime] config: S,
     ) -> Tile<ES>;
 }
 
@@ -30,11 +30,10 @@ pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
 }
 
-pub trait StageMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: StageConfig> {
+pub trait StageMatmulFamily: Send + Sync + 'static {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
-
-    type Input;
+    type Config: StageConfig;
 
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
@@ -43,7 +42,8 @@ pub trait StageMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: Stage
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
-    fn setup(
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,

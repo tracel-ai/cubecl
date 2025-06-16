@@ -25,7 +25,6 @@ type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 pub fn test_convolution_algorithm<A, Args, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: ConvolutionProblem,
-    input: <A::GlobalConvolution as ConvolutionConfigFactory>::Input,
     selection: MatmulSelection,
 ) where
     A: Algorithm,

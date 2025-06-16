@@ -3,8 +3,8 @@ use cubecl_core::{self as cubecl, ir::Elem};
 
 use crate::{
     components::{
-        AvailableLineSizes, Ident, InvalidConfigError, MatmulChecker, MatmulPrecision,
-        MatmulProblem, MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
+        AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem,
+        MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
         stage::StageVectorization, tile::tile_data::Tile,
     },
     kernels::{MatmulSetupError, matmul::MatmulSelection},
@@ -16,13 +16,15 @@ pub struct TileSetupInput {
     pub tile_size: TileSize,
 }
 
-pub trait TileMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: TileConfig> {
+pub trait TileMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
+    type Config: TileConfig;
 
     fn requires_tensor_cores() -> bool;
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
-    fn setup(
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,

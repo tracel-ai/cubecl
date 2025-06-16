@@ -1,7 +1,11 @@
-use cubecl_core::CubeDim;
+use cubecl_core::{client::ComputeClient, CubeDim, Runtime};
 
-use crate::components::{
-    Ident, MatmulConfig, MatmulLineSizes, batch::BatchConfig, global::GlobalConfig,
+use crate::{
+    components::{
+        Ident, MatmulConfig, MatmulLineSizes, MatmulPrecision, batch::BatchConfig,
+        global::GlobalConfig,
+    },
+    kernels::MatmulSetupError,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -36,7 +40,10 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
 impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
-    pub fn new(global_config: G) -> Self {
-        Self { global_config }
+    pub fn new<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        global_config: G,
+    ) -> Result<Self, MatmulSetupError> {
+        Ok(Self { global_config })
     }
 }

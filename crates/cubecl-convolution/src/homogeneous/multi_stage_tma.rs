@@ -12,24 +12,25 @@ use crate::{
         weight_tma::{TmaWeightLoader, TmaWeightTiling},
     },
 };
+use cubecl_core::prelude::*;
 use cubecl_core::{
     self as cubecl,
     prelude::barrier::{Barrier, BarrierLevel},
 };
-use cubecl_core::{ir::Elem, prelude::*};
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError,
-        MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
-        global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulPrecision,
+        MatmulSpec, OutputRuntimeArg, TilingScheme,
+        global::{
+            AccumulatorLoader, GlobalConfig,
+            load::{NoLoadingValidation, arrive_tma},
+            single_stage::{self, tma::SimpleTmaConfig},
+        },
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{
-        MatmulAvailabilityError, MatmulSetupError,
-        matmul::{GlobalInput, MatmulSelection},
-    },
+    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -72,7 +73,7 @@ where
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
-    type Config = ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
@@ -260,12 +261,7 @@ impl<SMM> ConvolutionConfigFactory for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
-    type Input = GlobalInput<SMM::Input>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
+    type Config = config::ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -280,7 +276,8 @@ where
         available_line_sizes.lhs = vec![1];
         available_line_sizes.rhs = vec![1];
 
-        let stage_config = SMM::setup(
+        let stage_config = SMM::setup::<MP, R>(
+            client,
             &problem.as_matmul_problem(),
             selection,
             available_line_sizes,
@@ -297,41 +294,26 @@ where
             &stage_config.tiling_scheme(),
         );
 
-        Ok(config::ConvolutionConfig::new(
-            single_stage::SingleStageConfig::new(
+        config::ConvolutionConfig::new(
+            SimpleTmaConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+                client,
                 stage_config,
+                stage_config.num_main_flow_planes(),
                 // TODO: Find the correct condition to avoid check bounds.
-                todo!(),
-                // plane_dim: u32,
                 true,
                 true,
                 true,
                 stage_k,
                 selection.loading_precompute_strategy,
                 selection.loader_mode,
-            ),
+            )?,
             &problem.kernel_size,
             &problem.stride,
             &problem.dilation,
             &problem.padding,
             problem.dimensionality,
             num_stages,
-        ))
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        let id_ei = TypeId::of::<MP::EI>();
-        let id_es = TypeId::of::<MP::ES>();
-        let is_tf32 = id_ei == TypeId::of::<f32>() && id_es == TypeId::of::<tf32>();
-
-        if id_ei != id_es && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        SMM::check_availability::<R, MP>(client, &config.stage_config())
+        )
     }
 }
 

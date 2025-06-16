@@ -92,12 +92,15 @@ pub mod config {
     use std::ops::Deref;
 
     use crate::{ConvGemmConfig, base::Dimensionality};
-    use cubecl_matmul::components::{
-        InputIdent, MatmulConfig, MatmulLineSizes, MatmulProblem, MatrixLayout, TilingScheme,
-        global::{
-            GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
-            multi_stage::EventLoadingMode,
+    use cubecl_matmul::{
+        components::{
+            InputIdent, MatmulConfig, MatmulLineSizes, MatmulProblem, MatrixLayout, TilingScheme,
+            global::{
+                GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+                multi_stage::EventLoadingMode,
+            },
         },
+        kernels::MatmulSetupError,
     };
 
     use super::*;
@@ -231,7 +234,7 @@ pub mod config {
             padding: &[i32],
             dim: Dimensionality,
             num_stages: u32,
-        ) -> Self {
+        ) -> Result<Self, MatmulSetupError> {
             let dims = kernel_size.len();
 
             let mut this = Self {
@@ -247,7 +250,7 @@ pub mod config {
             this.stride[0..dims].copy_from_slice(stride);
             this.dilation[0..dims].copy_from_slice(dilation);
             this.padding[0..dims].copy_from_slice(padding);
-            this
+            Ok(this)
         }
 
         pub fn to_matmul_config(self) -> M {

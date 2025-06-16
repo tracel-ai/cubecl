@@ -1,7 +1,7 @@
 use crate::components::batch::{BatchConfig, BatchMatmulFamily};
 use crate::components::{
-    AvailableLineSizes, InputRuntimeArg, MatmulChecker, MatmulPrecision, MatmulProblem, MatmulSpec,
-    MatrixLayout, OutputRuntimeArg, ReplaceES,
+    AvailableLineSizes, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec, MatrixLayout,
+    OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::matmul::MatmulSelection;
@@ -287,7 +287,7 @@ pub fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     cube_count: CubeCount,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
-    config: <A::BatchMatmul as MatmulChecker>::Config,
+    config: <A::BatchMatmul as BatchMatmulFamily>::Config,
 ) -> Result<(), MatmulSetupError> {
     unsafe {
         A::BatchMatmul::launch_unchecked::<MS, R>(

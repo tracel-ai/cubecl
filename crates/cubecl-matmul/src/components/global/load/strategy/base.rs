@@ -43,6 +43,13 @@ pub trait LoadingValidation {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
 
+pub struct NoLoadingValidation {}
+impl LoadingValidation for NoLoadingValidation {
+    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
+        Ok(())
+    }
+}
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Controls bounds checking for loader operations.
 ///

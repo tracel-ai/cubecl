@@ -1,15 +1,16 @@
-use cubecl_core::CubeDim;
+use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
+        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
         global::{
-            GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+            GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+            load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
         },
         stage::{self},
     },
-    kernels::matmul::LoadingPrecomputeStrategy,
+    kernels::{MatmulSetupError, matmul::LoadingPrecomputeStrategy},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -113,7 +114,8 @@ impl<S: stage::StageConfig> MatmulConfig for OrderedDoubleBufferingGlobalConfig<
 
 impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,
@@ -121,7 +123,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         check_k_bounds: bool,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
-    ) -> Self {
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
             num_planes,
@@ -131,5 +133,14 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             precompute_job,
             loader_mode,
         }
+        .validate::<LL, RL>()
+    }
+
+    fn validate<LL: LoadingValidation, RL: LoadingValidation>(
+        self,
+    ) -> Result<Self, MatmulSetupError> {
+        LL::check::<Self>(&self, Ident::Lhs)?;
+        RL::check::<Self>(&self, Ident::Rhs)?;
+        Ok(self)
     }
 }

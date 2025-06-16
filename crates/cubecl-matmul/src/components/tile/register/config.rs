@@ -1,6 +1,15 @@
+use cubecl_core::client::ComputeClient;
+use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::{Feature, Runtime};
+
 use crate::components::config::MatmulConfig;
 use crate::components::tile::TileConfig;
-use crate::components::{Ident, MatrixLayout, TileSize, TilingScheme};
+use crate::components::tile::register::setup::RegisterMatmulConfigError;
+use crate::components::{
+    Ident, InvalidConfigError, MatmulPrecision, MatrixLayout, TileSize, TilingScheme,
+};
+use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
+use cubecl_core::frontend::CubePrimitive;
 
 pub enum ProductType {
     /// Needs lhs to be row major and rhs to be col major
@@ -64,7 +73,8 @@ impl MatmulConfig for RegisterConfig {}
 
 impl RegisterConfig {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         tiling_scheme: TilingScheme,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
@@ -75,7 +85,7 @@ impl RegisterConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
-    ) -> Self {
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             tiling_scheme,
             plane_dim,
@@ -88,6 +98,8 @@ impl RegisterConfig {
             lhs_stage_line_size,
             rhs_stage_line_size,
         }
+        .validate()?
+        .check_availability::<MP, R>(client)
     }
 
     pub fn product_type(&self) -> ProductType {
@@ -103,5 +115,100 @@ impl RegisterConfig {
             (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
             (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
         }
+    }
+
+    fn validate(self) -> Result<Self, MatmulSetupError> {
+        let m = self.tile_size().m();
+        let n = self.tile_size().n();
+        let k = self.tile_size().k();
+
+        // 128 a bit arbitrary, but accepts 4x4x4 and rejects 8x8x8
+        if m * n * k > 128 {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Tile size m-n-k={:?}-{:?}-{:?} is too large for register matmul",
+                m, n, k
+            ))));
+        }
+
+        let lhs = self.stage_line_size(Ident::Lhs);
+        let rhs = self.stage_line_size(Ident::Rhs);
+
+        match self.matrix_layout(Ident::Lhs) {
+            MatrixLayout::RowMajor => {
+                if k % lhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {:?} should be divisible by line size {:?}",
+                        k, lhs
+                    ))));
+                }
+            }
+            MatrixLayout::ColMajor => {
+                if m % lhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {:?} should be divisible by line size {:?}",
+                        m, lhs
+                    ))));
+                }
+            }
+        }
+        match self.matrix_layout(Ident::Rhs) {
+            MatrixLayout::RowMajor => {
+                if n % rhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {:?} should be divisible by line size {:?}",
+                        n, rhs
+                    ))));
+                }
+            }
+            MatrixLayout::ColMajor => {
+                if k % rhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {:?} should be divisible by line size {:?}",
+                        k, rhs
+                    ))));
+                }
+            }
+        }
+
+        Ok(self)
+    }
+
+    fn check_availability<MP: MatmulPrecision, R: Runtime>(
+        self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<Self, MatmulSetupError> {
+        if self.stage_dynamic_line_size
+            && !client
+                .properties()
+                .feature_enabled(Feature::DynamicLineSize)
+        {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::DynamicLineSizeUnavailable,
+            ));
+        }
+
+        let es = MP::ES::as_elem_native().expect("to be a native type");
+        let ea = MP::EA::as_elem_native().expect("to be a native type");
+
+        let es = match es {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => es,
+        };
+
+        let ea = match ea {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => ea,
+        };
+
+        if !(MP::ES::is_supported(client) && MP::EA::is_supported(client)) {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::TypesUnavailable {
+                    input: es,
+                    output: ea,
+                },
+            ));
+        }
+
+        Ok(self)
     }
 }

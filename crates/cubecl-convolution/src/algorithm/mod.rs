@@ -8,9 +8,7 @@ use cubecl_matmul::{
     },
     kernels::{
         MatmulAvailabilityError, MatmulSetupError,
-        matmul::{
-            GlobalInput, LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy, StageInput,
-        },
+        matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
     },
 };
 
@@ -27,8 +25,8 @@ pub mod simple_tma;
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
-    type StageMatmul: StageMatmulFamily<Input = StageInput>;
-    type GlobalConvolution: ConvolutionFamily<Input = GlobalInput<StageInput>>;
+    type StageMatmul: StageMatmulFamily;
+    type GlobalConvolution: ConvolutionFamily;
 
     type Args: MatmulArgs;
 
@@ -39,31 +37,6 @@ pub trait Algorithm {
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
-    }
-
-    fn global_input(selection: &MatmulSelection) -> GlobalInput<StageInput> {
-        let partition_buffering = if selection.tiling_scheme.tiles_in_stage_partition_n() > 1 {
-            Self::partition_buffering_strategy()
-        } else {
-            PartitionBuffering::Single
-        };
-
-        let stage_vectorization = StageVectorization {
-            stage_line_size: 0,
-            stage_elem_padding: 0,
-        };
-
-        GlobalInput {
-            stage_input: StageInput {
-                tiling_scheme: selection.tiling_scheme,
-                partition_buffering,
-                stage_vectorization,
-                num_stages: Self::num_stages(),
-                load_specialization: Self::load_specialization(),
-            },
-            loading_precompute_strategy: Self::loading_precompute_strategy(),
-            loader_mode: Self::loader_mode(),
-        }
     }
 
     fn num_stages() -> NumStages;
@@ -97,15 +70,6 @@ pub trait Algorithm {
     ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, MatmulSetupError>
     {
         Self::GlobalConvolution::setup::<R, MP>(client, problem, selection, available_line_sizes)
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &<Self::GlobalConvolution as ConvolutionConfigFactory>::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
-            client, config,
-        )
     }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(

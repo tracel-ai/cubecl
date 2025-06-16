@@ -5,6 +5,7 @@ use cubecl_core::{
 use crate::components::{MatmulProblem, MatrixLayout};
 use std::fmt::Debug;
 
+#[derive(Debug)]
 pub struct MatmulLineSizes {
     pub lhs: u8,
     pub rhs: u8,

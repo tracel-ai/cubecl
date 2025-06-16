@@ -1,20 +1,23 @@
-use cubecl_core::CubeDim;
+use std::any::TypeId;
+
+use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
 
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
+        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
         global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+            load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
         },
         stage,
     },
-    kernels::matmul::LoadingPrecomputeStrategy,
+    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::LoadingPrecomputeStrategy},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for single stage matmuls
-pub struct SingleStageConfig<S: stage::StageConfig> {
+pub struct SimpleTmaConfig<S: stage::StageConfig> {
     stage_config: S,
     num_planes: u32,
     check_m_bounds: bool,
@@ -25,7 +28,7 @@ pub struct SingleStageConfig<S: stage::StageConfig> {
     loader_mode: LoaderMode,
 }
 
-impl<S: stage::StageConfig> global::GlobalConfig for SingleStageConfig<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
     type StageConfig = S;
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -102,11 +105,12 @@ impl<S: stage::StageConfig> global::GlobalConfig for SingleStageConfig<S> {
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for SingleStageConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for SimpleTmaConfig<S> {}
 
-impl<S: stage::StageConfig> SingleStageConfig<S> {
+impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,
@@ -115,7 +119,7 @@ impl<S: stage::StageConfig> SingleStageConfig<S> {
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
-    ) -> Self {
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
             num_planes,
@@ -126,5 +130,51 @@ impl<S: stage::StageConfig> SingleStageConfig<S> {
             precompute_job,
             loader_mode,
         }
+        .validate::<LL, RL>()?
+        .check_availability::<MP, R>(client)
+    }
+
+    fn validate<LL: LoadingValidation, RL: LoadingValidation>(
+        self,
+    ) -> Result<Self, MatmulSetupError> {
+        LL::check(&self, Ident::Lhs)?;
+        RL::check(&self, Ident::Rhs)?;
+        Ok(self)
+    }
+
+    fn check_availability<MP: MatmulPrecision, R: Runtime>(
+        self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<Self, MatmulSetupError> {
+        let ei_id = TypeId::of::<MP::EI>();
+        let es_id = TypeId::of::<MP::ES>();
+        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+        if ei_id != es_id && !is_tf32 {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::TmaUnavailable,
+            ));
+        }
+
+        let ei_id = TypeId::of::<MP::EI>();
+        let es_id = TypeId::of::<MP::ES>();
+        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+        if ei_id != es_id && !is_tf32 {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::TmaUnavailable,
+            ));
+        }
+
+        if !client
+            .properties()
+            .feature_enabled(Feature::Tma(TmaFeature::Base))
+        {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::TmaUnavailable,
+            ));
+        }
+
+        Ok(self)
     }
 }

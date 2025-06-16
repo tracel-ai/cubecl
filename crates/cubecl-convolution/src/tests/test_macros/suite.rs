@@ -85,12 +85,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
 
     let selection = MatmulSelection::builder(tiling_scheme, plane_dim).build();
 
-    test_convolution_algorithm::<A, Args, P, R>(
-        client,
-        problem,
-        A::global_input(&selection),
-        selection,
-    );
+    test_convolution_algorithm::<A, Args, P, R>(client, problem, selection);
 }
 
 /// Calculate the expected output size when doing a convolution operation.

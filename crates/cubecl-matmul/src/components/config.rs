@@ -29,21 +29,6 @@ impl Display for FormattedConfigError {
     }
 }
 
-/// Provides configuration for a matmul kernel at any level
-pub trait MatmulChecker: Send + Sync + 'static {
-    type Config: MatmulConfig;
-
-    /// Asserts that the configuration for this matmul will lead to a valid computation
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError>;
-
-    /// Checks if the client can handle the features used in this computation
-    #[allow(clippy::result_large_err)]
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError>;
-}
-
 /// A config for a matmul
 ///
 /// Useful to aggregate many trait bounds

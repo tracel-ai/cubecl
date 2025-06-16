@@ -1,14 +1,16 @@
 use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
-    algorithm::simple_tma::check_problem_tma, base::{
+    algorithm::simple_tma::check_problem_tma,
+    base::{
         Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
         ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
-    }, loader::{
+    },
+    loader::{
         bias::BiasLoader,
         im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
         weight_tma::{TmaWeightLoader, TmaWeightTiling},
-    }
+    },
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -19,15 +21,16 @@ use cubecl_matmul::{
     components::{
         AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
         MatmulPrecision, MatmulSpec, OutputRuntimeArg,
-        global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
+        global::{
+            AccumulatorLoader, GlobalConfig,
+            load::{NoLoadingValidation, arrive_tma},
+            single_stage::{self, tma::SimpleTmaConfig},
+        },
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{
-        MatmulAvailabilityError, MatmulSetupError,
-        matmul::{GlobalInput, MatmulSelection},
-    },
+    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -57,7 +60,7 @@ where
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
-    type Config = ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
@@ -191,15 +194,10 @@ impl<SMM> ConvolutionConfigFactory for SimpleTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
-    type Input = GlobalInput<SMM::Input>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
+    type Config = config::ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         mut available_line_sizes: AvailableLineSizes,
@@ -211,7 +209,8 @@ where
         available_line_sizes.lhs = vec![1];
         available_line_sizes.rhs = vec![1];
 
-        let stage_config = SMM::setup(
+        let stage_config = SMM::setup::<MP, R>(
+            client,
             &problem.as_matmul_problem(),
             selection,
             available_line_sizes,
@@ -219,11 +218,11 @@ where
         )?;
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        Ok(config::ConvolutionConfig::new(
-            single_stage::SingleStageConfig::new(
+        config::ConvolutionConfig::new(
+            SimpleTmaConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+                client,
                 stage_config,
-                todo!(),
-                // num_planes,
+                stage_config.num_main_flow_planes(),
                 // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
@@ -231,29 +230,14 @@ where
                 stage_k,
                 selection.loading_precompute_strategy,
                 selection.loader_mode,
-            ),
+            )?,
             &problem.kernel_size,
             &problem.stride,
             &problem.dilation,
             &problem.padding,
             problem.dimensionality,
             1,
-        ))
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        let id_ei = TypeId::of::<MP::EI>();
-        let id_es = TypeId::of::<MP::ES>();
-        let is_tf32 = id_ei == TypeId::of::<f32>() && id_es == TypeId::of::<tf32>();
-
-        if id_ei != id_es && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        SMM::check_availability::<R, MP>(client, &config.stage_config())
+        )
     }
 }
 

@@ -1,31 +1,32 @@
-use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
+use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
 
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
         global::{
-            GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
             load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
         },
-        stage::{self},
+        stage,
     },
-    kernels::{MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::LoadingPrecomputeStrategy},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the pipelined global matmul
-pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
-    pub stage_config: S,
+/// Configuration for single stage matmuls
+pub struct SimpleBarrierConfig<S: stage::StageConfig> {
+    stage_config: S,
     num_planes: u32,
-    pub check_m_bounds: bool,
-    pub check_n_bounds: bool,
-    pub check_k_bounds: bool,
+    check_m_bounds: bool,
+    check_n_bounds: bool,
+    check_k_bounds: bool,
+    pub k_step: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
 }
 
-impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for SimpleBarrierConfig<S> {
     type StageConfig = S;
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -64,12 +65,12 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         self.check_k_bounds
     }
 
-    fn precompute_job(&self) -> bool {
-        self.precompute_job.into()
+    fn num_stages(&self, _ident: InputIdent) -> u32 {
+        1
     }
 
-    fn num_stages(&self, _ident: InputIdent) -> u32 {
-        2
+    fn precompute_job(&self) -> bool {
+        self.precompute_job.into()
     }
 
     fn loader_mode(&self) -> LoaderMode {
@@ -84,18 +85,16 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         self.stage_config.plane_role_config()
     }
 
-    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
-        self.specialized_loading_sides().num_loading_planes(
-            self.plane_role_config().has_specialization(),
-            ident.into().as_input_ident(),
-            self.plane_role_config().plane_roles,
-        )
+    fn num_loading_planes<I: Into<Ident>>(&self, _ident: I) -> u32 {
+        // Specialized is not available
+        self.stage_config().num_main_flow_planes()
     }
 
     fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
         SpecializedLoadingSides {
             main_flow: LoadingSides::Both,
-            load_only: LoadingSides::Both,
+            // Specialized is not available
+            load_only: LoadingSides::None,
         }
     }
 
@@ -104,9 +103,9 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for SimpleBarrierConfig<S> {}
 
-impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
+impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -115,6 +114,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
+        k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
     ) -> Result<Self, MatmulSetupError> {
@@ -124,17 +124,32 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,
+            k_step,
             precompute_job,
             loader_mode,
         }
-        .validate::<LL, RL>()
+        .validate::<LL, RL>()?
+        .check_availability::<MP, R>(client)
     }
 
     fn validate<LL: LoadingValidation, RL: LoadingValidation>(
         self,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check::<Self>(&self, Ident::Lhs)?;
-        RL::check::<Self>(&self, Ident::Rhs)?;
+        LL::check(&self, Ident::Lhs)?;
+        RL::check(&self, Ident::Rhs)?;
+        Ok(self)
+    }
+
+    fn check_availability<MP: MatmulPrecision, R: Runtime>(
+        self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<Self, MatmulSetupError> {
+        if !client.properties().feature_enabled(Feature::Barrier) {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::BarrierUnavailable,
+            ));
+        }
+
         Ok(self)
     }
 }

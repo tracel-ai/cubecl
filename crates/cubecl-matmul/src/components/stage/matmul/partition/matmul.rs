@@ -6,7 +6,6 @@ use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::matmul::config::PartitionedStageConfig;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile;
 use cubecl::prelude::*;
@@ -17,17 +16,19 @@ pub struct PartitionMatmul<
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
+    S: StageConfig,
 > {
-    _phantom: PhantomData<(MP, TMM, RL, RR)>,
+    _phantom: PhantomData<(MP, TMM, RL, RR, S)>,
 }
 
 #[cube]
-impl<MP, TMM, RL, RR> PartitionMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR, S> PartitionMatmul<MP, TMM, RL, RR, S>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
+    S: StageConfig<TileConfig = TMM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn execute_with_listener<SEL: StageEventListener>(
@@ -37,8 +38,8 @@ where
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TMM::Lhs>,
         rhs_fragments: &mut RhsTile<TMM::Rhs>,
-        acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
+        acc: &mut Accumulators<MP, TMM, S>,
+        #[comptime] config: S,
         listener: SEL,
     ) {
         match rhs_fragments {
@@ -67,9 +68,7 @@ where
         }
     }
 
-    pub fn init_tile_inputs(
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
-    ) -> (Sequence<TMM::Lhs>, RhsTile<TMM::Rhs>) {
+    pub fn init_tile_inputs(#[comptime] config: S) -> (Sequence<TMM::Lhs>, RhsTile<TMM::Rhs>) {
         let tile_config = config.tile_config();
         let mut lhs = Sequence::new();
 
@@ -89,23 +88,18 @@ where
         (lhs, rhs)
     }
 
-    pub fn init_accumulator(
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
-    ) -> Accumulators<MP, TMM> {
-        Accumulators::<MP, TMM>::new(config)
+    pub fn init_accumulator(#[comptime] config: S) -> Accumulators<MP, TMM, S> {
+        Accumulators::<MP, TMM, S>::new(config)
     }
 
-    pub fn zero_accumulator(
-        acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
-    ) {
+    pub fn zero_accumulator(acc: &mut Accumulators<MP, TMM, S>, #[comptime] config: S) {
         acc.zero(config);
     }
 
     pub fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
-        acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
+        acc: &mut Accumulators<MP, TMM, S>,
+        #[comptime] config: S,
     ) {
         acc.fill::<L>(loader, config);
     }
@@ -119,8 +113,8 @@ where
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TMM::Lhs>,
         rhs_fragment: &mut TMM::Rhs,
-        acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
+        acc: &mut Accumulators<MP, TMM, S>,
+        #[comptime] config: S,
         mut listener: SEL,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
@@ -145,8 +139,7 @@ where
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
-                let tile_lhs =
-                    RL::read_tile::<TMM::Config>(lhs_reader, start_m + m_iter, k_iter, config);
+                let tile_lhs = RL::read_tile::<S>(lhs_reader, start_m + m_iter, k_iter, config);
                 TMM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -170,7 +163,7 @@ where
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..n_iterations {
                 let rhs_tile_next =
-                    RR::read_tile::<TMM::Config>(rhs_reader, k_iter, start_n + n_iter, config);
+                    RR::read_tile::<S>(rhs_reader, k_iter, start_n + n_iter, config);
                 TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
@@ -187,7 +180,7 @@ where
                 #[unroll]
                 for _ in 0..m_iterations {
                     let accumulator =
-                        Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter, config);
+                        Accumulators::<MP, TMM, S>::get_at_mut(acc, m_iter, n_iter, config);
                     TMM::execute(
                         lhs_fragment.index(m_iter),
                         rhs_fragment,
@@ -226,8 +219,8 @@ where
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TMM::Lhs>,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
-        acc: &mut Accumulators<MP, TMM>,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
+        acc: &mut Accumulators<MP, TMM, S>,
+        #[comptime] config: S,
         mut listener: SEL,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
@@ -253,8 +246,7 @@ where
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
-                let tile_lhs =
-                    RL::read_tile::<TMM::Config>(lhs_reader, start_m + m_iter, k_iter, config);
+                let tile_lhs = RL::read_tile::<S>(lhs_reader, start_m + m_iter, k_iter, config);
                 TMM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -274,8 +266,7 @@ where
 
             let mut n_iter = comptime![0u32];
 
-            let rhs_tile_first =
-                RR::read_tile::<TMM::Config>(rhs_reader, k_iter, start_n + n_iter, config);
+            let rhs_tile_first = RR::read_tile::<S>(rhs_reader, k_iter, start_n + n_iter, config);
             TMM::fill_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
@@ -295,12 +286,8 @@ where
                     (&mut rhs_fragments.1, &mut rhs_fragments.0)
                 };
 
-                let rhs_tile_next = RR::read_tile::<TMM::Config>(
-                    rhs_reader,
-                    k_iter,
-                    start_n + comptime![n_iter + 1],
-                    config,
-                );
+                let rhs_tile_next =
+                    RR::read_tile::<S>(rhs_reader, k_iter, start_n + comptime![n_iter + 1], config);
                 TMM::fill_rhs(&rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,
@@ -317,7 +304,7 @@ where
                 #[unroll]
                 for _ in 0..m_iterations {
                     let accumulator =
-                        Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter, config);
+                        Accumulators::<MP, TMM, S>::get_at_mut(acc, m_iter, n_iter, config);
 
                     TMM::execute(
                         lhs_fragment.index(m_iter),
@@ -351,7 +338,8 @@ where
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
-                let accumulator = Accumulators::<MP, TMM>::get_at_mut(acc, m_iter, n_iter, config);
+                let accumulator =
+                    Accumulators::<MP, TMM, S>::get_at_mut(acc, m_iter, n_iter, config);
                 TMM::execute(
                     lhs_fragment.index(m_iter),
                     last,

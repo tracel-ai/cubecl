@@ -1,7 +1,8 @@
+use std::marker::PhantomData;
+
 use crate::components::MatmulPrecision;
 use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
-use crate::components::stage::matmul::config::PartitionedStageConfig;
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -9,13 +10,21 @@ use cubecl_core as cubecl;
 #[derive(CubeType)]
 /// Wrapper over a sequence of tile matmul accumulators
 /// Enables indexing at 2d coordinates
-pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
+pub struct Accumulators<
+    MP: MatmulPrecision,
+    TMM: TileMatmul<MP>,
+    S: StageConfig<TileConfig = TMM::Config>,
+> {
     sequence: Sequence<TMM::Accumulator>,
+    #[cube(comptime)]
+    _phantom: PhantomData<S>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
-    pub fn new(#[comptime] config: PartitionedStageConfig<TMM::Config>) -> Accumulators<MP, TMM> {
+impl<MP: MatmulPrecision, TMM: TileMatmul<MP>, S: StageConfig<TileConfig = TMM::Config>>
+    Accumulators<MP, TMM, S>
+{
+    pub fn new(#[comptime] config: S) -> Accumulators<MP, TMM, S> {
         let partition_size = config.tiling_scheme().partition_size;
         let mut accumulators = Sequence::new();
 
@@ -24,23 +33,20 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
             accumulators.push(TMM::allocate_accumulator(config.tile_config()));
         }
 
-        Accumulators::<MP, TMM> {
+        Accumulators::<MP, TMM, S> {
             sequence: accumulators,
+            _phantom: PhantomData,
         }
     }
 
-    pub fn zero(&mut self, #[comptime] config: PartitionedStageConfig<TMM::Config>) {
+    pub fn zero(&mut self, #[comptime] config: S) {
         #[unroll]
         for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
             TMM::zero_accumulator(self.sequence.index_mut(i), config.tile_config());
         }
     }
 
-    pub fn fill<L: AccumulatorLoader<MP>>(
-        &mut self,
-        loader: &mut L,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
-    ) {
+    pub fn fill<L: AccumulatorLoader<MP>>(&mut self, loader: &mut L, #[comptime] config: S) {
         #[unroll]
         for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
             let acc = self.sequence.index_mut(i);
@@ -49,10 +55,10 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
     }
 
     pub fn get_at(
-        this: &Accumulators<MP, TMM>,
+        this: &Accumulators<MP, TMM, S>,
         #[comptime] i: u32,
         #[comptime] j: u32,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
+        #[comptime] config: S,
     ) -> &TMM::Accumulator {
         this.sequence.index(comptime!(
             i * config.tiling_scheme().tiles_in_stage_partition_n() + j
@@ -60,10 +66,10 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
     }
 
     pub fn get_at_mut(
-        this: &mut Accumulators<MP, TMM>,
+        this: &mut Accumulators<MP, TMM, S>,
         #[comptime] i: u32,
         #[comptime] j: u32,
-        #[comptime] config: PartitionedStageConfig<TMM::Config>,
+        #[comptime] config: S
     ) -> &mut TMM::Accumulator {
         this.sequence.index_mut(comptime!(
             i * config.tiling_scheme().tiles_in_stage_partition_n() + j

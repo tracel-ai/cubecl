@@ -44,24 +44,6 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
 
     type Args = TensorMapArgs;
 
-    fn check_availability<R: Runtime, MP: cubecl_matmul::components::MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &<Self::GlobalConvolution as ConvolutionConfigFactory>::Config,
-    ) -> Result<(), cubecl_matmul::kernels::MatmulAvailabilityError> {
-        <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
-            client, config,
-        )?;
-
-        if !client
-            .properties()
-            .feature_enabled(cubecl_core::Feature::Tma(cubecl_core::TmaFeature::Base))
-        {
-            return Err(cubecl_matmul::kernels::MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        Ok(())
-    }
-
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,

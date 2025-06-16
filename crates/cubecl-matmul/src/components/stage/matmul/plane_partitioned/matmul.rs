@@ -1,13 +1,23 @@
 use crate::components::global::PlaneWriter;
 use crate::components::global::RoleRule;
+use crate::components::stage::StageConfig;
 use crate::components::stage::matmul::partitioned_matmul::PartitionedStageMatmul;
 use crate::components::stage::matmul::partitioned_matmul::StagePartitioner;
-use crate::components::stage::StageConfig;
+use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageConfig;
+use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-pub type PlaneMatmul<MP, TMM, RL, RR> = PartitionedStageMatmul<MP, TMM, RL, RR, PlanePartitioner>;
+#[allow(type_alias_bounds)]
+pub type PlaneMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
+    MP,
+    TMM,
+    RL,
+    RR,
+    PlanePartitioner,
+    PlanePartitionedStageConfig<TMM::Config>,
+>;
 
 pub struct PlanePartitioner {}
 

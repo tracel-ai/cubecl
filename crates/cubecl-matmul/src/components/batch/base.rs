@@ -1,7 +1,7 @@
 use crate::{
     components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulChecker, MatmulLineSizes, MatmulPrecision,
-        MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingScheme,
+        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, OutputRuntimeArg, TilingScheme,
         batch::Partitioner,
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
@@ -16,12 +16,13 @@ use cubecl_std::{
 };
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
-pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulChecker<Config: BatchConfig> {
+pub trait BatchMatmulFamily: 'static + Send + Sync {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
-    type Input;
     type Partitioner: Partitioner;
+    type Config: BatchConfig;
 
-    fn setup(
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,

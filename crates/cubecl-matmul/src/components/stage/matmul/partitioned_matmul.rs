@@ -5,7 +5,6 @@ use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::matmul::config::PartitionedStageConfig;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::{global, tile};
@@ -36,24 +35,26 @@ pub struct PartitionedStageMatmul<
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
     SP: StagePartitioner,
+    S: StageConfig<TileConfig = TMM::Config>,
 > {
-    _phantom: PhantomData<(MP, TMM, RL, RR, SP)>,
+    _phantom: PhantomData<(MP, TMM, RL, RR, SP, S)>,
 }
 
 #[cube]
-impl<MP, TMM, RL, RR, SP> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM, RL, RR, SP>
+impl<MP, TMM, RL, RR, SP, S> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM, RL, RR, SP, S>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: StageToTileReader<MP::ES>,
     RR: StageToTileReader<MP::ES>,
     SP: StagePartitioner,
+    S: StageConfig<TileConfig = TMM::Config>,
 {
-    type Config = PartitionedStageConfig<TMM::Config>;
+    type Config = S;
 
     type LhsReader = RL;
     type RhsReader = RR;
-    type Accumulator = Accumulators<MP, TMM>;
+    type Accumulator = Accumulators<MP, TMM, S>;
     type LhsTile = Sequence<TMM::Lhs>;
     type RhsTile = RhsTile<TMM::Rhs>;
     type Writer = SP::Writer<MP::EO>;
@@ -93,7 +94,7 @@ where
         let start_m = m_acc_count * (partition_position / num_partitions_n);
         let start_n = n_acc_count * (partition_position % num_partitions_n);
 
-        PartitionMatmul::<MP, TMM, RL, RR>::execute_with_listener::<SEL>(
+        PartitionMatmul::<MP, TMM, RL, RR, S>::execute_with_listener::<SEL>(
             start_m,
             start_n,
             lhs_reader,
@@ -107,15 +108,15 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        PartitionMatmul::<MP, TMM, RL, RR>::init_tile_inputs(config)
+        PartitionMatmul::<MP, TMM, RL, RR, S>::init_tile_inputs(config)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        PartitionMatmul::<MP, TMM, RL, RR>::init_accumulator(config)
+        PartitionMatmul::<MP, TMM, RL, RR, S>::init_accumulator(config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        PartitionMatmul::<MP, TMM, RL, RR>::zero_accumulator(acc, config);
+        PartitionMatmul::<MP, TMM, RL, RR, S>::zero_accumulator(acc, config);
     }
 
     fn fill_accumulator<L: AccumulatorLoader<MP>>(
@@ -123,13 +124,13 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        PartitionMatmul::<MP, TMM, RL, RR>::fill_accumulator::<L>(loader, acc, config);
+        PartitionMatmul::<MP, TMM, RL, RR, S>::fill_accumulator::<L>(loader, acc, config);
     }
 
     fn write_results<G: global::GlobalConfig>(
-        acc: &Accumulators<MP, TMM>,
+        acc: &Accumulators<MP, TMM, S>,
         out: &mut Self::Writer,
-        #[comptime] stage_config: PartitionedStageConfig<TMM::Config>,
+        #[comptime] stage_config: S,
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = stage_config.stage_line_size(Ident::Out);
@@ -161,7 +162,7 @@ where
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
                 let accumulator =
-                    Accumulators::<MP, TMM>::get_at(acc, m_iter, n_iter, stage_config);
+                    Accumulators::<MP, TMM, S>::get_at(acc, m_iter, n_iter, stage_config);
                 TMM::write_results(accumulator, &mut smem_slice, stage_config.tile_config());
                 Self::Writer::write::<G>(
                     out,

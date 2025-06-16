@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         GlobalMatmul, Quantization, ZeroAccumulatorLoader,
         load::{SyncFullLoader, SyncFullLoadingStrategy},
-        single_stage::SingleStageConfig,
+        single_stage::simple::SimpleConfig,
     },
     stage::{FullStageToTileReader, StageMatmul},
 };
@@ -41,7 +41,7 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type Config = SingleStageConfig<SMM::Config>;
+    type Config = SimpleConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
     type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;

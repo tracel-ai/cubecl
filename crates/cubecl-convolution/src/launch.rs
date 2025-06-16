@@ -199,7 +199,6 @@ where
 
     let config = Alg::setup::<R, MP>(client, &problem, &selection, available_line_sizes)?;
 
-    Alg::check_availability::<R, MP>(client, &config)?;
     let line_sizes = config.line_sizes();
 
     let input = <Input<Alg, MP> as ConvInputsLaunch>::create(

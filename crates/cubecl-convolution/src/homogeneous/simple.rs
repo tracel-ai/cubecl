@@ -15,18 +15,15 @@ use cubecl_matmul::{
         MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
-            load::{SyncFullLoader, sync_full_cyclic},
-            single_stage,
+            load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
+            single_stage::{self, simple::SimpleConfig},
         },
         stage::{
             ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,
             StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{
-        MatmulSetupError,
-        matmul::{GlobalInput, MatmulSelection},
-    },
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -56,7 +53,7 @@ where
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
-    type Config = ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
     type RhsLoader =
         SyncFullLoader<MP, Self::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
@@ -186,20 +183,16 @@ impl<SMM> ConvolutionConfigFactory for SimpleConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::ConvolutionConfig<single_stage::SingleStageConfig<SMM::Config>>;
-    type Input = GlobalInput<SMM::Input>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
+    type Config = config::ConvolutionConfig<SimpleConfig<SMM::Config>>;
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_config = SMM::setup(
+        let stage_config = SMM::setup::<MP, R>(
+            client,
             &problem.as_matmul_problem(),
             selection,
             available_line_sizes,
@@ -207,33 +200,25 @@ where
         )?;
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        Ok(config::ConvolutionConfig::new(
-            single_stage::SingleStageConfig::new(
+        config::ConvolutionConfig::new(
+            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+                client,
                 stage_config,
-                todo!(),
-                // num_planes,
-                // TODO: Find the correct condition to avoid check bounds.
+                stage_config.num_main_flow_planes(),
                 true,
                 true,
                 true,
                 stage_k,
                 selection.loading_precompute_strategy,
                 selection.loader_mode,
-            ),
+            )?,
             &problem.kernel_size,
             &problem.stride,
             &problem.dilation,
             &problem.padding,
             problem.dimensionality,
             1,
-        ))
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), cubecl_matmul::kernels::MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config())
+        )
     }
 }
 

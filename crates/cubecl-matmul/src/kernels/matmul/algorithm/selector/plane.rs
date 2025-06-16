@@ -4,6 +4,7 @@ use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
+use crate::components::stage::PartitionBuffering;
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::components::{PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::kernels::matmul::MultiRowStrategy;
@@ -78,7 +79,15 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    MatmulSelection::builder(tiling_scheme, plane_dim).build()
+    let partition_buffering = if tiling_scheme.tiles_in_stage_partition_n() > 1 {
+        PartitionBuffering::Double
+    } else {
+        PartitionBuffering::Single
+    };
+
+    MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(partition_buffering)
+        .build()
 }
 
 fn change_rows_per_plane(

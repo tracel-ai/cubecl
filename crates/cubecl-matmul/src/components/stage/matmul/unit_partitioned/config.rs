@@ -1,13 +1,18 @@
-use crate::components::{
-    Ident, InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-    global::{PlaneRoleConfig, RoleRuleConfig},
-    stage::{PartitionBuffering, StageConfig},
-    tile::TileConfig,
+use cubecl_core::{Runtime, client::ComputeClient};
+
+use crate::{
+    components::{
+        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout, TilingScheme,
+        global::{PlaneRoleConfig, RoleRuleConfig},
+        stage::{NumStages, PartitionBuffering, StageConfig},
+        tile::TileConfig,
+    },
+    kernels::MatmulSetupError,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
-pub struct PartitionedStageConfig<T: TileConfig> {
+pub struct UnitPartitionedStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
     pub quantized: bool,
@@ -16,24 +21,7 @@ pub struct PartitionedStageConfig<T: TileConfig> {
     plane_role_config: PlaneRoleConfig,
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct StageVectorization {
-    /// A line size of zero means use the same vectorization as global memory.
-    pub stage_line_size: u8,
-    /// Still unsupported.
-    pub stage_elem_padding: u8,
-}
-
-impl Default for StageVectorization {
-    fn default() -> Self {
-        Self {
-            stage_line_size: 0,
-            stage_elem_padding: 0,
-        }
-    }
-}
-
-impl<T: TileConfig> StageConfig for PartitionedStageConfig<T> {
+impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
     type TileConfig = T;
 
     fn tile_config(self) -> Self::TileConfig {
@@ -88,18 +76,19 @@ impl<T: TileConfig> StageConfig for PartitionedStageConfig<T> {
     }
 }
 
-impl<T: TileConfig> MatmulConfig for PartitionedStageConfig<T> {}
+impl<T: TileConfig> MatmulConfig for UnitPartitionedStageConfig<T> {}
 
-impl<T: TileConfig> PartitionedStageConfig<T> {
+impl<T: TileConfig> UnitPartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         tile_config: T,
         tiling_scheme: TilingScheme,
         quantized: bool,
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
         plane_role_config: PlaneRoleConfig,
-    ) -> Self {
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             tile_config,
             tiling_scheme,
@@ -108,20 +97,27 @@ impl<T: TileConfig> PartitionedStageConfig<T> {
             num_stages,
             plane_role_config,
         }
+        .validate()
     }
-}
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct NumStages {
-    lhs: u32,
-    rhs: u32,
-}
+    fn validate(self) -> Result<Self, MatmulSetupError> {
+        let num_units_needed = self.tiling_scheme().stage_partitions_in_stage_mn();
+        let num_units = self.plane_dim() * self.num_main_flow_planes();
 
-impl From<(u32, u32)> for NumStages {
-    fn from(value: (u32, u32)) -> Self {
-        NumStages {
-            lhs: value.0,
-            rhs: value.1,
+        if num_units != num_units_needed {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Error: Number of units {num_units} should be {num_units_needed}."
+            ))));
         }
+
+        if self.partition_buffering() == PartitionBuffering::Double
+            && self.tiling_scheme().tiles_in_stage_partition_n() < 2
+        {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Error: Tried doing double buffering with only one tile to compute.".to_string(),
+            )));
+        }
+
+        Ok(self)
     }
 }

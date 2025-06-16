@@ -4,7 +4,7 @@ use crate::components::global::GlobalMatmul;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::TmaLoader;
 use crate::components::global::load::arrive_tma;
-use crate::components::global::single_stage::SingleStageConfig;
+use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::{Quantization, load::TmaReader};
 use crate::components::stage::StageMatmul;
 use barrier::Barrier;
@@ -29,9 +29,9 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<MP, LhsReader = TmaReader<MP>, RhsReader = TmaReader<MP>>,
 {
-    type Config = SingleStageConfig<SMM::Config>;
-    type LhsLoader = TmaLoader<MP, SMM::Config>;
-    type RhsLoader = TmaLoader<MP, SMM::Config>;
+    type Config = SimpleTmaConfig<SMM::Config>;
+    type LhsLoader = TmaLoader<MP, Self::Config>;
+    type RhsLoader = TmaLoader<MP, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -94,7 +94,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(
+        Self::LhsLoader::new(
             lhs.as_tensor_map(),
             x_offset,
             y_offset,
@@ -114,7 +114,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
+        Self::RhsLoader::new(
             rhs.as_tensor_map(),
             x_offset,
             y_offset,

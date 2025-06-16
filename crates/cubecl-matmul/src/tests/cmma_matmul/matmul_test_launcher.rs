@@ -50,7 +50,12 @@ pub fn test_matmul_algorithm<A, P, R>(
         &P::EG::as_elem_native_unchecked(),
     );
 
-    let config = match A::setup(&problem, &selection, available_line_sizes) {
+    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+        &client,
+        &problem,
+        &selection,
+        available_line_sizes,
+    ) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -64,6 +69,10 @@ pub fn test_matmul_algorithm<A, P, R>(
     };
 
     let line_sizes = config.line_sizes();
+
+    println!("{:?}", line_sizes);
+    println!("{:?}", config.cube_dim());
+    println!("{:?}", A::cube_count(&problem, &config));
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<P::MP, R>(

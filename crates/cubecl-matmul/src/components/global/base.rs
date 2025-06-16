@@ -1,10 +1,10 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl};
 
 use crate::{
     components::{
-        AvailableLineSizes, Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig,
-        MatmulChecker, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
+        AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
+        TilingScheme,
         config::MatmulConfig,
         global::{
             PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
@@ -21,11 +21,12 @@ use cubecl_std::{
 use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
-pub trait GlobalMatmulFamily: Send + Sync + 'static + MatmulChecker<Config: GlobalConfig> {
+pub trait GlobalMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
-    type Input;
+    type Config: GlobalConfig;
 
-    fn setup(
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         available_line_sizes: AvailableLineSizes,

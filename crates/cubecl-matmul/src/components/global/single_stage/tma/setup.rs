@@ -1,19 +1,19 @@
 use crate::components::AvailableLineSizes;
 use crate::components::LoadSpecializationConfig;
-use crate::components::MatmulChecker;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalConfig as _;
+use crate::components::global::load::NoLoadingValidation;
+use crate::components::global::load::TmaLoader;
 use crate::components::global::load::TmaTiling;
-use crate::components::global::single_stage::SingleStageConfig;
+use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
 use crate::kernels::MatmulAvailabilityError;
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::{GlobalInput, MatmulSelection};
+use crate::kernels::matmul::MatmulSelection;
 use std::any::TypeId;
 use std::marker::PhantomData;
 
-use cubecl_core::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::Runtime;
 use cubecl_core::TmaFeature;
@@ -21,7 +21,7 @@ use cubecl_core::client::ComputeClient;
 use cubecl_core::tf32;
 
 use crate::components::{
-    InvalidConfigError, MatmulProblem,
+    MatmulProblem,
     global::GlobalMatmulFamily,
     stage::{self, FullReaderFamily},
 };
@@ -35,9 +35,10 @@ where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
-    type Input = GlobalInput<SMM::Input>;
+    type Config = SimpleTmaConfig<SMM::Config>;
 
-    fn setup(
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         mut available_line_sizes: AvailableLineSizes,
@@ -47,81 +48,36 @@ where
         available_line_sizes.lhs = vec![1];
         available_line_sizes.rhs = vec![1];
 
-        let stage_config = SMM::setup(problem, selection, available_line_sizes, (1, 1).into())?;
+        let stage_config = SMM::setup::<MP, R>(
+            client,
+            problem,
+            selection,
+            available_line_sizes,
+            (1, 1).into(),
+        )?;
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        // fn cube_dim(
-        //     selection: &MatmulSelection,
-        //     load_specialization: LoadSpecializationConfig,
-        // ) -> Result<CubeDim, InvalidConfigError> {
-        //     let main_flow_planes = SMM::computation_resources(&selection.tiling_scheme)?
-        //         .as_plane_resources(selection.plane_dim)?
-        //         .get_count();
+        let num_planes =
+            if let LoadSpecializationConfig::None = selection.load_specialization_config {
+                stage_config.num_main_flow_planes()
+            } else {
+                return Err(MatmulSetupError::InvalidConfig(Box::new(
+                    "Error: Specialization is unavailable for simple tma matmul.",
+                )));
+            };
 
-        //     if let LoadSpecializationConfig::None = load_specialization {
-        //         Ok(CubeDim::new_2d(selection.plane_dim, main_flow_planes))
-        //     } else {
-        //         Err(Box::new(
-        //             "Error: Specialization is unavailable for simple tma matmul.",
-        //         ))
-        //     }
-        // }
-
-        Ok(SingleStageConfig::new(
+        SimpleTmaConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+            client,
             stage_config,
-            // num_planes,
-            todo!(),
+            num_planes,
             problem.m as u32 % stage_shape_m != 0,
             problem.n as u32 % stage_shape_n != 0,
             problem.k as u32 % stage_shape_k != 0,
             stage_shape_k,
             selection.loading_precompute_strategy,
             selection.loader_mode,
-        ))
-    }
-}
-
-impl<SMM> MatmulChecker for SimpleTmaMatmulFamily<SMM>
-where
-    SMM: stage::StageMatmulFamily,
-{
-    type Config = SingleStageConfig<SMM::Config>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config())?;
-
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        if !client
-            .properties()
-            .feature_enabled(Feature::Tma(TmaFeature::Base))
-        {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        Ok(())
+        )
     }
 }
