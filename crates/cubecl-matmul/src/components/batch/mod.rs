@@ -4,5 +4,5 @@ mod matmul;
 mod shared;
 
 pub use base::*;
-pub use shared::*;
 pub use matmul::*;
+pub use shared::*;

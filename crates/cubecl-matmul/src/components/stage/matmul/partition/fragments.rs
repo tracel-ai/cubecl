@@ -69,7 +69,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>, S: StageConfig<TileConfig = TMM::
         this: &mut Accumulators<MP, TMM, S>,
         #[comptime] i: u32,
         #[comptime] j: u32,
-        #[comptime] config: S
+        #[comptime] config: S,
     ) -> &mut TMM::Accumulator {
         this.sequence.index_mut(comptime!(
             i * config.tiling_scheme().tiles_in_stage_partition_n() + j
