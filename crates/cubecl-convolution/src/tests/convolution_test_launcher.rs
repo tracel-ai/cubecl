@@ -53,9 +53,6 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         out: R::line_size_elem(&P::EG::as_elem_native_unchecked()).collect(),
     };
 
-    // let cube_dim = A::cube_dim(&selection);
-    // let cube_count = A::cube_count(&selection, &problem);
-
     let config = match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(
         &client,
         &problem,

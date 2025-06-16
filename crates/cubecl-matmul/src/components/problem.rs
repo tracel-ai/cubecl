@@ -1,7 +1,4 @@
-use cubecl_core::CubeCount;
 use serde::{Deserialize, Serialize};
-
-use crate::components::batch::{BatchConfig, BatchMatmulFamily, Partitioner};
 
 use super::{Ident, MatmulProblemSize, MatrixLayout};
 
@@ -58,54 +55,6 @@ impl MatmulProblem {
                 .collect(),
         }
     }
-
-    pub fn cube_count<B: BatchMatmulFamily>(&self, config: &B::Config) -> CubeCount {
-        let tiling_scheme = config.tiling_scheme();
-        let elements_in_m = tiling_scheme.elements_in_global_partition_m();
-        let elements_in_n = tiling_scheme.elements_in_global_partition_n();
-
-        let (x, y, z) = B::Partitioner::create_cube_count(
-            (self.m as u32).div_ceil(elements_in_m),
-            (self.n as u32).div_ceil(elements_in_n),
-            (self.num_batches() as u32).div_ceil(tiling_scheme.global_partition_size.batches),
-        );
-
-        CubeCount::Static(x, y, z)
-    }
-
-    // /// Asserts that the problem can be solved with the given batch matmul configs
-    // ///
-    // /// # Panics:
-    // ///
-    // ///  - If dimensions of the problem are larger than allowed by the config
-    // ///  - If line sizes do not divide well the dimension in which they are aligned
-    // pub fn check_config<B: batch::BatchConfig>(
-    //     &self,
-    //     config: &B,
-    // ) -> Result<(), MatmulInvalidProblem> {
-    //     if self.m > config.max_problem_m() as usize {
-    //         return Err(MatmulInvalidProblem::ExceededMSize {
-    //             m: self.m as u32,
-    //             max_m: config.max_problem_m(),
-    //         });
-    //     }
-
-    //     if self.n > config.max_problem_n() as usize {
-    //         return Err(MatmulInvalidProblem::ExceededNSize {
-    //             n: self.n as u32,
-    //             max_n: config.max_problem_n(),
-    //         });
-    //     }
-
-    //     if self.num_batches() > config.max_problem_batches() as usize {
-    //         return Err(MatmulInvalidProblem::ExceededBatchSize {
-    //             b: self.num_batches() as u32,
-    //             max_b: config.max_problem_batches(),
-    //         });
-    //     }
-
-    //     Ok(())
-    // }
 }
 
 /// Interpretation of matrix multiplication based on input shapes.

@@ -126,12 +126,6 @@ where
         dimensionality,
     };
 
-    // let line_sizes = Alg::line_sizes(
-    //     &problem,
-    //     R::line_size_elem(&MP::EI::as_elem_native_unchecked()),
-    //     R::line_size_elem(&MP::EO::as_elem_native_unchecked()),
-    // );
-
     let selection = Alg::selection::<R>(
         client,
         &problem,

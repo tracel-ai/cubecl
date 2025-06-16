@@ -106,7 +106,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
             &client,
             config.cube_dim(),
-            A::cube_count(&problem, &config),
+            config.cube_count(&problem),
             inputs,
             output,
             config,

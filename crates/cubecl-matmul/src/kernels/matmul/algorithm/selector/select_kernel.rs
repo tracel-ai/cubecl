@@ -51,7 +51,7 @@ where
     launch_matmul::<MS, R, A>(
         client,
         config.cube_dim(),
-        A::cube_count(&problem, &config),
+        config.cube_count(&problem),
         <InputArg<MS> as ConcreteInputsFactory>::create(
             lhs,
             lhs_scale,
@@ -88,7 +88,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     launch_matmul::<MS, R, A>(
         client,
         config.cube_dim(),
-        A::cube_count(&problem, &config),
+        config.cube_count(&problem),
         input,
         output,
         config,

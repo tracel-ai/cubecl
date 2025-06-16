@@ -70,15 +70,11 @@ pub fn test_matmul_algorithm<A, P, R>(
 
     let line_sizes = config.line_sizes();
 
-    println!("{:?}", line_sizes);
-    println!("{:?}", config.cube_dim());
-    println!("{:?}", A::cube_count(&problem, &config));
-
     unsafe {
         A::BatchMatmul::launch_unchecked::<P::MP, R>(
             &client,
             config.cube_dim(),
-            A::cube_count(&problem, &config),
+            config.cube_count(&problem),
             TensorInputsLaunch::new(
                 TensorArg::<R>::from_raw_parts::<P::EG>(
                     &lhs.handle,

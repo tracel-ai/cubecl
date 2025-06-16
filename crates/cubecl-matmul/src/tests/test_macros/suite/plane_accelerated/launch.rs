@@ -48,7 +48,5 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         .partition_buffering(partition_buffering)
         .build();
 
-    println!("{:?}", selection);
-
     test_matmul_algorithm::<A, P, R>(client, problem, selection);
 }

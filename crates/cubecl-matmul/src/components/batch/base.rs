@@ -89,8 +89,7 @@ pub trait BatchConfig: MatmulConfig {
         self.global_config().tiling_scheme()
     }
 
-    // TODO make a launch config over batch config
     fn cube_dim(&self) -> CubeDim;
-    // fn cube_count(&self) -> CubeCount;
+    fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
     fn line_sizes(&self) -> MatmulLineSizes;
 }

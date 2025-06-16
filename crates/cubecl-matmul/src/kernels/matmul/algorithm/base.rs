@@ -66,11 +66,4 @@ pub trait Algorithm {
     ) -> MatmulSelection {
         Self::TileMatmul::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc)
     }
-
-    fn cube_count(
-        problem: &MatmulProblem,
-        config: &<Self::BatchMatmul as BatchMatmulFamily>::Config,
-    ) -> CubeCount {
-        problem.cube_count::<Self::BatchMatmul>(config)
-    }
 }

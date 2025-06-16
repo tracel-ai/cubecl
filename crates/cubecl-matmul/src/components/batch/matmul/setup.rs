@@ -30,7 +30,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
     for PartitionedBatchMatmulFamily<GMM, S, P>
 {
     type Matmul<MP: MatmulPrecision> = PartitionedBatchMatmul<MP, GMM::Matmul<MP>, S, P>;
-    type Config = PartitionedBatchConfig<GMM::Config>;
+    type Config = PartitionedBatchConfig<GMM::Config, Self::Partitioner>;
     type Partitioner = P;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(

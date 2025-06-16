@@ -84,12 +84,4 @@ pub trait Algorithm {
         elem_stage: Elem,
         elem_acc: Elem,
     ) -> MatmulSelection;
-
-    // fn line_sizes(
-    //     problem: &ConvolutionProblem,
-    //     in_available: impl Iterator<Item = u8> + Clone,
-    //     out_available: impl Iterator<Item = u8> + Clone,
-    // ) -> MatmulLineSizes {
-    //     MatmulLineSizes::new_maximized(&problem.as_matmul_problem(), in_available, out_available)
-    // }
 }

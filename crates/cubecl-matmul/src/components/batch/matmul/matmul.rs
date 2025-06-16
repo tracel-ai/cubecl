@@ -39,7 +39,7 @@ impl<
     P: Partitioner,
 > BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM, P>
 {
-    type Config = PartitionedBatchConfig<GMM::Config>;
+    type Config = PartitionedBatchConfig<GMM::Config, P>;
 
     fn execute(
         lhs: VirtualTensor<MP::EI>,
