@@ -372,8 +372,9 @@ impl HipContext {
             if let Ok(formatted) = format_cpp(&jitc_kernel.source) {
                 jitc_kernel.source = formatted;
             }
+
+            logger.log_compilation(&jitc_kernel);
         }
-        logger.log_compilation(&jitc_kernel);
 
         // Create HIP Program
         let program = unsafe {
@@ -400,7 +401,7 @@ impl HipContext {
         let include_option_cstr = CString::new(include_option).unwrap();
         // needed for rocWMMA extension to compile
         let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
-        let optimization_level = CString::new("-o=3").unwrap();
+        let optimization_level = CString::new("-o3").unwrap();
         let mut options = vec![
             cpp_std_option_cstr.as_ptr(),
             include_option_cstr.as_ptr(),

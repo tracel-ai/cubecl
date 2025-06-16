@@ -144,7 +144,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
+    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit);
     run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
 
     // for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
