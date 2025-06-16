@@ -143,6 +143,11 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         LL::check::<Self>(&self, Ident::Lhs)?;
         RL::check::<Self>(&self, Ident::Rhs)?;
         shared_global_config_validation(self)?;
+        if self.tiling_scheme().stage_partitions_in_stage_n() > 1 {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Ordered does not support number of stage partitions > 1 in n",
+            )));
+        }
 
         Ok(self)
     }
