@@ -4,8 +4,12 @@ use std::marker::PhantomData;
 
 use crate::components::MatmulProblem;
 use crate::components::batch::{Partitioner, RowMajorGlobalPartitionMatmul};
-use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise, SyncBufferLoadingStrategy};
-use crate::components::stage::{self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder};
+use crate::components::global::load::{
+    SyncBufferLoadingStrategy, sync_buffer_cyclic, sync_buffer_tilewise,
+};
+use crate::components::stage::{
+    self, BufferReaderFamily, ColMajorTilingOrder, NumStages, RowMajorTilingOrder,
+};
 use crate::components::tile::{self, PlaneTile};
 use crate::components::{batch, global};
 
