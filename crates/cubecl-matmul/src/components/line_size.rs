@@ -114,7 +114,7 @@ impl AvailableLineSizes {
         }
     }
 
-    pub fn commit(self) -> Result<MatmulLineSizes, MatmulSetupError> {
+    pub fn pick_max(self) -> Result<MatmulLineSizes, MatmulSetupError> {
         let pick = |v: Vec<u8>| {
             v.into_iter()
                 .max()

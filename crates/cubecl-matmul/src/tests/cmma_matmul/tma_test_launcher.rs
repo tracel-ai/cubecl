@@ -65,7 +65,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     )
     .filter_lhs(|ls| *ls == 1)
     .filter_rhs(|ls| *ls == 1)
-    .commit()
+    .pick_max()
     .unwrap();
 
     let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
