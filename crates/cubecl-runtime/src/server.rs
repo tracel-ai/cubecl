@@ -1,8 +1,9 @@
 use crate::{
+    id::HandleRef,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        MemoryHandle, MemoryUsage,
+        MemoryHandle, MemoryUsage, SliceId,
         memory_pool::{SliceBinding, SliceHandle},
     },
     storage::{BindingResource, ComputeStorage},
@@ -12,8 +13,9 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut, stub::Mutex};
 use cubecl_ir::Elem;
+use hashbrown::HashMap;
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -123,6 +125,25 @@ pub struct Handle {
     pub offset_end: Option<u64>,
     /// Length of the underlying buffer ignoring offsets
     size: u64,
+    views: Views,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Views {
+    parent: Option<Arc<Mutex<HandleRef<SliceId>>>>,
+    // Check overlapping slice for the state.
+    children: Option<Arc<Mutex<HashMap<SliceId, HandleRef<SliceId>>>>>,
+}
+
+impl Drop for Views {
+    fn drop(&mut self) {
+        // If I'm the parent, I have nothing to do, but to drop the children list.
+        //
+        // If I'm the childen, I have to remove myself from the parent's list IF I'm the last clone
+        // if the same child.
+        if self.parent.is_some() {
+        }
+    }
 }
 
 impl Handle {
@@ -338,6 +359,7 @@ impl Clone for Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            views: self.views.clone(),
         }
     }
 }
