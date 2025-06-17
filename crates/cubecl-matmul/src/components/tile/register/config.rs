@@ -129,6 +129,7 @@ impl RegisterConfig {
 
         let lhs = self.stage_line_size(Ident::Lhs);
         let rhs = self.stage_line_size(Ident::Rhs);
+        let out = self.global_line_size(Ident::Out);
 
         match self.matrix_layout(Ident::Lhs) {
             MatrixLayout::RowMajor => {
@@ -165,6 +166,13 @@ impl RegisterConfig {
                     ))));
                 }
             }
+        }
+
+        if n % out != 0 {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Tile shape in lined axis {:?} should be divisible by line size {:?}",
+                n, out
+            ))));
         }
 
         Ok(self)
