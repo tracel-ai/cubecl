@@ -1,4 +1,5 @@
 use crate::components::AvailableLineSizes;
+use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::global::load::NoLoadingValidation;
 use crate::components::global::load::TmaTiling;
@@ -33,21 +34,13 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        mut available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
-        // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        available_line_sizes.lhs = vec![1];
-        available_line_sizes.rhs = vec![1];
+        assert!(line_sizes.lhs == 1);
+        assert!(line_sizes.rhs == 1);
 
-        let stage_config = SMM::setup::<MP, R>(
-            client,
-            problem,
-            selection,
-            available_line_sizes,
-            (1, 1).into(),
-            None,
-        )?;
+        let stage_config =
+            SMM::setup::<MP, R>(client, problem, selection, line_sizes, (1, 1).into(), None)?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
@@ -72,5 +65,13 @@ where
             selection.loading_precompute_strategy,
             selection.loader_mode,
         )
+    }
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
+        // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
+        available_line_sizes
+            .filter_lhs(|ls| *ls == 1)
+            .filter_rhs(|ls| *ls == 1)
     }
 }

@@ -25,7 +25,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Entry point
@@ -41,6 +41,10 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
     );
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+    }
 }
 
 #[cube]

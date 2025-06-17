@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use crate::{
     components::{
-        AvailableLineSizes, InputIdent, TilingScheme,
+        InputIdent, MatmulLineSizes, TilingScheme,
         global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
     },
     kernels::MatmulSetupError,
@@ -30,66 +28,30 @@ pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
 ///
 /// Example: loading 1024 elements with a line size of 8 gives 128 lines (1024 / 8).
 /// With `plane_dim` set to 32, there are 4 tasks (128 / 32).
-pub struct LoaderTasks {
+pub struct MaxLoaders {
     pub lhs: u32,
     pub rhs: u32,
 }
 
-/// Number of tasks per plane before knowing the final vectorization
-pub struct LoaderTasksMap {
-    pub lhs: HashMap<u8, u32>,
-    pub rhs: HashMap<u8, u32>,
-}
-
-impl LoaderTasksMap {
+impl MaxLoaders {
     pub fn new<LL: LoadMaxRoundPlaneCount, RL: LoadMaxRoundPlaneCount>(
         tiling_scheme: &TilingScheme,
-        available_line_sizes: &AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
         plane_dim: u32,
-    ) -> LoaderTasksMap {
-        LoaderTasksMap {
-            lhs: num_tasks_per_line_size::<LL>(
+    ) -> Self {
+        MaxLoaders {
+            lhs: LL::max_round_plane_count(
                 tiling_scheme,
                 InputIdent::Lhs,
-                &available_line_sizes.lhs,
+                line_sizes.lhs,
                 plane_dim,
             ),
-            rhs: num_tasks_per_line_size::<RL>(
+            rhs: RL::max_round_plane_count(
                 tiling_scheme,
                 InputIdent::Rhs,
-                &available_line_sizes.rhs,
+                line_sizes.rhs,
                 plane_dim,
             ),
         }
     }
-
-    pub fn resolve(self, lhs_line_size: u8, rhs_line_size: u8) -> LoaderTasks {
-        LoaderTasks {
-            lhs: *self
-                .lhs
-                .get(&lhs_line_size)
-                .expect("Selected line size should be associated with a number of tasks"),
-            rhs: *self
-                .rhs
-                .get(&rhs_line_size)
-                .expect("Selected line size should be associated with a number of tasks"),
-        }
-    }
-}
-
-pub(crate) fn num_tasks_per_line_size<L: LoadMaxRoundPlaneCount>(
-    tiling_scheme: &TilingScheme,
-    ident: InputIdent,
-    line_sizes: &[u8],
-    plane_dim: u32,
-) -> HashMap<u8, u32> {
-    line_sizes
-        .iter()
-        .map(|line_size| {
-            (
-                *line_size,
-                L::max_round_plane_count(tiling_scheme, ident, *line_size, plane_dim),
-            )
-        })
-        .collect::<HashMap<_, _>>()
 }

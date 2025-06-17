@@ -47,17 +47,16 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let available_line_sizes = AvailableLineSizes {
+    let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
         out: R::line_size_elem(&P::EG::as_elem_native_unchecked()).collect(),
-    };
+    }
+    .commit()
+    .unwrap();
 
     let config = match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(
-        &client,
-        &problem,
-        &selection,
-        available_line_sizes,
+        &client, &problem, &selection, line_sizes,
     ) {
         Ok(config) => config,
         Err(err) => {

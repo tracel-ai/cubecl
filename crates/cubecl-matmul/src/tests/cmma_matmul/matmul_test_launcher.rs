@@ -45,16 +45,15 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let available_line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
-    );
+    )
+    .commit()
+    .unwrap();
 
     let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
-        &client,
-        &problem,
-        &selection,
-        available_line_sizes,
+        &client, &problem, &selection, line_sizes,
     ) {
         Ok(config) => config,
         Err(err) => {

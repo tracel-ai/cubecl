@@ -1,6 +1,6 @@
 use crate::{
     components::{
-        AvailableLineSizes, MatmulPrecision,
+        MatmulLineSizes, MatmulPrecision,
         global::{
             load::SyncFullLoadingStrategy,
             single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
@@ -42,16 +42,10 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_config = SMM::setup::<MP, R>(
-            client,
-            problem,
-            selection,
-            available_line_sizes,
-            (1, 1).into(),
-            None,
-        )?;
+        let stage_config =
+            SMM::setup::<MP, R>(client, problem, selection, line_sizes, (1, 1).into(), None)?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();

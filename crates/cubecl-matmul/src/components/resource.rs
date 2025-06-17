@@ -2,7 +2,7 @@ use cubecl_core::CubeDim;
 
 use crate::components::{
     InvalidConfigError,
-    global::{LoaderTasks, PlaneRoles},
+    global::{MaxLoaders, PlaneRoles},
 };
 
 pub enum ComputeResources {
@@ -85,14 +85,14 @@ impl SpecializationTensorConfig {
 }
 
 impl LoadSpecializationConfig {
-    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: LoaderTasks) -> PlaneRoles {
+    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: MaxLoaders) -> PlaneRoles {
         PlaneRoles {
             main_flow,
             load_only: self.find_num_load_only(main_flow, loader_tasks),
         }
     }
 
-    fn find_num_load_only(&self, main_flow: u32, loader_tasks: LoaderTasks) -> u32 {
+    fn find_num_load_only(&self, main_flow: u32, loader_tasks: MaxLoaders) -> u32 {
         use SpecializationTensorConfig::*;
 
         let ideal_load_only = match (self.lhs, self.rhs) {

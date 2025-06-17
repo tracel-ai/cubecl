@@ -1,8 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::{GlobalConfig, LoaderTasksMap};
-use crate::components::tile::TileConfig;
+use crate::components::global::{GlobalConfig, MaxLoaders};
 use crate::components::{InputIdent, LoadSpecializationConfig, SpecializationTensorConfig};
 use crate::kernels::MatmulSetupError;
 
@@ -124,25 +123,20 @@ pub enum RoleRule {
 }
 
 impl PlaneRoleConfig {
-    pub fn new<T: TileConfig>(
+    pub fn new(
         load_specialization_config: LoadSpecializationConfig,
-        loader_tasks_map: Option<LoaderTasksMap>,
+        loader_tasks: Option<MaxLoaders>,
         num_main_flow_planes: u32,
-        tile_config: &T,
     ) -> Result<PlaneRoleConfig, MatmulSetupError> {
-        let plane_roles = match loader_tasks_map {
-            Some(loader_tasks_map) => load_specialization_config.to_plane_roles(
-                num_main_flow_planes,
-                loader_tasks_map.resolve(
-                    tile_config.global_line_size(InputIdent::Lhs) as u8,
-                    tile_config.global_line_size(InputIdent::Rhs) as u8,
-                ),
-            ),
+        let plane_roles = match loader_tasks {
+            Some(loader_tasks) => {
+                load_specialization_config.to_plane_roles(num_main_flow_planes, loader_tasks)
+            }
 
             None => {
                 if load_specialization_config.has_specialization() {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(
-                        "Error: Load specialization config has specialization but no loader tasks map was given."
+                        "Error: Load specialization config has specialization but no loader tasks were given."
                             .to_string(),
                     )));
                 } else {

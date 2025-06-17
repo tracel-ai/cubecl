@@ -2,7 +2,7 @@ use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
-use crate::components::{AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem};
+use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem};
 use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::{MatmulSelection, MultiRowStrategy, plane_matmul_selection};
 use cubecl_core::ir::Elem;
@@ -24,11 +24,10 @@ impl TileMatmulFamily for AcceleratedMatmul {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        matmul_line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, None)?;
-        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, None)?;
-        let out_global_line_size = available_line_sizes.maximize_out(problem, None)?;
+        let (lhs_global_line_size, rhs_global_line_size, out_global_line_size) =
+            matmul_line_sizes.into();
 
         let stage_vectorization = selection.stage_vectorization;
 

@@ -11,19 +11,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulPrecision,
-        MatmulSpec, OutputRuntimeArg,
         global::{
-            AccumulatorLoader, GlobalConfig,
-            load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
-            single_stage::simple::SimpleConfig,
-        },
-        stage::{
+            load::{sync_full_cyclic, NoLoadingValidation, SyncFullLoader}, single_stage::simple::SimpleConfig, AccumulatorLoader, GlobalConfig
+        }, stage::{
             ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,
             StageConfig, StageMatmul, StageMatmulFamily,
-        },
+        }, AvailableLineSizes, InputIdent, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg, EA, EI, EO, ES
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{matmul::MatmulSelection, MatmulSetupError},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -177,6 +172,10 @@ where
 {
     type Convolution<MP: MatmulPrecision> =
         SimpleConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+    }
 }
 
 impl<SMM> ConvolutionConfigFactory for SimpleConvolutionFamily<SMM>
@@ -189,13 +188,13 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let stage_config = SMM::setup::<MP, R>(
             client,
             &problem.as_matmul_problem(),
             selection,
-            available_line_sizes,
+            line_sizes,
             (1, 1).into(),
             None,
         )?;

@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
-        MatrixLayout, OutputRuntimeArg,
+        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
     kernels::{MatmulSetupError, matmul::MatmulSelection},
@@ -28,6 +28,8 @@ pub trait ConvolutionFamily:
     ConvolutionConfigFactory<Config: ConvGemmConfig> + ConvolutionLaunch
 {
     type Convolution<MP: MatmulPrecision>: Convolution<MP, Config = Self::Config>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes;
 }
 
 #[cube]
@@ -96,7 +98,7 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 }
 

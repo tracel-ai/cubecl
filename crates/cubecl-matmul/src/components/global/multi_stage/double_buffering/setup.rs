@@ -1,5 +1,5 @@
-use crate::components::AvailableLineSizes;
-use crate::components::global::LoaderTasksMap;
+use crate::components::global::MaxLoaders;
+use crate::components::MatmulLineSizes;
 use crate::components::global::load::SyncBufferLoadingStrategy;
 use crate::components::global::multi_stage::double_buffering::{
     DoubleBufferingGlobalConfig, DoubleBufferingMatmul,
@@ -36,16 +36,15 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        // TODO generic on LL/RL
-        let loader_tasks_map = selection
+        let max_loaders = selection
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                LoaderTasksMap::new::<LL, RL>(
+                MaxLoaders::new::<LL, RL>(
                     &selection.tiling_scheme,
-                    &available_line_sizes,
+                    &line_sizes,
                     selection.plane_dim,
                 )
             });
@@ -54,9 +53,9 @@ where
             client,
             problem,
             selection,
-            available_line_sizes,
+            line_sizes,
             (2, 2).into(),
-            loader_tasks_map,
+            max_loaders,
         )?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();

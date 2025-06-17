@@ -59,16 +59,20 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         runtime: PhantomData,
     };
 
-    let available_line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
-    );
+    )
+    .filter_lhs(|ls| *ls == 1)
+    .filter_rhs(|ls| *ls == 1)
+    .commit()
+    .unwrap();
 
     let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,
-        available_line_sizes,
+        line_sizes,
     ) {
         Ok(config) => config,
         Err(err) => {

@@ -1,8 +1,8 @@
-use crate::components::AvailableLineSizes;
 use crate::components::ComputeResources;
+use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
-use crate::components::global::LoaderTasksMap;
+use crate::components::global::MaxLoaders;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
 use crate::components::stage::ReaderFamily;
@@ -34,11 +34,11 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: MatmulLineSizes,
         num_stages: NumStages,
-        loader_tasks_map: Option<LoaderTasksMap>,
+        max_loaders: Option<MaxLoaders>,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TMM::setup::<MP, R>(client, problem, selection, available_line_sizes)?;
+        let tile_config = TMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
         let compute_resources =
             if let ComputeResources::Planes(planes) = TMM::computation_resources()? {
@@ -57,9 +57,8 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
 
         let plane_role_config = PlaneRoleConfig::new(
             selection.load_specialization_config,
-            loader_tasks_map,
+            max_loaders,
             compute_planes,
-            &tile_config,
         )?;
 
         PlanePartitionedStageConfig::new(

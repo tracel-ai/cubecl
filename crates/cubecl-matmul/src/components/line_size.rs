@@ -1,6 +1,6 @@
-use cubecl_core::{LineSizeError, Runtime, ir::Elem, try_tensor_line_size_parallel};
+use cubecl_core::{LineSizeError, Runtime, ir::Elem};
 
-use crate::components::{MatmulProblem, MatrixLayout};
+use crate::kernels::MatmulSetupError;
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -8,6 +8,12 @@ pub struct MatmulLineSizes {
     pub lhs: u8,
     pub rhs: u8,
     pub out: u8,
+}
+
+impl From<MatmulLineSizes> for (u8, u8, u8) {
+    fn from(line_sizes: MatmulLineSizes) -> Self {
+        (line_sizes.lhs, line_sizes.rhs, line_sizes.out)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -28,73 +34,50 @@ impl AvailableLineSizes {
         }
     }
 
-    pub fn maximize_lhs(
-        &self,
-        problem: &MatmulProblem,
-        ceiling: Option<u8>,
-    ) -> Result<u8, LineSizeError> {
-        try_tensor_line_size_parallel(
-            self.lhs
-                .clone()
-                .into_iter()
-                .filter(|x| ceiling.is_none_or(|c| x <= &c)),
-            &[problem.m, problem.k],
-            &match problem.lhs_layout {
-                MatrixLayout::RowMajor => [problem.k, 1],
-                MatrixLayout::ColMajor => [1, problem.m],
-            },
-            match problem.lhs_layout {
-                MatrixLayout::RowMajor => 1,
-                MatrixLayout::ColMajor => 0,
-            },
-        )
-    }
-
-    pub fn maximize_rhs(
-        &self,
-        problem: &MatmulProblem,
-        ceiling: Option<u8>,
-    ) -> Result<u8, LineSizeError> {
-        try_tensor_line_size_parallel(
-            self.rhs
-                .clone()
-                .into_iter()
-                .filter(|x| ceiling.is_none_or(|c| x <= &c)),
-            &[problem.k, problem.n],
-            &match problem.rhs_layout {
-                MatrixLayout::RowMajor => [problem.n, 1],
-                MatrixLayout::ColMajor => [1, problem.k],
-            },
-            match problem.rhs_layout {
-                MatrixLayout::RowMajor => 1,
-                MatrixLayout::ColMajor => 0,
-            },
-        )
-    }
-
-    pub fn maximize_out(
-        &self,
-        problem: &MatmulProblem,
-        ceiling: Option<u8>,
-    ) -> Result<u8, LineSizeError> {
-        try_tensor_line_size_parallel(
-            self.out
-                .clone()
-                .into_iter()
-                .filter(|x| ceiling.is_none_or(|c| x <= &c)),
-            &[problem.k, problem.n],
-            &[problem.n, 1],
-            1,
-        )
-    }
-}
-
-impl From<MatmulLineSizes> for AvailableLineSizes {
-    fn from(line_sizes: MatmulLineSizes) -> Self {
-        AvailableLineSizes {
-            lhs: vec![line_sizes.lhs],
-            rhs: vec![line_sizes.rhs],
-            out: vec![line_sizes.out],
+    pub fn filter_lhs<F>(self, pred: F) -> Self
+    where
+        F: FnMut(&u8) -> bool,
+    {
+        Self {
+            lhs: self.lhs.iter().copied().filter(pred).collect(),
+            rhs: self.rhs,
+            out: self.out,
         }
+    }
+
+    pub fn filter_rhs<F>(self, pred: F) -> Self
+    where
+        F: FnMut(&u8) -> bool,
+    {
+        Self {
+            lhs: self.lhs,
+            rhs: self.rhs.iter().copied().filter(pred).collect(),
+            out: self.out,
+        }
+    }
+
+    pub fn filter_out<F>(self, pred: F) -> Self
+    where
+        F: FnMut(&u8) -> bool,
+    {
+        Self {
+            lhs: self.lhs,
+            rhs: self.rhs,
+            out: self.out.iter().copied().filter(pred).collect(),
+        }
+    }
+
+    pub fn commit(self) -> Result<MatmulLineSizes, MatmulSetupError> {
+        let pick = |v: Vec<u8>| {
+            v.into_iter()
+                .max()
+                .ok_or(MatmulSetupError::LineSize(LineSizeError::NoValidLineSize))
+        };
+
+        Ok(MatmulLineSizes {
+            lhs: pick(self.lhs)?,
+            rhs: pick(self.rhs)?,
+            out: pick(self.out)?,
+        })
     }
 }

@@ -1,12 +1,12 @@
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::{
-    InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg,
-    ReplaceES,
+    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, MatrixLayout,
+    OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use core::any::TypeId;
-use cubecl_core::{Feature, prelude::*};
+use cubecl_core::{Feature, prelude::*, try_tensor_line_size_parallel};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
 use cubecl_std::tensor::{
     MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
@@ -169,6 +169,36 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
+    let lhs_line_size = try_tensor_line_size_parallel(
+        R::line_size_elem(&ei_elem),
+        lhs.shape,
+        lhs.strides,
+        match lhs_layout {
+            MatrixLayout::RowMajor => rank - 1,
+            MatrixLayout::ColMajor => rank - 2,
+        },
+    )?;
+    let rhs_line_size = try_tensor_line_size_parallel(
+        R::line_size_elem(&ei_elem),
+        rhs.shape,
+        rhs.strides,
+        match rhs_layout {
+            MatrixLayout::RowMajor => rank - 1,
+            MatrixLayout::ColMajor => rank - 2,
+        },
+    )?;
+    let out_line_size = try_tensor_line_size_parallel(
+        R::line_size_elem(&eo_elem),
+        out.shape,
+        out.strides,
+        rank - 1,
+    )?;
+    let line_sizes = MatmulLineSizes {
+        lhs: lhs_line_size,
+        rhs: rhs_line_size,
+        out: out_line_size,
+    };
+
     let plane_size = client.properties().hardware.defined_plane_size();
 
     let plane_dim = match plane_size {
@@ -186,7 +216,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     };
 
     matmul_launch_kernel::<R, MP, A>(
-        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, plane_dim,
+        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
     )
 }
 
@@ -199,6 +229,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
+    line_sizes: MatmulLineSizes,
     plane_dim: u32,
 ) -> Result<(), MatmulSetupError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
@@ -206,11 +237,11 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
         )
     } else {
         select_kernel_concrete::<MP, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
         )
     }
 }
@@ -226,6 +257,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     transposed: (bool, bool),
 ) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
+    let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
@@ -238,6 +270,17 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let rhs_layout = match transposed.1 {
         true => MatrixLayout::ColMajor,
         false => MatrixLayout::RowMajor,
+    };
+
+    let line_sizes = MatmulLineSizes {
+        lhs: 1,
+        rhs: 1,
+        out: try_tensor_line_size_parallel(
+            R::line_size_elem(&eo_elem),
+            out.shape,
+            out.strides,
+            rank - 1,
+        )?,
     };
 
     let batch_lhs: usize = lhs.shape[..lhs.shape.len() - 2].iter().product();
@@ -270,11 +313,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
         )
     } else {
         select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, None, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
         )
     }
 }
