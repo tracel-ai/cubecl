@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    components::{AvailableLineSizes, InputIdent, TilingScheme, global::GlobalConfig},
+    components::{
+        AvailableLineSizes, InputIdent, TilingScheme,
+        global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
+    },
     kernels::MatmulSetupError,
 };
 
@@ -39,19 +42,19 @@ pub struct LoaderTasksMap {
 }
 
 impl LoaderTasksMap {
-    pub fn new(
+    pub fn new<LL: LoadMaxRoundPlaneCount, RL: LoadMaxRoundPlaneCount>(
         tiling_scheme: &TilingScheme,
         available_line_sizes: &AvailableLineSizes,
         plane_dim: u32,
     ) -> LoaderTasksMap {
         LoaderTasksMap {
-            lhs: num_tasks_per_line_size(
+            lhs: num_tasks_per_line_size::<LL>(
                 tiling_scheme,
                 InputIdent::Lhs,
                 &available_line_sizes.lhs,
                 plane_dim,
             ),
-            rhs: num_tasks_per_line_size(
+            rhs: num_tasks_per_line_size::<RL>(
                 tiling_scheme,
                 InputIdent::Rhs,
                 &available_line_sizes.rhs,
@@ -74,9 +77,7 @@ impl LoaderTasksMap {
     }
 }
 
-// TODO maybe move elsewhere
-// And make generic on loader somehow
-pub(crate) fn num_tasks_per_line_size(
+pub(crate) fn num_tasks_per_line_size<L: LoadMaxRoundPlaneCount>(
     tiling_scheme: &TilingScheme,
     ident: InputIdent,
     line_sizes: &[u8],
@@ -87,19 +88,8 @@ pub(crate) fn num_tasks_per_line_size(
         .map(|line_size| {
             (
                 *line_size,
-                num_tasks(tiling_scheme, ident, *line_size, plane_dim),
+                L::max_round_plane_count(tiling_scheme, ident, *line_size, plane_dim),
             )
         })
         .collect::<HashMap<_, _>>()
-}
-
-// TODO different per loader
-pub(crate) fn num_tasks(
-    tiling_scheme: &TilingScheme,
-    ident: InputIdent,
-    line_size: u8,
-    plane_dim: u32,
-) -> u32 {
-    let num_elements = tiling_scheme.elements_in_stage(ident);
-    num_elements.div_ceil(plane_dim * line_size as u32)
 }

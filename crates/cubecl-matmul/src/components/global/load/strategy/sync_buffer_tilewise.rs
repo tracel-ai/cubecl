@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
 use crate::components::{
-    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
+    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, tensor_view::TensorReader},
@@ -26,6 +27,17 @@ use super::{LoadingJob, LoadingValidation};
 pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
+}
+
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
+    fn max_round_plane_count(
+        tiling_scheme: &TilingScheme,
+        ident: InputIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        tiling_scheme.tiles_in_stage(ident)
+    }
 }
 
 impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {

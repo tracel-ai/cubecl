@@ -55,6 +55,9 @@ pub struct LoadSpecializationConfig {
 }
 
 /// Determines which types of planes are responsible for loading a tensor.
+///
+/// TODO: maybe we want a "MainPlusExtra" variant that uses main flow planes and load-only planes
+/// for the same tensor
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum SpecializationTensorConfig {
     /// The tensor is loaded exclusively by planes that participate in the main computation flow.

@@ -1,10 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
-use crate::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision};
+use crate::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
@@ -45,6 +46,20 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
         }
 
         Ok(())
+    }
+}
+
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
+    fn max_round_plane_count(
+        tiling_scheme: &TilingScheme,
+        ident: InputIdent,
+        line_size: u8,
+        plane_dim: u32,
+    ) -> u32 {
+        let num_lines_per_tile = tiling_scheme.elements_in_tile(ident) / line_size as u32;
+        let num_tiles_in_buffer = tiling_scheme.tiles_in_stage(ident);
+        let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
+        total_num_lines.div_ceil(plane_dim)
     }
 }
 

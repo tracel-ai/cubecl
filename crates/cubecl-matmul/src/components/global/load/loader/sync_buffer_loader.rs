@@ -10,6 +10,7 @@ use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::multi_stage::Job;
 use crate::components::global::multi_stage::JobExecutor;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::stage::BufferStageToTileReader;
 use crate::components::stage::StageMemory;
@@ -21,7 +22,9 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
 /// A strategy for synchronously loading a buffer (partial stage), either eagerly or as a deferred job.
-pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+pub trait SyncBufferLoadingStrategy:
+    'static + Send + Sync + Clone + LoadingValidation + LoadMaxRoundPlaneCount
+{
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 

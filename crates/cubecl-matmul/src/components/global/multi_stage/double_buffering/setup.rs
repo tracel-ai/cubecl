@@ -43,7 +43,7 @@ where
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                LoaderTasksMap::new(
+                LoaderTasksMap::new::<LL, RL>(
                     &selection.tiling_scheme,
                     &available_line_sizes,
                     selection.plane_dim,

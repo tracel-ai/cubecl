@@ -1,8 +1,9 @@
 use crate::components::global::RoleRule;
 use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
-    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
+    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
 };
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use cubecl_core as cubecl;
@@ -68,6 +69,17 @@ impl LoadingValidation for LoadingStrategy {
         }
 
         Ok(())
+    }
+}
+
+impl LoadMaxRoundPlaneCount for LoadingStrategy {
+    fn max_round_plane_count(
+        tiling_scheme: &TilingScheme,
+        ident: InputIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        tiling_scheme.tiles_in_stage(ident)
     }
 }
 
