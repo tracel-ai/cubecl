@@ -1,5 +1,5 @@
-use crate::components::global::MaxLoaders;
 use crate::components::MatmulLineSizes;
+use crate::components::global::MaxLoaders;
 use crate::components::global::load::SyncBufferLoadingStrategy;
 use crate::components::global::multi_stage::double_buffering::{
     DoubleBufferingGlobalConfig, DoubleBufferingMatmul,
@@ -36,7 +36,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let max_loaders = selection
             .load_specialization_config

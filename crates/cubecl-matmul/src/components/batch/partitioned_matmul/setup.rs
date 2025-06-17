@@ -37,7 +37,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 

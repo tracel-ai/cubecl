@@ -72,7 +72,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &client,
         &problem,
         &selection,
-        line_sizes,
+        &line_sizes,
     ) {
         Ok(config) => config,
         Err(err) => {

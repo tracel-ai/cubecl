@@ -47,7 +47,7 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<<Self::BatchMatmul as BatchMatmulFamily>::Config, MatmulSetupError> {
         Self::BatchMatmul::setup::<MP, R>(client, problem, selection, line_sizes)
     }

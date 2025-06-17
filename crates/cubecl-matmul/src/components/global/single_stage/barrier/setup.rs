@@ -36,7 +36,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let stage_config =
             SMM::setup::<MP, R>(client, problem, selection, line_sizes, (1, 1).into(), None)?;

@@ -32,7 +32,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_loaders: Option<MaxLoaders>,
     ) -> Result<Self::Config, MatmulSetupError> {

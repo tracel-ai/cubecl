@@ -11,14 +11,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
         global::{
-            load::{sync_full_cyclic, NoLoadingValidation, SyncFullLoader}, single_stage::simple::SimpleConfig, AccumulatorLoader, GlobalConfig
-        }, stage::{
+            AccumulatorLoader, GlobalConfig,
+            load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
+            single_stage::simple::SimpleConfig,
+        },
+        stage::{
             ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,
             StageConfig, StageMatmul, StageMatmulFamily,
-        }, AvailableLineSizes, InputIdent, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSpec, OutputRuntimeArg, EA, EI, EO, ES
+        },
     },
-    kernels::{matmul::MatmulSelection, MatmulSetupError},
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -188,7 +193,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let stage_config = SMM::setup::<MP, R>(
             client,

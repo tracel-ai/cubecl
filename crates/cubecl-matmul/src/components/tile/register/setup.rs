@@ -28,18 +28,14 @@ impl TileMatmulFamily for RegisterMatmul {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        matmul_line_sizes: MatmulLineSizes,
+        matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let (lhs_global_line_size, rhs_global_line_size, out_global_line_size) =
-            matmul_line_sizes.into();
-
         let stage_vectorization = selection.stage_vectorization;
-
         let (lhs_stage_line_size, rhs_stage_line_size, stage_line_size_update) =
             if stage_vectorization.stage_line_size == 0 {
                 (
-                    lhs_global_line_size as u32,
-                    rhs_global_line_size as u32,
+                    matmul_line_sizes.lhs as u32,
+                    matmul_line_sizes.rhs as u32,
                     false,
                 )
             } else {
@@ -57,9 +53,9 @@ impl TileMatmulFamily for RegisterMatmul {
             problem.lhs_layout,
             problem.rhs_layout,
             stage_line_size_update,
-            lhs_global_line_size as u32,
-            rhs_global_line_size as u32,
-            out_global_line_size as u32,
+            matmul_line_sizes.lhs as u32,
+            matmul_line_sizes.rhs as u32,
+            matmul_line_sizes.out as u32,
             lhs_stage_line_size,
             rhs_stage_line_size,
         )

@@ -55,20 +55,20 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     .commit()
     .unwrap();
 
-    let config = match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(
-        &client, &problem, &selection, line_sizes,
-    ) {
-        Ok(config) => config,
-        Err(err) => {
-            let msg = format!("Can't launch the test: {err}");
-            if panic_on_launch_err {
-                panic!("{msg}");
-            } else {
-                println!("{msg}");
-                return;
+    let config =
+        match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(&client, &problem, &selection, &line_sizes)
+        {
+            Ok(config) => config,
+            Err(err) => {
+                let msg = format!("Can't launch the test: {err}");
+                if panic_on_launch_err {
+                    panic!("{msg}");
+                } else {
+                    println!("{msg}");
+                    return;
+                }
             }
-        }
-    };
+        };
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = unsafe {

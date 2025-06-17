@@ -1,7 +1,7 @@
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, MatrixLayout,
-    OutputRuntimeArg, ReplaceES,
+    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
@@ -169,35 +169,11 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let lhs_line_size = try_tensor_line_size_parallel(
-        R::line_size_elem(&ei_elem),
-        lhs.shape,
-        lhs.strides,
-        match lhs_layout {
-            MatrixLayout::RowMajor => rank - 1,
-            MatrixLayout::ColMajor => rank - 2,
-        },
-    )?;
-    let rhs_line_size = try_tensor_line_size_parallel(
-        R::line_size_elem(&ei_elem),
-        rhs.shape,
-        rhs.strides,
-        match rhs_layout {
-            MatrixLayout::RowMajor => rank - 1,
-            MatrixLayout::ColMajor => rank - 2,
-        },
-    )?;
-    let out_line_size = try_tensor_line_size_parallel(
-        R::line_size_elem(&eo_elem),
-        out.shape,
-        out.strides,
-        rank - 1,
-    )?;
-    let line_sizes = MatmulLineSizes {
-        lhs: lhs_line_size,
-        rhs: rhs_line_size,
-        out: out_line_size,
-    };
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&ei_elem, &eo_elem)
+        .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
+        .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
+        .filter_out_with_tensor(&out.strides, &out.shape)
+        .commit()?;
 
     let plane_size = client.properties().hardware.defined_plane_size();
 

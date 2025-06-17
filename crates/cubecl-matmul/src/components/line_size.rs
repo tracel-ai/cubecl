@@ -1,6 +1,6 @@
-use cubecl_core::{LineSizeError, Runtime, ir::Elem};
+use cubecl_core::{LineSizeError, Runtime, ir::Elem, tensor_line_size_parallel};
 
-use crate::kernels::MatmulSetupError;
+use crate::{components::MatrixLayout, kernels::MatmulSetupError};
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -8,12 +8,6 @@ pub struct MatmulLineSizes {
     pub lhs: u8,
     pub rhs: u8,
     pub out: u8,
-}
-
-impl From<MatmulLineSizes> for (u8, u8, u8) {
-    fn from(line_sizes: MatmulLineSizes) -> Self {
-        (line_sizes.lhs, line_sizes.rhs, line_sizes.out)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -32,6 +26,59 @@ impl AvailableLineSizes {
             rhs: in_available,
             out: out_available,
         }
+    }
+
+    pub fn filter_lhs_with_tensor(
+        self,
+        strides: &[usize],
+        shape: &[usize],
+        layout: MatrixLayout,
+    ) -> Self {
+        let lhs_vec: Vec<u8> = self.lhs.iter().copied().collect();
+        let rank = strides.len();
+
+        let target = tensor_line_size_parallel(
+            lhs_vec.iter().copied(),
+            shape,
+            strides,
+            match layout {
+                MatrixLayout::RowMajor => rank - 1,
+                MatrixLayout::ColMajor => rank - 2,
+            },
+        );
+
+        self.filter_lhs(move |x| *x == target)
+    }
+
+    pub fn filter_rhs_with_tensor(
+        self,
+        strides: &[usize],
+        shape: &[usize],
+        layout: MatrixLayout,
+    ) -> Self {
+        let rhs_vec: Vec<u8> = self.rhs.iter().copied().collect();
+        let rank = strides.len();
+
+        let target = tensor_line_size_parallel(
+            rhs_vec.iter().copied(),
+            shape,
+            strides,
+            match layout {
+                MatrixLayout::RowMajor => rank - 1,
+                MatrixLayout::ColMajor => rank - 2,
+            },
+        );
+
+        self.filter_rhs(move |x| *x == target)
+    }
+
+    pub fn filter_out_with_tensor(self, strides: &[usize], shape: &[usize]) -> Self {
+        let out_vec: Vec<u8> = self.out.iter().copied().collect();
+        let rank = strides.len();
+
+        let target = tensor_line_size_parallel(out_vec.iter().copied(), shape, strides, rank - 1);
+
+        self.filter_out(move |x| *x == target)
     }
 
     pub fn filter_lhs<F>(self, pred: F) -> Self

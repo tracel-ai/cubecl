@@ -37,7 +37,7 @@ where
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
     let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
-    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, line_sizes)?;
+    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     let line_sizes = config.line_sizes();
 
@@ -72,7 +72,7 @@ pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
     let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
-    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, line_sizes)?;
+    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     launch_matmul::<MS, R, A>(
         client,

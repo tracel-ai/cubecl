@@ -65,7 +65,7 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, MatmulSetupError>
     {
         Self::GlobalConvolution::setup::<R, MP>(client, problem, selection, line_sizes)

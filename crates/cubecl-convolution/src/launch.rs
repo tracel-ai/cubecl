@@ -186,7 +186,7 @@ where
     )
     .commit()?;
 
-    let config = Alg::setup::<R, MP>(client, &problem, &selection, line_sizes)?;
+    let config = Alg::setup::<R, MP>(client, &problem, &selection, &line_sizes)?;
 
     let line_sizes = config.line_sizes();
 

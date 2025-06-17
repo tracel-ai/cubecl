@@ -28,7 +28,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     fn selection<R: Runtime>(

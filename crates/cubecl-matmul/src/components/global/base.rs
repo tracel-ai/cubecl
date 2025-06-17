@@ -30,7 +30,7 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        matmul_line_sizes: MatmulLineSizes,
+        matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

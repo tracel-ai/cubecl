@@ -34,7 +34,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_loaders: Option<MaxLoaders>,
     ) -> Result<Self::Config, MatmulSetupError> {
