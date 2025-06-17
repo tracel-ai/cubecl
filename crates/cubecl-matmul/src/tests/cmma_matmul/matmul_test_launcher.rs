@@ -45,16 +45,21 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let available_line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
-    );
+    )
+    .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
+    .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
+    .filter_out_with_tensor(&out.strides, &out.shape)
+    .pick_max()
+    .unwrap();
 
     let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,
-        available_line_sizes,
+        &line_sizes,
     ) {
         Ok(config) => config,
         Err(err) => {
@@ -67,8 +72,6 @@ pub fn test_matmul_algorithm<A, P, R>(
             }
         }
     };
-
-    let line_sizes = config.line_sizes();
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<P::MP, R>(

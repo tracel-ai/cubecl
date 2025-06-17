@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::AvailableLineSizes;
+use crate::components::MatmulLineSizes;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
@@ -37,9 +37,9 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul, P: Partitioner> BatchMat
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let global_config = GMM::setup::<MP, R>(client, problem, selection, available_line_sizes)?;
+        let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
         PartitionedBatchConfig::new(global_config)
     }

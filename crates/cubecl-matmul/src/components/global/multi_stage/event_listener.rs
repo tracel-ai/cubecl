@@ -1,10 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::InputIdent;
 use crate::components::global::load::BufferId;
 use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageEvent, StageEventListener};
+use crate::components::{InputIdent, TilingScheme};
 
 #[derive(Copy, Clone)]
 pub enum EventLoadingMode {
@@ -250,4 +250,21 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
 pub trait Job: CubeType {
     fn current(this: &Self) -> comptime_type!(u32);
     fn num_tasks(this: &Self) -> comptime_type!(u32);
+}
+
+/// Trait for load components that define how their work can be evenly divided across planes.
+///
+/// The `max_round_plane_count` method returns the largest number of planes
+/// for which the tasks can be evenly distributed (i.e., no remainder).
+///
+/// Any **factor** of this number (e.g., if 8 is returned, then 4, 2, and 1)
+/// is also valid and will result in each plane handling a proportionally higher number of tasks.
+pub trait LoadMaxRoundPlaneCount {
+    /// Returns the largest number of planes that evenly divides the tasks.
+    fn max_round_plane_count(
+        tiling_scheme: &TilingScheme,
+        ident: InputIdent,
+        line_size: u8,
+        plane_dim: u32,
+    ) -> u32;
 }

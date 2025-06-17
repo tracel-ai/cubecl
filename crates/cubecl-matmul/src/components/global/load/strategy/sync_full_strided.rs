@@ -1,9 +1,10 @@
-use crate::components::MatmulPrecision;
 use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{Ident, InputIdent, InvalidConfigError};
+use crate::components::{MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
@@ -30,6 +31,18 @@ impl LoadingValidation for LoadingStrategy {
         }
 
         Ok(())
+    }
+}
+
+impl LoadMaxRoundPlaneCount for LoadingStrategy {
+    fn max_round_plane_count(
+        tiling_scheme: &TilingScheme,
+        ident: InputIdent,
+        line_size: u8,
+        plane_dim: u32,
+    ) -> u32 {
+        let num_lines = tiling_scheme.elements_in_stage(ident) / line_size as u32;
+        num_lines.div_ceil(plane_dim)
     }
 }
 

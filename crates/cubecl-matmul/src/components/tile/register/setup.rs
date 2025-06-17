@@ -5,7 +5,7 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
 };
 use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::{MatmulSelection, unit_matmul_selection};
@@ -28,29 +28,14 @@ impl TileMatmulFamily for RegisterMatmul {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let max_lhs = match problem.lhs_layout {
-            MatrixLayout::RowMajor => selection.tiling_scheme.elements_in_tile_k(),
-            MatrixLayout::ColMajor => selection.tiling_scheme.elements_in_tile_m(),
-        } as u8;
-        let max_rhs = match problem.rhs_layout {
-            MatrixLayout::RowMajor => selection.tiling_scheme.elements_in_tile_n(),
-            MatrixLayout::ColMajor => selection.tiling_scheme.elements_in_tile_k(),
-        } as u8;
-        let max_out = selection.tiling_scheme.elements_in_tile_n() as u8;
-
-        let lhs_global_line_size = available_line_sizes.maximize_lhs(problem, Some(max_lhs))?;
-        let rhs_global_line_size = available_line_sizes.maximize_rhs(problem, Some(max_rhs))?;
-        let out_global_line_size = available_line_sizes.maximize_out(problem, Some(max_out))?;
-
         let stage_vectorization = selection.stage_vectorization;
-
         let (lhs_stage_line_size, rhs_stage_line_size, stage_line_size_update) =
             if stage_vectorization.stage_line_size == 0 {
                 (
-                    lhs_global_line_size as u32,
-                    rhs_global_line_size as u32,
+                    matmul_line_sizes.lhs as u32,
+                    matmul_line_sizes.rhs as u32,
                     false,
                 )
             } else {
@@ -68,9 +53,9 @@ impl TileMatmulFamily for RegisterMatmul {
             problem.lhs_layout,
             problem.rhs_layout,
             stage_line_size_update,
-            lhs_global_line_size as u32,
-            rhs_global_line_size as u32,
-            out_global_line_size as u32,
+            matmul_line_sizes.lhs as u32,
+            matmul_line_sizes.rhs as u32,
+            matmul_line_sizes.out as u32,
             lhs_stage_line_size,
             rhs_stage_line_size,
         )
@@ -84,6 +69,12 @@ impl TileMatmulFamily for RegisterMatmul {
         _elem_acc: Elem,
     ) -> MatmulSelection {
         unit_matmul_selection(problem, plane_dim)
+    }
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+            .filter_lhs(|ls| *ls <= 4)
+            .filter_rhs(|ls| *ls <= 4)
     }
 }
 

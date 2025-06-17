@@ -19,8 +19,8 @@ use cubecl_core::{
 };
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulPrecision,
-        MatmulSpec, OutputRuntimeArg, TilingScheme,
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+        MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, arrive_tma},
@@ -255,6 +255,12 @@ where
 {
     type Convolution<MP: MatmulPrecision> =
         MultiStageTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+            .filter_lhs(|ls| *ls == 1)
+            .filter_rhs(|ls| *ls == 1)
+    }
 }
 
 impl<SMM> ConvolutionConfigFactory for MultiStageTmaConvolutionFamily<SMM>
@@ -267,22 +273,23 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        mut available_line_sizes: AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        available_line_sizes.lhs = vec![1];
-        available_line_sizes.rhs = vec![1];
+        assert!(line_sizes.lhs == 1);
+        assert!(line_sizes.rhs == 1);
 
         let stage_config = SMM::setup::<MP, R>(
             client,
             &problem.as_matmul_problem(),
             selection,
-            available_line_sizes,
+            line_sizes,
             // Not the same as num_stages
             (1, 1).into(),
+            None,
         )?;
 
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();

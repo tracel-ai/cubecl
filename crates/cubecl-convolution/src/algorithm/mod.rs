@@ -1,6 +1,6 @@
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, InputIdent, LoadSpecializationConfig, MatmulPrecision,
+        AvailableLineSizes, InputIdent, LoadSpecializationConfig, MatmulLineSizes, MatmulPrecision,
         global::{args::MatmulArgs, load::LoaderMode},
         stage::{NumStages, PartitionBuffering, StageMatmulFamily},
         tile::TileMatmulFamily,
@@ -53,7 +53,7 @@ pub trait Algorithm {
     }
 
     fn load_specialization() -> LoadSpecializationConfig {
-        LoadSpecializationConfig::None
+        LoadSpecializationConfig::default()
     }
 
     fn partition_buffering_strategy() -> PartitionBuffering {
@@ -65,10 +65,16 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, MatmulSetupError>
     {
-        Self::GlobalConvolution::setup::<R, MP>(client, problem, selection, available_line_sizes)
+        Self::GlobalConvolution::setup::<R, MP>(client, problem, selection, line_sizes)
+    }
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        Self::GlobalConvolution::filter_line_sizes(Self::StageMatmul::filter_line_sizes(
+            Self::TileMatmul::filter_line_sizes(available_line_sizes),
+        ))
     }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(

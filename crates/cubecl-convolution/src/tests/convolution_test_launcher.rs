@@ -47,29 +47,31 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let available_line_sizes = AvailableLineSizes {
+    let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
         out: R::line_size_elem(&P::EG::as_elem_native_unchecked()).collect(),
-    };
+    }
+    .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
+    .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
+    .filter_out_with_tensor(&out.strides, &out.shape)
+    .pick_max()
+    .unwrap();
 
-    let config = match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(
-        &client,
-        &problem,
-        &selection,
-        available_line_sizes,
-    ) {
-        Ok(config) => config,
-        Err(err) => {
-            let msg = format!("Can't launch the test: {err}");
-            if panic_on_launch_err {
-                panic!("{msg}");
-            } else {
-                println!("{msg}");
-                return;
+    let config =
+        match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(&client, &problem, &selection, &line_sizes)
+        {
+            Ok(config) => config,
+            Err(err) => {
+                let msg = format!("Can't launch the test: {err}");
+                if panic_on_launch_err {
+                    panic!("{msg}");
+                } else {
+                    println!("{msg}");
+                    return;
+                }
             }
-        }
-    };
+        };
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = unsafe {

@@ -4,7 +4,7 @@ use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
         global::{
-            GlobalConfig, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+            GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
             load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
             shared::shared_global_config_validation,
@@ -24,6 +24,7 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub check_k_bounds: bool,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
+    specialized_loading_sides: SpecializedLoadingSides,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
@@ -91,15 +92,8 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
         self.stage_config.plane_role_config()
     }
 
-    fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-        SpecializedLoadingSides {
-            main_flow: LoadingSides::Lhs,
-            load_only: LoadingSides::Rhs,
-        }
-    }
-
     fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
-        self.specialized_loading_sides().num_loading_planes(
+        self.specialized_loading_sides.num_loading_planes(
             self.plane_role_config().has_specialization(),
             ident.into().as_input_ident(),
             self.plane_role_config().plane_roles,
@@ -108,6 +102,10 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
 
     fn cube_dim(&self) -> CubeDim {
         CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
+
+    fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+        self.specialized_loading_sides
     }
 }
 
@@ -124,6 +122,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         check_k_bounds: bool,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
+        specialized_loading_sides: SpecializedLoadingSides,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
@@ -133,6 +132,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             check_k_bounds,
             precompute_job,
             loader_mode,
+            specialized_loading_sides,
         }
         .validate::<LL, RL>()
     }
@@ -146,6 +146,12 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         if self.tiling_scheme().stage_partitions_in_stage_n() > 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(
                 "Ordered does not support number of stage partitions > 1 in n",
+            )));
+        }
+
+        if self.specialized_loading_sides.load_only.includes_lhs() {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Error: In Ordered lhs loading cannot be outside of main flow",
             )));
         }
 

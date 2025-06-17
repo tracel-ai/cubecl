@@ -16,5 +16,6 @@ pub use accumulator_loader::*;
 pub use base::*;
 pub use copy_mechanism::*;
 pub use quantization::*;
+pub use shared::*;
 pub use specialization::*;
 pub use write::*;

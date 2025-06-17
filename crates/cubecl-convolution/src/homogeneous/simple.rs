@@ -11,8 +11,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulPrecision,
-        MatmulSpec, OutputRuntimeArg,
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
@@ -177,6 +177,10 @@ where
 {
     type Convolution<MP: MatmulPrecision> =
         SimpleConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+    }
 }
 
 impl<SMM> ConvolutionConfigFactory for SimpleConvolutionFamily<SMM>
@@ -189,14 +193,15 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         let stage_config = SMM::setup::<MP, R>(
             client,
             &problem.as_matmul_problem(),
             selection,
-            available_line_sizes,
+            line_sizes,
             (1, 1).into(),
+            None,
         )?;
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 

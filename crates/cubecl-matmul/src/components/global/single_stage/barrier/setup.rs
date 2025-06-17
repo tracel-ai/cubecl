@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::AvailableLineSizes;
-use crate::components::LoadSpecializationConfig;
+use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
@@ -37,29 +36,22 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        // TODO inject loader info here
-        let stage_config = SMM::setup::<MP, R>(
-            client,
-            problem,
-            selection,
-            available_line_sizes,
-            (1, 1).into(),
-        )?;
+        let stage_config =
+            SMM::setup::<MP, R>(client, problem, selection, line_sizes, (1, 1).into(), None)?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
         let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        let num_planes =
-            if let LoadSpecializationConfig::None = selection.load_specialization_config {
-                stage_config.num_main_flow_planes()
-            } else {
-                return Err(MatmulSetupError::InvalidConfig(Box::new(
-                    "Error: Specialization is unavailable for simple tma matmul.",
-                )));
-            };
+        let num_planes = if !selection.load_specialization_config.has_specialization() {
+            stage_config.num_main_flow_planes()
+        } else {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Error: Specialization is unavailable for simple tma matmul.",
+            )));
+        };
 
         SimpleBarrierConfig::new::<LL, RL, R>(
             client,

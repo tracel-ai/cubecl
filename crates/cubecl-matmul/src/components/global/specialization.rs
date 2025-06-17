@@ -1,7 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::InputIdent;
+use crate::components::global::{GlobalConfig, MaxLoaders};
+use crate::components::{InputIdent, LoadSpecializationConfig, SpecializationTensorConfig};
+use crate::kernels::MatmulSetupError;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlaneRoles {
@@ -74,6 +76,30 @@ impl SpecializedLoadingSides {
     }
 }
 
+impl From<LoadSpecializationConfig> for SpecializedLoadingSides {
+    fn from(lsc: LoadSpecializationConfig) -> Self {
+        use SpecializationTensorConfig::*;
+        match (lsc.lhs, lsc.rhs) {
+            (MainFlowOnly, MainFlowOnly) => SpecializedLoadingSides {
+                main_flow: LoadingSides::Both,
+                load_only: LoadingSides::None,
+            },
+            (MainFlowOnly, LoadFlowOnly) => SpecializedLoadingSides {
+                main_flow: LoadingSides::Lhs,
+                load_only: LoadingSides::Rhs,
+            },
+            (LoadFlowOnly, MainFlowOnly) => SpecializedLoadingSides {
+                main_flow: LoadingSides::Rhs,
+                load_only: LoadingSides::Lhs,
+            },
+            (LoadFlowOnly, LoadFlowOnly) => SpecializedLoadingSides {
+                main_flow: LoadingSides::None,
+                load_only: LoadingSides::Both,
+            },
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlaneRoleConfig {
     pub plane_roles: PlaneRoles,
@@ -97,6 +123,34 @@ pub enum RoleRule {
 }
 
 impl PlaneRoleConfig {
+    pub fn new(
+        load_specialization_config: LoadSpecializationConfig,
+        loader_tasks: Option<MaxLoaders>,
+        num_main_flow_planes: u32,
+    ) -> Result<PlaneRoleConfig, MatmulSetupError> {
+        let plane_roles = match loader_tasks {
+            Some(loader_tasks) => {
+                load_specialization_config.to_plane_roles(num_main_flow_planes, loader_tasks)
+            }
+
+            None => {
+                if load_specialization_config.has_specialization() {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(
+                        "Error: Load specialization config has specialization but no loader tasks were given."
+                            .to_string(),
+                    )));
+                } else {
+                    PlaneRoles {
+                        main_flow: num_main_flow_planes,
+                        load_only: 0,
+                    }
+                }
+            }
+        };
+
+        Ok(Self::from_plane_roles(plane_roles))
+    }
+
     pub fn from_plane_roles(plane_roles: PlaneRoles) -> Self {
         // TODO make possible to select LoadOnlyLast
         let rule = match plane_roles.load_only {
@@ -187,11 +241,11 @@ pub struct Specializer {
 
 #[cube]
 impl Specializer {
-    pub fn new(
-        #[comptime] plane_role_config: PlaneRoleConfig,
-        #[comptime] loading_sides: SpecializedLoadingSides,
-    ) -> Specializer {
-        if plane_role_config.has_specialization() {
+    pub fn new<G: GlobalConfig>(#[comptime] config: G) -> Specializer {
+        let plane_role_config = config.plane_role_config();
+        let loading_sides = config.specialized_loading_sides();
+
+        if config.plane_role_config().has_specialization() {
             Specializer {
                 kind: comptime! {
                     SpecializerKind::Specialized {

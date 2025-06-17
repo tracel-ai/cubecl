@@ -2,9 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::components::AvailableLineSizes;
+use crate::components::global::MaxLoaders;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
+use crate::components::{AvailableLineSizes, MatmulLineSizes};
 use crate::components::{
     Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     config::MatmulConfig,
@@ -46,9 +47,14 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        available_line_sizes: AvailableLineSizes,
+        line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
+        max_loaders: Option<MaxLoaders>,
     ) -> Result<Self::Config, MatmulSetupError>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+    }
 }
 
 #[cube]

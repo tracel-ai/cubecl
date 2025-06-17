@@ -180,12 +180,16 @@ where
         TensorHandleRef::from_raw_parts(out.handle, &out_strides, &out_shape, out.elem_size)
     };
 
-    let available_line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &MP::EI::as_elem_native_unchecked(),
         &MP::EO::as_elem_native_unchecked(),
-    );
+    )
+    .filter_lhs_with_tensor(input.strides, input.shape, problem.lhs_layout)
+    .filter_rhs_with_tensor(weight.strides, weight.shape, problem.rhs_layout)
+    .filter_out_with_tensor(out.strides, out.shape)
+    .pick_max()?;
 
-    let config = Alg::setup::<R, MP>(client, &problem, &selection, available_line_sizes)?;
+    let config = Alg::setup::<R, MP>(client, &problem, &selection, &line_sizes)?;
 
     let line_sizes = config.line_sizes();
 
