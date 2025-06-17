@@ -31,7 +31,7 @@ impl<T> Mutex<T> {
 
     /// Locks the mutex blocking the current thread until it is able to do so.
     #[inline(always)]
-    pub fn lock(&self) -> Result<MutexGuard<T>, alloc::string::String> {
+    pub fn lock(&self) -> Result<MutexGuard<'_, T>, alloc::string::String> {
         #[cfg(not(feature = "std"))]
         {
             Ok(self.inner.lock())
@@ -65,7 +65,7 @@ impl<T> RwLock<T> {
     /// Locks this rwlock with shared read access, blocking the current thread
     /// until it can be acquired.
     #[inline(always)]
-    pub fn read(&self) -> Result<RwLockReadGuard<T>, alloc::string::String> {
+    pub fn read(&self) -> Result<RwLockReadGuard<'_, T>, alloc::string::String> {
         #[cfg(not(feature = "std"))]
         {
             Ok(self.inner.read())
@@ -79,7 +79,7 @@ impl<T> RwLock<T> {
     /// Locks this rwlock with exclusive write access, blocking the current thread
     /// until it can be acquired.
     #[inline(always)]
-    pub fn write(&self) -> Result<RwLockWriteGuard<T>, alloc::string::String> {
+    pub fn write(&self) -> Result<RwLockWriteGuard<'_, T>, alloc::string::String> {
         #[cfg(not(feature = "std"))]
         {
             Ok(self.inner.write())

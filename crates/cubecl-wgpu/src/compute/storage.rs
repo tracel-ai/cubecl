@@ -27,7 +27,7 @@ pub struct WgpuResource {
 
 impl WgpuResource {
     /// Return the binding view of the buffer.
-    pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource {
+    pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource<'_> {
         let binding = wgpu::BufferBinding {
             buffer: &self.buffer,
             offset: self.offset,
