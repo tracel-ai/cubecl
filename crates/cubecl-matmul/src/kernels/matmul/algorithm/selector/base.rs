@@ -1,109 +1,113 @@
-use cubecl_core::prelude::TensorHandleRef;
-use cubecl_core::{Runtime, client::ComputeClient};
-
-use crate::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg, TilingScheme,
-};
-use crate::kernels::matmul::Algorithm;
 use crate::{
     components::{
-        InputArg, MatmulProblem, MatmulSpec, OutputArg,
-        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+        LoadSpecializationConfig, TilingScheme,
+        global::load::LoaderMode,
+        stage::{PartitionBuffering, StageVectorization},
     },
-    kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
+    kernels::matmul::LoadingPrecomputeStrategy,
 };
-use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Debug)]
 pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
+    pub stage_vectorization: StageVectorization,
+    pub quantized: bool,
+    pub partition_buffering: PartitionBuffering,
+    pub loading_precompute_strategy: LoadingPrecomputeStrategy,
+    pub loader_mode: LoaderMode,
+    pub load_specialization_config: LoadSpecializationConfig,
 }
 
-/// Select which kernel to launch for the given Algorithm.
-///
-/// Only works for concrete tensor inputs and output.
-#[allow(clippy::result_large_err, clippy::too_many_arguments)]
-pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
-    out: &TensorHandleRef<'_, R>,
-    problem: MatmulProblem,
-    line_sizes: Option<MatmulLineSizes>,
-    plane_dim: u32,
-) -> Result<(), MatmulLaunchError>
-where
-    InputArg<MS>: ConcreteInputsFactory,
-    OutputArg<MS>: ConcreteOutputFactory,
-{
-    let selection = A::selection::<R>(
-        client,
-        &problem,
-        plane_dim,
-        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
-        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
-    );
-
-    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
-        &problem,
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
-        &selection,
-    ));
-
-    matmul_cube_preparation::<MS, R, A>(
-        client,
-        <InputArg<MS> as ConcreteInputsFactory>::create(
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            &selection,
-            &problem,
-            &line_sizes,
-        ),
-        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
-        problem,
-        &line_sizes,
-        A::global_input(&selection),
-        selection,
-    )
+impl MatmulSelection {
+    pub fn builder(tiling_scheme: TilingScheme, plane_dim: u32) -> MatmulSelectionBuilder {
+        MatmulSelectionBuilder::new()
+            .tiling_scheme(tiling_scheme)
+            .plane_dim(plane_dim)
+    }
 }
 
-/// Select which kernel to launch for the given Algorithm.
-pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
-    problem: MatmulProblem,
-    line_sizes: Option<MatmulLineSizes>,
-    plane_dim: u32,
-) -> Result<(), MatmulLaunchError> {
-    let selection = A::selection::<R>(
-        client,
-        &problem,
-        plane_dim,
-        <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked(),
-        <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked(),
-    );
+pub struct MatmulSelectionBuilder {
+    plane_dim: Option<u32>,
+    tiling_scheme: Option<TilingScheme>,
+    stage_vectorization: StageVectorization,
+    quantized: bool,
+    partition_buffering: PartitionBuffering,
+    loading_precompute_strategy: LoadingPrecomputeStrategy,
+    loader_mode: LoaderMode,
+    load_specialization_config: LoadSpecializationConfig,
+}
 
-    let line_sizes = line_sizes.unwrap_or(A::line_sizes(
-        &problem,
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EI::as_elem_native_unchecked()),
-        R::line_size_elem(&<MS::Precision as MatmulPrecision>::EO::as_elem_native_unchecked()),
-        &selection,
-    ));
+impl MatmulSelectionBuilder {
+    fn new() -> Self {
+        Self {
+            plane_dim: None,
+            tiling_scheme: None,
+            stage_vectorization: StageVectorization::default(),
+            quantized: false,
+            partition_buffering: PartitionBuffering::default(),
+            loading_precompute_strategy: LoadingPrecomputeStrategy::default(),
+            loader_mode: LoaderMode::default(),
+            load_specialization_config: LoadSpecializationConfig::default(),
+        }
+    }
 
-    matmul_cube_preparation::<MS, R, A>(
-        client,
-        input,
-        output,
-        problem,
-        &line_sizes,
-        A::global_input(&selection),
-        selection,
-    )
+    pub fn plane_dim(mut self, plane_dim: u32) -> Self {
+        self.plane_dim = Some(plane_dim);
+        self
+    }
+
+    pub fn tiling_scheme(mut self, tiling_scheme: TilingScheme) -> Self {
+        self.tiling_scheme = Some(tiling_scheme);
+        self
+    }
+
+    pub fn stage_vectorization(mut self, stage_vectorization: StageVectorization) -> Self {
+        self.stage_vectorization = stage_vectorization;
+        self
+    }
+
+    pub fn quantized(mut self, quantized: bool) -> Self {
+        self.quantized = quantized;
+        self
+    }
+
+    pub fn partition_buffering(mut self, partition_buffering: PartitionBuffering) -> Self {
+        self.partition_buffering = partition_buffering;
+        self
+    }
+
+    pub fn loading_precompute_strategy(
+        mut self,
+        loading_precompute_strategy: LoadingPrecomputeStrategy,
+    ) -> Self {
+        self.loading_precompute_strategy = loading_precompute_strategy;
+        self
+    }
+
+    pub fn loader_mode(mut self, loader_mode: LoaderMode) -> Self {
+        self.loader_mode = loader_mode;
+        self
+    }
+
+    pub fn load_specialization_config(
+        mut self,
+        load_specialization_config: LoadSpecializationConfig,
+    ) -> Self {
+        self.load_specialization_config = load_specialization_config;
+        self
+    }
+
+    pub fn build(self) -> MatmulSelection {
+        MatmulSelection {
+            plane_dim: self.plane_dim.unwrap(),
+            tiling_scheme: self.tiling_scheme.unwrap(),
+            stage_vectorization: self.stage_vectorization,
+            quantized: self.quantized,
+            partition_buffering: self.partition_buffering,
+            loading_precompute_strategy: self.loading_precompute_strategy,
+            loader_mode: self.loader_mode,
+            load_specialization_config: self.load_specialization_config,
+        }
+    }
 }

@@ -1,13 +1,15 @@
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::AvailableLineSizes;
+use cubecl_matmul::components::global::GlobalConfig;
 use cubecl_matmul::kernels::matmul::MatmulSelection;
 
+use crate::ConvGemmConfig;
 use crate::algorithm::Algorithm;
+use crate::args::ConvInputsLaunch;
 use crate::base::ConvolutionLaunch;
 use crate::base::ConvolutionProblem;
-use crate::{args::ConvInputsLaunch, base::ConvolutionConfigFactory};
 use cubecl_matmul::components::InputIdent;
-use cubecl_matmul::components::MatmulLineSizes;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::tests::test_utils::Sample;
 use cubecl_matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
@@ -22,7 +24,6 @@ type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 pub fn test_convolution_algorithm<A, Args, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: ConvolutionProblem,
-    input: <A::GlobalConvolution as ConvolutionConfigFactory>::Input,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
@@ -46,25 +47,17 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let line_sizes = MatmulLineSizes {
-        lhs: 1,
-        rhs: 1,
-        out: MatmulLineSizes::maximize_out(
-            &problem.as_matmul_problem(),
-            R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        ),
+    let available_line_sizes = AvailableLineSizes {
+        lhs: vec![1],
+        rhs: vec![1],
+        out: R::line_size_elem(&P::EG::as_elem_native_unchecked()).collect(),
     };
 
-    let cube_dim = A::cube_dim(&selection);
-    let cube_count = A::cube_count(&selection, &problem);
-
-    let config = match A::make_config::<R, (P::EG, P::ES, f32, P::EG)>(
+    let config = match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(
         &client,
-        input,
         &problem,
-        &line_sizes,
-        &cube_dim,
-        &cube_count,
+        &selection,
+        available_line_sizes,
     ) {
         Ok(config) => config,
         Err(err) => {
@@ -77,17 +70,6 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
             }
         }
     };
-
-    if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
-        let msg = format!("Skipped - not supported: {err:?}");
-        if panic_on_launch_err {
-            panic!("{msg}")
-        } else {
-            println!("{msg}");
-            client.flush();
-            return;
-        }
-    }
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = unsafe {
@@ -111,18 +93,25 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &rhs_handle,
         &selection,
         &problem,
-        &line_sizes,
+        &config.line_sizes(),
     );
     let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
         &out_handle,
         &selection,
         &problem.as_matmul_problem(),
-        &line_sizes,
+        &config.line_sizes(),
     );
 
     unsafe {
         A::GlobalConvolution::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), Args), R>(
-            &client, cube_dim, cube_count, inputs, None, output, &problem, config,
+            &client,
+            config.cube_dim(),
+            A::cube_count(&selection, &problem),
+            inputs,
+            None,
+            output,
+            &problem,
+            config,
         );
     }
 

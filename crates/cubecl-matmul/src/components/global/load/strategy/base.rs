@@ -43,7 +43,14 @@ pub trait LoadingValidation {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NoLoadingValidation {}
+impl LoadingValidation for NoLoadingValidation {
+    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
+        Ok(())
+    }
+}
+
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Controls bounds checking for loader operations.
 ///
 /// This **does not** disable tensor read bounds checks.
@@ -55,5 +62,6 @@ pub enum LoaderMode {
     Strict,
     /// Inserts runtime checks only when an out-of-bounds access will occur.
     /// May reduce performance if workloads are imbalanced.
+    #[default]
     Relaxed,
 }

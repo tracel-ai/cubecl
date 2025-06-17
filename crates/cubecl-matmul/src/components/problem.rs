@@ -1,9 +1,6 @@
-use cubecl_core::tensor_line_size_parallel;
 use serde::{Deserialize, Serialize};
 
-use crate::kernels::MatmulInvalidProblem;
-
-use super::{Ident, MatmulProblemSize, MatrixLayout, batch};
+use super::{Ident, MatmulProblemSize, MatrixLayout};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
@@ -57,92 +54,6 @@ impl MatmulProblem {
                 .chain(vec![self.m, self.n])
                 .collect(),
         }
-    }
-
-    /// Asserts that the problem can be solved with the given batch matmul configs
-    ///
-    /// # Panics:
-    ///
-    ///  - If dimensions of the problem are larger than allowed by the config
-    ///  - If line sizes do not divide well the dimension in which they are aligned
-    pub fn check_config<B: batch::BatchConfig>(
-        &self,
-        config: &B,
-    ) -> Result<(), MatmulInvalidProblem> {
-        if self.m > config.max_problem_m() as usize {
-            return Err(MatmulInvalidProblem::ExceededMSize {
-                m: self.m as u32,
-                max_m: config.max_problem_m(),
-            });
-        }
-
-        if self.n > config.max_problem_n() as usize {
-            return Err(MatmulInvalidProblem::ExceededNSize {
-                n: self.n as u32,
-                max_n: config.max_problem_n(),
-            });
-        }
-
-        if self.num_batches() > config.max_problem_batches() as usize {
-            return Err(MatmulInvalidProblem::ExceededBatchSize {
-                b: self.num_batches() as u32,
-                max_b: config.max_problem_batches(),
-            });
-        }
-
-        Ok(())
-    }
-
-    pub fn check_line_sizes(
-        &self,
-        line_sizes: &MatmulLineSizes,
-    ) -> Result<(), MatmulInvalidProblem> {
-        match self.lhs_layout {
-            MatrixLayout::RowMajor => {
-                if self.k % line_sizes.lhs as usize != 0 {
-                    return Err(MatmulInvalidProblem::InvalidLineSizeLhs {
-                        size: self.k as u32,
-                        line_size: line_sizes.lhs,
-                    });
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if self.m % line_sizes.lhs as usize != 0 {
-                    return Err(MatmulInvalidProblem::InvalidLineSizeLhs {
-                        size: self.m as u32,
-                        line_size: line_sizes.lhs,
-                    });
-                }
-            }
-        }
-
-        match self.rhs_layout {
-            MatrixLayout::RowMajor => {
-                if self.n % line_sizes.rhs as usize != 0 {
-                    return Err(MatmulInvalidProblem::InvalidLineSizeRhs {
-                        size: self.n as u32,
-                        line_size: line_sizes.rhs,
-                    });
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if self.k % line_sizes.rhs as usize != 0 {
-                    return Err(MatmulInvalidProblem::InvalidLineSizeRhs {
-                        size: self.k as u32,
-                        line_size: line_sizes.rhs,
-                    });
-                }
-            }
-        }
-
-        if self.n % line_sizes.out as usize != 0 {
-            return Err(MatmulInvalidProblem::InvalidLineSizeOut {
-                size: self.n as u32,
-                line_size: line_sizes.out,
-            });
-        }
-
-        Ok(())
     }
 }
 
@@ -223,69 +134,5 @@ impl From<MatmulProblem> for MatmulKind {
 impl From<&MatmulProblem> for MatmulKind {
     fn from(problem: &MatmulProblem) -> Self {
         MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32).into()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MatmulLineSizes {
-    pub lhs: u8,
-    pub rhs: u8,
-    pub out: u8,
-}
-
-impl MatmulLineSizes {
-    pub fn new_maximized(
-        problem: &MatmulProblem,
-        in_available: impl Iterator<Item = u8> + Clone,
-        out_available: impl Iterator<Item = u8> + Clone,
-    ) -> MatmulLineSizes {
-        MatmulLineSizes {
-            lhs: Self::maximize_lhs(problem, in_available.clone()),
-            rhs: Self::maximize_rhs(problem, in_available),
-            out: Self::maximize_out(problem, out_available),
-        }
-    }
-
-    pub fn maximize_lhs(
-        problem: &MatmulProblem,
-        in_available: impl Iterator<Item = u8> + Clone,
-    ) -> u8 {
-        tensor_line_size_parallel(
-            in_available.clone(),
-            &[problem.m, problem.k],
-            &match problem.lhs_layout {
-                MatrixLayout::RowMajor => [problem.k, 1],
-                MatrixLayout::ColMajor => [1, problem.m],
-            },
-            match problem.lhs_layout {
-                MatrixLayout::RowMajor => 1,
-                MatrixLayout::ColMajor => 0,
-            },
-        )
-    }
-
-    pub fn maximize_rhs(
-        problem: &MatmulProblem,
-        in_available: impl Iterator<Item = u8> + Clone,
-    ) -> u8 {
-        tensor_line_size_parallel(
-            in_available,
-            &[problem.k, problem.n],
-            &match problem.rhs_layout {
-                MatrixLayout::RowMajor => [problem.n, 1],
-                MatrixLayout::ColMajor => [1, problem.k],
-            },
-            match problem.rhs_layout {
-                MatrixLayout::RowMajor => 1,
-                MatrixLayout::ColMajor => 0,
-            },
-        )
-    }
-
-    pub fn maximize_out(
-        problem: &MatmulProblem,
-        out_available: impl Iterator<Item = u8> + Clone,
-    ) -> u8 {
-        tensor_line_size_parallel(out_available, &[problem.k, problem.n], &[problem.n, 1], 1)
     }
 }

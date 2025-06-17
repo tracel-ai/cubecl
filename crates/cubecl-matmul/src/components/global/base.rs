@@ -1,17 +1,17 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl};
 
 use crate::{
     components::{
-        Ident, InputIdent, InvalidConfigError, LoadSpecializationConfig, MatmulConfigFactory,
-        MatmulPrecision, MatrixLayout, TilingScheme,
+        AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
+        TilingScheme,
         config::MatmulConfig,
         global::{
             PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
         },
         stage::{self, StageConfig},
     },
-    kernels::matmul::MatmulSelection,
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption,
@@ -21,15 +21,16 @@ use cubecl_std::{
 use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
-pub trait GlobalMatmulFamily:
-    MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
-{
+pub trait GlobalMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+    type Config: GlobalConfig;
 
-    fn cube_dim(
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
         selection: &MatmulSelection,
-        loading_plane_count: LoadSpecializationConfig,
-    ) -> Result<CubeDim, InvalidConfigError>;
+        available_line_sizes: AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
 }
 
 #[cube]
@@ -158,4 +159,10 @@ pub trait GlobalConfig: MatmulConfig {
     fn loader_mode(&self) -> LoaderMode;
 
     fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
+
+    fn quantized(&self) -> bool {
+        self.stage_config().quantized()
+    }
+
+    fn cube_dim(&self) -> CubeDim;
 }

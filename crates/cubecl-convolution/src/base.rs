@@ -2,11 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
-        InputRuntimeArg, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSpec, MatrixLayout, OutputRuntimeArg,
+        AvailableLineSizes, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
+        MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
-    kernels::MatmulAvailabilityError,
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmod,
@@ -91,24 +91,13 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
 pub trait ConvolutionConfigFactory: Send + Sync + 'static {
     /// Configuration tailored to the matmul implementation
     type Config: ConvGemmConfig;
-    type Input;
 
-    /// Asserts that the configuration for this matmul will lead to a valid computation
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError>;
-
-    fn make_config<R: Runtime, MP: MatmulPrecision>(
+    fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        input: Self::Input,
         problem: &ConvolutionProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-    ) -> Self::Config;
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError>;
+        selection: &MatmulSelection,
+        available_line_sizes: AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
 }
 
 /// Provides launch entry point to solve a matmul

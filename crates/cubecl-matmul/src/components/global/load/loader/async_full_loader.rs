@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
+use crate::components::global::Quantization;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig};
-use crate::components::global::{Quantization, single_stage};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
-use crate::components::{InputIdent, MatmulPrecision, global};
+use crate::components::{InputIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -39,6 +39,7 @@ pub struct AsyncLoader<
     CM: CopyMechanism<MP::ES>,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
+    G: GlobalConfig,
 > {
     tensor_reader: TensorReader<MP::EI>,
     stage_memory: StageMemory<MP::ES, L::TilingLayout>,
@@ -46,7 +47,7 @@ pub struct AsyncLoader<
     #[cube(comptime)]
     ident: InputIdent,
     #[cube(comptime)]
-    _phantom: PhantomData<(S, L, CM)>,
+    _phantom: PhantomData<(S, L, CM, G)>,
 }
 
 #[cube]
@@ -55,9 +56,10 @@ impl<
     CM: CopyMechanism<MP::ES>,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
-> AsyncLoader<MP, CM, S, L>
+    G: GlobalConfig,
+> AsyncLoader<MP, CM, S, L, G>
 {
-    pub fn new<G: global::GlobalConfig>(
+    pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
@@ -106,28 +108,24 @@ impl<
             }
         }
 
-        AsyncLoader::<MP, CM, S, L> {
+        AsyncLoader::<MP, CM, S, L, G> {
             tensor_reader,
             stage_memory,
             loading_job,
             ident,
-            _phantom: PhantomData::<(S, L, CM)>,
+            _phantom: PhantomData,
         }
     }
 
-    pub fn fill_stage(
-        this: &mut Self,
-        mechanism: &CM,
-        #[comptime] config: single_stage::Config<S>,
-    ) {
+    pub fn fill_stage(this: &mut Self, mechanism: &CM, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<MP, single_stage::Config<S>>(this.ident, config),
+            CubeOption::None => L::new_job::<MP, G>(this.ident, config),
         };
 
         let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
-            L::Job::<MP>::execute_task::<CM, single_stage::Config<S>>(
+            L::Job::<MP>::execute_task::<CM, G>(
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
@@ -138,9 +136,8 @@ impl<
         }
     }
 
-    pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage_memory
-            .clear::<single_stage::Config<S>>(this.ident, config)
+    pub fn clear_stage(this: &mut Self, #[comptime] config: G) {
+        this.stage_memory.clear::<G>(this.ident, config)
     }
 
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {

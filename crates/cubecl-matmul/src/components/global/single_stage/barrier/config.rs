@@ -1,33 +1,33 @@
+use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
+
 use crate::{
     components::{
         Ident, InputIdent, MatmulConfig, MatrixLayout,
         global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+            load::{LoaderMode, LoadingValidation},
             multi_stage::EventLoadingMode,
+            shared::shared_global_config_validation,
         },
         stage,
     },
-    kernels::matmul::LoadingPrecomputeStrategy,
+    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::LoadingPrecomputeStrategy},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for single stage matmuls
-pub struct Config<S: stage::StageConfig> {
+pub struct SimpleBarrierConfig<S: stage::StageConfig> {
     stage_config: S,
+    num_planes: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
     check_k_bounds: bool,
-    lhs_layout: MatrixLayout,
-    rhs_layout: MatrixLayout,
-    lhs_line_size: u32,
-    rhs_line_size: u32,
-    out_line_size: u32,
     pub k_step: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
 }
 
-impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for SimpleBarrierConfig<S> {
     type StageConfig = S;
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -35,19 +35,11 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
+        self.stage_config.global_line_size(ident)
     }
 
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.stage_config.matrix_layout(Ident::Out),
-        }
+        self.stage_config.matrix_layout(ident)
     }
 
     fn plane_dim(&self) -> u32 {
@@ -106,39 +98,61 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
             load_only: LoadingSides::None,
         }
     }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
+impl<S: stage::StageConfig> MatmulConfig for SimpleBarrierConfig<S> {}
 
-impl<S: stage::StageConfig> Config<S> {
+impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,
+        num_planes: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
-    ) -> Self {
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
+            num_planes,
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
             k_step,
             precompute_job,
             loader_mode,
         }
+        .validate::<LL, RL>()?
+        .check_availability::<R>(client)
+    }
+
+    fn validate<LL: LoadingValidation, RL: LoadingValidation>(
+        self,
+    ) -> Result<Self, MatmulSetupError> {
+        LL::check(&self, Ident::Lhs)?;
+        RL::check(&self, Ident::Rhs)?;
+        shared_global_config_validation(self)?;
+
+        Ok(self)
+    }
+
+    fn check_availability<R: Runtime>(
+        self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<Self, MatmulSetupError> {
+        if !client.properties().feature_enabled(Feature::Barrier) {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::BarrierUnavailable,
+            ));
+        }
+
+        Ok(self)
     }
 }

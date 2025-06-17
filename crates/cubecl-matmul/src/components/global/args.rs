@@ -9,7 +9,7 @@ use cubecl_std::{
 
 use super::Quantization;
 use crate::{
-    components::{self, MatmulPrecision, MatmulProblem, problem::MatmulLineSizes},
+    components::{self, MatmulLineSizes, MatmulPrecision, MatmulProblem},
     kernels::matmul::MatmulSelection,
 };
 

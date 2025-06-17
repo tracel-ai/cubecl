@@ -2,6 +2,8 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
 use cubecl_std::tensor::TensorHandle;
 
+use crate::components::tile::accelerated::AcceleratedMatmul;
+
 use super::{
     components::{
         MatmulPrecision,
@@ -10,10 +12,9 @@ use super::{
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
-        tile::accelerated_matmul::AcceleratedMatmul,
     },
     kernels::{
-        MatmulLaunchError,
+        MatmulSetupError,
         matmul::{
             self,
             double_buffering::{
@@ -76,7 +77,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision>(
     rhs: TensorHandle<R, MP::EI>,
     rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     launch_ref::<R, MP>(
         strategy,
         client,
@@ -97,7 +98,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     rhs: &TensorHandleRef<R>,
     rhs_scale: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     match strategy {
         Strategy::Simple(loading_strategy) => match loading_strategy {
             SyncLoadingStrategy::Cyclic => {
@@ -218,7 +219,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 client, lhs, lhs_scale, rhs, rhs_scale, out,
             ) {
                 match err {
-                    super::kernels::MatmulLaunchError::Unavailable(_) => {
+                    super::kernels::MatmulSetupError::Unavailable(_) => {
                         // TODO Implement naive with EI and EO
                         tiling2d::launch_ref::<R, MP::EI>(
                             client,

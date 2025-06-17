@@ -10,5 +10,5 @@ pub mod simple_tma;
 pub mod simple_unit;
 
 pub use base::Algorithm;
-pub use base::{GlobalInput, LoadingPrecomputeStrategy, MultiRowStrategy, StageInput};
+pub use base::{LoadingPrecomputeStrategy, MultiRowStrategy};
 pub use selector::*;

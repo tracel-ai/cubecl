@@ -92,12 +92,15 @@ pub mod config {
     use std::ops::Deref;
 
     use crate::{ConvGemmConfig, base::Dimensionality};
-    use cubecl_matmul::components::{
-        InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{
-            GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
-            multi_stage::EventLoadingMode,
+    use cubecl_matmul::{
+        components::{
+            InputIdent, MatmulConfig, MatmulLineSizes, MatrixLayout, TilingScheme,
+            global::{
+                GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
+                multi_stage::EventLoadingMode,
+            },
         },
+        kernels::MatmulSetupError,
     };
 
     use super::*;
@@ -183,6 +186,10 @@ pub mod config {
         fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
             self.matmul.specialized_loading_sides()
         }
+
+        fn cube_dim(&self) -> CubeDim {
+            CubeDim::new(self.plane_dim(), self.tiling_scheme().tiles_in_stage_m(), 1)
+        }
     }
 
     impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
@@ -205,6 +212,14 @@ pub mod config {
         fn dimensionality(&self) -> Dimensionality {
             self.dimensionality
         }
+
+        fn line_sizes(&self) -> cubecl_matmul::components::MatmulLineSizes {
+            MatmulLineSizes {
+                lhs: self.global_line_size(Ident::Lhs) as u8,
+                rhs: self.global_line_size(Ident::Rhs) as u8,
+                out: self.global_line_size(Ident::Out) as u8,
+            }
+        }
     }
 
     impl<M: GlobalConfig> MatmulConfig for ConvolutionConfig<M> {}
@@ -219,8 +234,9 @@ pub mod config {
             padding: &[i32],
             dim: Dimensionality,
             num_stages: u32,
-        ) -> Self {
+        ) -> Result<Self, MatmulSetupError> {
             let dims = kernel_size.len();
+
             let mut this = Self {
                 matmul,
                 kernel_size: [0; 3],
@@ -234,7 +250,7 @@ pub mod config {
             this.stride[0..dims].copy_from_slice(stride);
             this.dilation[0..dims].copy_from_slice(dilation);
             this.padding[0..dims].copy_from_slice(padding);
-            this
+            Ok(this)
         }
 
         pub fn to_matmul_config(self) -> M {

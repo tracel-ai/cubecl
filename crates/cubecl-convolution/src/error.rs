@@ -2,11 +2,11 @@ use std::fmt::Debug;
 
 use cubecl_core::tune::AutotuneError;
 
-use cubecl_matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use cubecl_matmul::kernels::{MatmulAvailabilityError, MatmulSetupError};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ConvLaunchError {
-    Matmul(MatmulLaunchError),
+    Matmul(MatmulSetupError),
     Groups(usize),
     Unknown,
 }
@@ -28,15 +28,15 @@ impl Debug for ConvLaunchError {
     }
 }
 
-impl From<MatmulLaunchError> for ConvLaunchError {
-    fn from(value: MatmulLaunchError) -> Self {
+impl From<MatmulSetupError> for ConvLaunchError {
+    fn from(value: MatmulSetupError) -> Self {
         Self::Matmul(value)
     }
 }
 
 impl From<MatmulAvailabilityError> for ConvLaunchError {
     fn from(value: MatmulAvailabilityError) -> Self {
-        Self::Matmul(MatmulLaunchError::Unavailable(value))
+        Self::Matmul(MatmulSetupError::Unavailable(value))
     }
 }
 

@@ -1,24 +1,42 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, ir::Elem};
 
-use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TileSize, config::MatmulConfig, resource::ComputeResources, stage::StageVectorization,
+use crate::{
+    components::{
+        AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem,
+        MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
+        stage::StageVectorization, tile::tile_data::Tile,
+    },
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TileMatmulConfigInput {
+pub struct TileSetupInput {
     pub vectorization: StageVectorization,
     pub tile_size: TileSize,
 }
 
-pub trait TileMatmulFamily:
-    MatmulConfigFactory<Input = TileMatmulConfigInput, Config: TileConfig>
-{
+pub trait TileMatmulFamily: Send + Sync + 'static {
+    type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
+    type Config: TileConfig;
+
     fn requires_tensor_cores() -> bool;
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
-    type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        available_line_sizes: AvailableLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+    ) -> MatmulSelection;
 }
 
 /// Provides matrix multiplication operations at the tile level.
@@ -105,82 +123,13 @@ pub trait TileConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the shape of the tiles in the three axes m, k and n.
     fn tile_size(&self) -> &TileSize;
-}
-
-#[derive(CubeType, Clone)]
-/// Data to be handed to the tile matmul
-pub struct Tile<ES: Numeric> {
-    /// Slice containing all data
-    pub slice: Slice<Line<ES>>,
-    /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
-    pub stride: u32,
-    #[cube(comptime)]
-    pub layout: MatrixLayout,
-}
-
-#[cube]
-impl<ES: Numeric> Tile<ES> {
-    pub fn new_contiguous<T: TileConfig>(
-        slice: Slice<Line<ES>>,
-        #[comptime] ident: Ident,
-        #[comptime] config: T,
-    ) -> Tile<ES> {
-        let layout = config.matrix_layout(ident);
-        let stride = comptime! {
-            (match ident.as_input_ident() {
-            InputIdent::Lhs => match layout {
-                MatrixLayout::RowMajor => config.tile_size().k(),
-                MatrixLayout::ColMajor => config.tile_size().m(),
-            },
-            InputIdent::Rhs => match layout {
-                MatrixLayout::RowMajor => config.tile_size().n(),
-                MatrixLayout::ColMajor => config.tile_size().k(),
-            },
-        }) / config.stage_line_size(ident)};
-
-        Tile::<ES> {
-            slice,
-            stride,
-            layout,
-        }
-    }
-
-    pub fn new_strided(
-        slice: Slice<Line<ES>>,
-        stride: u32,
-        #[comptime] layout: MatrixLayout,
-    ) -> Tile<ES> {
-        Tile::<ES> {
-            slice,
-            stride,
-            layout,
-        }
-    }
-
-    pub fn as_unlined<T: TileConfig>(
-        &self,
-        #[comptime] ident: Ident,
-        #[comptime] config: T,
-    ) -> (Slice<ES>, u32) {
-        (
-            self.slice.try_cast_unchecked(),
-            self.stride * config.stage_line_size(ident),
-        )
-    }
-
-    pub fn get_line(&self, strided: u32, contiguous: u32) -> Line<ES> {
-        self.slice[strided * self.stride + contiguous]
-    }
-
-    pub fn get_segment_as_slice(&self, index: u32, #[comptime] num_lines: u32) -> Slice<Line<ES>> {
-        let start = index * self.stride;
-        self.slice.slice(start, start + num_lines)
-    }
 }

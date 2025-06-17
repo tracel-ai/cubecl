@@ -1,10 +1,10 @@
+use crate::components::batch::BatchMatmulFamily;
 use crate::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
+    InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg,
+    ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
-use crate::kernels::matmul::MatmulSelection;
-use crate::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
@@ -26,7 +26,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: TensorHandle<R, MP::EI>,
     rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
-) -> Result<TensorHandle<R, MP::EO>, MatmulLaunchError> {
+) -> Result<TensorHandle<R, MP::EO>, MatmulSetupError> {
     let result = launch_ref::<R, MP, A>(
         client,
         &lhs.as_ref(),
@@ -54,7 +54,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
         MatrixBatchLayout::MildlyPermuted {
@@ -116,7 +116,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
     let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
@@ -125,7 +125,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     if !client.properties().feature_enabled(Feature::Type(ei_elem))
         || !client.properties().feature_enabled(Feature::Type(eo_elem))
     {
-        return Err(MatmulLaunchError::Unavailable(
+        return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::TypesUnavailable {
                 input: ei_elem,
                 output: eo_elem,
@@ -138,7 +138,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             .properties()
             .feature_enabled(cubecl_core::Feature::DynamicLineSize)
     {
-        return Err(MatmulLaunchError::Unavailable(
+        return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::DynamicLineSizeUnavailable,
         ));
     }
@@ -174,12 +174,12 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let plane_dim = match plane_size {
         Some(32) | Some(64) => plane_size.expect("32 or 64"),
         Some(plane_dim) => {
-            return Err(MatmulLaunchError::Unavailable(
+            return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
             ));
         }
         None => {
-            return Err(MatmulLaunchError::Unavailable(
+            return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnknown,
             ));
         }
@@ -200,7 +200,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     plane_dim: u32,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
         && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
         && tf32::is_supported(client)
@@ -224,7 +224,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
 
     let m = lhs.shape[rank - 2] as u32;
@@ -257,12 +257,12 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let plane_dim = match plane_size {
         Some(32) | Some(64) => plane_size.expect("32 or 64"),
         Some(plane_dim) => {
-            return Err(MatmulLaunchError::Unavailable(
+            return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
             ));
         }
         None => {
-            return Err(MatmulLaunchError::Unavailable(
+            return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnknown,
             ));
         }
@@ -279,54 +279,17 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     }
 }
 
-#[allow(clippy::result_large_err)]
-pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
-    problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
-    config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: MatmulSelection,
-) -> Result<(), MatmulLaunchError> {
-    let cube_dim = A::cube_dim(&selection)?;
-    let cube_count = A::cube_count(&selection, &problem);
-
-    launch_matmul::<MS, R, A>(
-        client,
-        input,
-        output,
-        problem,
-        line_sizes,
-        cube_dim,
-        cube_count,
-        config_input,
-    )
-}
-
 #[allow(clippy::too_many_arguments, clippy::result_large_err)]
-fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
+pub fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
-    problem: MatmulProblem,
-    line_sizes: &MatmulLineSizes,
     cube_dim: CubeDim,
     cube_count: CubeCount,
-    config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
-) -> Result<(), MatmulLaunchError> {
-    let config = D::make_config(
-        config_input,
-        &problem,
-        line_sizes,
-        &cube_dim,
-        &cube_count,
-        MS::Precision::QUANTIZED,
-    )?;
-    D::check_availability::<R, MS::Precision>(client, &config)?;
-
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
+    config: <A::BatchMatmul as BatchMatmulFamily>::Config,
+) -> Result<(), MatmulSetupError> {
     unsafe {
-        D::BatchMatmul::launch_unchecked::<MS, R>(
+        A::BatchMatmul::launch_unchecked::<MS, R>(
             client, cube_dim, cube_count, input, output, config,
         );
     };

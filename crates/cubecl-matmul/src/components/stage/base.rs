@@ -2,25 +2,38 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
+use crate::components::AvailableLineSizes;
+use crate::components::stage::NumStages;
+use crate::components::tile::Tile;
 use crate::components::{
-    ComputeResources, Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision,
-    MatrixLayout, TilingScheme,
+    Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
+use crate::kernels::MatmulSetupError;
+use crate::kernels::matmul::MatmulSelection;
 
-use super::{StageEventListener, StageToTileReader, TilingLayout};
+use super::{StageEventListener, TilingLayout};
+
+#[cube]
+pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
+    fn read_tile<S: StageConfig>(
+        this: &Self,
+        row: u32,
+        col: u32,
+        #[comptime] config: S,
+    ) -> Tile<ES>;
+}
 
 pub trait ReaderFamily: Send + Sync + 'static {
     type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
 }
 
-pub trait StageMatmulFamily:
-    MatmulConfigFactory<Config: StageConfig> + Send + Sync + 'static
-{
+pub trait StageMatmulFamily: Send + Sync + 'static {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
+    type Config: StageConfig;
 
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
@@ -29,9 +42,13 @@ pub trait StageMatmulFamily:
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
-    fn computation_resources(
-        tiling_scheme: &TilingScheme,
-    ) -> Result<ComputeResources, InvalidConfigError>;
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        available_line_sizes: AvailableLineSizes,
+        num_stages: NumStages,
+    ) -> Result<Self::Config, MatmulSetupError>;
 }
 
 #[cube]
@@ -139,10 +156,11 @@ pub trait StageConfig: MatmulConfig {
     fn tile_config(self) -> Self::TileConfig;
 
     /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
@@ -156,10 +174,12 @@ pub trait StageConfig: MatmulConfig {
     fn plane_role_config(&self) -> PlaneRoleConfig;
     fn role_rule_config(&self) -> RoleRuleConfig;
     fn num_main_flow_planes(&self) -> u32;
+    fn quantized(&self) -> bool;
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PartitionBuffering {
     Single,
+    #[default]
     Double,
 }

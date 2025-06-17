@@ -1,12 +1,10 @@
-use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
-use cubecl_core::{ir::Elem, prelude::*};
+use super::base;
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulProblem,
-    batch::{self, Partitioner, RowMajorGlobalPartitionMatmul},
-    global::{self, load::AsyncFullLoadingStrategy},
-    stage::{self, FullReaderFamily},
+    batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+    global::{load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily},
+    stage::{FullReaderFamily, PlaneMatmulFamily},
     tile,
 };
 
@@ -27,34 +25,9 @@ where
     P: Partitioner,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        FullReaderFamily,
-        FullReaderFamily,
-    >;
-    type GlobalMatmul =
-        global::single_stage::simple::SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
 
-    type BatchMatmul = batch::partitioned_batch_matmul::PartitionedBatchMatmulFamily<
-        Self::GlobalMatmul,
-        RowMajorGlobalPartitionMatmul,
-        P,
-    >;
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Never,
-            elem_stage,
-            elem_acc,
-        )
-    }
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 }

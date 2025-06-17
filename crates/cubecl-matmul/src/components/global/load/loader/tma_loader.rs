@@ -5,15 +5,10 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
 use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder};
+use crate::components::{Ident, InputIdent, MatmulPrecision, MatrixLayout, global::Quantization};
 use crate::components::{
-    Ident, InputIdent, MatmulPrecision, MatrixLayout,
-    global::{Quantization, single_stage},
-};
-use crate::components::{
-    global::{self, GlobalConfig, tensor_view::MappedTensorReader},
-    stage::{
-        self, ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder,
-    },
+    global::{GlobalConfig, tensor_view::MappedTensorReader},
+    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder},
 };
 
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
@@ -78,18 +73,18 @@ impl TilingOrder for TmaTilingOrder {
 }
 
 #[derive(CubeType)]
-pub struct TmaLoader<MP: MatmulPrecision, S: stage::StageConfig> {
+pub struct TmaLoader<MP: MatmulPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
     pub stage: StageMemory<MP::ES, TmaTiling>,
     #[cube(comptime)]
     ident: InputIdent,
     #[cube(comptime)]
-    _config: PhantomData<S>,
+    _config: PhantomData<G>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
-    pub fn new<G: global::GlobalConfig>(
+impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
+    pub fn new(
         tensor: TensorMap<MP::EI>,
         x: u32,
         y: u32,
@@ -112,19 +107,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
 
-        TmaLoader::<MP, S> {
+        TmaLoader::<MP, G> {
             tensor_view,
             stage,
             ident,
-            _config: PhantomData::<S>,
+            _config: PhantomData,
         }
     }
 
-    pub fn fill_stage(
-        this: &mut Self,
-        barrier: &Barrier<MP::ES>,
-        #[comptime] config: single_stage::Config<S>,
-    ) {
+    pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: G) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident.as_ident());
             // The tensor map is encoded as the transposed shape, so we need to swap coordinates

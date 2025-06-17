@@ -2,22 +2,21 @@ use std::marker::PhantomData;
 
 use cubecl_core::ir::Elem;
 use cubecl_core::{
-    CubeCount, CubeDim, Runtime,
+    CubeCount, Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
 
 use crate::{
-    base::{ConvolutionConfigFactory, ConvolutionProblem, Dimensionality},
+    base::{ConvolutionProblem, Dimensionality},
     homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     selection::convolution_matmul_selection,
 };
-use cubecl_matmul::components::MatmulLineSizes;
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    InputIdent, InvalidConfigError, MatmulPrecision,
+    InputIdent, InvalidConfigError,
     global::args::TensorMapArgs,
-    stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
+    stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,
 };
 use cubecl_matmul::kernels::matmul::MatmulSelection;
@@ -40,14 +39,6 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
 
     type Args = TensorMapArgs;
 
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        CubeDim::new(
-            selection.plane_dim,
-            selection.tiling_scheme.tiles_in_stage_m(),
-            1,
-        )
-    }
-
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
         let m_stage = selection.tiling_scheme.elements_in_stage_m();
         let n_stage = selection.tiling_scheme.elements_in_stage_n();
@@ -55,42 +46,6 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
-    }
-
-    fn make_config<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: <Self::GlobalConvolution as ConvolutionConfigFactory>::Input,
-        problem: &ConvolutionProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-    ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, InvalidConfigError>
-    {
-        check_problem_tma(problem)?;
-
-        let config = Self::GlobalConvolution::make_config::<R, MP>(
-            client, input, problem, line_sizes, cube_dim, cube_count,
-        );
-        Self::GlobalConvolution::check_config(&config)?;
-        Ok(config)
-    }
-
-    fn check_availability<R: Runtime, MP: cubecl_matmul::components::MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &<Self::GlobalConvolution as ConvolutionConfigFactory>::Config,
-    ) -> Result<(), cubecl_matmul::kernels::MatmulAvailabilityError> {
-        <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
-            client, config,
-        )?;
-
-        if !client
-            .properties()
-            .feature_enabled(cubecl_core::Feature::Tma(cubecl_core::TmaFeature::Base))
-        {
-            return Err(cubecl_matmul::kernels::MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        Ok(())
     }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(

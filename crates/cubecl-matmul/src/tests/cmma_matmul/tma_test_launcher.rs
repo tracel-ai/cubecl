@@ -3,14 +3,14 @@ use std::marker::PhantomData;
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 
+use crate::components::AvailableLineSizes;
 use crate::components::Ident;
 use crate::components::MatmulProblem;
 use crate::components::MatrixLayout;
-use crate::components::{MatmulConfigFactory, global::args::TensorMapArgs};
-use crate::components::{
-    MatmulLaunch,
-    global::args::{ConcreteInputsFactory, TensorMapInputs},
-};
+use crate::components::batch::BatchConfig;
+use crate::components::batch::BatchMatmulFamily;
+use crate::components::global::args::TensorMapArgs;
+use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
 use crate::kernels::matmul::Algorithm;
 use crate::kernels::matmul::MatmulSelection;
 use crate::tests::test_utils::Sample;
@@ -23,7 +23,6 @@ use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: MatmulProblem,
-    input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
@@ -44,58 +43,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let line_sizes = A::line_sizes(
-        &problem,
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &selection,
-    );
-
-    let cube_dim = match A::cube_dim(&selection) {
-        Ok(cube_dim) => cube_dim,
-        Err(err) => {
-            let msg = format!("Can't launch the test: {err}");
-            if panic_on_launch_err {
-                panic!("{msg}");
-            } else {
-                println!("{msg}");
-                return;
-            }
-        }
-    };
-    let cube_count = A::cube_count(&selection, &problem);
-
-    let config = match A::make_config(
-        input,
-        &problem,
-        &line_sizes,
-        &cube_dim,
-        &cube_count,
-        P::QUANTIZED,
-    ) {
-        Ok(config) => config,
-        Err(err) => {
-            let msg = format!("Can't launch the test: {err:?}");
-            if panic_on_launch_err {
-                panic!("{msg}");
-            } else {
-                println!("{msg}");
-                return;
-            }
-        }
-    };
-
-    if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
-        let msg = format!("Skipped - not supported: {err:?}");
-        if panic_on_launch_err {
-            panic!("{msg}")
-        } else {
-            println!("{msg}");
-            client.flush();
-            return;
-        }
-    }
-
     let elem_size = size_of::<P::EG>();
     let lhs_handle = TensorHandleRef {
         handle: &lhs.handle,
@@ -111,6 +58,31 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         elem_size,
         runtime: PhantomData,
     };
+
+    let available_line_sizes = AvailableLineSizes::from_elem_types::<R>(
+        &P::EG::as_elem_native_unchecked(),
+        &P::EG::as_elem_native_unchecked(),
+    );
+
+    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+        &client,
+        &problem,
+        &selection,
+        available_line_sizes,
+    ) {
+        Ok(config) => config,
+        Err(err) => {
+            let msg = format!("Can't launch the test: {err}");
+            if panic_on_launch_err {
+                panic!("{msg}");
+            } else {
+                println!("{msg}");
+                return;
+            }
+        }
+    };
+
+    let line_sizes = config.line_sizes();
 
     let inputs = TensorMapInputs::create(
         &lhs_handle,
@@ -132,7 +104,12 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
-            &client, cube_dim, cube_count, inputs, output, config,
+            &client,
+            config.cube_dim(),
+            config.cube_count(&problem),
+            inputs,
+            output,
+            config,
         );
     }
 

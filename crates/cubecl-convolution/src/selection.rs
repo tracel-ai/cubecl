@@ -118,8 +118,5 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    MatmulSelection {
-        plane_dim,
-        tiling_scheme,
-    }
+    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }

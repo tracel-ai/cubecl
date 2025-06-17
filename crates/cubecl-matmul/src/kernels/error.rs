@@ -1,13 +1,14 @@
-use cubecl_core::{CubeCount, CubeDim, ir::Elem};
-use std::fmt::Debug;
+use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::Elem};
+use std::fmt::{Debug, Display};
 
 use crate::components::{InvalidConfigError, TileSize};
 
-pub enum MatmulLaunchError {
+pub enum MatmulSetupError {
     Unavailable(MatmulAvailabilityError),
     InvalidProblem(MatmulInvalidProblem),
     InvalidConfig(InvalidConfigError),
     Unimplemented(MatmulUnimplementedError),
+    LineSize(LineSizeError),
 }
 
 pub enum MatmulAvailabilityError {
@@ -42,56 +43,74 @@ pub enum MatmulInvalidProblem {
     InvalidLineSizeOut { size: u32, line_size: u8 },
 }
 
-impl From<MatmulInvalidProblem> for MatmulLaunchError {
+impl From<MatmulInvalidProblem> for MatmulSetupError {
     fn from(value: MatmulInvalidProblem) -> Self {
         Self::InvalidProblem(value)
     }
 }
 
-impl From<MatmulAvailabilityError> for MatmulLaunchError {
+impl From<MatmulAvailabilityError> for MatmulSetupError {
     fn from(value: MatmulAvailabilityError) -> Self {
         Self::Unavailable(value)
     }
 }
 
-impl From<InvalidConfigError> for MatmulLaunchError {
+impl From<InvalidConfigError> for MatmulSetupError {
     fn from(value: InvalidConfigError) -> Self {
         Self::InvalidConfig(value)
     }
 }
 
-impl From<MatmulUnimplementedError> for MatmulLaunchError {
+impl From<MatmulUnimplementedError> for MatmulSetupError {
     fn from(value: MatmulUnimplementedError) -> Self {
         Self::Unimplemented(value)
     }
 }
 
-impl Debug for MatmulLaunchError {
+impl From<LineSizeError> for MatmulSetupError {
+    fn from(value: LineSizeError) -> Self {
+        Self::LineSize(value)
+    }
+}
+
+impl Display for MatmulSetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Debug for MatmulSetupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MatmulLaunchError::Unavailable(err) => {
+            MatmulSetupError::Unavailable(err) => {
                 writeln!(
                     f,
                     "Unable to launch matmul because a required feature is unavailable: {err:?}"
                 )
             }
-            MatmulLaunchError::InvalidProblem(err) => {
+            MatmulSetupError::InvalidProblem(err) => {
                 writeln!(
                     f,
                     "Unable to launch matmul because the problem isn't correctly defined: {err:?}"
                 )
             }
-            MatmulLaunchError::InvalidConfig(err) => {
+            MatmulSetupError::InvalidConfig(err) => {
                 writeln!(
                     f,
                     "Unable to launch matmul because the config is invalid: {:?}",
                     err.to_string()
                 )
             }
-            MatmulLaunchError::Unimplemented(err) => {
+            MatmulSetupError::Unimplemented(err) => {
                 writeln!(
                     f,
                     "Unable to launch matmul because the feature is not ready: {err:?}"
+                )
+            }
+            MatmulSetupError::LineSize(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because could not find supported line size: {err:?}"
                 )
             }
         }
