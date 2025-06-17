@@ -29,13 +29,13 @@ CubeCL also comes with optimized runtimes managing memory management and lazy ex
 
 ### Supported Platforms
 
-| Compiler      | Runtime       | Hardware                     |
-| ------------- | ------------- | ---------------------------- |
-| WGSL (WebGpu) | Wgpu          | Most GPUs                    |
-| C++ (CUDA)    | CUDA          | NVIDIA GPUs                  |
-| C++ (HIP)     | ROCm (HIP)    | AMD GPUs                     |
-| C++ (Metal)   | Wgpu (Metal)  | Apple GPUs                   |
-| SPIR-V        | Wgpu (Vulkan) | Most GPUs on Linux & Windows |
+| Platform | Runtime | Compiler    | Hardware                     |
+| -------- | ------- | ----------- | ---------------------------- |
+| WebGPU   | wgpu    | WGSL        | Most GPUs                    |
+| CUDA     | CUDA    | C++ (CUDA)  | NVIDIA GPUs                  |
+| ROCm     | HIP     | C++ (HIP)   | AMD GPUs                     |
+| Metal    | wgpu    | C++ (Metal) | Apple GPUs                   |
+| Vulkan   | wgpu    | SPIR-V      | Most GPUs on Linux & Windows |
 
 Not all platforms support the same features. 
 For instance Tensor Cores acceleration isn't supported on WebGPU yet.
