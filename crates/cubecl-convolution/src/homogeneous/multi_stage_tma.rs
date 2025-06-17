@@ -1,6 +1,7 @@
-use std::{any::TypeId, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
+    algorithm::simple_tma::check_problem_tma,
     base::{
         Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
         ConvolutionProblem, RuntimeArgs, RuntimeArgsLaunch,
@@ -18,14 +19,18 @@ use cubecl_core::{
 };
 use cubecl_matmul::{
     components::{
-        EA, EI, EO, ES, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulLineSizes,
+        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
         MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
-        global::{AccumulatorLoader, GlobalConfig, load::arrive_tma, single_stage},
+        global::{
+            AccumulatorLoader, GlobalConfig,
+            load::{NoLoadingValidation, arrive_tma},
+            single_stage::tma::SimpleTmaConfig,
+        },
         stage::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulAvailabilityError, matmul::GlobalInput},
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
@@ -68,7 +73,7 @@ where
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
-    type Config = ConvolutionConfig<single_stage::Config<SMM::Config>>;
+    type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
     type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
@@ -250,68 +255,65 @@ where
 {
     type Convolution<MP: MatmulPrecision> =
         MultiStageTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+            .filter_lhs(|ls| *ls == 1)
+            .filter_rhs(|ls| *ls == 1)
+    }
 }
 
 impl<SMM> ConvolutionConfigFactory for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::ConvolutionConfig<single_stage::Config<SMM::Config>>;
-    type Input = GlobalInput<SMM::Input>;
+    type Config = config::ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn make_config<R: Runtime, MP: MatmulPrecision>(
+    fn setup<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        input: Self::Input,
         problem: &ConvolutionProblem,
+        selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-    ) -> Self::Config {
-        let mut line_sizes = line_sizes.clone();
+    ) -> Result<Self::Config, MatmulSetupError> {
+        check_problem_tma(problem)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        line_sizes.lhs = 1;
-        line_sizes.rhs = 1;
+        assert!(line_sizes.lhs == 1);
+        assert!(line_sizes.rhs == 1);
 
-        let stage_config = SMM::make_config(
-            input.stage_input,
+        let stage_config = SMM::setup::<MP, R>(
+            client,
             &problem.as_matmul_problem(),
-            &line_sizes,
-            cube_dim,
-            cube_count,
-            false,
-        );
+            selection,
+            line_sizes,
+            // Not the same as num_stages
+            (1, 1).into(),
+            None,
+        )?;
 
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         let num_stages = num_stages::<R, MP>(
             client,
             problem,
-            stage_config.num_planes(),
+            stage_config.num_main_flow_planes(),
             &stage_config.tiling_scheme(),
         );
 
         config::ConvolutionConfig::new(
-            single_stage::Config::new(
+            SimpleTmaConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+                client,
                 stage_config,
+                stage_config.num_main_flow_planes(),
                 // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
                 true,
-                problem.lhs_layout,
-                problem.rhs_layout,
-                line_sizes.lhs as u32,
-                line_sizes.rhs as u32,
-                line_sizes.out as u32,
                 stage_k,
-                input.loading_precompute_strategy,
-                input.loader_mode,
-            ),
+                selection.loading_precompute_strategy,
+                selection.loader_mode,
+            )?,
             &problem.kernel_size,
             &problem.stride,
             &problem.dilation,
@@ -319,21 +321,6 @@ where
             problem.dimensionality,
             num_stages,
         )
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        let id_ei = TypeId::of::<MP::EI>();
-        let id_es = TypeId::of::<MP::ES>();
-        let is_tf32 = id_ei == TypeId::of::<f32>() && id_es == TypeId::of::<tf32>();
-
-        if id_ei != id_es && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        SMM::check_availability::<R, MP>(client, &config.stage_config())
     }
 }
 
@@ -390,15 +377,13 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     num_planes: u32,
     tiling_scheme: &TilingScheme,
 ) -> u32 {
-    let inputs_stage_size = tiling_scheme.elements_in_stage_m()
-        * tiling_scheme.elements_in_stage_k()
-        + tiling_scheme.elements_in_stage_k() * tiling_scheme.elements_in_stage_n();
+    let inputs_stage_size =
+        tiling_scheme.elements_in_stage_mk() + tiling_scheme.elements_in_stage_nk();
     // u64 is the barrier, which is also in shared.
     // Just to ensure we don't go over by a few bytes accidentally.
     let inputs_stage_size_bytes =
         inputs_stage_size * size_of::<MP::ES>() as u32 + size_of::<u64>() as u32;
-    let output_stage_size =
-        tiling_scheme.elements_in_tile_m() * tiling_scheme.elements_in_tile_n() * num_planes;
+    let output_stage_size = tiling_scheme.elements_in_tile_mn() * num_planes;
     let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
 
     let max_smem = client.properties().hardware.max_shared_memory_size;

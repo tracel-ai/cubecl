@@ -1,13 +1,12 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server};
 
-use crate::components::Ident;
-use crate::components::MatmulConfigFactory;
-use crate::components::MatmulLaunch;
 use crate::components::MatmulProblem;
 use crate::components::MatrixLayout;
+use crate::components::batch::{BatchConfig, BatchMatmulFamily};
 use crate::components::global::args::TensorInputsLaunch;
-use crate::kernels::matmul::Algorithm;
+use crate::components::{AvailableLineSizes, Ident};
+use crate::kernels::matmul::{Algorithm, MatmulSelection};
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 
@@ -26,8 +25,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 pub fn test_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     problem: MatmulProblem,
-    input: <A::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: A::MatmulSelection,
+    selection: MatmulSelection,
 ) where
     A: Algorithm,
     P: TestPrecision,
@@ -47,27 +45,25 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    let line_sizes = A::line_sizes(
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
+        &P::EG::as_elem_native_unchecked(),
+        &P::EG::as_elem_native_unchecked(),
+    )
+    .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
+    .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
+    .filter_out_with_tensor(&out.strides, &out.shape)
+    .pick_max()
+    .unwrap();
+
+    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+        &client,
         &problem,
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &selection,
-    );
-
-    let cube_dim = A::cube_dim(&selection);
-    let cube_count = A::cube_count(&selection, &problem);
-
-    let config = match A::make_config(
-        input,
-        &problem,
         &line_sizes,
-        &cube_dim,
-        &cube_count,
-        P::QUANTIZED,
     ) {
         Ok(config) => config,
         Err(err) => {
-            let msg = format!("Can't launch the test: {err:?}");
+            let msg = format!("Can't launch the test: {err}");
             if panic_on_launch_err {
                 panic!("{msg}");
             } else {
@@ -77,22 +73,11 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
-    if let Err(err) = A::check_availability::<R, P::MP>(&client, &config) {
-        let msg = format!("Skipped - not supported: {err:?}");
-        if panic_on_launch_err {
-            panic!("{msg}")
-        } else {
-            println!("{msg}");
-            client.flush();
-            return;
-        }
-    }
-
     unsafe {
         A::BatchMatmul::launch_unchecked::<P::MP, R>(
             &client,
-            cube_dim,
-            cube_count,
+            config.cube_dim(),
+            config.cube_count(&problem),
             TensorInputsLaunch::new(
                 TensorArg::<R>::from_raw_parts::<P::EG>(
                     &lhs.handle,
@@ -121,7 +106,6 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &out.shape,
                 line_sizes.out,
             ),
-            ScalarArg::new(problem.k as u32),
             config,
         );
     }

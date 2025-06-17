@@ -24,8 +24,23 @@
 ## TL;DR
 
 With CubeCL, you can program your GPU using Rust, taking advantage of zero-cost abstractions to develop maintainable, flexible, and efficient compute kernels.
-CubeCL currently fully supports functions, generics, and structs, with partial support for traits, methods and type inference.
-As the project evolves, we anticipate even broader support for Rust language primitives, all while maintaining optimal performance.
+CubeCL also comes with optimized runtimes managing memory management and lazy execution for any platform.
+
+
+### Supported Platforms
+
+| Platform | Runtime | Compiler    | Hardware                     |
+| -------- | ------- | ----------- | ---------------------------- |
+| WebGPU   | wgpu    | WGSL        | Most GPUs                    |
+| CUDA     | CUDA    | C++ (CUDA)  | NVIDIA GPUs                  |
+| ROCm     | HIP     | C++ (HIP)   | AMD GPUs                     |
+| Metal    | wgpu    | C++ (Metal) | Apple GPUs                   |
+| Vulkan   | wgpu    | SPIR-V      | Most GPUs on Linux & Windows |
+
+Not all platforms support the same features. 
+For instance Tensor Cores acceleration isn't supported on WebGPU yet.
+Using an instruction that isn't available on a platform will result with a compilation error at runtime.
+The launch function is normally responsible to dispatch the right kernel based on device properties.
 
 ### Example
 
@@ -87,16 +102,6 @@ To see it in action, run the working GELU example with the following command:
 cargo run --example gelu --features cuda # cuda runtime
 cargo run --example gelu --features wgpu # wgpu runtime
 ```
-
-## Runtime
-
-We support the following GPU runtimes:
-
-- [WGPU](https://github.com/gfx-rs/wgpu) for cross-platform GPU support (Vulkan, Metal, DirectX, WebGPU)
-- [CUDA](https://developer.nvidia.com/cuda-toolkit) for NVIDIA GPU support
-- [ROCm/HIP](https://www.amd.com/en/products/software/rocm.html) for AMD GPU support (WIP)
-
-We also plan to develop an optimized JIT CPU runtime with SIMD instructions, leveraging [Cranelift](https://cranelift.dev).
 
 ## Motivation
 

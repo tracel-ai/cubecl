@@ -1,73 +1,33 @@
-use super::{
-    MatmulSelection, MultiRowStrategy, PlaneMatmulSelection, base, plane_matmul_selection,
-};
-use cubecl_core::{ir::Elem, prelude::*};
+use super::base;
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulProblem,
-    batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{self, load::AsyncFullLoadingStrategy},
-    stage::{self, FullReaderFamily},
+    batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+    global::{load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily},
+    stage::{FullReaderFamily, PlaneMatmulFamily},
     tile,
 };
 
 pub struct SimpleBarrierAlgorithm<
     TMM,
     L: AsyncFullLoadingStrategy,
-    Dispatch = batch::TransposedDispatch,
+    Dispatch = batch::TransposedPartitioner,
 > {
     pub _tmm: PhantomData<TMM>,
     pub _l: PhantomData<L>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, L, Dispatch> base::Algorithm for SimpleBarrierAlgorithm<TMM, L, Dispatch>
+impl<TMM, L, P> base::Algorithm for SimpleBarrierAlgorithm<TMM, L, P>
 where
     TMM: tile::TileMatmulFamily,
     L: AsyncFullLoadingStrategy,
-    Dispatch: CubeDispatch + CubeCountDispatch,
+    P: Partitioner,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<
-        Self::TileMatmul,
-        FullReaderFamily,
-        FullReaderFamily,
-    >;
-    type GlobalMatmul =
-        global::single_stage::simple::SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
-    type MatmulSelection = PlaneMatmulSelection;
-
-    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        let num_planes = selection.tiling_scheme().partitions_in_stage_m();
-        CubeDim::new(selection.plane_dim, num_planes, 1)
-    }
-
-    fn cube_count(selection: &Self::MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme().elements_in_stage_m();
-        let n_stage = selection.tiling_scheme().elements_in_stage_n();
-        let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
-        let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
-
-        Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
-    }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> Self::MatmulSelection {
-        plane_matmul_selection::<Self::TileMatmul, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Never,
-            elem_stage,
-            elem_acc,
-        )
-    }
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
 }

@@ -1,27 +1,30 @@
+use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
+
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{GlobalConfig, load::LoaderMode},
+        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
+        global::{
+            GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
+            load::{LoaderMode, LoadingValidation},
+            multi_stage::EventLoadingMode,
+            shared::shared_global_config_validation,
+        },
         stage::{self},
     },
-    kernels::matmul::LoadingPrecomputeStrategy,
+    kernels::{MatmulSetupError, matmul::LoadingPrecomputeStrategy},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
 pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub stage_config: S,
+    num_planes: u32,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
     pub check_k_bounds: bool,
-    pub lhs_layout: MatrixLayout,
-    pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u32,
-    pub rhs_line_size: u32,
-    pub out_line_size: u32,
-    pub num_planes: u32,
     precompute_job: LoadingPrecomputeStrategy,
     loader_mode: LoaderMode,
+    specialized_loading_sides: SpecializedLoadingSides,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
@@ -32,23 +35,11 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     }
 
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
+        self.stage_config.global_line_size(ident)
     }
 
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.stage_config.matrix_layout(Ident::Out),
-        }
-    }
-
-    fn num_planes(&self) -> u32 {
-        self.num_planes
+        self.stage_config.matrix_layout(ident)
     }
 
     fn plane_dim(&self) -> u32 {
@@ -86,39 +77,67 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     fn loader_mode(&self) -> LoaderMode {
         self.loader_mode
     }
+
+    fn event_loading_mode(&self, _ident: InputIdent) -> EventLoadingMode {
+        EventLoadingMode::Relaxed
+    }
+
+    fn plane_role_config(&self) -> PlaneRoleConfig {
+        self.stage_config.plane_role_config()
+    }
+
+    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
+        self.specialized_loading_sides.num_loading_planes(
+            self.plane_role_config().has_specialization(),
+            ident.into().as_input_ident(),
+            self.plane_role_config().plane_roles,
+        )
+    }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
+
+    fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+        self.specialized_loading_sides
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
 
 impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
+        _client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,
+        num_planes: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-        num_planes: u32,
         precompute_job: LoadingPrecomputeStrategy,
         loader_mode: LoaderMode,
-    ) -> Self {
+        specialized_loading_sides: SpecializedLoadingSides,
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
+            num_planes,
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
-            num_planes,
             precompute_job,
             loader_mode,
+            specialized_loading_sides,
         }
+        .validate::<LL, RL>()
+    }
+
+    fn validate<LL: LoadingValidation, RL: LoadingValidation>(
+        self,
+    ) -> Result<Self, MatmulSetupError> {
+        LL::check::<Self>(&self, Ident::Lhs)?;
+        RL::check::<Self>(&self, Ident::Rhs)?;
+        shared_global_config_validation(self)?;
+
+        Ok(self)
     }
 }

@@ -1,132 +1,20 @@
 use crate::components::InputIdent;
 use crate::components::MatmulPrecision;
+use crate::components::global::GlobalMatmul;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::TmaLoader;
 use crate::components::global::load::arrive_tma;
-use crate::components::global::single_stage::Config;
-use crate::components::global::{GlobalMatmul, load::TmaTiling};
+use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::{Quantization, load::TmaReader};
-use crate::components::problem::MatmulLineSizes;
-use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
-use crate::kernels::matmul::GlobalInput;
-
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
-use cubecl_core::{Feature, TmaFeature};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
-use std::{any::TypeId, marker::PhantomData};
+use std::marker::PhantomData;
 
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
-
-use crate::{
-    components::{
-        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, FullReaderFamily},
-    },
-    kernels::MatmulAvailabilityError,
-};
-
-pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
-    _stage_matmul: PhantomData<SMM>,
-}
-
-impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
-where
-    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
-{
-    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
-}
-
-impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
-where
-    SMM: stage::StageMatmulFamily,
-{
-    type Input = GlobalInput<SMM::Input>;
-    type Config = Config<SMM::Config>;
-
-    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        SMM::check_config(&config.stage_config())
-    }
-
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.stage_config())?;
-
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        if !client
-            .properties()
-            .feature_enabled(Feature::Tma(TmaFeature::Base))
-        {
-            return Err(MatmulAvailabilityError::TmaUnavailable);
-        }
-
-        Ok(())
-    }
-
-    fn make_config(
-        input: Self::Input,
-        problem: &MatmulProblem,
-        line_sizes: &MatmulLineSizes,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        quantized: bool,
-    ) -> Self::Config {
-        let mut line_sizes = line_sizes.clone();
-
-        // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
-        // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
-        line_sizes.lhs = 1;
-        line_sizes.rhs = 1;
-
-        let stage_config = SMM::make_config(
-            input.stage_input,
-            problem,
-            &line_sizes,
-            cube_dim,
-            cube_count,
-            quantized,
-        );
-        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
-
-        Config::new(
-            stage_config,
-            problem.m as u32 % stage_shape_m != 0,
-            problem.n as u32 % stage_shape_n != 0,
-            problem.k as u32 % stage_shape_k != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            line_sizes.lhs as u32,
-            line_sizes.rhs as u32,
-            line_sizes.out as u32,
-            stage_shape_k,
-            input.loading_precompute_strategy,
-            input.loader_mode,
-        )
-    }
-}
+use crate::components::global::GlobalConfig;
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
@@ -141,9 +29,9 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<MP, LhsReader = TmaReader<MP>, RhsReader = TmaReader<MP>>,
 {
-    type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLoader<MP, SMM::Config>;
-    type RhsLoader = TmaLoader<MP, SMM::Config>;
+    type Config = SimpleTmaConfig<SMM::Config>;
+    type LhsLoader = TmaLoader<MP, Self::Config>;
+    type RhsLoader = TmaLoader<MP, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -206,7 +94,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(
+        Self::LhsLoader::new(
             lhs.as_tensor_map(),
             x_offset,
             y_offset,
@@ -226,7 +114,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
+        Self::RhsLoader::new(
             rhs.as_tensor_map(),
             x_offset,
             y_offset,

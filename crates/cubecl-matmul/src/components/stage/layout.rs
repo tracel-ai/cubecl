@@ -155,7 +155,7 @@ impl TilingOrder for OrderedTilingOrder {
             panic!("Ordered tiling order should be used only on Lhs")
         }
 
-        let group_rows = tile_count_rows / config.num_planes();
+        let group_rows = tile_count_rows / config.num_main_flow_planes();
         let tiles_per_group = group_rows * tile_count_cols;
 
         let group = nth / tiles_per_group;
@@ -180,7 +180,7 @@ impl TilingOrder for OrderedTilingOrder {
             panic!("Ordered tiling order should be used only on Lhs")
         }
 
-        let group_rows = tile_count_rows / config.num_planes();
+        let group_rows = tile_count_rows / config.num_main_flow_planes();
         let group = row / group_rows;
 
         let local_row = row % group_rows;

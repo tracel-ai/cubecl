@@ -1,4 +1,4 @@
-use cubecl_matmul::components::global::GlobalConfig;
+use cubecl_matmul::components::{MatmulLineSizes, global::GlobalConfig};
 
 use super::base::Dimensionality;
 
@@ -14,4 +14,6 @@ pub trait ConvGemmConfig: GlobalConfig {
     fn padding(&self, dim: u32) -> i32;
     /// The dimensionality of the kernel
     fn dimensionality(&self) -> Dimensionality;
+
+    fn line_sizes(&self) -> MatmulLineSizes;
 }

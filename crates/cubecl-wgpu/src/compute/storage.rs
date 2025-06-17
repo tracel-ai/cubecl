@@ -8,6 +8,7 @@ pub struct WgpuStorage {
     memory: HashMap<StorageId, wgpu::Buffer>,
     device: wgpu::Device,
     buffer_usages: BufferUsages,
+    mem_alignment: usize,
 }
 
 impl core::fmt::Debug for WgpuStorage {
@@ -56,11 +57,12 @@ impl WgpuResource {
 /// Keeps actual wgpu buffer references in a hashmap with ids as key.
 impl WgpuStorage {
     /// Create a new storage on the given [device](wgpu::Device).
-    pub fn new(device: wgpu::Device, usages: BufferUsages) -> Self {
+    pub fn new(mem_alignment: usize, device: wgpu::Device, usages: BufferUsages) -> Self {
         Self {
             memory: HashMap::new(),
             device,
             buffer_usages: usages,
+            mem_alignment,
         }
     }
 }
@@ -68,11 +70,9 @@ impl WgpuStorage {
 impl ComputeStorage for WgpuStorage {
     type Resource = WgpuResource;
 
-    // 32 bytes is enough to handle a double4 worth of alignment.
-    // See: https://github.com/gfx-rs/wgpu/issues/3508
-    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
-    // trying this in the future to see if it reduces memory coalescing.
-    const ALIGNMENT: u64 = 32;
+    fn alignment(&self) -> usize {
+        self.mem_alignment
+    }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let buffer = self.memory.get(&handle.id).unwrap();

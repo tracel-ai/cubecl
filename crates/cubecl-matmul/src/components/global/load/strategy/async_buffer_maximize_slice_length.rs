@@ -34,7 +34,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) -> Job {
         let matrix_layout = config.matrix_layout(input_ident);
-        let line_size = config.stage_config().stage_line_size(input_ident.into());
+        let line_size = config.stage_config().stage_line_size(input_ident);
         let num_stages = 2;
 
         let total_row = config.tiling_scheme().elements_in_stage_row(input_ident);
@@ -79,7 +79,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
             }
         };
 
-        let unit_count = config.plane_dim() * config.num_planes();
+        let unit_count = config.plane_dim() * config.num_loading_planes(input_ident);
         let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         Job {

@@ -62,25 +62,25 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_unit_count::LoadingStrategy>);
         }
 
-        mod double_buffering_single_row_cyclic {
+        mod double_buffering_cyclic {
             use super::*;
 
             $crate::testgen_matmul_accelerated_precision!(CyclicDoubleBufferingAlgorithm<TMM>);
         }
 
-        mod double_buffering_single_row_tilewise {
+        mod double_buffering_tilewise {
             use super::*;
 
             $crate::testgen_matmul_accelerated_precision!(TilewiseDoubleBufferingAlgorithm<TMM>);
         }
 
-        mod double_buffering_single_row_hybrid {
+        mod double_buffering_hybrid {
             use super::*;
 
             $crate::testgen_matmul_accelerated_precision!(HybridDoubleBufferingAlgorithm<TMM>);
         }
 
-        mod ordered_double_buffering_single_row {
+        mod ordered_double_buffering {
             use super::*;
 
             $crate::testgen_matmul_accelerated_precision!(OrderedDoubleBufferingAlgorithm<TMM>);

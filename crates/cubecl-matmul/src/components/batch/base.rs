@@ -1,10 +1,12 @@
-use crate::components::{
-    MatmulLaunch, MatmulPrecision, Quantized, TilingScheme,
-    config::MatmulConfig,
-    global::{
-        self, GlobalConfig as _, Quantization,
-        args::{self, MatmulArgs, TensorInput, TensorOutput},
+use crate::{
+    components::{
+        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, OutputRuntimeArg, TilingScheme,
+        batch::Partitioner,
+        config::MatmulConfig,
+        global::{self, GlobalConfig as _, Quantization},
     },
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -14,8 +16,35 @@ use cubecl_std::{
 };
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
-pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
+pub trait BatchMatmulFamily: 'static + Send + Sync {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
+    type Partitioner: Partitioner;
+    type Config: BatchConfig;
+
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        line_sizes: &MatmulLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
+
+    /// Entry point
+    ///
+    /// # Safety
+    ///
+    /// Out-of-bounds can happen
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        cube_dim: CubeDim,
+        cube_count: CubeCount,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        config: Self::Config,
+    );
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+    }
 }
 
 #[cube]
@@ -44,7 +73,6 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        size_k: u32,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     );
@@ -58,68 +86,14 @@ pub trait BatchConfig: MatmulConfig {
     /// Convert itself to the underlying global matmul config
     fn global_config(&self) -> Self::GlobalConfig;
 
-    /// Returns the largest m dimension supported with these configs
-    fn max_m(&self) -> u32;
-
-    /// Returns the largest n dimension supported with these configs
-    fn max_n(&self) -> u32;
-
-    /// Returns the largest number of batches supported with these configs
-    fn max_batches(&self) -> u32;
-
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;
 
     fn tiling_scheme(&self) -> TilingScheme {
         self.global_config().tiling_scheme()
     }
-}
 
-type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
-type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
-
-#[cube(launch_unchecked)]
-pub(crate) fn matmul<
-    Args: MatmulArgs,
-    EI: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    EO: Numeric,
-    BMM: BatchMatmulFamily,
->(
-    inputs: &Input<Args, EI>,
-    output: &mut Output<Args, EO>,
-    size_k: u32,
-    #[comptime] config: BMM::Config,
-) {
-    let mut state = Args::init_state(inputs, output);
-
-    let lhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
-
-    let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
-    let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
-    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
-
-    if config.quantized() {
-        let quantization = Args::quantization::<(EI, ES, EA, EO, Quantized)>(&state);
-        BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
-            lhs,
-            rhs,
-            out,
-            size_k,
-            CubeOption::new_Some(quantization),
-            config,
-        );
-    } else {
-        BMM::Matmul::<(EI, ES, EA, EO)>::execute(
-            lhs,
-            rhs,
-            out,
-            size_k,
-            CubeOption::new_None(),
-            config,
-        );
-    };
+    fn cube_dim(&self) -> CubeDim;
+    fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
+    fn line_sizes(&self) -> MatmulLineSizes;
 }

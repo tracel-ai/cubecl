@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::ir::Elem;
 use cubecl_core::{
-    CubeCount, CubeDim, Runtime,
+    Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
@@ -12,16 +12,13 @@ use crate::{
     selection::convolution_matmul_selection,
 };
 use cubecl_matmul::components::stage::NumStages;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
-use cubecl_matmul::{
-    components::{
-        InputIdent,
-        global::args::TensorArgs,
-        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
-        tile::TileMatmulFamily,
-    },
-    kernels::matmul::PlaneMatmulSelection,
+use cubecl_matmul::components::{
+    InputIdent,
+    global::args::TensorArgs,
+    stage::{FullReaderFamily, PlaneMatmulFamily},
+    tile::TileMatmulFamily,
 };
+use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous};
 
@@ -36,26 +33,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
-    type MatmulSelection = PlaneMatmulSelection;
 
     type Args = TensorArgs;
-
-    fn cube_dim(selection: &Self::MatmulSelection) -> CubeDim {
-        CubeDim::new(
-            selection.plane_dim,
-            selection.tiling_scheme().tiles_in_stage_m(),
-            1,
-        )
-    }
-
-    fn cube_count(selection: &Self::MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme().elements_in_stage_m();
-        let n_stage = selection.tiling_scheme().elements_in_stage_n();
-        let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
-        let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
-
-        CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
-    }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -91,7 +70,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-    ) -> Self::MatmulSelection {
+    ) -> MatmulSelection {
         convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
     }
 }

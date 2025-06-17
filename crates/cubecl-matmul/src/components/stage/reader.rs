@@ -1,23 +1,13 @@
 use crate::components::InputIdent;
 use crate::components::global::load::BufferId;
 use crate::components::stage::ReaderFamily;
+use crate::components::stage::StageConfig;
 use crate::components::stage::StageMemory;
+use crate::components::stage::StageToTileReader;
 use crate::components::stage::TilingLayout;
-use crate::components::stage::shared::CommonStageConfig;
 use crate::components::tile::Tile;
-use crate::components::tile::TileConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-#[cube]
-pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn read_tile<TC: TileConfig>(
-        this: &Self,
-        row: u32,
-        col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
-    ) -> Tile<ES>;
-}
 
 #[derive(CubeType)]
 pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {
@@ -44,13 +34,13 @@ impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileReader<ES, T> {
-    fn read_tile<TC: TileConfig>(
+    fn read_tile<S: StageConfig>(
         this: &Self,
         row: u32,
         col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
+        #[comptime] config: S,
     ) -> Tile<ES> {
-        this.stage_memory.get_tile::<CommonStageConfig<TC>>(
+        this.stage_memory.get_tile::<S>(
             row,
             col,
             0u32,
@@ -92,13 +82,13 @@ impl<ES: Numeric, T: TilingLayout> BufferStageToTileReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for BufferStageToTileReader<ES, T> {
-    fn read_tile<TC: TileConfig>(
+    fn read_tile<S: StageConfig>(
         this: &Self,
         row: u32,
         col: u32,
-        #[comptime] config: CommonStageConfig<TC>,
+        #[comptime] config: S,
     ) -> Tile<ES> {
-        this.stage_memory.get_tile::<CommonStageConfig<TC>>(
+        this.stage_memory.get_tile::<S>(
             row,
             col,
             comptime!(this.buffer_id.to_index()),

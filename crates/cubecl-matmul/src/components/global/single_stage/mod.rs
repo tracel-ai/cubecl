@@ -1,5 +1,3 @@
+pub mod barrier;
 pub mod simple;
-
-mod config;
-
-pub use config::*;
+pub mod tma;

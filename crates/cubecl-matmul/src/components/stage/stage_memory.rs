@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::global::load::BufferId;
+use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageConfig, TilingLayout};
 use crate::components::tile::Tile;
 use crate::components::{Ident, InputIdent, MatrixLayout};
@@ -87,17 +88,20 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         self.smem.to_slice_mut().with_line_size(line_size)
     }
 
-    pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: S) {
+    pub fn clear<G: GlobalConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: G) {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
             self.num_stages * config.tiling_scheme().elements_in_stage(ident)
-                / config.stage_line_size(ident.into())
+                / config.stage_config().stage_line_size(ident)
         );
 
-        let unit_count = config.num_planes() * config.plane_dim();
+        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
-        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_base_position = RoleRule::new(config.role_rule_config())
+            .load_index(ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
             let offset = unit_base_position + i * unit_count;
@@ -113,16 +117,16 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         }
     }
 
-    pub fn clear_buffer<S: StageConfig>(
+    pub fn clear_buffer<G: GlobalConfig>(
         &mut self,
         #[comptime] buffer_id: BufferId,
         #[comptime] ident: InputIdent,
-        #[comptime] config: S,
+        #[comptime] config: G,
     ) {
         // // TODO: this assumes the stage was created with new
         // // Also assumes two buffers
         let tiling_scheme = config.tiling_scheme();
-        let line_size = config.stage_line_size(ident.as_ident());
+        let line_size = config.stage_config().stage_line_size(ident.as_ident());
         let smem_length = comptime!(
             self.num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size
         );
@@ -130,10 +134,13 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
 
         let matrix_layout = config.matrix_layout(ident.as_ident());
 
-        let unit_count = config.num_planes() * config.plane_dim();
+        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_writes_per_unit = buffer_length.div_ceil(unit_count);
 
-        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_base_position = RoleRule::new(config.role_rule_config())
+            .load_index(ident, config.specialized_loading_sides())
+            * config.plane_dim()
+            + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
             let unit_position = unit_base_position + i * unit_count;

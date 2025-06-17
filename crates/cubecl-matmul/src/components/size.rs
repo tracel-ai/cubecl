@@ -120,3 +120,17 @@ impl_from_tuple!(MatmulProblemSize, u32, u32);
 impl_from_tuple!(MatmulProblemSize, u32, i32);
 impl_from_tuple!(MatmulProblemSize, u32, u16);
 impl_from_tuple!(MatmulProblemSize, u32, usize);
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+/// Number of global matmuls for one cube
+pub struct GlobalPartitionSize {
+    pub m: u32,
+    pub n: u32,
+    pub batches: u32,
+}
+
+impl GlobalPartitionSize {
+    pub fn new(m: u32, n: u32, batches: u32) -> Self {
+        Self { m, n, batches }
+    }
+}

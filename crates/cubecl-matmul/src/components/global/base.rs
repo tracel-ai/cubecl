@@ -1,10 +1,18 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl};
 
-use crate::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatrixLayout, TilingScheme,
-    config::MatmulConfig,
-    stage::{self, StageConfig},
+use crate::components::MatmulLineSizes;
+use crate::{
+    components::{
+        AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
+        TilingScheme,
+        config::MatmulConfig,
+        global::{
+            PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
+        },
+        stage::{self, StageConfig},
+    },
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption,
@@ -14,10 +22,20 @@ use cubecl_std::{
 use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
-pub trait GlobalMatmulFamily:
-    MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
-{
+pub trait GlobalMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+    type Config: GlobalConfig;
+
+    fn setup<MP: MatmulPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        matmul_line_sizes: &MatmulLineSizes,
+    ) -> Result<Self::Config, MatmulSetupError>;
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
+    }
 }
 
 #[cube]
@@ -118,8 +136,12 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
-    /// Returns the number of planes in the cube
-    fn num_planes(&self) -> u32;
+    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn plane_role_config(&self) -> PlaneRoleConfig;
+    fn specialized_loading_sides(&self) -> SpecializedLoadingSides;
+    fn role_rule_config(&self) -> RoleRuleConfig {
+        self.plane_role_config().rule
+    }
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
@@ -140,4 +162,12 @@ pub trait GlobalConfig: MatmulConfig {
     /// Whether to check loader is balanced in comptime or runtime.
     /// Not supported by all loading strategies
     fn loader_mode(&self) -> LoaderMode;
+
+    fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
+
+    fn quantized(&self) -> bool {
+        self.stage_config().quantized()
+    }
+
+    fn cube_dim(&self) -> CubeDim;
 }
