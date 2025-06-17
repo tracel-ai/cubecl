@@ -52,6 +52,9 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         rhs: vec![1],
         out: R::line_size_elem(&P::EG::as_elem_native_unchecked()).collect(),
     }
+    .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
+    .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
+    .filter_out_with_tensor(&out.strides, &out.shape)
     .commit()
     .unwrap();
 

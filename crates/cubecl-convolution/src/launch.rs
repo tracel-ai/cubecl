@@ -184,6 +184,9 @@ where
         &MP::EI::as_elem_native_unchecked(),
         &MP::EO::as_elem_native_unchecked(),
     )
+    .filter_lhs_with_tensor(&input.strides, &input.shape, problem.lhs_layout)
+    .filter_rhs_with_tensor(&weight.strides, &weight.shape, problem.rhs_layout)
+    .filter_out_with_tensor(&out.strides, &out.shape)
     .commit()?;
 
     let config = Alg::setup::<R, MP>(client, &problem, &selection, &line_sizes)?;
