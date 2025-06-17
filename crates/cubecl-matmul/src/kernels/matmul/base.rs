@@ -170,9 +170,9 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     };
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(&ei_elem, &eo_elem)
-        .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
-        .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
-        .filter_out_with_tensor(&out.strides, &out.shape)
+        .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)
+        .filter_rhs_with_tensor(rhs.strides, rhs.shape, problem.rhs_layout)
+        .filter_out_with_tensor(out.strides, out.shape)
         .pick_max()?;
 
     let plane_size = client.properties().hardware.defined_plane_size();
