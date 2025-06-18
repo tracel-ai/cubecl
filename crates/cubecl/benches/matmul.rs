@@ -124,10 +124,10 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     for (b, m, n, k) in [
         // (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
-        (1, 5000, 5000, 5000),
-        (2, 4096, 4096, 4096),
-        (5, 512, 512, 512),
-        (10, 256, 256, 256),
+        // (1, 5000, 5000, 5000),
+        // (2, 4096, 4096, 4096),
+        // (5, 512, 512, 512),
+        // (10, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
@@ -149,11 +149,12 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Tiling2D(Default::default()),
+    // );
+    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
+    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));h
 
     fn selection(
         t: (u32, u32, u32),
@@ -232,27 +233,27 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     ))),
     // );
 
-    //for tile in [(4, 4, 4)] {
-    //    for pm in [4] {
-    //        for pn in [2] {
-    //            for pk in [4] {
-    //                for s in [(16, 16)] {
-    //                    for b in [PartitionBuffering::Single] {
-    //                        run::<R, MP>(
-    //                            Default::default(),
-    //                            matmul::Strategy::SimpleUnit(Some(selection(
-    //                                tile,
-    //                                (pm, pn, pk),
-    //                                s,
-    //                                b,
-    //                            ))),
-    //                        );
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    }
-    //}
+    for tile in [(1, 4, 4)] {
+        for pm in [16] {
+            for pn in [2] {
+                for pk in [2] {
+                    for s in [(16, 16)] {
+                        for b in [PartitionBuffering::Single] {
+                            run::<R, MP>(
+                                Default::default(),
+                                matmul::Strategy::DoubleUnit(Some(selection(
+                                    tile,
+                                    (pm, pn, pk),
+                                    s,
+                                    b,
+                                ))),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
 
@@ -294,16 +295,18 @@ fn main() {
     ))]
     {
         run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 
     #[cfg(feature = "wgpu-spirv")]
     {
+        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
         run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
-        // run_benches::<cubecl::wgpu::WgpuRuntime, cubecl::flex32>();
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
+        run_benches::<cubecl::hip::HipRuntime, f32>();
         run_benches::<cubecl::hip::HipRuntime, half::f16>();
     }
 

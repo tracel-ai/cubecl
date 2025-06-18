@@ -2,7 +2,10 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
 use cubecl_std::tensor::TensorHandle;
 
-use crate::{components::tile::accelerated::AcceleratedMatmul, kernels::matmul::MatmulSelection};
+use crate::{
+    components::tile::accelerated::AcceleratedMatmul,
+    kernels::matmul::{MatmulSelection, double_unit::DoubleUnitAlgorithm},
+};
 
 use super::{
     components::{
@@ -38,6 +41,7 @@ pub enum Strategy {
     SimpleBarrier(AsyncLoadingStrategy),
     DoubleBuffering(SyncBufferLoadingStrategy),
     SimpleUnit(Option<MatmulSelection>),
+    DoubleUnit(Option<MatmulSelection>),
     OrderedDoubleBuffering,
     Naive,
     Tiling2D(Tiling2dConfig),
@@ -203,6 +207,9 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             )
         }
         Strategy::SimpleUnit(selection) => matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+            client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
+        ),
+        Strategy::DoubleUnit(selection) => matmul::launch_ref::<R, MP, DoubleUnitAlgorithm>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
         Strategy::Tiling2D(config) => {

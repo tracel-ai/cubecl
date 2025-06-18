@@ -195,6 +195,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         .filter_rhs_with_tensor(rhs.strides, rhs.shape, problem.rhs_layout)
         .filter_out_with_tensor(out.strides, out.shape)
         .pick_max()?;
+    // println!("{line_sizes:?}");
 
     let plane_size = client.properties().hardware.defined_plane_size();
 
