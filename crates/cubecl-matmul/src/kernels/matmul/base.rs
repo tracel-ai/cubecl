@@ -114,7 +114,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -245,7 +245,7 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
