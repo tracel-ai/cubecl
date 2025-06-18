@@ -66,6 +66,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
             selection.partition_buffering,
             num_stages,
             plane_role_config,
+            MP::ES::elem_size(),
+            MP::EO::elem_size(),
+            client.properties().hardware.max_shared_memory_size as u32,
             ordered,
         )
     }

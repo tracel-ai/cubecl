@@ -77,7 +77,7 @@ pub struct MatmulStageScale {
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct MatmulAutotuneAnalysis {
     pub scale_global: MatmulGlobalScale,
-    pub stage_stage: MatmulStageScale,
+    pub scale_stage: MatmulStageScale,
     pub may_use_tensor_cores: bool,
     pub kind: MatmulKind,
 }
@@ -167,7 +167,7 @@ impl MatmulAutotuneKey {
         );
         let analysis = MatmulAutotuneAnalysis {
             scale_global: MatmulGlobalScale::from_size(m, n, k),
-            stage_stage: MatmulStageScale::from_size(m, n, k),
+            scale_stage: MatmulStageScale::from_size(m, n, k),
             may_use_tensor_cores: match client
                 .properties()
                 .hardware

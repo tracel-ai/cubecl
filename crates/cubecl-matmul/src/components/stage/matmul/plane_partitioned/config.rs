@@ -100,6 +100,9 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
         plane_role_config: PlaneRoleConfig,
+        es_size: u32,
+        eo_size: u32,
+        smem_limit: u32,
         ordered: bool,
     ) -> Result<Self, MatmulSetupError> {
         Self {
@@ -111,10 +114,15 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
             plane_role_config,
             ordered,
         }
-        .validate()
+        .validate(es_size, eo_size, smem_limit)
     }
 
-    fn validate(self) -> Result<Self, MatmulSetupError> {
+    fn validate(
+        self,
+        es_size: u32,
+        eo_size: u32,
+        smem_limit: u32,
+    ) -> Result<Self, MatmulSetupError> {
         let num_planes_needed = self.tiling_scheme().stage_partitions_in_stage_mn();
         let num_compute_planes = self.num_main_flow_planes();
 
@@ -131,6 +139,19 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
             return Err(MatmulSetupError::InvalidConfig(Box::new(
                 "Error: Tried doing double buffering with only one tile to compute.".to_string(),
             )));
+        }
+
+        let lhs_smem_size = self.tiling_scheme.elements_in_stage_mk() * self.num_stages.lhs;
+        let rhs_smem_size = self.tiling_scheme.elements_in_stage_nk() * self.num_stages.rhs;
+        let num_primitives = self.num_main_flow_planes();
+        let out_smem_size = self.tiling_scheme.elements_in_tile_mn() * num_primitives;
+        let smem_total_size = es_size * (lhs_smem_size + rhs_smem_size) + eo_size * out_smem_size;
+
+        if smem_total_size > smem_limit {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "This algorithm needs {:?} shared memory bytes but hardware limit is {:?}. ",
+                smem_total_size, smem_limit
+            ))));
         }
 
         Ok(self)
