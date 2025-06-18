@@ -47,13 +47,8 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         PartitionBuffering::Single
     };
 
-    let load_specialization_config: LoadSpecializationConfig = LoadSpecializationConfig {
-        lhs: SpecializationTensorConfig::LoadFlowOnly,
-        rhs: SpecializationTensorConfig::LoadFlowOnly,
-    };
     let selection = MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(partition_buffering)
-        .load_specialization_config(load_specialization_config)
         .build();
 
     test_matmul_algorithm::<A, P, R>(client, problem, selection);
