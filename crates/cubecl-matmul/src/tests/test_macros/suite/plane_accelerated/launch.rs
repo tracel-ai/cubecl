@@ -1,8 +1,5 @@
 use crate::components::stage::PartitionBuffering;
-use crate::components::{
-    LoadSpecializationConfig, MatmulProblem, MatrixLayout, PartitionSize,
-    SpecializationTensorConfig, StageSize, TileSize,
-};
+use crate::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
 use crate::components::{MatmulProblemSize, TilingScheme};
 use crate::kernels::matmul::{Algorithm, MatmulSelection};
 use crate::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
