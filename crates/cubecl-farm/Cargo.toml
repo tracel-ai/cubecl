@@ -1,0 +1,26 @@
+[package]
+name = "cubecl-farm"
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.6.0", default-features = false, features = [
+  "cuda",
+] }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
+  "channel-mutex",
+] }
+cubecl-cuda = { path = "../cubecl-cuda", version = "0.6.0" }
+bytemuck = { workspace = true }
+cudarc = { version = "0.16.3", features = [
+  "std",
+  "driver",
+  "cuda-version-from-build-system",
+  "dynamic-loading",
+  "nccl",
+], default-features = false }
