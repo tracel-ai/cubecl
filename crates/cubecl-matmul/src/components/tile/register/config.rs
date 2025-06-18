@@ -109,7 +109,7 @@ impl RegisterConfig {
         ) {
             (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Inner,
             (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Outer,
-            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
+            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Outer,
             (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
         }
     }

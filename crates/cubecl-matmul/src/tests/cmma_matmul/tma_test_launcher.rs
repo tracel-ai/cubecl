@@ -62,11 +62,13 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
-    )
-    .filter_lhs(|ls| *ls == 1)
-    .filter_rhs(|ls| *ls == 1)
-    .pick_max()
-    .unwrap();
+    );
+    let line_sizes = A::filter_line_sizes(line_sizes);
+    let line_sizes = line_sizes
+        .filter_lhs(|ls| *ls == 1)
+        .filter_rhs(|ls| *ls == 1)
+        .pick_max()
+        .unwrap();
 
     let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
         &client,

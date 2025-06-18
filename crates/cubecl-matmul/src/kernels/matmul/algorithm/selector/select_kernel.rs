@@ -1,10 +1,9 @@
-use cubecl_core::prelude::TensorHandleRef;
-use cubecl_core::{Runtime, client::ComputeClient};
-
+use super::MatmulSelection;
 use crate::components::batch::BatchConfig;
-use crate::components::{InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg};
-use crate::kernels::matmul::Algorithm;
-use crate::kernels::matmul::base::launch_matmul;
+use crate::components::{
+    InputRuntimeArg, MatmulLayouts, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg,
+};
+use crate::kernels::matmul::{Algorithm, launch_with_config};
 use crate::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,
@@ -13,12 +12,14 @@ use crate::{
     kernels::MatmulSetupError,
 };
 use cubecl_core::frontend::CubePrimitive;
+use cubecl_core::prelude::TensorHandleRef;
+use cubecl_core::{Runtime, client::ComputeClient};
 
 /// Select which kernel to launch for the given Algorithm.
 ///
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     lhs_scale: &Option<TensorHandleRef<'_, R>>,
@@ -28,6 +29,8 @@ pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
+    selection: &Option<MatmulSelection>,
+    layout: MatmulLayouts,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
@@ -36,12 +39,15 @@ where
     let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
-    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
+    let selection = match selection {
+        Some(selection) => selection.clone(),
+        None => A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, layout),
+    };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     let line_sizes = config.line_sizes();
 
-    launch_matmul::<MS, R, A>(
+    launch_with_config::<MS, R, A>(
         client,
         config.cube_dim(),
         config.cube_count(&problem),
@@ -60,21 +66,22 @@ where
 }
 
 /// Select which kernel to launch for the given Algorithm.
-pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
+    layouts: MatmulLayouts,
     plane_dim: u32,
 ) -> Result<(), MatmulSetupError> {
     let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
-    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
+    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, layouts);
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
-    launch_matmul::<MS, R, A>(
+    launch_with_config::<MS, R, A>(
         client,
         config.cube_dim(),
         config.cube_count(&problem),
