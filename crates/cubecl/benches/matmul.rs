@@ -15,9 +15,6 @@ use cubecl_std::tensor::TensorHandle;
 
 use cubecl_random::random_uniform;
 
-const TRANSPOSE_LHS: bool = false;
-const TRANSPOSE_RHS: bool = false;
-
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Output = ();
     type Input = (
@@ -31,9 +28,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let client = R::client(&self.device);
 
         let mut lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
-        if TRANSPOSE_LHS {
+        if self.tl {
             let len = lhs.shape.len();
-            lhs.shape.swap(len - 2, len - 1);
             lhs.strides.swap(len - 2, len - 1);
         }
         random_uniform::<R, MP::EI>(
@@ -44,11 +40,12 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         );
 
         let mut rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
-        if TRANSPOSE_RHS {
+
+        if self.tr {
             let len = rhs.shape.len();
-            rhs.shape.swap(len - 2, len - 1);
             rhs.strides.swap(len - 2, len - 1);
         }
+
         random_uniform::<R, MP::EI>(
             &client,
             MP::EI::from_int(0),
@@ -111,6 +108,8 @@ struct MatmulBench<R: Runtime, MP> {
     m: usize,
     k: usize,
     n: usize,
+    tl: bool,
+    tr: bool,
     strategy: matmul::Strategy,
     device: R::Device,
     client: ComputeClient<R::Server, R::Channel>,
@@ -121,27 +120,47 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    for (b, m, n, k) in [
-        // (1, 8192, 8192, 8192),
-        (1, 6144, 6144, 6144),
-        (1, 5000, 5000, 5000),
-        (2, 4096, 4096, 4096),
-        (5, 512, 512, 512),
-        (10, 256, 256, 256),
-    ] {
-        let bench = MatmulBench::<R, MP> {
-            b,
-            m,
-            k,
-            n,
-            client: client.clone(),
-            device: device.clone(),
-            strategy: strategy.clone(),
-            _mp: PhantomData,
-        };
-        println!("b: {b} m: {m} n: {n} k: {k}");
-        println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::System));
+    for tl in [true, false] {
+        for tr in [true, false] {
+            for (b, m, n, k) in [
+                (1, 8192, 8192, 8192),
+                (1, 6144, 6144, 6144),
+                (1, 5000, 5000, 5000),
+                (2, 4096, 4096, 4096),
+                (5, 512, 512, 512),
+                (10, 256, 256, 256),
+                // OuterProduct
+                // (2, 4096, 4096, 1),
+                // InnerProduct
+                // (2, 1, 8 * 4096, 1),
+                // VecScalar
+                // (2, 8 * 4096, 1, 1),
+                // ScalarVec
+                // (2, 1, 4096, 1),
+                // MatVec
+                // (2, 4096, 1, 4096),
+                // VecMat
+                // (2, 1, 4096, 4096),
+                // General
+                // (2, 4096, 4096, 4096),
+            ] {
+                let bench = MatmulBench::<R, MP> {
+                    b,
+                    m,
+                    k,
+                    n,
+                    tl,
+                    tr,
+                    client: client.clone(),
+                    device: device.clone(),
+                    strategy: strategy.clone(),
+                    _mp: PhantomData,
+                };
+                println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
+                println!("{}", bench.name());
+                println!("{}", bench.run(TimingMethod::System));
+            }
+        }
     }
 }
 
@@ -149,12 +168,12 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Tiling2D(Default::default()),
+    // );
     run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
-    run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
+    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
 
     fn selection(
         t: (u32, u32, u32),
@@ -177,28 +196,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             .partition_buffering(buffering)
             .build()
     }
-
-    // for tile in [(1, 4, 4)] {
-    //     for pm in [16] {
-    //         for pn in [2] {
-    //             for pk in [2] {
-    //                 for s in [(16, 16)] {
-    //                     for b in [PartitionBuffering::Single] {
-    //                         run::<R, MP>(
-    //                             Default::default(),
-    //                             matmul::Strategy::DoubleUnit(Some(selection(
-    //                                 tile,
-    //                                 (pm, pn, pk),
-    //                                 s,
-    //                                 b,
-    //                             ))),
-    //                         );
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 
     // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
 
@@ -240,7 +237,7 @@ fn main() {
     ))]
     {
         run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
-        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 
     #[cfg(feature = "wgpu-spirv")]
