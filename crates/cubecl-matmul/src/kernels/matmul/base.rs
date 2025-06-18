@@ -201,12 +201,7 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let plane_size = client.properties().hardware.defined_plane_size();
 
     let plane_dim = match plane_size {
-        Some(32) | Some(64) => plane_size.expect("32 or 64"),
-        Some(plane_dim) => {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
-            ));
-        }
+        Some(plane_dim) => plane_dim,
         None => {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnknown,

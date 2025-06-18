@@ -62,17 +62,6 @@ impl TileMatmulFamily for RegisterMatmul {
         )
     }
 
-    fn selection<R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        _elem_stage: Elem,
-        _elem_acc: Elem,
-        layouts: MatmulLayouts,
-    ) -> MatmulSelection {
-        unit_matmul_selection(problem, layouts, plane_dim)
-    }
-
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
             .filter_lhs(|ls| *ls <= 4)

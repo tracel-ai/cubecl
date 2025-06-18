@@ -61,9 +61,7 @@ pub trait Algorithm {
         elem_stage: Elem,
         elem_acc: Elem,
         layouts: MatmulLayouts,
-    ) -> MatmulSelection {
-        Self::TileMatmul::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc, layouts)
-    }
+    ) -> MatmulSelection;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         Self::BatchMatmul::filter_line_sizes(Self::GlobalMatmul::filter_line_sizes(

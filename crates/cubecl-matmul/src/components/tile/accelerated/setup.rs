@@ -58,24 +58,4 @@ impl TileMatmulFamily for AcceleratedMatmul {
             rhs_stage_line_size,
         )
     }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-        _layouts: MatmulLayouts,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
-            elem_stage,
-            elem_acc,
-        )
-    }
 }

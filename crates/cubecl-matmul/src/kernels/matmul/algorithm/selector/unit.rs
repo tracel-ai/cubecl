@@ -16,9 +16,12 @@ pub fn unit_matmul_selection(
     problem: &MatmulProblem,
     line_sizes: MatmulLayouts,
     plane_dim: u32,
+    double_buffering: bool,
 ) -> MatmulSelection {
     match Into::<MatmulKind>::into(problem) {
-        MatmulKind::General => general_unit_selector(problem, line_sizes, plane_dim),
+        MatmulKind::General => {
+            general_unit_selector(problem, line_sizes, plane_dim, double_buffering)
+        }
         MatmulKind::MatVec => matvec_unit_selector(problem, plane_dim),
         MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim),
         MatmulKind::ScalarVec => scalarvec_unit_selector(problem, plane_dim),
@@ -34,14 +37,20 @@ fn general_unit_selector(
     problem: &MatmulProblem,
     layout: MatmulLayouts,
     plane_dim: u32,
+    double_buffering: bool,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (layout.lhs, layout.rhs) {
+    let (tile_size, mut partition_size) = match (layout.lhs, layout.rhs) {
         (RowMajor, RowMajor) => ((1, 4, 4), (16, 2, 4)),
         (RowMajor, ColMajor) => ((1, 4, 4), (16, 2, 4)),
         (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, 8)),
         (ColMajor, ColMajor) => ((4, 4, 4), (4, 2, 4)),
     };
+
+    // It seems to be faster, it's not a requirement of the algo.
+    if double_buffering {
+        partition_size.2 /= 2;
+    }
 
     let scale = MatmulGlobalScale::from_size(problem.m, problem.n, problem.k);
     match scale {

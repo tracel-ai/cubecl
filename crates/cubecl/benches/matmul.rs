@@ -16,7 +16,7 @@ use cubecl_std::tensor::TensorHandle;
 use cubecl_random::random_uniform;
 
 const TRANSPOSE_LHS: bool = false;
-const TRANSPOSE_RHS: bool = false;
+const TRANSPOSE_RHS: bool = true;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Output = ();
@@ -124,7 +124,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     for (b, m, n, k) in [
         // (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
-        // (1, 5000, 5000, 5000),
+        (1, 5000, 5000, 5000),
         // (2, 4096, 4096, 4096),
         // (5, 512, 512, 512),
         // (10, 256, 256, 256),
@@ -153,8 +153,8 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
     // );
-    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
-    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));h
+    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
+    run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
 
     fn selection(
         t: (u32, u32, u32),
@@ -233,27 +233,27 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     ))),
     // );
 
-    for tile in [(1, 4, 4)] {
-        for pm in [16] {
-            for pn in [2] {
-                for pk in [2] {
-                    for s in [(16, 16)] {
-                        for b in [PartitionBuffering::Single] {
-                            run::<R, MP>(
-                                Default::default(),
-                                matmul::Strategy::DoubleUnit(Some(selection(
-                                    tile,
-                                    (pm, pn, pk),
-                                    s,
-                                    b,
-                                ))),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // for tile in [(1, 4, 4)] {
+    //     for pm in [16] {
+    //         for pn in [2] {
+    //             for pk in [2] {
+    //                 for s in [(16, 16)] {
+    //                     for b in [PartitionBuffering::Single] {
+    //                         run::<R, MP>(
+    //                             Default::default(),
+    //                             matmul::Strategy::DoubleUnit(Some(selection(
+    //                                 tile,
+    //                                 (pm, pn, pk),
+    //                                 s,
+    //                                 b,
+    //                             ))),
+    //                         );
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
 
