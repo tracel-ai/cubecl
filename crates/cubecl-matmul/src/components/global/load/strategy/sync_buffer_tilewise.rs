@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use crate::components::global::load::SyncBufferLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
+use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
 };
@@ -48,9 +49,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 
         if num_tiles % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
-                format!(
-                    "Number of planes {num_planes:?} must divide number of tiles {num_tiles:?} for tilewise loading.",
-                )
+                "Number of planes {num_planes:?} must divide number of tiles {num_tiles:?} for tilewise loading.".to_string()
             }));
         }
 
@@ -62,13 +61,34 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 
         if num_lines_per_plane % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
-                format!(
-                    "Number of planes {num_planes:?} must divide number of lines per plane {num_lines_per_plane:?} for tilewise loading.",
-                )
+                "Number of planes {num_planes:?} must divide number of lines per plane {num_lines_per_plane:?} for tilewise loading.".to_string()
             }));
         }
 
-        // TODO abort if tiling order is not the right for ident
+        match ident.as_input_ident() {
+            InputIdent::Lhs => {
+                if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
+                    return Err(FormattedConfigError::new(move || {
+                        "Sync buffer tilewise on Lhs is only supported with RowMajor tiling order"
+                            .to_string()
+                    }));
+                }
+            }
+            InputIdent::Rhs => {
+                if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
+                    return Err(FormattedConfigError::new(move || {
+                        "Sync buffer tilewise on Rhs is only supported with ColMajor tiling order"
+                            .to_string()
+                    }));
+                }
+            }
+        }
+
+        if config.plane_role_config().has_specialization() {
+            return Err(FormattedConfigError::new(move || {
+                "Sync buffer tilewise not supported with specialization".to_string()
+            }));
+        }
 
         Ok(())
     }

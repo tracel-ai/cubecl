@@ -17,6 +17,7 @@ pub struct PlanePartitionedStageConfig<T: TileConfig> {
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
     plane_role_config: PlaneRoleConfig,
+    ordered: bool,
 }
 
 impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
@@ -72,6 +73,20 @@ impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
     fn quantized(&self) -> bool {
         self.quantized
     }
+
+    fn must_sync_plane_after_execution(&self) -> bool {
+        let execution_is_sync = {
+            #[cfg(target_os = "macos")]
+            {
+                false
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                true
+            }
+        };
+        !execution_is_sync && self.ordered
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for PlanePartitionedStageConfig<T> {}
@@ -85,6 +100,7 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
         plane_role_config: PlaneRoleConfig,
+        ordered: bool,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             tile_config,
@@ -93,6 +109,7 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
             partition_buffering,
             num_stages,
             plane_role_config,
+            ordered,
         }
         .validate()
     }

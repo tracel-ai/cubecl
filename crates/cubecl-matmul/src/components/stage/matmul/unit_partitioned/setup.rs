@@ -35,6 +35,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_loaders: Option<MaxLoaders>,
+        ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config = TMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
@@ -65,6 +66,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
             selection.partition_buffering,
             num_stages,
             plane_role_config,
+            ordered,
         )
     }
 }

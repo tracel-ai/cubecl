@@ -73,7 +73,7 @@ where
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        // Not sure if other tiling orders are supported
+        // Other tiling orders are not supported
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,
         sync_buffer_tilewise::LoadingStrategy<ColMajorTilingOrder>,
     >;

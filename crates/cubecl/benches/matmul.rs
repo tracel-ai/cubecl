@@ -168,10 +168,10 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Tiling2D(Default::default()),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Tiling2D(Default::default()),
+    // );
     run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
     // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
 
