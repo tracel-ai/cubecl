@@ -4,17 +4,13 @@ use crate::components::{
 
 use super::MatmulSelection;
 
-const NUM_PLANES_APPROX: u32 = 8;
-const TILE_DIM: u32 = 4;
-const PARTITION_K_APPROX: u32 = 2;
-
 pub fn unit_matmul_selection(
     problem: &MatmulProblem,
     layouts: MatmulLayouts,
     plane_dim: u32,
     double_buffering: bool,
 ) -> MatmulSelection {
-    let kind = Into::<MatmulKind>::into(problem);
+    let kind: MatmulKind = problem.into();
     match kind {
         MatmulKind::General => general_unit_selector(problem, layouts, plane_dim, double_buffering),
         MatmulKind::MatVec => matvec_unit_selector(problem, layouts, plane_dim, double_buffering),
@@ -22,10 +18,18 @@ pub fn unit_matmul_selection(
         MatmulKind::ScalarVec => {
             scalarvec_unit_selector(problem, layouts, plane_dim, double_buffering)
         }
-        MatmulKind::VecScalar => vecscalar_unit_selector(problem, plane_dim),
-        MatmulKind::InnerProduct => inner_product_unit_selector(problem, plane_dim),
-        MatmulKind::OuterProduct => outer_product_unit_selector(problem, plane_dim),
-        MatmulKind::ScalarProduct => scalar_product_unit_selector(problem, plane_dim),
+        MatmulKind::VecScalar => {
+            vecscalar_unit_selector(problem, layouts, plane_dim, double_buffering)
+        }
+        MatmulKind::InnerProduct => {
+            inner_product_unit_selector(problem, layouts, plane_dim, double_buffering)
+        }
+        MatmulKind::OuterProduct => {
+            outer_product_unit_selector(problem, layouts, plane_dim, double_buffering)
+        }
+        MatmulKind::ScalarProduct => {
+            scalar_product_unit_selector(problem, layouts, plane_dim, double_buffering)
+        }
     }
 }
 
@@ -133,6 +137,87 @@ fn scalarvec_unit_selector(
     )
 }
 
+/// (M, 1) @ (1, 1) → (M, 1)
+fn vecscalar_unit_selector(
+    _problem: &MatmulProblem,
+    _layouts: MatmulLayouts,
+    plane_dim: u32,
+    _double_buffering: bool,
+) -> MatmulSelection {
+    let (tile_size, partition_size) = ((4, 1, 4), (1, 1, 2));
+
+    selection(
+        tile_size,
+        partition_size,
+        PartitionBuffering::Single,
+        plane_dim,
+        StageSelection::Fixed { m: 8, n: 4 },
+    )
+}
+
+/// (1, K) @ (K, 1) → (1, 1)
+fn inner_product_unit_selector(
+    _problem: &MatmulProblem,
+    layouts: MatmulLayouts,
+    plane_dim: u32,
+    _double_buffering: bool,
+) -> MatmulSelection {
+    use MatrixLayout::*;
+    let (tile_size, partition_size) = match (layouts.lhs, layouts.rhs) {
+        (RowMajor, RowMajor) => ((1, 1, 4), (1, 1, 1)),
+        (RowMajor, ColMajor) => ((1, 1, 4), (1, 1, 1)),
+        (ColMajor, RowMajor) => ((1, 1, 4), (1, 1, 1)),
+        (ColMajor, ColMajor) => ((1, 1, 4), (1, 1, 1)),
+    };
+
+    selection(
+        tile_size,
+        partition_size,
+        PartitionBuffering::Single,
+        plane_dim,
+        StageSelection::Fixed { m: 4, n: 8 },
+    )
+}
+
+/// (M, 1) @ (1, N) → (M, N)
+fn outer_product_unit_selector(
+    _problem: &MatmulProblem,
+    _layouts: MatmulLayouts,
+    plane_dim: u32,
+    _double_buffering: bool,
+) -> MatmulSelection {
+    let (tile_size, partition_size) = ((4, 4, 1), (1, 1, 1));
+
+    selection(
+        tile_size,
+        partition_size,
+        PartitionBuffering::Single,
+        plane_dim,
+        StageSelection::Fixed { m: 8, n: 8 },
+    )
+}
+
+/// (1, 1) @ (1, 1) → (1, 1)
+fn scalar_product_unit_selector(
+    _problem: &MatmulProblem,
+    _layouts: MatmulLayouts,
+    plane_dim: u32,
+    _double_buffering: bool,
+) -> MatmulSelection {
+    let (tile_size, partition_size) = ((1, 1, 1), (1, 1, 1));
+
+    selection(
+        tile_size,
+        partition_size,
+        PartitionBuffering::Single,
+        plane_dim,
+        StageSelection::WithPlane {
+            plane_dim,
+            num_plane: 8,
+        },
+    )
+}
+
 enum StageSelection {
     WithPlane { plane_dim: u32, num_plane: u32 },
     Fixed { m: u32, n: u32 },
@@ -172,57 +257,6 @@ fn selection(
     MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(buffering)
         .build()
-}
-
-/// (M, 1) @ (1, 1) → (M, 1)
-fn vecscalar_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSelection {
-    let num_units = NUM_PLANES_APPROX * plane_dim;
-    let tiling_scheme = TilingScheme::builder()
-        .with_tile_size((TILE_DIM, 1, 1).into())
-        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
-        .with_stage_size((num_units, 1, 1).into())
-        .build()
-        .unwrap();
-
-    MatmulSelection::builder(tiling_scheme, plane_dim).build()
-}
-
-/// (1, K) @ (K, 1) → (1, 1)
-fn inner_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSelection {
-    let tiling_scheme = TilingScheme::builder()
-        .with_tile_size((1, 1, TILE_DIM).into())
-        .with_partition_size((1, 1, PARTITION_K_APPROX).into())
-        .with_stage_size((1, 1, 1).into())
-        .build()
-        .unwrap();
-
-    MatmulSelection::builder(tiling_scheme, plane_dim).build()
-}
-
-/// (M, 1) @ (1, N) → (M, N)
-fn outer_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSelection {
-    let num_units = NUM_PLANES_APPROX * plane_dim;
-    let (stage_size_m, stage_size_n) = closest_factor_pair(num_units);
-    let tiling_scheme = TilingScheme::builder()
-        .with_tile_size((TILE_DIM, TILE_DIM, 1).into())
-        .with_partition_size((1, 1, 1).into())
-        .with_stage_size((stage_size_m, stage_size_n, 1).into())
-        .build()
-        .unwrap();
-
-    MatmulSelection::builder(tiling_scheme, plane_dim).build()
-}
-
-/// (1, 1) @ (1, 1) → (1, 1)
-fn scalar_product_unit_selector(_problem: &MatmulProblem, plane_dim: u32) -> MatmulSelection {
-    let tiling_scheme = TilingScheme::builder()
-        .with_tile_size((1, 1, 1).into())
-        .with_partition_size((1, 1, 1).into())
-        .with_stage_size((1, 1, 1).into())
-        .build()
-        .unwrap();
-
-    MatmulSelection::builder(tiling_scheme, plane_dim).build()
 }
 
 /// Returns the factor pair `(a, b)` of `n` minimizing their difference,

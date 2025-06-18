@@ -127,11 +127,26 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
         // (2, 4096, 4096, 4096),
         // (5, 512, 512, 512),
         // (10, 256, 256, 256),
+        // OuterProduct
+        // (2, 4096, 4096, 1, false, false),
+        // (2, 4096, 4096, 1, true, false),
+        // (2, 4096, 4096, 1, false, true),
+        // (2, 4096, 4096, 1, true, true),
+        // InnerProduct
+        // (2, 1, 8 * 4096, 1, false, false),
+        // (2, 1, 8 * 4096, 1, true, false),
+        // (2, 1, 8 * 4096, 1, false, true),
+        // (2, 1, 8 * 4096, 1, true, true),
+        // VecScalar
+        // (2, 8 * 4096, 1, 1, false, false),
+        // (2, 8 * 4096, 1, 1, true, false),
+        // (2, 8 * 4096, 1, 1, false, true),
+        // (2, 8 * 4096, 1, 1, true, true),
         // ScalarVec
-        (2, 1, 4096, 1, false, false),
-        (2, 1, 4096, 1, true, false),
-        (2, 1, 4096, 1, false, true),
-        (2, 1, 4096, 1, true, true),
+        // (2, 1, 4096, 1, false, false),
+        // (2, 1, 4096, 1, true, false),
+        // (2, 1, 4096, 1, false, true),
+        // (2, 1, 4096, 1, true, true),
         // MatVec
         // (2, 4096, 1, 4096, false, false),
         // (2, 4096, 1, 4096, true, false),
@@ -207,11 +222,11 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //         PartitionBuffering::Single,
     //     ))),
     // );
-    // for tile in [(1, 4, 4)] {
-    //     for pm in [1, 2, 4] {
+    // for tile in [(4, 4, 1)] {
+    //     for pm in [1, 2] {
     //         for pn in [1, 2] {
-    //             for pk in [1, 2, 4, 8, 16] {
-    //                 for s in [(4, 8)] {
+    //             for pk in [1, 2, 4] {
+    //                 for s in [(8, 8), (16, 16)] {
     //                     for b in [PartitionBuffering::Single] {
     //                         run::<R, MP>(
     //                             Default::default(),
