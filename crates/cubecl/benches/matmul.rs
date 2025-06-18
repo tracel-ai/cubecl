@@ -120,64 +120,47 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    for (b, m, n, k, tl, tr) in [
-        // (1, 8192, 8192, 8192),
-        // (1, 6144, 6144, 6144),
-        // (1, 5000, 5000, 5000),
-        // (2, 4096, 4096, 4096),
-        // (5, 512, 512, 512),
-        // (10, 256, 256, 256),
-        // OuterProduct
-        // (2, 4096, 4096, 1, false, false),
-        // (2, 4096, 4096, 1, true, false),
-        // (2, 4096, 4096, 1, false, true),
-        // (2, 4096, 4096, 1, true, true),
-        // InnerProduct
-        // (2, 1, 8 * 4096, 1, false, false),
-        // (2, 1, 8 * 4096, 1, true, false),
-        // (2, 1, 8 * 4096, 1, false, true),
-        // (2, 1, 8 * 4096, 1, true, true),
-        // VecScalar
-        // (2, 8 * 4096, 1, 1, false, false),
-        // (2, 8 * 4096, 1, 1, true, false),
-        // (2, 8 * 4096, 1, 1, false, true),
-        // (2, 8 * 4096, 1, 1, true, true),
-        // ScalarVec
-        // (2, 1, 4096, 1, false, false),
-        // (2, 1, 4096, 1, true, false),
-        // (2, 1, 4096, 1, false, true),
-        // (2, 1, 4096, 1, true, true),
-        // MatVec
-        // (2, 4096, 1, 4096, false, false),
-        // (2, 4096, 1, 4096, true, false),
-        // (2, 4096, 1, 4096, false, true),
-        // (2, 4096, 1, 4096, true, true),
-        // VecMat
-        // (2, 1, 4096, 4096, false, false),
-        // (2, 1, 4096, 4096, true, false),
-        // (2, 1, 4096, 4096, false, true),
-        // (2, 1, 4096, 4096, true, true),
-        // General
-        // (2, 4096, 4096, 4096, false, false),
-        // (2, 4096, 4096, 4096, true, false),
-        // (2, 4096, 4096, 4096, false, true),
-        // (2, 4096, 4096, 4096, true, true),
-    ] {
-        let bench = MatmulBench::<R, MP> {
-            b,
-            m,
-            k,
-            n,
-            tl,
-            tr,
-            client: client.clone(),
-            device: device.clone(),
-            strategy: strategy.clone(),
-            _mp: PhantomData,
-        };
-        println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
-        println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::System));
+    for tl in [true, false] {
+        for tr in [true, false] {
+            for (b, m, n, k) in [
+                (1, 8192, 8192, 8192),
+                (1, 6144, 6144, 6144),
+                (1, 5000, 5000, 5000),
+                (2, 4096, 4096, 4096),
+                (5, 512, 512, 512),
+                (10, 256, 256, 256),
+                // OuterProduct
+                // (2, 4096, 4096, 1),
+                // InnerProduct
+                // (2, 1, 8 * 4096, 1),
+                // VecScalar
+                // (2, 8 * 4096, 1, 1),
+                // ScalarVec
+                // (2, 1, 4096, 1),
+                // MatVec
+                // (2, 4096, 1, 4096),
+                // VecMat
+                // (2, 1, 4096, 4096),
+                // General
+                // (2, 4096, 4096, 4096),
+            ] {
+                let bench = MatmulBench::<R, MP> {
+                    b,
+                    m,
+                    k,
+                    n,
+                    tl,
+                    tr,
+                    client: client.clone(),
+                    device: device.clone(),
+                    strategy: strategy.clone(),
+                    _mp: PhantomData,
+                };
+                println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
+                println!("{}", bench.name());
+                println!("{}", bench.run(TimingMethod::System));
+            }
+        }
     }
 }
 
@@ -213,36 +196,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             .partition_buffering(buffering)
             .build()
     }
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Some(selection(
-    //         (1, 4, 4),
-    //         (1, 2, 1),
-    //         (4, 8),
-    //         PartitionBuffering::Single,
-    //     ))),
-    // );
-    // for tile in [(4, 4, 1)] {
-    //     for pm in [1, 2] {
-    //         for pn in [1, 2] {
-    //             for pk in [1, 2, 4] {
-    //                 for s in [(8, 8), (16, 16)] {
-    //                     for b in [PartitionBuffering::Single] {
-    //                         run::<R, MP>(
-    //                             Default::default(),
-    //                             matmul::Strategy::SimpleUnit(Some(selection(
-    //                                 tile,
-    //                                 (pm, pn, pk),
-    //                                 s,
-    //                                 b,
-    //                             ))),
-    //                         );
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 
     // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
 
