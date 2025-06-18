@@ -12,7 +12,7 @@ use cubecl_std::tensor::{
     MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
 };
 
-use super::{Algorithm, MatmulSelection, select_kernel_concrete};
+use super::{Algorithm, MatmulSelection, launch_kernel_concrete};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -71,7 +71,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => matmul_cmma_ref::<R, MP, A>(
+        (false, false) => launch_inner_ref::<R, MP, A>(
             client,
             lhs,
             lhs_scale,
@@ -81,7 +81,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             (lhs_transposed, rhs_transposed),
             selection,
         ),
-        (false, true) => matmul_cmma_ref::<R, MP, A>(
+        (false, true) => launch_inner_ref::<R, MP, A>(
             client,
             lhs,
             lhs_scale,
@@ -91,7 +91,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             (lhs_transposed, rhs_transposed),
             selection,
         ),
-        (true, false) => matmul_cmma_ref::<R, MP, A>(
+        (true, false) => launch_inner_ref::<R, MP, A>(
             client,
             &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
             lhs_scale,
@@ -101,7 +101,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             (lhs_transposed, rhs_transposed),
             selection,
         ),
-        (true, true) => matmul_cmma_ref::<R, MP, A>(
+        (true, true) => launch_inner_ref::<R, MP, A>(
             client,
             &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
             lhs_scale,
@@ -115,7 +115,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 }
 
 #[allow(clippy::result_large_err)]
-fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     lhs_scale: &Option<TensorHandleRef<'_, R>>,
@@ -209,14 +209,14 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         }
     };
 
-    matmul_launch_kernel::<R, MP, A>(
+    launch_inner_ref_fix_precision::<R, MP, A>(
         client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
         layouts,
     )
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+fn launch_inner_ref_fix_precision<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     lhs_scale: &Option<TensorHandleRef<'_, R>>,
@@ -233,12 +233,12 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
         && tf32::is_supported(client)
     {
-        select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
+        launch_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
             layout,
         )
     } else {
-        select_kernel_concrete::<MP, R, A>(
+        launch_kernel_concrete::<MP, R, A>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
             layout,
         )
@@ -317,12 +317,12 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     };
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
-        select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
+        launch_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
             layouts,
         )
     } else {
-        select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
+        launch_kernel_concrete::<(MP, TensorMapArgs), R, A>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
             layouts,
         )
@@ -330,7 +330,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 }
 
 #[allow(clippy::too_many_arguments, clippy::result_large_err)]
-pub fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
