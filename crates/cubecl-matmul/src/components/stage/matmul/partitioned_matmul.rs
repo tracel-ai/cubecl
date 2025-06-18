@@ -78,7 +78,7 @@ where
         )
     }
 
-    fn execute_with_listener<SEL: StageEventListener>(
+    fn execute_with_listener<SEL: StageEventListener<S>>(
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Self::LhsTile,

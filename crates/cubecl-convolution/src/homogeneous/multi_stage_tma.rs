@@ -290,6 +290,7 @@ where
             // Not the same as num_stages
             (1, 1).into(),
             None,
+            false,
         )?;
 
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();

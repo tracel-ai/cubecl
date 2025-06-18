@@ -37,6 +37,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_loaders: Option<MaxLoaders>,
+        ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config = TMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
@@ -71,6 +72,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
             MP::ES::elem_size(),
             MP::EO::elem_size(),
             client.properties().hardware.max_shared_memory_size as u32,
+            ordered,
         )
     }
 }
