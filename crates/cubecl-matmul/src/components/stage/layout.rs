@@ -34,7 +34,7 @@ pub enum TilingOrderEnum {
     RowMajor,
     ColMajor,
     Ordered,
-    Tma
+    Tma,
 }
 
 #[derive(CubeType, Clone, Copy)]
