@@ -209,14 +209,14 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         }
     };
 
-    launch_inner_ref_fix_precision::<R, MP, A>(
+    launch_inner_ref_fix_dtype::<R, MP, A>(
         client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
         layouts,
     )
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-fn launch_inner_ref_fix_precision<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     lhs_scale: &Option<TensorHandleRef<'_, R>>,
