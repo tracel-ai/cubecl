@@ -1,5 +1,7 @@
 use crate::components::stage::PartitionBuffering;
-use crate::components::{MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize};
+use crate::components::{
+    LoadSpecializationConfig, MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize,
+};
 use crate::components::{MatmulProblemSize, TilingScheme};
 use crate::kernels::matmul::{Algorithm, MatmulSelection};
 use crate::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -11,6 +13,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     tile_size: TileSize,
     tiles_per_partition: PartitionSize,
     partitions_per_stage: StageSize,
+    load_specialization_config: LoadSpecializationConfig,
     problem_size: MatmulProblemSize,
 ) {
     let client = R::client(&Default::default());
@@ -46,6 +49,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
 
     let selection = MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(partition_buffering)
+        .load_specialization_config(load_specialization_config)
         .build();
 
     test_matmul_algorithm::<A, P, R>(client, problem, selection);
