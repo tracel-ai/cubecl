@@ -111,7 +111,7 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
             && self.tiling_scheme().tiles_in_stage_partition_n() < 2
         {
             return Err(MatmulSetupError::InvalidConfig(Box::new(
-                "Error: Tried doing double buffering with only one tile to compute.".to_string(),
+                "Error: Tried doing partition double buffering with only one tile to compute.",
             )));
         }
 

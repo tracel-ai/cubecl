@@ -69,9 +69,8 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             InputIdent::Lhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
                     return Err(FormattedConfigError::new(move || {
-                        format!(
-                            "Sync buffer tilewise on Lhs is only supported with RowMajor tiling order",
-                        )
+                        "Sync buffer tilewise on Lhs is only supported with RowMajor tiling order"
+                            .to_string()
                     }));
                 }
             }
@@ -87,7 +86,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 
         if config.plane_role_config().has_specialization() {
             return Err(FormattedConfigError::new(move || {
-                format!("Sync buffer tilewise not supported with specialization",)
+                "Sync buffer tilewise not supported with specialization".to_string()
             }));
         }
 
