@@ -1,7 +1,10 @@
-use super::base;
+use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+
+use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
+    MatmulLayouts, MatmulProblem,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily},
     stage::{FullReaderFamily, PlaneMatmulFamily},
@@ -30,4 +33,24 @@ where
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        elem_stage: Elem,
+        elem_acc: Elem,
+        _layouts: MatmulLayouts,
+    ) -> MatmulSelection {
+        plane_matmul_selection::<TMM, R>(
+            client,
+            problem,
+            plane_dim,
+            MultiRowStrategy::Adaptive {
+                minimum_stage_count: 8,
+            },
+            elem_stage,
+            elem_acc,
+        )
+    }
 }
