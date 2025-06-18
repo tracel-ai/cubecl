@@ -190,12 +190,13 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&ei_elem, &eo_elem)
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&ei_elem, &eo_elem);
+    let line_sizes = A::filter_line_sizes(line_sizes);
+    let line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)
         .filter_rhs_with_tensor(rhs.strides, rhs.shape, problem.rhs_layout)
         .filter_out_with_tensor(out.strides, out.shape)
         .pick_max()?;
-    // println!("{line_sizes:?}");
 
     let plane_size = client.properties().hardware.defined_plane_size();
 

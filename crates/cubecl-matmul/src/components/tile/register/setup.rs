@@ -77,6 +77,7 @@ impl TileMatmulFamily for RegisterMatmul {
         available_line_sizes
             .filter_lhs(|ls| *ls <= 4)
             .filter_rhs(|ls| *ls <= 4)
+            .filter_out(|ls| *ls <= 4)
     }
 }
 
