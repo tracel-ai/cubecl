@@ -119,14 +119,6 @@ impl RegisterConfig {
         let n = self.tile_size().n();
         let k = self.tile_size().k();
 
-        // 128 a bit arbitrary, but accepts 4x4x4 and rejects 8x8x8
-        if m * n * k > 128 {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Tile size m-n-k={:?}-{:?}-{:?} is too large for register matmul",
-                m, n, k
-            ))));
-        }
-
         let lhs = self.stage_line_size(Ident::Lhs);
         let rhs = self.stage_line_size(Ident::Rhs);
         let out = self.global_line_size(Ident::Out);
