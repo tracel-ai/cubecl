@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, ir::Elem};
+use cubecl_core::{self as cubecl};
 
-use crate::components::{MatmulLayouts, MatmulLineSizes};
+use crate::components::MatmulLineSizes;
 use crate::{
     components::{
         AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem,

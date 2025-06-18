@@ -5,12 +5,10 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulLayouts, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem,
+    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
 };
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::{MatmulSelection, unit_matmul_selection};
-use cubecl_core::ir::Elem;
+use crate::kernels::matmul::MatmulSelection;
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {
