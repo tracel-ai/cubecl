@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, ir::Elem};
 
-use crate::components::MatmulLineSizes;
+use crate::components::{MatmulLayouts, MatmulLineSizes};
 use crate::{
     components::{
         AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem,
@@ -37,6 +37,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        layouts: MatmulLayouts,
     ) -> MatmulSelection;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

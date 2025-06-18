@@ -5,7 +5,8 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    AvailableLineSizes, InvalidConfigError, MatmulLayouts, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem,
 };
 use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::{MatmulSelection, unit_matmul_selection};
@@ -67,8 +68,9 @@ impl TileMatmulFamily for RegisterMatmul {
         plane_dim: u32,
         _elem_stage: Elem,
         _elem_acc: Elem,
+        layouts: MatmulLayouts,
     ) -> MatmulSelection {
-        unit_matmul_selection(problem, plane_dim)
+        unit_matmul_selection(problem, layouts, plane_dim)
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

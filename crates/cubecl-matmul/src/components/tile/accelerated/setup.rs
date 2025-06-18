@@ -2,7 +2,9 @@ use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
-use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem};
+use crate::components::{
+    InvalidConfigError, MatmulLayouts, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+};
 use crate::kernels::MatmulSetupError;
 use crate::kernels::matmul::{MatmulSelection, MultiRowStrategy, plane_matmul_selection};
 use cubecl_core::ir::Elem;
@@ -63,6 +65,7 @@ impl TileMatmulFamily for AcceleratedMatmul {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        _layouts: MatmulLayouts,
     ) -> MatmulSelection {
         plane_matmul_selection::<Self, R>(
             client,

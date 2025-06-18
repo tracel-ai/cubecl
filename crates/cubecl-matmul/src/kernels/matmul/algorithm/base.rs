@@ -2,7 +2,9 @@ use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulProblem};
+use crate::components::{
+    AvailableLineSizes, MatmulLayouts, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+};
 use crate::kernels::MatmulSetupError;
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
@@ -58,8 +60,9 @@ pub trait Algorithm {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        layouts: MatmulLayouts,
     ) -> MatmulSelection {
-        Self::TileMatmul::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc)
+        Self::TileMatmul::selection::<R>(client, problem, plane_dim, elem_stage, elem_acc, layouts)
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

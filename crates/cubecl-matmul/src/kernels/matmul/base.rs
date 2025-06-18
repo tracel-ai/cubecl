@@ -1,7 +1,7 @@
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::{
-    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
+    AvailableLineSizes, InputRuntimeArg, MatmulLayouts, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
@@ -12,7 +12,7 @@ use cubecl_std::tensor::{
     MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
 };
 
-use super::{Algorithm, select_kernel_concrete};
+use super::{Algorithm, MatmulSelection, select_kernel_concrete};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -26,6 +26,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: TensorHandle<R, MP::EI>,
     rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
+    selection: &Option<MatmulSelection>,
 ) -> Result<TensorHandle<R, MP::EO>, MatmulSetupError> {
     let result = launch_ref::<R, MP, A>(
         client,
@@ -34,6 +35,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         &rhs.as_ref(),
         &rhs_scale.as_ref().map(|it| it.as_ref()),
         &out.as_ref(),
+        selection,
     );
 
     match result {
@@ -54,6 +56,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
+    selection: &Option<MatmulSelection>,
 ) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
@@ -76,6 +79,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
+            selection,
         ),
         (false, true) => matmul_cmma_ref::<R, MP, A>(
             client,
@@ -85,6 +89,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
+            selection,
         ),
         (true, false) => matmul_cmma_ref::<R, MP, A>(
             client,
@@ -94,6 +99,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
+            selection,
         ),
         (true, true) => matmul_cmma_ref::<R, MP, A>(
             client,
@@ -103,6 +109,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
+            selection,
         ),
     }
 }
@@ -116,10 +123,24 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
+    selection: &Option<MatmulSelection>,
 ) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
     let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
+
+    let layouts = MatmulLayouts {
+        lhs: if transposed.0 {
+            MatrixLayout::ColMajor
+        } else {
+            MatrixLayout::RowMajor
+        },
+        rhs: if transposed.1 {
+            MatrixLayout::ColMajor
+        } else {
+            MatrixLayout::RowMajor
+        },
+    };
 
     // This is mostly to check that i8 are supported for quantization.
     if !client.properties().feature_enabled(Feature::Type(ei_elem))
@@ -192,7 +213,8 @@ fn matmul_cmma_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     };
 
     matmul_launch_kernel::<R, MP, A>(
-        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+        layouts,
     )
 }
 
@@ -207,17 +229,21 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
+    selection: &Option<MatmulSelection>,
+    layout: MatmulLayouts,
 ) -> Result<(), MatmulSetupError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
         && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
         && tf32::is_supported(client)
     {
         select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            layout,
         )
     } else {
         select_kernel_concrete::<MP, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            layout,
         )
     }
 }
@@ -231,6 +257,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
+    selection: &Option<MatmulSelection>,
 ) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
@@ -246,6 +273,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let rhs_layout = match transposed.1 {
         true => MatrixLayout::ColMajor,
         false => MatrixLayout::RowMajor,
+    };
+
+    let layouts = MatmulLayouts {
+        lhs: lhs_layout,
+        rhs: rhs_layout,
     };
 
     let line_sizes = MatmulLineSizes {
@@ -289,11 +321,13 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
         select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            layouts,
         )
     } else {
         select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim,
+            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            layouts,
         )
     }
 }
