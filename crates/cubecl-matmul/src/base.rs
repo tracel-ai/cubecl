@@ -39,10 +39,10 @@ use super::{
 pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
-    DoubleBuffering(SyncBufferLoadingStrategy),
+    DoubleBuffering(SyncBufferLoadingStrategy, Option<MatmulSelection>),
     SimpleUnit(Option<MatmulSelection>),
     DoubleUnit(Option<MatmulSelection>),
-    OrderedDoubleBuffering,
+    OrderedDoubleBuffering(Option<MatmulSelection>),
     Naive,
     Tiling2D(Tiling2dConfig),
     #[default]
@@ -184,10 +184,10 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 )
             }
         },
-        Strategy::DoubleBuffering(loading_strategy) => match loading_strategy {
+        Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
             SyncBufferLoadingStrategy::Cyclic => {
                 matmul::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client, lhs, lhs_scale, rhs, rhs_scale, out, &None,
+                    client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
             SyncBufferLoadingStrategy::Tilewise => {
@@ -201,9 +201,9 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 )
             }
         },
-        Strategy::OrderedDoubleBuffering => {
+        Strategy::OrderedDoubleBuffering(selection) => {
             matmul::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                client, lhs, lhs_scale, rhs, rhs_scale, out, &None,
+                client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
             )
         }
         Strategy::SimpleUnit(selection) => matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(

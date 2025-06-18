@@ -1,7 +1,9 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_matmul::components::TilingScheme;
 use cubecl_matmul::components::stage::PartitionBuffering;
+use cubecl_matmul::components::{
+    LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
+};
 use cubecl_matmul::kernels::matmul::{MatmulSelection, closest_factor_pair};
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
@@ -120,15 +122,17 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    for tl in [true, false] {
-        for tr in [true, false] {
+    // for tl in [true, false] {
+    // for tr in [true, false] {
+    for tl in [false] {
+        for tr in [false] {
             for (b, m, n, k) in [
-                (1, 8192, 8192, 8192),
+                // (1, 8192, 8192, 8192),
                 (1, 6144, 6144, 6144),
-                (1, 5000, 5000, 5000),
-                (2, 4096, 4096, 4096),
-                (5, 512, 512, 512),
-                (10, 256, 256, 256),
+                // (1, 5000, 5000, 5000),
+                // (2, 4096, 4096, 4096),
+                // (5, 512, 512, 512),
+                // (10, 256, 256, 256),
                 // OuterProduct
                 // (2, 4096, 4096, 1),
                 // InnerProduct
@@ -172,32 +176,56 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
     // );
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
-    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
-
+    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
     fn selection(
         t: (u32, u32, u32),
         p: (u32, u32, u32),
-        s: (u32, u32),
         buffering: PartitionBuffering,
+        plane_dim: u32,
+        stage: (u32, u32),
     ) -> MatmulSelection {
-        let num_planes = 8;
-        let plane_dim = 32;
-        let num_units = num_planes * plane_dim;
+        let (stage_size_m, stage_size_n) = stage;
 
         let tiling_scheme = TilingScheme::builder()
             .with_tile_size(t.into())
             .with_partition_size(p.into())
-            .with_stage_size((s.0, s.1, 1).into())
+            .with_stage_size((stage_size_m, stage_size_n, 1).into())
             .build()
             .unwrap();
 
         MatmulSelection::builder(tiling_scheme, plane_dim)
             .partition_buffering(buffering)
+            .load_specialization_config(LoadSpecializationConfig {
+                lhs: SpecializationTensorConfig::MainFlowOnly,
+                rhs: SpecializationTensorConfig::MainFlowOnly,
+            })
             .build()
     }
 
-    // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(
+    //         SyncBufferLoadingStrategy::Cyclic,
+    //         Some(selection(
+    //             (16, 16, 16),
+    //             (4, 2, 2),
+    //             partitionbuffering::double,
+    //             32,
+    //             (4, 1),
+    //         )),
+    //     ),
+    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+            (16, 16, 16),
+            (2, 2, 4),
+            PartitionBuffering::Double,
+            32,
+            (8, 1),
+        ))),
+    );
+    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
 
     // for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
     //     let strategy = matmul::Strategy::Simple(loading);
@@ -242,13 +270,13 @@ fn main() {
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
         run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
-        run_benches::<cubecl::hip::HipRuntime, f32>();
+        // run_benches::<cubecl::hip::HipRuntime, f32>();
         run_benches::<cubecl::hip::HipRuntime, half::f16>();
     }
 
