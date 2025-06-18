@@ -1,4 +1,9 @@
-# Design
+# Parallel Reduction
+
+Before we dive into the code to implement parallel reduction, let's take a look at the constants that CubeCL provides to help us
+write efficient parallel reduction kernels.
+
+## CubeCL Constants
 
 CubeCL is designed around - you guessed it - Cubes! More specifically, it's based on cuboids,
 because not all axes are the same size. Since all compute APIs need to map to the hardware, which
