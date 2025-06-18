@@ -206,14 +206,14 @@ impl RoleRule {
         match self {
             RoleRule::MainFlowOnly => UNIT_POS_Y,
             RoleRule::LoadOnlyFirst(load_only) => {
-                if !specialized_loading_sides.load_only.includes(ident) {
+                if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
                     UNIT_POS_Y - load_only
                 } else {
                     UNIT_POS_Y
                 }
             }
             RoleRule::LoadOnlyLast(main_flow) => {
-                if !specialized_loading_sides.main_flow.includes(ident) {
+                if comptime!(!specialized_loading_sides.main_flow.includes(ident)) {
                     UNIT_POS_Y - main_flow
                 } else {
                     UNIT_POS_Y

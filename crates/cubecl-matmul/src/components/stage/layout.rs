@@ -26,6 +26,15 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         #[comptime] ident: Ident,
         #[comptime] config: C,
     ) -> u32;
+
+    fn to_enum() -> comptime_type!(TilingOrderEnum);
+}
+
+pub enum TilingOrderEnum {
+    RowMajor,
+    ColMajor,
+    Ordered,
+    Tma
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -117,6 +126,10 @@ impl TilingOrder for RowMajorTilingOrder {
     ) -> u32 {
         row * tile_count_cols + col
     }
+
+    fn to_enum() -> comptime_type!(TilingOrderEnum) {
+        TilingOrderEnum::RowMajor
+    }
 }
 
 #[cube]
@@ -139,6 +152,10 @@ impl TilingOrder for ColMajorTilingOrder {
         #[comptime] _config: C,
     ) -> u32 {
         col * tile_count_rows + row
+    }
+
+    fn to_enum() -> comptime_type!(TilingOrderEnum) {
+        TilingOrderEnum::ColMajor
     }
 }
 
@@ -188,6 +205,10 @@ impl TilingOrder for OrderedTilingOrder {
         let pos_within_group = col * group_rows + local_row;
 
         group * tiles_per_group + pos_within_group
+    }
+
+    fn to_enum() -> comptime_type!(TilingOrderEnum) {
+        TilingOrderEnum::Ordered
     }
 }
 

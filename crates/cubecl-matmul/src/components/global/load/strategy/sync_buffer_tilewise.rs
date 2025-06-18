@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use crate::components::global::load::SyncBufferLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
+use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
 };
@@ -68,7 +69,32 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             }));
         }
 
-        // TODO abort if tiling order is not the right for ident
+        match ident.as_input_ident() {
+            InputIdent::Lhs => {
+                if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
+                    return Err(FormattedConfigError::new(move || {
+                        format!(
+                            "Sync buffer tilewise on Lhs is only supported with RowMajor tiling order",
+                        )
+                    }));
+                }
+            }
+            InputIdent::Rhs => {
+                if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
+                    return Err(FormattedConfigError::new(move || {
+                        format!(
+                            "Sync buffer tilewise on Rhs is only supported with ColMajor tiling order",
+                        )
+                    }));
+                }
+            }
+        }
+
+        if config.plane_role_config().has_specialization() {
+            return Err(FormattedConfigError::new(move || {
+                format!("Sync buffer tilewise not supported with specialization",)
+            }));
+        }
 
         Ok(())
     }
