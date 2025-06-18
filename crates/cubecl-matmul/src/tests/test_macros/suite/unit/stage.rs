@@ -6,8 +6,7 @@ macro_rules! testgen_matmul_unit_stage {
         mod s1x1x1 {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                Unit,
+            $crate::testgen_matmul_unit_specialized!(
                 $algorithm,
                 $precision,
                 $tile,
@@ -19,8 +18,7 @@ macro_rules! testgen_matmul_unit_stage {
         mod s2x2x1 {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                Unit,
+            $crate::testgen_matmul_unit_specialized!(
                 $algorithm,
                 $precision,
                 $tile,
@@ -32,8 +30,7 @@ macro_rules! testgen_matmul_unit_stage {
         mod s4x4x1 {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                Unit,
+            $crate::testgen_matmul_unit_specialized!(
                 $algorithm,
                 $precision,
                 $tile,
@@ -45,8 +42,7 @@ macro_rules! testgen_matmul_unit_stage {
         mod s8x4x1 {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                Unit,
+            $crate::testgen_matmul_unit_specialized!(
                 $algorithm,
                 $precision,
                 $tile,
@@ -58,8 +54,7 @@ macro_rules! testgen_matmul_unit_stage {
         mod s8x8x1 {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                Unit,
+            $crate::testgen_matmul_unit_specialized!(
                 $algorithm,
                 $precision,
                 $tile,
