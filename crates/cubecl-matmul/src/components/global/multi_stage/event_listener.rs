@@ -138,6 +138,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                 comptime!(rhs_num_task_executed += num_task_executed);
             }
 
+            #[allow(clippy::collapsible_if)]
             if comptime!(config.must_sync_plane_after_execution()) {
                 if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0
                 {
