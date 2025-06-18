@@ -49,9 +49,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 
         if num_tiles % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
-                format!(
-                    "Number of planes {num_planes:?} must divide number of tiles {num_tiles:?} for tilewise loading.",
-                )
+                "Number of planes {num_planes:?} must divide number of tiles {num_tiles:?} for tilewise loading.".to_string()
             }));
         }
 
@@ -63,9 +61,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 
         if num_lines_per_plane % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
-                format!(
-                    "Number of planes {num_planes:?} must divide number of lines per plane {num_lines_per_plane:?} for tilewise loading.",
-                )
+                "Number of planes {num_planes:?} must divide number of lines per plane {num_lines_per_plane:?} for tilewise loading.".to_string()
             }));
         }
 
@@ -82,9 +78,8 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             InputIdent::Rhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
                     return Err(FormattedConfigError::new(move || {
-                        format!(
-                            "Sync buffer tilewise on Rhs is only supported with ColMajor tiling order",
-                        )
+                        "Sync buffer tilewise on Rhs is only supported with ColMajor tiling order"
+                            .to_string()
                     }));
                 }
             }
