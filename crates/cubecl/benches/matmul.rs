@@ -16,7 +16,7 @@ use cubecl_std::tensor::TensorHandle;
 use cubecl_random::random_uniform;
 
 const TRANSPOSE_LHS: bool = false;
-const TRANSPOSE_RHS: bool = true;
+const TRANSPOSE_RHS: bool = false;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Output = ();
@@ -125,9 +125,9 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
         // (1, 8192, 8192, 8192),
         (1, 6144, 6144, 6144),
         (1, 5000, 5000, 5000),
-        // (2, 4096, 4096, 4096),
-        // (5, 512, 512, 512),
-        // (10, 256, 256, 256),
+        (2, 4096, 4096, 4096),
+        (5, 512, 512, 512),
+        (10, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
@@ -149,10 +149,10 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
     run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
     run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
 
@@ -165,10 +165,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         let num_planes = 8;
         let plane_dim = 32;
         let num_units = num_planes * plane_dim;
-        // println!("Tile {t:?}");
-        // println!("Partition {p:?}");
-        // println!("Buffering {buffering:?}");
-        // println!("Stage {s:?}");
 
         let tiling_scheme = TilingScheme::builder()
             .with_tile_size(t.into())
@@ -181,57 +177,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             .partition_buffering(buffering)
             .build()
     }
-
-    // Very good when lhs is transposed.
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Some(selection(
-    //         (4, 4, 1),
-    //         (2, 1, 8),
-    //         (16, 16),
-    //         PartitionBuffering::Single,
-    //     ))),
-    // );
-
-    // Very good for large matrix when nothing is transposed.
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Some(selection(
-    //         (4, 4, 4),
-    //         (2, 1, 4),
-    //         (16, 16),
-    //         PartitionBuffering::Single,
-    //     ))),
-    // );
-    // Very good for small matrix when nothing is transposed. 1024
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Some(selection(
-    //         (4, 4, 4),
-    //         (4, 2, 4),
-    //         (16, 16),
-    //         PartitionBuffering::Single,
-    //     ))),
-    // );
-    // Very good for very small matrix when nothing is transposed. 256
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Some(selection(
-    //         (4, 4, 4),
-    //         (2, 1, 4),
-    //         (8, 8),
-    //         PartitionBuffering::Single,
-    //     ))),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Some(selection(
-    //         (1, 4, 4),
-    //         (16, 2, 4),
-    //         (16, 16),
-    //         PartitionBuffering::Single,
-    //     ))),
-    // );
 
     // for tile in [(1, 4, 4)] {
     //     for pm in [16] {
