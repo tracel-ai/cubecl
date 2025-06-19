@@ -48,39 +48,28 @@ impl<
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
-        let rank = out.rank();
-        let problem_m = out.shape(rank - 2);
-        let problem_n = out.shape(rank - 1);
         let problem_k = lhs.shape(lhs.rank() - 1);
         let k_range = (0, problem_k);
 
-        let mut problem_b = 1;
-        for b in 0..rank - 2 {
-            problem_b *= out.shape(b);
-        }
-
-        let ts = config.tiling_scheme();
+        let tiling_scheme = config.tiling_scheme();
         let (m_index, n_index) = P::m_n_indices();
         let batch_index = P::batch_index();
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(
-                problem_m,
                 m_index,
-                ts.elements_in_stage_m(),
-                ts.elements_in_global_partition_m(),
+                tiling_scheme.elements_in_stage_m(),
+                tiling_scheme.elements_in_global_partition_m(),
             ),
             PartitionRangeDim::new(
-                problem_n,
                 n_index,
-                ts.elements_in_stage_n(),
-                ts.elements_in_global_partition_n(),
+                tiling_scheme.elements_in_stage_n(),
+                tiling_scheme.elements_in_global_partition_n(),
             ),
             PartitionRangeDim::new(
-                problem_b,
                 batch_index,
                 1u32,
-                ts.global_partition_size.batches,
+                tiling_scheme.global_partition_size.batches,
             ),
         );
 
