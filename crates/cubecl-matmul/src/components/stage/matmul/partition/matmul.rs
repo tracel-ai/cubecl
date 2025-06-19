@@ -31,7 +31,7 @@ where
     S: StageConfig<TileConfig = TMM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
-    pub fn execute_with_listener<SEL: StageEventListener>(
+    pub fn execute_with_listener<SEL: StageEventListener<S>>(
         start_m: u32,
         start_n: u32,
         lhs_reader: &RL,
@@ -106,7 +106,7 @@ where
 
     /// Execute stage matmul with a single buffer for rhs.
     #[allow(clippy::too_many_arguments)]
-    fn execute_single_buffer<SEL: StageEventListener>(
+    fn execute_single_buffer<SEL: StageEventListener<S>>(
         start_m: u32,
         start_n: u32,
         lhs_reader: &RL,
@@ -117,7 +117,7 @@ where
         #[comptime] config: S,
         mut listener: SEL,
     ) {
-        SEL::on_event(&mut listener, StageEvent::Begin);
+        SEL::on_event(&mut listener, StageEvent::Begin, config);
 
         let m_iterations = config.tiling_scheme().tiles_in_stage_partition_m();
         let n_iterations = config.tiling_scheme().tiles_in_stage_partition_n();
@@ -151,6 +151,7 @@ where
                         current: lhs_load_counter,
                         total: lhs_load_total
                     }],
+                    config,
                 );
                 comptime!(lhs_load_counter += 1);
 
@@ -171,6 +172,7 @@ where
                         current: rhs_load_counter,
                         total: rhs_load_total
                     }],
+                    config,
                 );
                 comptime!(rhs_load_counter += 1);
 
@@ -193,6 +195,7 @@ where
                             current: execute_counter,
                             total: execute_total
                         }],
+                        config,
                     );
                     comptime!(execute_counter += 1);
 
@@ -208,11 +211,11 @@ where
         assert!(lhs_load_counter == lhs_load_total);
         assert!(rhs_load_counter == rhs_load_total);
         assert!(execute_counter == execute_total);
-        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
+        SEL::on_event(&mut listener, comptime!(StageEvent::Finish), config);
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn execute_double_buffer<SEL: StageEventListener>(
+    fn execute_double_buffer<SEL: StageEventListener<S>>(
         start_m: u32,
         start_n: u32,
         lhs_reader: &RL,
@@ -223,7 +226,7 @@ where
         #[comptime] config: S,
         mut listener: SEL,
     ) {
-        SEL::on_event(&mut listener, StageEvent::Begin);
+        SEL::on_event(&mut listener, StageEvent::Begin, config);
 
         let m_iterations = config.tiling_scheme().tiles_in_stage_partition_m();
         let n_iterations = config.tiling_scheme().tiles_in_stage_partition_n();
@@ -258,6 +261,7 @@ where
                         current: lhs_load_counter,
                         total: lhs_load_total
                     }],
+                    config,
                 );
                 comptime!(lhs_load_counter += 1);
 
@@ -274,6 +278,7 @@ where
                     current: rhs_load_counter,
                     total: rhs_load_total
                 }),
+                config,
             );
             comptime!(rhs_load_counter += 1);
 
@@ -295,6 +300,7 @@ where
                         current: rhs_load_counter,
                         total: rhs_load_total
                     }),
+                    config,
                 );
                 comptime!(rhs_load_counter += 1);
 
@@ -318,6 +324,7 @@ where
                             current: execute_counter,
                             total: execute_total
                         }),
+                        config,
                     );
                     comptime!(execute_counter += 1);
 
@@ -352,6 +359,7 @@ where
                         current: execute_counter,
                         total: execute_total
                     }),
+                    config,
                 );
                 comptime!(execute_counter += 1);
 
@@ -364,6 +372,6 @@ where
         assert!(lhs_load_counter == lhs_load_total);
         assert!(rhs_load_counter == rhs_load_total);
         assert!(execute_counter == execute_total);
-        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
+        SEL::on_event(&mut listener, comptime!(StageEvent::Finish), config);
     }
 }
