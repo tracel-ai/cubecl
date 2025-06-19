@@ -60,3 +60,138 @@ often not present in other languages, except WebGPU with `local_invocation_index
 | ABSOLUTE_POS_Z | N/A         | global_id.z            |
 
 </details>
+
+## Parallel Reduction Example
+Remembering the previous example, we will now implement a parallel reduction using CubeCL. The goal is to reduce a 2D matrix into a 1D vector by summing the elements of each row. Where can we parallelize this operation? We can parallelize the reduction of each row, allowing each thread to compute the sum of a row independently. Note that we needs to change the launch parameters to set the CubeDim to launch multiple kernels in parallel and we can just remove the outer loop and use the `UNIT_POS_X` to access the rows of the input tensor. Please note that it is important to worry about data races when parallelizing operations, so we need to ensure that each kernel writes to a different position in the output tensor, because each kernel run in parallel.
+```rust,ignore
+# use std::marker::PhantomData;
+#
+# use cubecl::benchmark::{Benchmark, TimingMethod};
+# use cubecl::server::Handle;
+# use cubecl::std::tensor::compact_strides;
+# use cubecl::{future, prelude::*};
+#
+# pub struct ReductionBench<R: Runtime, F: Float> {
+#     input_shape: [usize; 2],
+#     device: R::Device,
+#     client: ComputeClient<R::Server, R::Channel>,
+#     _phantom_data: PhantomData<F>,
+# }
+#
+impl<R: Runtime, F: Float> Benchmark for ReductionBench<R, F> {
+#     type Input = Handle;
+#     type Output = Handle;
+#
+#     fn prepare(&self) -> Self::Input {
+#         let client = R::client(&self.device);
+#
+#         let total_size: usize = self.input_shape.iter().product();
+#         let input: Vec<f32> = (0..total_size).into_iter().map(|i| i as f32).collect();
+#
+#         client.create(f32::as_bytes(&input))
+#     }
+#
+    // ...
+    fn execute(&self, args: Self::Input) -> Self::Output {
+#        let client = R::client(&self.device);
+#
+#        let input_shape = &self.input_shape;
+#        let output_shape = &self.input_shape[0..1];
+#
+#        let input_stride = compact_strides(input_shape);
+#        let output_stride = compact_strides(output_shape);
+#
+#        let output_size: usize = output_shape.iter().product();
+#        let input = args;
+#        let output = client.empty(output_size * core::mem::size_of::<f32>());
+        // ...
+        unsafe {
+            reduce_matrix::launch_unchecked::<F, R>(
+                 &self.client,
+                 CubeCount::Static(1, 1, 1),
+                 CubeDim::new(input_shape[0] as u32, 1, 1), // Note the usage of the dimensions 0 of the input tensor
+                 TensorArg::from_raw_parts::<F>(&input, &input_stride, input_shape, 1),
+                 TensorArg::from_raw_parts::<F>(&output, &output_stride, output_shape, 1),
+            );
+        }
+
+        output
+    }
+    // ...
+#
+#     fn name(&self) -> String {
+#         let client = R::client(&self.device);
+#         format!("{}-reduction-{:?}", R::name(&client), self.input_shape).to_lowercase()
+#     }
+#
+#     fn sync(&self) {
+#         future::block_on(self.client.sync())
+#     }
+}
+
+#[cube(launch_unchecked)]
+/// This function execute the reduction in the following way by reducing with a sum over each row
+/// [0 1 2]    [0 + 1 + 2]    [3 ]
+/// [3 4 5] -> [3 + 4 + 5] -> [12]
+/// [6 7 8]    [6 + 7 + 8]    [21]
+fn reduce_matrix<F: Float>(input: &Tensor<F>, output: &mut Tensor<F>) {
+    let mut acc = F::new(0.0f32);
+    for i in 0..input.shape(1) {
+        acc += input[UNIT_POS_X * input.stride(0) + i];
+    }
+    output[UNIT_POS_X] = acc; // The outer loop is removed
+}
+
+# pub fn launch<R: Runtime, F: Float>(device: &R::Device) {
+#     let client = R::client(&device);
+#     R::supported_line_sizes();
+#     let bench1 = ReductionBench::<R, F> {
+#         input_shape: [512, 8 * 1024],
+#         client: client.clone(),
+#         device: device.clone(),
+#         _phantom_data: PhantomData,
+#     };
+#     let bench2 = ReductionBench::<R, F> {
+#         input_shape: [128, 32 * 1024],
+#         client: client.clone(),
+#         device: device.clone(),
+#         _phantom_data: PhantomData,
+#     };
+#
+#     for bench in [bench1, bench2] {
+#         println!("{}", bench.name());
+#         println!("{}", bench.run(TimingMethod::System));
+#     }
+# }
+#
+# fn main() {
+#     launch::<cubecl::wgpu::WgpuRuntime, f32>(&Default::default());
+# }
+```
+
+# The Results
+Now that we have improved parallelism, the kernel is up to 70x faster for the first shape and up to 25x faster for the second shape. Why is the first shape faster than the second? Even though the two shape have the same number of elements, the first shape has more rows than the second shape, which means that more kernel can be used to compute the reduction in parallel. The second shape has fewer rows, so fewer kernel are available to compute the reduction in parallel.
+```
+wgpu<wgsl>-reduction-[512, 8192]
+
+―――――――― Result ―――――――――
+  Timing      system
+  Samples     10
+  Mean        3.369ms
+  Variance    48.000ns
+  Median      3.321ms
+  Min         3.177ms
+  Max         4.011ms
+―――――――――――――――――――――――――
+wgpu<wgsl>-reduction-[128, 32768]
+
+―――――――― Result ―――――――――
+  Timing      system
+  Samples     10
+  Mean        8.713ms
+  Variance    5.069µs
+  Median      8.507ms
+  Min         5.963ms
+  Max         12.301ms
+―――――――――――――――――――――――――
+```

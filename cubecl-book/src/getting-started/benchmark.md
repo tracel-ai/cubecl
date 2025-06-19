@@ -59,9 +59,10 @@ In the `prepare` method, we will create the input data and return a handle as a 
 # }
 
 impl<R: Runtime, F: Float> Benchmark for ReductionBench<R, F> {
-    type Args = Handle;
+    type Input = Handle;
+    type Output = Handle;
 
-    fn prepare(&self) -> Self::Args {
+    fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
         let total_size: usize = self.input_shape.iter().product();
@@ -70,7 +71,7 @@ impl<R: Runtime, F: Float> Benchmark for ReductionBench<R, F> {
         client.create(f32::as_bytes(&input))
     }
 
-    fn execute(&self, args: Self::Args) {
+    fn execute(&self, args: Self::Input) -> Self::Output {
         let client = R::client(&self.device);
 
         let input_shape = &self.input_shape;
@@ -92,6 +93,8 @@ impl<R: Runtime, F: Float> Benchmark for ReductionBench<R, F> {
                 TensorArg::from_raw_parts::<F>(&output, &output_stride, output_shape, 1),
             );
         }
+
+        output
     }
 
     fn name(&self) -> String {
@@ -123,50 +126,54 @@ Now that we have implemented the `Benchmark` trait, we can run the benchmark usi
 # }
 #
 # impl<R: Runtime, F: Float> Benchmark for ReductionBench<R, F> {
-#     type Args = Handle;
+#    type Input = Handle;
+#    type Output = Handle;
 #
-#     fn prepare(&self) -> Self::Args {
-#         let client = R::client(&self.device);
+#    fn prepare(&self) -> Self::Input {
+#        let client = R::client(&self.device);
 #
-#         let total_size: usize = self.input_shape.iter().product();
-#         let input: Vec<f32> = (0..total_size).into_iter().map(|i| i as f32).collect();
+#        let total_size: usize = self.input_shape.iter().product();
+#        let input: Vec<f32> = (0..total_size).into_iter().map(|i| i as f32).collect();
 #
-#         client.create(f32::as_bytes(&input))
-#     }
+#        client.create(f32::as_bytes(&input))
+#    }
 #
-#     fn execute(&self, args: Self::Args) {
-#         let client = R::client(&self.device);
+#    fn execute(&self, args: Self::Input) -> Self::Output {
+#        let client = R::client(&self.device);
 #
-#         let input_shape = &self.input_shape;
-#         let output_shape = &self.input_shape[0..1];
+#        let input_shape = &self.input_shape;
+#        let output_shape = &self.input_shape[0..1];
 #
-#         let input_stride = compact_strides(input_shape);
-#         let output_stride = compact_strides(output_shape);
+#        let input_stride = compact_strides(input_shape);
+#        let output_stride = compact_strides(output_shape);
 #
-#         let output_size: usize = output_shape.iter().product();
-#         let input = args;
-#         let output = client.empty(output_size * core::mem::size_of::<f32>());
+#        let output_size: usize = output_shape.iter().product();
+#        let input = args;
+#        let output = client.empty(output_size * core::mem::size_of::<f32>());
 #
-#         unsafe {
-#             reduce_matrix::launch_unchecked::<F, R>(
-#                 &self.client,
-#                 CubeCount::Static(1, 1, 1),
-#                 CubeDim::new(1, 1, 1),
-#                 TensorArg::from_raw_parts::<F>(&input, &input_stride, input_shape, 1),
-#                 TensorArg::from_raw_parts::<F>(&output, &output_stride, output_shape, 1),
-#             );
-#         }
-#     }
+#        unsafe {
+#            reduce_matrix::launch_unchecked::<F, R>(
+#                &self.client,
+#                CubeCount::Static(1, 1, 1),
+#                CubeDim::new(1, 1, 1),
+#                TensorArg::from_raw_parts::<F>(&input, &input_stride, input_shape, 1),
+#                TensorArg::from_raw_parts::<F>(&output, &output_stride, output_shape, 1),
+#            );
+#        }
 #
-#     fn name(&self) -> String {
-#         let client = R::client(&self.device);
-#         format!("{}-reduction-{:?}", R::name(&client), self.input_shape).to_lowercase()
-#     }
+#        output
+#    }
 #
-#     fn sync(&self) {
-#         future::block_on(self.client.sync())
-#     }
-# }
+#    fn name(&self) -> String {
+#        let client = R::client(&self.device);
+#        format!("{}-reduction-{:?}", R::name(&client), self.input_shape).to_lowercase()
+#    }
+#
+#    fn sync(&self) {
+#        future::block_on(self.client.sync())
+#    }
+#}
+#
 #
 # #[cube(launch_unchecked)]
 # /// This function execute the reduction in the following way by reducing with a sum over each row
@@ -182,7 +189,7 @@ Now that we have implemented the `Benchmark` trait, we can run the benchmark usi
 #         output[i] = acc;
 #     }
 # }
-#
+
 pub fn launch<R: Runtime, F: Float>(device: &R::Device) {
     let client = R::client(&device);
 
@@ -210,7 +217,7 @@ fn main() {
 }
 ```
 
-## The results
+## The Results
 When you run the above code, it will execute the reduction benchmark for two different input shapes and print the results to the console. The output will look something like this:
 ```
 wgpu<wgsl>-reduction-[512, 8192]
