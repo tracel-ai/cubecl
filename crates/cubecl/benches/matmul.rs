@@ -183,6 +183,8 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         buffering: PartitionBuffering,
         plane_dim: u32,
         stage: (u32, u32),
+        lhs: SpecializationTensorConfig,
+        rhs: SpecializationTensorConfig,
     ) -> MatmulSelection {
         let (stage_size_m, stage_size_n) = stage;
 
@@ -195,11 +197,79 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 
         MatmulSelection::builder(tiling_scheme, plane_dim)
             .partition_buffering(buffering)
-            .load_specialization_config(LoadSpecializationConfig {
-                lhs: SpecializationTensorConfig::MainFlowOnly,
-                rhs: SpecializationTensorConfig::MainFlowOnly,
-            })
+            .load_specialization_config(LoadSpecializationConfig { lhs, rhs })
             .build()
+    }
+
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+            (16, 16, 16),
+            (2, 4, 2),
+            PartitionBuffering::Double,
+            32,
+            (8, 1),
+            SpecializationTensorConfig::MainFlowOnly,
+            SpecializationTensorConfig::MainFlowOnly,
+        ))),
+    );
+
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+            (16, 16, 16),
+            (2, 8, 2),
+            PartitionBuffering::Double,
+            32,
+            (16, 1),
+            SpecializationTensorConfig::MainFlowOnly,
+            SpecializationTensorConfig::MainFlowOnly,
+        ))),
+    );
+
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+    //         (16, 16, 16),
+    //         (2, 8, 2),
+    //         PartitionBuffering::Single,
+    //         32,
+    //         (16, 1),
+    //         SpecializationTensorConfig::MainFlowOnly,
+    //         SpecializationTensorConfig::MainFlowOnly,
+    //     ))),
+    // );
+
+    for p in [(2, 8, 2), (2, 8, 1)] {
+        // for s in [(16, 1), (8, 1), (4, 2)] {
+        for s in [(16, 1), (8, 1)] {
+            // for b in [PartitionBuffering::Single, PartitionBuffering::Double] {
+            for b in [PartitionBuffering::Double] {
+                for sp in [
+                    (
+                        SpecializationTensorConfig::MainFlowOnly,
+                        SpecializationTensorConfig::MainFlowOnly,
+                    ),
+                    //  (
+                    //      SpecializationTensorConfig::MainFlowOnly,
+                    //      SpecializationTensorConfig::LoadFlowOnly,
+                    //  ),
+                ] {
+                    run::<R, MP>(
+                        Default::default(),
+                        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+                            (16, 16, 16),
+                            p,
+                            b,
+                            32,
+                            s,
+                            sp.0,
+                            sp.1,
+                        ))),
+                    );
+                }
+            }
+        }
     }
 
     // run::<R, MP>(
@@ -215,16 +285,20 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //         )),
     //     ),
     // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-            (16, 16, 16),
-            (2, 2, 4),
-            PartitionBuffering::Double,
-            32,
-            (8, 1),
-        ))),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(None),
+    // );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+    //         (16, 16, 16),
+    //         (2, 2, 4),
+    //         PartitionBuffering::Double,
+    //         32,
+    //         (8, 1),
+    //     ))),
+    // );
     // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
 
     // for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
