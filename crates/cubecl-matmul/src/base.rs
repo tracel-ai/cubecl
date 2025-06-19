@@ -31,7 +31,6 @@ use super::{
             simple_unit::SimpleUnitAlgorithm,
         },
         naive,
-        tiling2d::{self, Tiling2dConfig},
     },
 };
 
@@ -44,7 +43,6 @@ pub enum Strategy {
     DoubleUnit(Option<MatmulSelection>),
     OrderedDoubleBuffering(Option<MatmulSelection>),
     Naive,
-    Tiling2D(Tiling2dConfig),
     #[default]
     Auto,
 }
@@ -212,11 +210,6 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
         Strategy::DoubleUnit(selection) => matmul::launch_ref::<R, MP, DoubleUnitAlgorithm>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
-        Strategy::Tiling2D(config) => {
-            // TODO Implement tiling2d with EI and EO
-            tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());
-            Ok(())
-        }
         Strategy::Naive => {
             // TODO Implement naive with EI and EO
             naive::launch_ref::<R, MP::EI>(client, lhs, rhs, out)?;
@@ -228,14 +221,10 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             ) {
                 match err {
                     super::kernels::MatmulSetupError::Unavailable(_) => {
-                        // TODO Implement naive with EI and EO
-                        tiling2d::launch_ref::<R, MP::EI>(
-                            client,
-                            lhs,
-                            rhs,
-                            out,
-                            Tiling2dConfig::default(),
+                        matmul::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
+                            client, lhs, lhs_scale, rhs, rhs_scale, out, &None,
                         )
+                        .unwrap();
                     }
                     _ => panic!("{err:?}"),
                 }

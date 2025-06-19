@@ -19,6 +19,8 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     multi_row_strategy: MultiRowStrategy,
     elem_stage: Elem,
     elem_acc: Elem,
+    pk: Option<u32>,
+    occupancy_factor: Option<u32>,
 ) -> MatmulSelection {
     let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
@@ -30,7 +32,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
     );
 
-    let occupancy_factor = 4;
+    let occupancy_factor = occupancy_factor.unwrap_or(4);
     let max_units_per_cube = client.properties().hardware.max_units_per_cube;
     let plane_count = max_units_per_cube / (plane_dim * occupancy_factor);
 
@@ -44,7 +46,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let tiles_per_partition = PartitionSize::new(
         rows_per_plane as u32,
         partition_shape_n as u32,
-        plane_dim / tile_size.k(),
+        pk.unwrap_or_else(|| plane_dim / tile_size.k()),
     );
 
     let partitions_per_stage = StageSize::new(stage_size_m as u32, 1, 1);

@@ -279,8 +279,8 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     selection_optimized(16, 1, 1);
     selection_optimized(8, 2, 1);
     selection_optimized(4, 2, 2);
-    selection_optimized(2, 2, 2);
-    selection_optimized(2, 2, 1);
+    // selection_optimized(2, 2, 2);
+    // selection_optimized(2, 2, 1);
 
     // for p in [(2, 16, 1)] {
     //     // for s in [(16, 1), (8, 1), (4, 2)] {
