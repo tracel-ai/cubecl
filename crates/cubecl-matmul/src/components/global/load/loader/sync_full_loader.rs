@@ -95,6 +95,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
 
         let len = L::Job::task_count(&loading_job);
         let mut task_id = comptime![0u32];
+
+        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in 0..len {
             L::Job::<MP>::execute_task::<G>(
@@ -156,6 +158,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         let task_counter = job.current.read().counter;
 
         let mut task_id = comptime![task_counter];
+
+        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in task_counter..job.num_tasks {
             L::Job::<MP>::execute_task::<G>(
