@@ -11,6 +11,50 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
+pub fn load_first<
+    MP: MatmulPrecision,
+    SMM: stage::StageMatmul<MP>,
+    LJ: JobExecutor<G>,
+    RJ: JobExecutor<G>,
+    G: GlobalConfig<StageConfig = SMM::Config>,
+>(
+    lhs_loader: &mut LJ,
+    rhs_loader: &mut RJ,
+    specializer: &Specializer,
+    #[comptime] buffer_to_load: BufferId,
+    #[comptime] config: G,
+) {
+    match comptime!(specializer.kind) {
+        SpecializerKind::Specialized {
+            main_flow_loading_side,
+            load_only_loading_side,
+            role_rule_config,
+        } => {
+            let rule = RoleRule::new(role_rule_config);
+            if !rule.is_load_only() {
+                if main_flow_loading_side.includes_lhs() {
+                    LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
+                }
+                if main_flow_loading_side.includes_rhs() {
+                    RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+                }
+            } else {
+                if load_only_loading_side.includes_lhs() {
+                    LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
+                }
+                if load_only_loading_side.includes_rhs() {
+                    RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+                }
+            }
+        }
+        SpecializerKind::NotSpecialized => {
+            LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
+            RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+        }
+    };
+}
+
+#[cube]
 pub fn execute_current_and_load_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,

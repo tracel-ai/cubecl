@@ -15,7 +15,7 @@ use cubecl_std::CubeOption;
 pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage_memory: &mut StageMemory<MP::ES, TL>,
         quantization: &CubeOption<Quantization<MP>>,
