@@ -11,7 +11,7 @@ use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
     BufferReaderFamily, ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder,
 };
-use crate::components::{MatmulLayouts, MatmulProblem, tile};
+use crate::components::{MatmulProblem, tile};
 use crate::components::{batch, global};
 
 use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
@@ -49,7 +49,6 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-        _layouts: MatmulLayouts,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -86,7 +85,6 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-        _layouts: MatmulLayouts,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -122,7 +120,6 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-        _layouts: MatmulLayouts,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
