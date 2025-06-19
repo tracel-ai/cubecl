@@ -2,7 +2,7 @@ use crate::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader, SyncFullLoadingStrategy,
 };
 use crate::components::global::multi_stage::double_buffer_execution::{
-    execute_current_and_load_next, execute_last_and_write_results,
+    execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
 use crate::components::global::multi_stage::ordered::LL;
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
@@ -80,12 +80,17 @@ where
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
         let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
-        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+        let specializer = Specializer::new::<Self::Config>(config);
+
+        load_first::<MP, SMM, Self::LhsLoader, Self::RhsLoader, Self::Config>(
+            &mut lhs_loader,
+            &mut rhs_loader,
+            &specializer,
+            BufferId::A,
+            config,
+        );
 
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-
-        let specializer = Specializer::new::<Self::Config>(config);
 
         sync_cube();
 

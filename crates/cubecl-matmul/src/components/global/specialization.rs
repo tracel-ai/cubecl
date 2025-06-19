@@ -114,12 +114,18 @@ pub enum RoleRuleConfig {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Threshold {
+    #[cube(comptime)]
+    threshold: u32,
+}
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum RoleRule {
     MainFlowOnly,
     // Load-only planes are first, then come main flow
-    LoadOnlyFirst(u32),
+    LoadOnlyFirst(Threshold),
     // Main flow planes are first, then come load-only
-    LoadOnlyLast(u32),
+    LoadOnlyLast(Threshold),
 }
 
 impl PlaneRoleConfig {
@@ -177,23 +183,27 @@ impl RoleRule {
     pub fn new(#[comptime] comptime_rule: RoleRuleConfig) -> RoleRule {
         match comptime!(comptime_rule) {
             RoleRuleConfig::MainFlowOnly => RoleRule::new_MainFlowOnly(),
-            RoleRuleConfig::LoadOnlyFirst { load_only } => RoleRule::new_LoadOnlyFirst(load_only),
-            RoleRuleConfig::LoadOnlyLast { main_flow } => RoleRule::new_LoadOnlyLast(main_flow),
+            RoleRuleConfig::LoadOnlyFirst { load_only } => RoleRule::new_LoadOnlyFirst(Threshold {
+                threshold: load_only,
+            }),
+            RoleRuleConfig::LoadOnlyLast { main_flow } => RoleRule::new_LoadOnlyLast(Threshold {
+                threshold: main_flow,
+            }),
         }
     }
 
     pub fn is_load_only(self) -> bool {
         match self {
             RoleRule::MainFlowOnly => false,
-            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y < load_only,
-            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y >= main_flow,
+            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y < load_only.threshold,
+            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y >= main_flow.threshold,
         }
     }
 
     pub fn compute_index(self) -> u32 {
         match self {
             RoleRule::MainFlowOnly => UNIT_POS_Y,
-            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y - load_only,
+            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y - load_only.threshold,
             RoleRule::LoadOnlyLast(_) => UNIT_POS_Y,
         }
     }
@@ -207,14 +217,14 @@ impl RoleRule {
             RoleRule::MainFlowOnly => UNIT_POS_Y,
             RoleRule::LoadOnlyFirst(load_only) => {
                 if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
-                    UNIT_POS_Y - load_only
+                    UNIT_POS_Y - load_only.threshold
                 } else {
                     UNIT_POS_Y
                 }
             }
             RoleRule::LoadOnlyLast(main_flow) => {
                 if comptime!(!specialized_loading_sides.main_flow.includes(ident)) {
-                    UNIT_POS_Y - main_flow
+                    UNIT_POS_Y - main_flow.threshold
                 } else {
                     UNIT_POS_Y
                 }
