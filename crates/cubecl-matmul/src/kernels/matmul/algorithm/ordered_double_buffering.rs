@@ -13,7 +13,7 @@ use crate::components::stage::{
     BufferReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
-use crate::components::{MatmulLayouts, MatmulProblem, batch};
+use crate::components::{MatmulProblem, batch};
 
 use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
 
@@ -41,7 +41,6 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-        _layouts: MatmulLayouts,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
