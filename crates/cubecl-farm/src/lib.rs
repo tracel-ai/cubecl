@@ -152,10 +152,7 @@ impl FarmCube for CudaRuntime {
 
         for (unit_index, &group_id) in assignments.iter().enumerate() {
             if unit_index < unit_count {
-                unit_group_map
-                    .entry(group_id)
-                    .or_insert_with(Vec::new)
-                    .push(unit_index);
+                unit_group_map.entry(group_id).or_default().push(unit_index);
             }
         }
         let mut groups = Vec::new();
@@ -174,8 +171,7 @@ impl FarmCube for CudaRuntime {
                 }
 
                 for (rank, (&unit_index, stream)) in unit_indices.iter().zip(streams).enumerate() {
-                    let link =
-                        nccl::Comm::from_rank(stream, rank, unit_indices.len(), nccl_id.clone())?;
+                    let link = nccl::Comm::from_rank(stream, rank, unit_indices.len(), nccl_id)?;
                     let unit = CudaDevice { index: unit_index };
                     let client = CudaRuntime::client(&unit);
 
