@@ -124,7 +124,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
     // for tl in [true, false] {
     // for tr in [true, false] {
-    for tl in [true] {
+    for tl in [true, false] {
         for tr in [false] {
             for (b, m, n, k) in [
                 // (1, 8192, 8192, 8192),
@@ -201,36 +201,52 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             .build()
     }
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-            (16, 16, 16),
-            (2, 4, 2),
-            PartitionBuffering::Double,
-            32,
-            (8, 1),
-            SpecializationTensorConfig::MainFlowOnly,
-            SpecializationTensorConfig::MainFlowOnly,
-        ))),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(
+    //         SyncBufferLoadingStrategy::Cyclic,
+    //         Some(selection(
+    //             (16, 16, 16),
+    //             (2, 4, 2),
+    //             PartitionBuffering::Double,
+    //             32,
+    //             (8, 1),
+    //             SpecializationTensorConfig::MainFlowOnly,
+    //             SpecializationTensorConfig::MainFlowOnly,
+    //         )),
+    //     ),
+    // );
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(None),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+    //         (16, 16, 16),
+    //         (4, 4, 2),
+    //         PartitionBuffering::Double,
+    //         32,
+    //         (8, 1),
+    //         SpecializationTensorConfig::MainFlowOnly,
+    //         SpecializationTensorConfig::MainFlowOnly,
+    //     ))),
+    // );
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-            (16, 16, 16),
-            (2, 8, 2),
-            PartitionBuffering::Double,
-            32,
-            (16, 1),
-            SpecializationTensorConfig::MainFlowOnly,
-            SpecializationTensorConfig::MainFlowOnly,
-        ))),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(None),
+    // );
+
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+    //         (16, 16, 16),
+    //         (2, 8, 2),
+    //         PartitionBuffering::Double,
+    //         32,
+    //         (16, 1),
+    //         SpecializationTensorConfig::MainFlowOnly,
+    //         SpecializationTensorConfig::MainFlowOnly,
+    //     ))),
+    // );
 
     // run::<R, MP>(
     //     Default::default(),
@@ -245,9 +261,30 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     ))),
     // );
 
-    // for p in [(2, 8, 2), (2, 8, 1)] {
+    let selection_optimized = |sm: u32, pm: u32, pk: u32| {
+        run::<R, MP>(
+            Default::default(),
+            matmul::Strategy::OrderedDoubleBuffering(Some(selection(
+                (16, 16, 16),
+                (pm, sm * pm, 1),
+                PartitionBuffering::Double,
+                32,
+                (sm, 1),
+                SpecializationTensorConfig::MainFlowOnly,
+                SpecializationTensorConfig::MainFlowOnly,
+            ))),
+        );
+    };
+
+    selection_optimized(16, 1, 1);
+    selection_optimized(8, 2, 1);
+    selection_optimized(4, 2, 2);
+    selection_optimized(2, 2, 2);
+    selection_optimized(2, 2, 1);
+
+    // for p in [(2, 16, 1)] {
     //     // for s in [(16, 1), (8, 1), (4, 2)] {
-    //     for s in [(16, 1), (8, 1)] {
+    //     for s in [(8, 1)] {
     //         // for b in [PartitionBuffering::Single, PartitionBuffering::Double] {
     //         for b in [PartitionBuffering::Double] {
     //             for sp in [
