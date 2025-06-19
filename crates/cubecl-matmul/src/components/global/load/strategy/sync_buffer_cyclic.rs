@@ -81,12 +81,12 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.plane_dim() * config.num_loading_planes(input_ident);
-        let jump_length = total_units * line_size;
 
         let num_tiles_in_buffer = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
+        let balanced_workload = total_num_lines % total_units == 0;
         let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
-        let balanced_workload = num_tasks_per_unit % total_units == 0;
+        let jump_length = total_units * line_size;
 
         let unit_id = RoleRule::new(config.role_rule_config())
             .load_index(input_ident, config.specialized_loading_sides())
