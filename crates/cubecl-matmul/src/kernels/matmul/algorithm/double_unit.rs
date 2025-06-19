@@ -4,7 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use crate::{
     components::{
-        MatmulLayouts, MatmulProblem,
+        MatmulProblem,
         batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
         global::{
             load::sync_buffer_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
@@ -41,8 +41,7 @@ where
         plane_dim: u32,
         _elem_stage: Elem,
         _elem_acc: Elem,
-        layouts: MatmulLayouts,
     ) -> MatmulSelection {
-        unit_matmul_selection(problem, layouts, plane_dim, true)
+        unit_matmul_selection(problem, plane_dim, true)
     }
 }

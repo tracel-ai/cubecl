@@ -1,47 +1,41 @@
 use crate::components::{
-    MatmulKind, MatmulLayouts, MatmulProblem, MatrixLayout, TilingScheme, stage::PartitionBuffering,
+    MatmulKind, MatmulProblem, MatrixLayout, TilingScheme, stage::PartitionBuffering,
 };
 
 use super::MatmulSelection;
 
 pub fn unit_matmul_selection(
     problem: &MatmulProblem,
-    layouts: MatmulLayouts,
     plane_dim: u32,
     double_buffering: bool,
 ) -> MatmulSelection {
     let kind: MatmulKind = problem.into();
     match kind {
-        MatmulKind::General => general_unit_selector(problem, layouts, plane_dim, double_buffering),
-        MatmulKind::MatVec => matvec_unit_selector(problem, layouts, plane_dim, double_buffering),
-        MatmulKind::VecMat => vecmat_unit_selector(problem, layouts, plane_dim, double_buffering),
-        MatmulKind::ScalarVec => {
-            scalarvec_unit_selector(problem, layouts, plane_dim, double_buffering)
-        }
-        MatmulKind::VecScalar => {
-            vecscalar_unit_selector(problem, layouts, plane_dim, double_buffering)
-        }
+        MatmulKind::General => general_unit_selector(problem, plane_dim, double_buffering),
+        MatmulKind::MatVec => matvec_unit_selector(problem, plane_dim, double_buffering),
+        MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim, double_buffering),
+        MatmulKind::ScalarVec => scalarvec_unit_selector(problem, plane_dim, double_buffering),
+        MatmulKind::VecScalar => vecscalar_unit_selector(problem, plane_dim, double_buffering),
         MatmulKind::InnerProduct => {
-            inner_product_unit_selector(problem, layouts, plane_dim, double_buffering)
+            inner_product_unit_selector(problem, plane_dim, double_buffering)
         }
         MatmulKind::OuterProduct => {
-            outer_product_unit_selector(problem, layouts, plane_dim, double_buffering)
+            outer_product_unit_selector(problem, plane_dim, double_buffering)
         }
         MatmulKind::ScalarProduct => {
-            scalar_product_unit_selector(problem, layouts, plane_dim, double_buffering)
+            scalar_product_unit_selector(problem, plane_dim, double_buffering)
         }
     }
 }
 
 /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
 fn general_unit_selector(
-    _problem: &MatmulProblem,
-    layouts: MatmulLayouts,
+    problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, mut partition_size) = match (layouts.lhs, layouts.rhs) {
+    let (tile_size, mut partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 4, 4), (16, 2, 4)),
         (RowMajor, ColMajor) => ((1, 4, 4), (16, 2, 4)),
         (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, 8)),
@@ -67,13 +61,12 @@ fn general_unit_selector(
 
 /// (M, K) @ (K, 1) → (M, 1)
 fn matvec_unit_selector(
-    _problem: &MatmulProblem,
-    layouts: MatmulLayouts,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (layouts.lhs, layouts.rhs) {
+    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 1, 4), (1, 1, 4)),
         (RowMajor, ColMajor) => ((1, 1, 4), (1, 1, 4)),
         (ColMajor, RowMajor) => ((4, 1, 4), (1, 1, 4)),
@@ -91,13 +84,12 @@ fn matvec_unit_selector(
 
 /// (1, K) @ (K, N) → (1, N)
 fn vecmat_unit_selector(
-    _problem: &MatmulProblem,
-    layouts: MatmulLayouts,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (layouts.lhs, layouts.rhs) {
+    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
         (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, 8)),
         (ColMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
@@ -115,13 +107,12 @@ fn vecmat_unit_selector(
 
 /// (1, 1) @ (1, N) → (1, N)
 fn scalarvec_unit_selector(
-    _problem: &MatmulProblem,
-    layouts: MatmulLayouts,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (layouts.lhs, layouts.rhs) {
+    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 4, 4), (1, 2, 1)),
         (RowMajor, ColMajor) => ((1, 4, 4), (1, 2, 1)),
         (ColMajor, RowMajor) => ((1, 4, 4), (1, 2, 1)),
@@ -140,7 +131,6 @@ fn scalarvec_unit_selector(
 /// (M, 1) @ (1, 1) → (M, 1)
 fn vecscalar_unit_selector(
     _problem: &MatmulProblem,
-    _layouts: MatmulLayouts,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {
@@ -157,13 +147,12 @@ fn vecscalar_unit_selector(
 
 /// (1, K) @ (K, 1) → (1, 1)
 fn inner_product_unit_selector(
-    _problem: &MatmulProblem,
-    layouts: MatmulLayouts,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (layouts.lhs, layouts.rhs) {
+    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 1, 4), (1, 1, 1)),
         (RowMajor, ColMajor) => ((1, 1, 4), (1, 1, 1)),
         (ColMajor, RowMajor) => ((1, 1, 4), (1, 1, 1)),
@@ -182,7 +171,6 @@ fn inner_product_unit_selector(
 /// (M, 1) @ (1, N) → (M, N)
 fn outer_product_unit_selector(
     _problem: &MatmulProblem,
-    _layouts: MatmulLayouts,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {
@@ -200,7 +188,6 @@ fn outer_product_unit_selector(
 /// (1, 1) @ (1, 1) → (1, 1)
 fn scalar_product_unit_selector(
     _problem: &MatmulProblem,
-    _layouts: MatmulLayouts,
     plane_dim: u32,
     _double_buffering: bool,
 ) -> MatmulSelection {

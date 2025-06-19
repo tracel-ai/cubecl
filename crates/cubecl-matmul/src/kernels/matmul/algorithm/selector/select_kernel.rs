@@ -1,8 +1,6 @@
 use super::MatmulSelection;
 use crate::components::batch::BatchConfig;
-use crate::components::{
-    InputRuntimeArg, MatmulLayouts, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg,
-};
+use crate::components::{InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg};
 use crate::kernels::matmul::{Algorithm, launch_with_config};
 use crate::{
     components::{
@@ -30,7 +28,6 @@ pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
     selection: &Option<MatmulSelection>,
-    layout: MatmulLayouts,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
@@ -41,7 +38,7 @@ where
 
     let selection = match selection {
         Some(selection) => selection.clone(),
-        None => A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, layout),
+        None => A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc),
     };
     // println!("{selection:?}");
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
@@ -73,13 +70,12 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
-    layouts: MatmulLayouts,
     plane_dim: u32,
 ) -> Result<(), MatmulSetupError> {
     let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
-    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, layouts);
+    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     launch_with_config::<MS, R, A>(

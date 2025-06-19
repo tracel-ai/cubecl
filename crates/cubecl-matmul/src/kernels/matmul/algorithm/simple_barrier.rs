@@ -4,7 +4,7 @@ use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulLayouts, MatmulProblem,
+    MatmulProblem,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily},
     stage::{FullReaderFamily, PlaneMatmulFamily},
@@ -40,7 +40,6 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-        _layouts: MatmulLayouts,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,

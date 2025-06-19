@@ -17,12 +17,6 @@ pub struct AvailableLineSizes {
     pub out: Vec<u8>,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct MatmulLayouts {
-    pub lhs: MatrixLayout,
-    pub rhs: MatrixLayout,
-}
-
 impl AvailableLineSizes {
     pub fn from_elem_types<R: Runtime>(elem_in: &Elem, elem_out: &Elem) -> Self {
         let in_available: Vec<u8> = R::line_size_elem(elem_in).collect();
