@@ -186,8 +186,9 @@ where
     )
     .filter_lhs_with_tensor(input.strides, input.shape, problem.lhs_layout)
     .filter_rhs_with_tensor(weight.strides, weight.shape, problem.rhs_layout)
-    .filter_out_with_tensor(out.strides, out.shape)
-    .pick_max()?;
+    .filter_out_with_tensor(out.strides, out.shape);
+
+    let line_sizes = Alg::filter_line_sizes(line_sizes).pick_max()?;
 
     let config = Alg::setup::<R, MP>(client, &problem, &selection, &line_sizes)?;
 
