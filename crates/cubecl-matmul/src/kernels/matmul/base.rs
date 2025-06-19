@@ -14,6 +14,29 @@ use cubecl_std::tensor::{
 
 use super::{Algorithm, MatmulSelection, launch_kernel_concrete};
 
+pub enum Selection<A: Algorithm> {
+    Forced(MatmulSelection),
+    Infered(A::SelectionArgs),
+}
+
+impl<A: Algorithm> Selection<A> {
+    pub fn maybe_forced_default(s: &Option<MatmulSelection>) -> Self {
+        s.as_ref()
+            .map(|s| Self::Forced(s.clone()))
+            .unwrap_or_default()
+    }
+    pub fn maybe_forced_or(s: &Option<MatmulSelection>, args: &A::SelectionArgs) -> Self {
+        s.as_ref()
+            .map(|s| Self::Forced(s.clone()))
+            .unwrap_or_else(|| Self::Infered(args.clone()))
+    }
+}
+impl<A: Algorithm> Default for Selection<A> {
+    fn default() -> Self {
+        Self::Infered(Default::default())
+    }
+}
+
 /// Launch a matrix multiplication kernel.
 ///
 /// Cmma will be used if enabled
@@ -26,7 +49,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: TensorHandle<R, MP::EI>,
     rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
-    selection: &Option<MatmulSelection>,
+    selection: &Selection<A>,
 ) -> Result<TensorHandle<R, MP::EO>, MatmulSetupError> {
     let result = launch_ref::<R, MP, A>(
         client,
@@ -56,7 +79,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
-    selection: &Option<MatmulSelection>,
+    selection: &Selection<A>,
 ) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
@@ -123,7 +146,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
-    selection: &Option<MatmulSelection>,
+    selection: &Selection<A>,
 ) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
     let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
@@ -212,7 +235,7 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
-    selection: &Option<MatmulSelection>,
+    selection: &Selection<A>,
 ) -> Result<(), MatmulSetupError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
         && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
@@ -237,7 +260,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     rhs_scale: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
-    selection: &Option<MatmulSelection>,
+    selection: &Selection<A>,
 ) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");

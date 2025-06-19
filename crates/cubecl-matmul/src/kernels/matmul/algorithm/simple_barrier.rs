@@ -27,6 +27,7 @@ where
     L: AsyncFullLoadingStrategy,
     P: Partitioner,
 {
+    type SelectionArgs = ();
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
@@ -40,6 +41,7 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        _args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -52,6 +54,7 @@ where
             elem_acc,
             None,
             None,
+            false,
         )
     }
 }

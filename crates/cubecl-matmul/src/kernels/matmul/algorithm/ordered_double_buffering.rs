@@ -21,11 +21,29 @@ pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPart
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
+#[derive(Debug, Clone)]
+pub struct OrderedDoubleBufferingSelectionArgs {
+    pub pk: Option<u32>,
+    pub multi_rows: Option<MultiRowStrategy>,
+    pub occupancy_factor: Option<u32>,
+}
+
+impl Default for OrderedDoubleBufferingSelectionArgs {
+    fn default() -> Self {
+        Self {
+            pk: None,
+            multi_rows: None,
+            occupancy_factor: None,
+        }
+    }
+}
+
 impl<TMM, P> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = OrderedDoubleBufferingSelectionArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
@@ -41,18 +59,23 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
+            args.multi_rows
+                .as_ref()
+                .map(|m| m.clone())
+                .unwrap_or_else(|| MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                }),
             elem_stage,
             elem_acc,
-            None,
-            None,
+            args.pk,
+            args.occupancy_factor,
+            false,
         )
     }
 }

@@ -3,8 +3,11 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
 use crate::components::stage::PartitionBuffering;
+use crate::components::{
+    LoadSpecializationConfig, PartitionSize, SpecializationTensorConfig, StageSize, TileSize,
+    TilingScheme,
+};
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
-use crate::components::{PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
@@ -21,6 +24,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     elem_acc: Elem,
     pk: Option<u32>,
     occupancy_factor: Option<u32>,
+    specialized: bool,
 ) -> MatmulSelection {
     let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
@@ -64,9 +68,17 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         PartitionBuffering::Single
     };
 
-    MatmulSelection::builder(tiling_scheme, plane_dim)
-        .partition_buffering(partition_buffering)
-        .build()
+    let mut builder =
+        MatmulSelection::builder(tiling_scheme, plane_dim).partition_buffering(partition_buffering);
+
+    if specialized {
+        builder = builder.load_specialization_config(LoadSpecializationConfig {
+            lhs: SpecializationTensorConfig::LoadFlowOnly,
+            rhs: SpecializationTensorConfig::LoadFlowOnly,
+        });
+    }
+
+    builder.build()
 }
 
 fn select_size(

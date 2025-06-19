@@ -28,11 +28,17 @@ pub struct HybridDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedParti
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
+#[derive(Default, Debug, Clone, Copy)]
+pub struct DoubleBufferingAlgorithmArgs {
+    pub specialized: bool,
+}
+
 impl<TMM, P> base::Algorithm for CyclicDoubleBufferingAlgorithm<TMM, P>
 where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = DoubleBufferingAlgorithmArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
@@ -49,6 +55,7 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -61,6 +68,7 @@ where
             elem_acc,
             None,
             None,
+            args.specialized,
         )
     }
 }
@@ -70,6 +78,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = DoubleBufferingAlgorithmArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
@@ -87,6 +96,7 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -99,6 +109,7 @@ where
             elem_acc,
             None,
             None,
+            args.specialized,
         )
     }
 }
@@ -108,6 +119,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = DoubleBufferingAlgorithmArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
@@ -124,6 +136,7 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -136,6 +149,7 @@ where
             elem_acc,
             None,
             None,
+            args.specialized,
         )
     }
 }

@@ -4,7 +4,8 @@ use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
     LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
 };
-use cubecl_matmul::kernels::matmul::{MatmulSelection, closest_factor_pair};
+use cubecl_matmul::kernels::matmul::ordered_double_buffering::OrderedDoubleBufferingSelectionArgs;
+use cubecl_matmul::kernels::matmul::{MatmulSelection, MultiRowStrategy, closest_factor_pair};
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
 use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
@@ -264,21 +265,73 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let selection_optimized = |sm: u32, pm: u32, pk: u32| {
         run::<R, MP>(
             Default::default(),
-            matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-                (16, 16, 16),
-                (pm, sm * pm, 1),
-                PartitionBuffering::Double,
-                32,
-                (sm, 1),
-                SpecializationTensorConfig::MainFlowOnly,
-                SpecializationTensorConfig::MainFlowOnly,
-            ))),
+            matmul::Strategy::OrderedDoubleBuffering(
+                Default::default(),
+                Some(selection(
+                    (16, 16, 16),
+                    (pm, sm * pm, 1),
+                    PartitionBuffering::Double,
+                    32,
+                    (sm, 1),
+                    SpecializationTensorConfig::MainFlowOnly,
+                    SpecializationTensorConfig::MainFlowOnly,
+                )),
+            ),
         );
     };
 
-    selection_optimized(16, 1, 1);
-    selection_optimized(8, 2, 1);
-    selection_optimized(4, 2, 2);
+    // 8, 2, 1
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(
+            OrderedDoubleBufferingSelectionArgs {
+                pk: Some(1),
+                occupancy_factor: Some(2),
+                multi_rows: None,
+            },
+            None,
+        ),
+    );
+
+    // 4, 2, 2
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(
+            OrderedDoubleBufferingSelectionArgs {
+                pk: Some(2),
+                occupancy_factor: Some(4),
+                multi_rows: None,
+            },
+            None,
+        ),
+    );
+
+    // 8, 2, 1
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(
+    //         OrderedDoubleBufferingSelectionArgs {
+    //             pk: Some(2),
+    //             occupancy_factor: Some(4),
+    //         },
+    //         None,
+    //     ),
+    // );
+    // // 4, 2, 2
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(
+    //         OrderedDoubleBufferingSelectionArgs {
+    //             pk: Some(2),
+    //             occupancy_factor: Some(8),
+    //         },
+    //         None,
+    //     ),
+    // );
+
+    // selection_optimized(16, 1, 1);
+    // selection_optimized(8, 2, 1);
+    // selection_optimized(4, 2, 2);
     // selection_optimized(2, 2, 2);
     // selection_optimized(2, 2, 1);
 

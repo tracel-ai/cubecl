@@ -1,6 +1,6 @@
-use super::MatmulSelection;
 use crate::components::batch::BatchConfig;
 use crate::components::{InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg};
+use crate::kernels::matmul::base::Selection;
 use crate::kernels::matmul::{Algorithm, launch_with_config};
 use crate::{
     components::{
@@ -27,7 +27,7 @@ pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
-    selection: &Option<MatmulSelection>,
+    selection: &Selection<A>,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
@@ -37,10 +37,12 @@ where
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
     let selection = match selection {
-        Some(selection) => selection.clone(),
-        None => A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc),
+        Selection::Forced(selection) => selection.clone(),
+        Selection::Infered(args) => {
+            A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
+        }
     };
-    // println!("{selection:?}");
+    println!("{selection:?}");
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     let line_sizes = config.line_sizes();
@@ -71,11 +73,17 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
+    selection: &Selection<A>,
 ) -> Result<(), MatmulSetupError> {
     let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
-    let selection = A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc);
+    let selection = match selection {
+        Selection::Forced(selection) => selection.clone(),
+        Selection::Infered(args) => {
+            A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
+        }
+    };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     launch_with_config::<MS, R, A>(

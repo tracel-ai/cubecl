@@ -25,6 +25,7 @@ where
     TMM: TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = ();
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalMatmul = SimpleTmaMatmulFamily<Self::StageMatmul>;
@@ -37,6 +38,7 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        _args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -49,6 +51,7 @@ where
             elem_acc,
             None,
             None,
+            false,
         )
     }
 }
