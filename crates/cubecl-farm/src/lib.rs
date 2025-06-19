@@ -117,21 +117,16 @@ impl<R: Runtime, L> FarmUnit<R, L> {
 }
 
 pub enum GroupSplit {
-    Propotional(Vec<f64>),
+    Proportional(Vec<f64>),
     Explicit(Vec<usize>),
     SingleGroup,
-    SingleGpu,
 }
 
-pub trait CubeFarm {
+pub trait FarmCube {
     type R: Runtime;
-    type Comm;
-    type Device;
+    type Link;
 
-    fn init(
-        id: usize,
-        group: GroupSplit,
-    ) -> Result<Farm<Self::R, Self::Comm, Self::Device>, CudaError>;
+    fn init(group_split: GroupSplit) -> Result<Farm<Self::R, Self::Link>, CudaError>;
 }
 
 impl FarmCube for CudaRuntime {
@@ -188,7 +183,7 @@ impl FarmCube for CudaRuntime {
                         id: rank,
                         device_index: unit_index,
                         client,
-                        link: link,
+                        link,
                     });
                 }
             } else {
@@ -243,21 +238,21 @@ fn assign_units_proportional(unit_count: usize, proportions: &[f64]) -> Vec<usiz
 }
 
 #[derive(Debug)]
-enum CudaError {
-    DriverError,
+pub enum CudaError {
+    DriverError(cudarc::driver::DriverError),
     InvalidDevice,
     InvalidConfiguration,
-    NcclError,
+    NcclError(nccl::result::NcclError),
 }
 
 impl From<cudarc::driver::DriverError> for CudaError {
     fn from(err: cudarc::driver::DriverError) -> Self {
-        CudaError::DriverError
+        CudaError::DriverError(err)
     }
 }
 
 impl From<nccl::result::NcclError> for CudaError {
     fn from(err: nccl::result::NcclError) -> Self {
-        CudaError::NcclError
+        CudaError::NcclError(err)
     }
 }
