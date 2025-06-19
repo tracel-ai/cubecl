@@ -51,22 +51,26 @@ impl<
         let problem_k = lhs.shape(lhs.rank() - 1);
         let k_range = (0, problem_k);
 
-        let ts = config.tiling_scheme();
+        let tiling_scheme = config.tiling_scheme();
         let (m_index, n_index) = P::m_n_indices();
         let batch_index = P::batch_index();
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(
                 m_index,
-                ts.elements_in_stage_m(),
-                ts.elements_in_global_partition_m(),
+                tiling_scheme.elements_in_stage_m(),
+                tiling_scheme.elements_in_global_partition_m(),
             ),
             PartitionRangeDim::new(
                 n_index,
-                ts.elements_in_stage_n(),
-                ts.elements_in_global_partition_n(),
+                tiling_scheme.elements_in_stage_n(),
+                tiling_scheme.elements_in_global_partition_n(),
             ),
-            PartitionRangeDim::new(batch_index, 1u32, ts.global_partition_size.batches),
+            PartitionRangeDim::new(
+                batch_index,
+                1u32,
+                tiling_scheme.global_partition_size.batches,
+            ),
         );
 
         let global_config = config.global_config();

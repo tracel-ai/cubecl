@@ -103,10 +103,10 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         for b in 0..ranges.batch.num_steps {
             let batch_iter = ranges.batch.start + b * ranges.batch.step;
             #[unroll(ranges.row.num_steps <= 1)]
-            for r in 0..ranges.row.step {
+            for r in 0..ranges.row.num_steps {
                 let row_offset = ranges.row.start + r * ranges.row.step;
                 #[unroll(ranges.col.num_steps <= 1)]
-                for c in 0..ranges.col.step {
+                for c in 0..ranges.col.num_steps {
                     let col_offset = ranges.col.start + c * ranges.col.step;
 
                     GMM::zero_accumulator(&mut acc, config);
@@ -143,12 +143,12 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         #[unroll(ranges.batch.num_steps <= 1)]
         for b in 0..ranges.batch.num_steps {
             let batch_iter = ranges.batch.start + b * ranges.batch.step;
-            #[unroll(ranges.row.num_steps <= 1)]
-            for r in 0..ranges.row.step {
-                let row_offset = ranges.row.start + r * ranges.row.step;
-                #[unroll(ranges.col.num_steps <= 1)]
-                for c in 0..ranges.col.step {
-                    let col_offset = ranges.col.start + c * ranges.col.step;
+            #[unroll(ranges.col.num_steps <= 1)]
+            for c in 0..ranges.col.num_steps {
+                let col_offset = ranges.col.start + c * ranges.col.step;
+                #[unroll(ranges.row.num_steps <= 1)]
+                for r in 0..ranges.row.num_steps {
+                    let row_offset = ranges.row.start + r * ranges.row.step;
 
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
