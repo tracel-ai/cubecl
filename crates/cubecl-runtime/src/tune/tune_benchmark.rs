@@ -52,7 +52,26 @@ impl<
         // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
         // does a depth-first traversal of the operation tree. Without this, client.profile() would have to
         // support profiling recursively.
-        operation.execute(self.inputs.clone())?;
+        let mut error = None;
+
+        let result = self
+            .client
+            .profile(|| match operation.execute(self.inputs.clone()) {
+                Ok(_) => {}
+                Err(err) => {
+                    error = Some(err);
+                }
+            });
+
+        match result {
+            Err(err) => return Err(AutotuneError::Unknown(format!("{err:?}"))),
+            Ok(_) => {}
+        };
+
+        match error {
+            Some(err) => return Err(err),
+            None => {}
+        };
 
         let num_samples = 10;
         let durations = (0..num_samples)
