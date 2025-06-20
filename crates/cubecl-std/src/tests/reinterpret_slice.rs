@@ -23,7 +23,7 @@ pub fn run_test_read_global<R: Runtime>(
     }
 
     let target = [f16::from_f32(1.0), f16::from_f32(-8.5)];
-    let casted: [i8; 4] = unsafe { std::mem::transmute(target) };
+    let casted: [i8; 4] = unsafe { core::mem::transmute(target) };
 
     let input = client.create(i8::as_bytes(&casted));
     let output = client.empty(4);
@@ -61,7 +61,7 @@ pub fn run_test_write_global<R: Runtime>(
         return; // can't run test
     }
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
-    let casted: [i8; 4] = unsafe { std::mem::transmute(source) };
+    let casted: [i8; 4] = unsafe { core::mem::transmute(source) };
 
     let output = client.empty(4);
     let input = client.create(f16::as_bytes(&source));
@@ -143,7 +143,7 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server,
     }
 
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
-    let casted: [i8; 4] = unsafe { std::mem::transmute(source) };
+    let casted: [i8; 4] = unsafe { core::mem::transmute(source) };
 
     let output = client.empty(4);
     let input = client.create(f16::as_bytes(&source));
