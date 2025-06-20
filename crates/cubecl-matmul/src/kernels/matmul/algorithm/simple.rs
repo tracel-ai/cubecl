@@ -57,21 +57,34 @@ where
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         if args.multi_rows {
-            if {
+            let supported = |m: u8, n: u8, k: u8| {
                 client.properties().feature_enabled(Feature::Cmma {
                     a: elem_stage,
                     b: elem_stage,
                     c: elem_acc,
-                    m: 8,
-                    n: 32,
-                    k: 16,
+                    m,
+                    n,
+                    k,
                 })
-            } {
+            };
+
+            if supported(8, 32, 16) {
                 // A lot of multi-rows balanced with a
                 // tile size of (8, 32, 16)
                 let tiling_scheme = TilingScheme::builder()
                     .with_tile_size((8, 32, 16).into())
                     .with_partition_size((4, 4, 2).into())
+                    .with_stage_size((4, 1, 1).into())
+                    .build()
+                    .unwrap();
+
+                MatmulSelection::builder(tiling_scheme, plane_dim)
+                    .partition_buffering(PartitionBuffering::Single)
+                    .build()
+            } else if supported(8, 8, 8) {
+                let tiling_scheme = TilingScheme::builder()
+                    .with_tile_size((8, 8, 8).into())
+                    .with_partition_size((4, 8, 2).into())
                     .with_stage_size((4, 1, 1).into())
                     .build()
                     .unwrap();
