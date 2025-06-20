@@ -64,7 +64,7 @@ where
                 row_count: args.row_count,
                 multi_row_strategy: args
                     .rows_per_plane
-                    .map(|rpp| MultiRowStrategy::Always(rpp))
+                    .map(MultiRowStrategy::Always)
                     .unwrap_or_else(|| MultiRowStrategy::Adaptive {
                         minimum_stage_count: 8,
                     }),

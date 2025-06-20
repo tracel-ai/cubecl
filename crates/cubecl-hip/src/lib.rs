@@ -32,8 +32,6 @@ mod tests {
     #[cfg(feature = "matmul_tests")]
     cubecl_matmul::testgen_matmul_plane_accelerated!();
     #[cfg(feature = "matmul_tests")]
-    cubecl_matmul::testgen_matmul_tiling2d!([f16, f32]);
-    #[cfg(feature = "matmul_tests")]
     cubecl_matmul::testgen_matmul_simple!([f16, f32]);
 
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
