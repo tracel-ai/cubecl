@@ -1,7 +1,5 @@
-use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
-use cubecl_runtime::DeviceProperties;
-
-use super::{MatmulSelection, base, cmma_supported, plane_matmul_selection};
+use super::{MatmulSelection, base, plane_matmul_selection};
+use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem};
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -59,9 +57,16 @@ where
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         if args.multi_rows {
-            let properties = client.properties();
-
-            if cmma_supported(properties, (elem_stage, elem_stage, elem_acc), 8, 32, 16) {
+            if {
+                client.properties().feature_enabled(Feature::Cmma {
+                    a: elem_stage,
+                    b: elem_stage,
+                    c: elem_acc,
+                    m: 8,
+                    n: 32,
+                    k: 16,
+                })
+            } {
                 // A lot of multi-rows balanced with a
                 // tile size of (8, 32, 16)
                 let tiling_scheme = TilingScheme::builder()
@@ -103,16 +108,4 @@ where
             )
         }
     }
-}
-
-fn cmma_supported(
-    properties: &DeviceProperties<Feature>,
-    elems: (Elem, Elem, Elem),
-    m: u8,
-    n: u8,
-    k: u8,
-) -> bool {
-    properties
-        .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
-        .unwrap_or(true)
 }
