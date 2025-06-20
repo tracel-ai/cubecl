@@ -86,5 +86,5 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 }
 ```
 
-It's actually not the best example of using [associated types](https://doc.rust-lang.org/book/ch20-02-advanced-traits.html#specifying-placeholder-types-in-trait-definitions-with-associated-types), but it shows how they are totally
-supported with CubeCL.
+It's actually not the best example of using [associated types](https://doc.rust-lang.org/book/ch20-02-advanced-traits.html#specifying-placeholder-types-in-trait-definitions-with-associated-types),
+but it shows how they are totally supported with CubeCL.

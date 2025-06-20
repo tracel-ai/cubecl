@@ -14,3 +14,6 @@ Cargo.lock
 *.pdb
 **/out
 .clangd
+
+.envrc
+.direnv
