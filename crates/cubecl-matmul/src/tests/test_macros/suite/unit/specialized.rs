@@ -20,6 +20,7 @@ macro_rules! testgen_matmul_unit_specialized {
             );
         }
 
+        #[cfg(feature = "matmul_tests_specialized")]
         mod ml {
             use super::*;
 
@@ -37,6 +38,7 @@ macro_rules! testgen_matmul_unit_specialized {
             );
         }
 
+        #[cfg(feature = "matmul_tests_specialized")]
         mod lm {
             use super::*;
 
@@ -54,6 +56,7 @@ macro_rules! testgen_matmul_unit_specialized {
             );
         }
 
+        #[cfg(feature = "matmul_tests_specialized")]
         mod ll {
             use super::*;
 

@@ -18,6 +18,7 @@ macro_rules! testgen_matmul_layouts {
             );
         }
 
+        #[cfg(feature = "matmul_tests_layouts")]
         mod rc {
             use super::*;
 
@@ -33,6 +34,7 @@ macro_rules! testgen_matmul_layouts {
             );
         }
 
+        #[cfg(feature = "matmul_tests_layouts")]
         mod cr {
             use super::*;
 
@@ -48,6 +50,7 @@ macro_rules! testgen_matmul_layouts {
             );
         }
 
+        #[cfg(feature = "matmul_tests_layouts")]
         mod cc {
             use super::*;
 

@@ -15,10 +15,19 @@ use crate::components::stage::{
 use crate::components::tile;
 use crate::components::{MatmulProblem, batch};
 
-use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
+use super::{
+    MatmulSelection, MultiRowStrategy, PlaneMatmulSelectionOptions, base, plane_matmul_selection,
+};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OrderedSelectionArgs {
+    pub partition_k: Option<u32>,
+    pub row_count: Option<u32>,
+    pub rows_per_plane: Option<u32>,
 }
 
 impl<TMM, P> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, P>
@@ -26,6 +35,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = OrderedSelectionArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
@@ -41,16 +51,25 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
+            PlaneMatmulSelectionOptions {
+                partition_k: args.partition_k,
+                row_count: args.row_count,
+                multi_row_strategy: args
+                    .rows_per_plane
+                    .map(MultiRowStrategy::Always)
+                    .unwrap_or_else(|| MultiRowStrategy::Adaptive {
+                        minimum_stage_count: 8,
+                    }),
+                ..Default::default()
+            },
         )
     }
 }

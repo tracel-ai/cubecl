@@ -1,8 +1,15 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_matmul::components::TilingScheme;
 use cubecl_matmul::components::stage::PartitionBuffering;
-use cubecl_matmul::kernels::matmul::{MatmulSelection, closest_factor_pair};
+use cubecl_matmul::components::{
+    LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
+};
+use cubecl_matmul::kernels::matmul::double_buffering::DoubleBufferingArgs;
+use cubecl_matmul::kernels::matmul::ordered_double_buffering::OrderedSelectionArgs;
+use cubecl_matmul::kernels::matmul::simple::SimpleArgs;
+use cubecl_matmul::kernels::matmul::{
+    MatmulSelection, MultiRowStrategy, Selection, closest_factor_pair,
+};
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
 use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
@@ -120,15 +127,17 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
+    // for tl in [true, false] {
+    // for tr in [true, false] {
     for tl in [true, false] {
-        for tr in [true, false] {
+        for tr in [false] {
             for (b, m, n, k) in [
-                (1, 8192, 8192, 8192),
+                // (1, 8192, 8192, 8192),
                 (1, 6144, 6144, 6144),
-                (1, 5000, 5000, 5000),
-                (2, 4096, 4096, 4096),
-                (5, 512, 512, 512),
-                (10, 256, 256, 256),
+                // (1, 5000, 5000, 5000),
+                // (2, 4096, 4096, 4096),
+                // (5, 512, 512, 512),
+                // (10, 256, 256, 256),
                 // OuterProduct
                 // (2, 4096, 4096, 1),
                 // InnerProduct
@@ -168,65 +177,61 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
-    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
+    println!("Simple");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: false }),
+        ),
+    );
 
-    fn selection(
-        t: (u32, u32, u32),
-        p: (u32, u32, u32),
-        s: (u32, u32),
-        buffering: PartitionBuffering,
-    ) -> MatmulSelection {
-        let num_planes = 8;
-        let plane_dim = 32;
-        let num_units = num_planes * plane_dim;
+    println!("Simple multi rows");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: true }),
+        ),
+    );
 
-        let tiling_scheme = TilingScheme::builder()
-            .with_tile_size(t.into())
-            .with_partition_size(p.into())
-            .with_stage_size((s.0, s.1, 1).into())
-            .build()
-            .unwrap();
+    println!("Double Buffering");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncBufferLoadingStrategy::Tilewise,
+            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+        ),
+    );
 
-        MatmulSelection::builder(tiling_scheme, plane_dim)
-            .partition_buffering(buffering)
-            .build()
-    }
+    println!("Double Buffering Specialized");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncBufferLoadingStrategy::Tilewise,
+            Selection::Inferred(DoubleBufferingArgs { specialized: true }),
+        ),
+    );
 
-    // run::<R, MP>(Default::default(), matmul::Strategy::OrderedDoubleBuffering);
+    println!("Ordered 1");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+            row_count: Some(16),
+            rows_per_plane: Some(2),
+            partition_k: Some(1),
+        })),
+    );
 
-    // for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
-    //     let strategy = matmul::Strategy::Simple(loading);
-    //     run::<R, MP>(Default::default(), strategy);
-    // }
-
-    // for loading in [
-    //     SyncBufferLoadingStrategy::Cyclic,
-    //     SyncBufferLoadingStrategy::Tilewise,
-    //     SyncBufferLoadingStrategy::Hybrid,
-    // ] {
-    //     for tile in [
-    //         TileMatmulStrategy::Accelerated,
-    //         // TileMatmulStrategy::Register,
-    //     ] {
-    //         let strategy = matmul::Strategy::DoubleBuffering(loading.clone(), tile.clone());
-    //         run::<R, MP>(Default::default(), strategy);
-    //     }
-    // }
-
-    if client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
-        run::<R, MP>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-        );
-    }
+    println!("Ordered 2");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+            row_count: Some(8),
+            rows_per_plane: Some(2),
+            partition_k: Some(2),
+        })),
+    );
 }
 
 fn main() {
@@ -242,13 +247,13 @@ fn main() {
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
         run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
-        run_benches::<cubecl::hip::HipRuntime, f32>();
+        // run_benches::<cubecl::hip::HipRuntime, f32>();
         run_benches::<cubecl::hip::HipRuntime, half::f16>();
     }
 
