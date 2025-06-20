@@ -67,7 +67,7 @@ Remembering the previous example, we will now implement a parallel reduction usi
 {{#rustdoc_include code_example/bin/v4-gpu.rs:31:54}}
 ```
 
-# The Results
+## The Results
 Now that we have improved parallelism, the kernel is up to 70x faster for the first shape and up to 25x faster for the second shape. Why is the first shape faster than the second? Even though the two shape have the same number of elements, the first shape has more rows than the second shape, which means that more kernel can be used to compute the reduction in parallel. The second shape has fewer rows, so fewer kernel are available to compute the reduction in parallel.
 ```
 wgpu<wgsl>-reduction-[512, 8192]

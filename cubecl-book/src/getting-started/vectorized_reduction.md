@@ -10,3 +10,30 @@ To apply vectorization to the reduction problem, we will modify our reduction ke
 ```rust,ignore
 {{#rustdoc_include code_example/bin/v5-gpu.rs:13:57}}
 ```
+
+## The Result
+The result of adding vectorization is an average of 3x speedup compared to the previous parallel reduction implementation. This is because we are now processing multiple elements at a time in each kernel invocation, which reduces the time of running a single kernel invocation.
+```
+wgpu<wgsl>-reduction-[512, 8192]
+
+―――――――― Result ―――――――――
+  Timing      system
+  Samples     10
+  Mean        1.085ms
+  Variance    14.000ns
+  Median      1.045ms
+  Min         998.981µs
+  Max         1.375ms
+―――――――――――――――――――――――――
+wgpu<wgsl>-reduction-[128, 32768]
+
+―――――――― Result ―――――――――
+  Timing      system
+  Samples     10
+  Mean        3.124ms
+  Variance    37.000ns
+  Median      3.061ms
+  Min         3.009ms
+  Max         3.670ms
+―――――――――――――――――――――――――
+```
