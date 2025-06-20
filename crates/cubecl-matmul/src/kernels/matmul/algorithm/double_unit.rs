@@ -1,11 +1,9 @@
-use std::marker::PhantomData;
-
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use crate::{
     components::{
         MatmulProblem,
-        batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+        batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::sync_buffer_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
         },
@@ -17,14 +15,9 @@ use crate::{
 
 use super::{MatmulSelection, unit_matmul_selection};
 
-pub struct DoubleUnitAlgorithm<Dispatch = batch::TransposedPartitioner> {
-    pub _dispatch: PhantomData<Dispatch>,
-}
+pub struct DoubleUnitAlgorithm {}
 
-impl<P> Algorithm for DoubleUnitAlgorithm<P>
-where
-    P: Partitioner,
-{
+impl Algorithm for DoubleUnitAlgorithm {
     type SelectionArgs = ();
     type TileMatmul = RegisterMatmul;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
@@ -34,7 +27,7 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
-        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
         _client: &ComputeClient<R::Server, R::Channel>,

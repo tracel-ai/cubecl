@@ -5,8 +5,7 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::partitioned_matmul::partitioner::Partitioner;
-use crate::components::batch::{BatchConfig as _, BatchMatmul};
+use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCounter};
 use crate::components::global;
 use crate::components::global::Quantization;
 use cubecl_core as cubecl;
@@ -23,23 +22,17 @@ pub struct PartitionedBatchMatmul<
     MP: MatmulPrecision,
     GMM: global::GlobalMatmul<MP>,
     S: GlobalPartitionMatmul,
-    P: Partitioner,
 > {
     _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
-    _c: PhantomData<P>,
 }
 
 #[cube]
-impl<
-    MP: MatmulPrecision,
-    GMM: global::GlobalMatmul<MP>,
-    GPMM: GlobalPartitionMatmul,
-    P: Partitioner,
-> BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM, P>
+impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul>
+    BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM>
 {
-    type Config = PartitionedBatchConfig<GMM::Config, P>;
+    type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn execute(
         lhs: VirtualTensor<MP::EI>,
@@ -48,12 +41,30 @@ impl<
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
-        let problem_k = lhs.shape(lhs.rank() - 1);
+        let lhs_rank = lhs.rank();
+        let rhs_rank = rhs.rank();
+        let out_rank = out.rank();
+
+        let problem_m = lhs.shape(lhs_rank - 2);
+        let problem_n = rhs.shape(rhs_rank - 1);
+
+        let mut problem_batch = 0;
+        for o in 0..out_rank - 2 {
+            problem_batch *= out.shape(o);
+        }
+
+        let cube_counter = CubeCounter::new(
+            problem_m,
+            problem_n,
+            problem_batch,
+            config.cube_counter_config(),
+        );
+
+        let problem_k = lhs.shape(lhs_rank - 1);
         let k_range = (0, problem_k);
 
         let tiling_scheme = config.tiling_scheme();
-        let (m_index, n_index) = P::m_n_indices();
-        let batch_index = P::batch_index();
+        let (m_index, n_index, batch_index) = cube_counter.cube_pos_to_tensor_pos();
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(

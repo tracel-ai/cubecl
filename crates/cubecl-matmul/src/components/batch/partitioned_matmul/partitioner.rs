@@ -10,15 +10,6 @@ use crate::components::batch::shared::swizzle;
 pub trait Partitioner: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq {
     fn m_n_indices() -> (u32, u32);
     fn batch_index() -> u32;
-
-    fn cube_count_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
-    fn cube_count_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
-    fn cube_count_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
-    fn create_cube_count(
-        #[comptime] cubes_for_m: u32,
-        #[comptime] cubes_for_n: u32,
-        #[comptime] cubes_for_batches: u32,
-    ) -> comptime_type!((u32, u32, u32));
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
@@ -55,18 +46,6 @@ impl Partitioner for NaturalPartitioner {
         CUBE_POS_Z
     }
 
-    fn cube_count_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.0
-    }
-
-    fn cube_count_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.1
-    }
-
-    fn cube_count_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.2
-    }
-
     fn create_cube_count(
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
@@ -84,18 +63,6 @@ impl Partitioner for TransposedPartitioner {
 
     fn batch_index() -> u32 {
         CUBE_POS_Z
-    }
-
-    fn cube_count_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.1
-    }
-
-    fn cube_count_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.0
-    }
-
-    fn cube_count_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.2
     }
 
     fn create_cube_count(
@@ -119,18 +86,6 @@ impl<const W: u32> Partitioner for SwizzleNaturalPartitioner<W> {
         CUBE_POS_Z
     }
 
-    fn cube_count_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.0
-    }
-
-    fn cube_count_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.1
-    }
-
-    fn cube_count_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.2
-    }
-
     fn create_cube_count(
         #[comptime] cubes_for_m: u32,
         #[comptime] cubes_for_n: u32,
@@ -150,18 +105,6 @@ impl<const W: u32> Partitioner for SwizzleTransposedPartitioner<W> {
 
     fn batch_index() -> u32 {
         CUBE_POS_Z
-    }
-
-    fn cube_count_m(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.1
-    }
-
-    fn cube_count_n(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.0
-    }
-
-    fn cube_count_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
-        cube_count.2
     }
 
     fn create_cube_count(

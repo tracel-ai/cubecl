@@ -1,23 +1,22 @@
-use std::marker::PhantomData;
-
 use cubecl_core::{CubeCount, CubeDim};
 
 use crate::{
     components::{
         Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
-        batch::{BatchConfig, Partitioner},
+        batch::{BatchConfig, CubeCounterConfig, GlobalPartitioning},
         global::GlobalConfig,
     },
     kernels::MatmulSetupError,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PartitionedBatchConfig<G: GlobalConfig, P: Partitioner> {
+pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
-    _phantom: PhantomData<P>,
+    num_sms: u32,
+    global_partitioning: GlobalPartitioning,
 }
 
-impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, P> {
+impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
@@ -41,27 +40,30 @@ impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, 
     }
 
     fn cube_count(&self, problem: &MatmulProblem) -> CubeCount {
-        let tiling_scheme = self.tiling_scheme();
-        let elements_in_m = tiling_scheme.elements_in_global_partition_m();
-        let elements_in_n = tiling_scheme.elements_in_global_partition_n();
+        self.cube_counter_config().cube_count(problem)
+    }
 
-        let (x, y, z) = P::create_cube_count(
-            (problem.m as u32).div_ceil(elements_in_m),
-            (problem.n as u32).div_ceil(elements_in_n),
-            (problem.num_batches() as u32).div_ceil(tiling_scheme.global_partition_size.batches),
-        );
-
-        CubeCount::Static(x, y, z)
+    fn cube_counter_config(&self) -> CubeCounterConfig {
+        CubeCounterConfig::new(
+            self.num_sms,
+            &self.tiling_scheme(),
+            self.global_partitioning,
+        )
     }
 }
 
-impl<G: GlobalConfig, P: Partitioner> MatmulConfig for PartitionedBatchConfig<G, P> {}
+impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
-impl<G: GlobalConfig, P: Partitioner> PartitionedBatchConfig<G, P> {
-    pub fn new(global_config: G) -> Result<Self, MatmulSetupError> {
+impl<G: GlobalConfig> PartitionedBatchConfig<G> {
+    pub fn new(
+        global_config: G,
+        num_sms: u32,
+        global_partitioning: GlobalPartitioning,
+    ) -> Result<Self, MatmulSetupError> {
         Self {
             global_config,
-            _phantom: PhantomData,
+            num_sms,
+            global_partitioning,
         }
         .validate()
     }

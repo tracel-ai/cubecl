@@ -1,12 +1,8 @@
 use crate::{
     components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::Partitioner,
-        config::MatmulConfig,
-        global::{self, GlobalConfig as _, Quantization},
+        batch::CubeCounterConfig, config::MatmulConfig, global::{self, GlobalConfig as _, Quantization}, AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingScheme
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{matmul::MatmulSelection, MatmulSetupError},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -18,7 +14,6 @@ use cubecl_std::{
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
-    type Partitioner: Partitioner;
     type Config: BatchConfig;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
@@ -96,4 +91,5 @@ pub trait BatchConfig: MatmulConfig {
     fn cube_dim(&self) -> CubeDim;
     fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
     fn line_sizes(&self) -> MatmulLineSizes;
+    fn cube_counter_config(&self) -> CubeCounterConfig;
 }

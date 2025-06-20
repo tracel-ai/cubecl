@@ -4,23 +4,21 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::Elem;
 
-use crate::components::batch::{
-    PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul,
-};
+use crate::components::MatmulProblem;
+use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
     BufferReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
-use crate::components::{MatmulProblem, batch};
 
 use super::{
     MatmulSelection, MultiRowStrategy, PlaneMatmulSelectionOptions, base, plane_matmul_selection,
 };
 
-pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
-    pub _phantom: PhantomData<(TMM, Dispatch)>,
+pub struct OrderedDoubleBufferingAlgorithm<TMM> {
+    pub _phantom: PhantomData<TMM>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -30,10 +28,9 @@ pub struct OrderedSelectionArgs {
     pub rows_per_plane: Option<u32>,
 }
 
-impl<TMM, P> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, P>
+impl<TMM> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM>
 where
     TMM: tile::TileMatmulFamily,
-    P: Partitioner,
 {
     type SelectionArgs = OrderedSelectionArgs;
     type TileMatmul = TMM;
@@ -43,7 +40,7 @@ where
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
-        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

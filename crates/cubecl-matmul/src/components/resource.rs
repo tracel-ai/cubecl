@@ -1,4 +1,4 @@
-use cubecl_core::CubeDim;
+use cubecl_core::prelude::*;
 
 use crate::components::{
     InvalidConfigError,
