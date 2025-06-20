@@ -2,12 +2,12 @@
 Now that we have a basic understanding of how to perform a reduction operation, let's benchmark it to see how it performs in terms of speed and efficiency.
 
 ## Benchmarking struct
-For benchmarking, we will create a struct that holds the necessary information for the benchmark, such as the input shape, device, and client. This struct will be used to run the benchmark tests and configure the benchmarking environment. Please note that the `Runtime` and `Float` traits are used to make the benchmark generic over different CubeCL runtimes and floating-point types. A `PhantomData` is used to indicate that the struct holds a type parameter `F` without actually storing a value of that type, which is useful for generic programming in Rust for more information see the [Rust documentation](https://doc.rust-lang.org/std/marker/struct.PhantomData.html) and in our case allows us to change easily the type of float used in the benchmark.
+For benchmarking, we will create a struct that holds the necessary information for the benchmark, such as the input shape, device, and client. This struct will be used to run the benchmark tests and configure the benchmarking environment. Please note that the `Runtime` and `Float` traits are used to make the benchmark generic over different CubeCL runtimes and floating-point types. A `PhantomData` is used to indicate that the struct holds a type parameter `F` without actually storing a value of that type, which is useful for generic programming in Rust, for more information see the [Rust documentation](https://doc.rust-lang.org/std/marker/struct.PhantomData.html) and in our case allows us to easily change the type of float used in the benchmark.
 ```rust,ignore
-{{#include code_example/bin/v3-gpu.rs:1:11}}
+{{#include src/bin/v3-gpu.rs:1:11}}
 ```
 ## Implementing the benchmark trait
-To benchmark a CubeCL kernel, it is recommended to implement the `Benchmark` trait that defines the necessary methods for preparing, executing, and synchronizing the benchmark, because GPU are asynchronous and most benchmarking tools will not wait for the GPU to finish executing the kernel before measuring the time it took to execute it with a sync.
+To benchmark a CubeCL kernel, it is recommended to implement the `Benchmark` trait that defines the necessary methods for preparing, executing, and synchronizing the benchmark because GPUs are asynchronous and most benchmarking tools will not wait for the GPU to finish executing the kernel before measuring the time it takes to execute it with a sync.
 ```rust,ignore
 /// Benchmark trait.
 pub trait Benchmark {
@@ -41,15 +41,15 @@ pub trait Benchmark {
 
 ```
 
-In the `prepare` method, we will create the input data and return a handle as a Args that will be used in the `execute` method. The `execute` method will launch the kernel and the sync method will wait for the GPU to finish executing the kernel before measuring the time it took to execute it. Don't forget to add the function that we want to benchmark.
+In the `prepare` method, we will create the input data and return a `GpuTensor` that will be used in the `execute` method. The `execute` method will launch the kernel and the `sync` method will wait for the GPU to finish executing the kernel before measuring the time it takes to execute it. Don't forget to add the function that we want to benchmark.
 ```rust,ignore
-{{#include code_example/bin/v3-gpu.rs:1:56}}
+{{#include src/bin/v3-gpu.rs:1:56}}
 ```
 
 ## Running the benchmark
 Now that we have implemented the `Benchmark` trait, we can run the benchmark using the `Benchmark::run` method. This method will execute the benchmark and return the time it took to complete it.
 ```rust,ignore
-{{#rustdoc_include code_example/bin/v3-gpu.rs:58:81}}
+{{#rustdoc_include src/bin/v3-gpu.rs:58:81}}
 ```
 
 ## The Results
@@ -78,4 +78,4 @@ wgpu<wgsl>-reduction-[128, 32768]
   Max         243.782ms
 ―――――――――――――――――――――――――
 ```
-Somehow our time is not that good, but it is expected because we are using a very simple kernel that does not take advantage of the GPU parallelism. In the next chapter, we will see how to optimize our kernel to take advantage of the GPU parallelism and improve the performance of our reduction operation.
+As we will see in the next chapter, our time is not that good, but it is expected because we are using a very simple kernel that does not take advantage of the GPU parallelism. In the next chapter, we will see how to optimize our kernel to take advantage of the GPU parallelism and improve the performance of our reduction operation.

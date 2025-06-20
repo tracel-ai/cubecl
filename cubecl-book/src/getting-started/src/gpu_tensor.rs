@@ -15,7 +15,7 @@ pub struct GpuTensor<R: Runtime, F: Float + CubeElement> {
 impl<R: Runtime, F: Float + CubeElement> Clone for GpuTensor<R, F> {
     fn clone(&self) -> Self {
         Self {
-            data: self.data.clone(),
+            data: self.data.clone(), // Handle is a pointer to the data, so cloning it is cheap
             shape: self.shape.clone(),
             strides: self.strides.clone(),
             _r: PhantomData,

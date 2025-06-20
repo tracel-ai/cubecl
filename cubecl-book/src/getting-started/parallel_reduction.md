@@ -62,9 +62,9 @@ often not present in other languages, except WebGPU with `local_invocation_index
 </details>
 
 ## Parallel Reduction Example
-Remembering the previous example, we will now implement a parallel reduction using CubeCL. The goal is to reduce a 2D matrix into a 1D vector by summing the elements of each row. Where can we parallelize this operation? We can parallelize the reduction of each row, allowing each thread to compute the sum of a row independently. Note that we needs to change the launch parameters to set the CubeDim to launch multiple kernels in parallel and we can just remove the outer loop and use the `UNIT_POS_X` to access the rows of the input tensor. Please note that it is important to worry about data races when parallelizing operations, so we need to ensure that each kernel writes to a different position in the output tensor, because each kernel run in parallel.
+Remembering the previous example, we will now implement a parallel reduction using CubeCL. The goal is to reduce a 2D matrix into a 1D vector by summing the elements of each row. Where can we parallelize this operation? We can parallelize the reduction of each row, allowing each thread to compute the sum of a row independently. We need to change the launch parameters to set the CubeDim to launch multiple kernels in parallel and we can just remove the outer loop and use the `UNIT_POS_X` to access the rows of the input tensor. Please note that it is important to worry about data races when parallelizing operations, so we need to ensure that each kernel writes to a different position in the output tensor, because each kernel run in parallel.
 ```rust,ignore
-{{#rustdoc_include code_example/bin/v4-gpu.rs:31:54}}
+{{#rustdoc_include src/bin/v4-gpu.rs:31:54}}
 ```
 
 ## The Results

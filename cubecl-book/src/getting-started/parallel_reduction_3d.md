@@ -5,7 +5,7 @@ The purpose of this example is to demonstrate how to perform a parallel reductio
 We will start with a simple implementation of a parallel reduction on a 3D tensor. The goal is to reduce the tensor along the last dimension (depth) by summing the elements. This will result in a 2D tensor where each element is the sum of the corresponding elements in the depth dimension.
 
 ```rust,ignore
-{{#rustdoc_include code_example/bin/v6-gpu.rs:31:57}}
+{{#rustdoc_include src/bin/v6-gpu.rs:31:57}}
 ```
 
 Let's try to run this code.
@@ -24,7 +24,7 @@ What happened? The error message indicates that the workgroup size exceeds the l
 To address the issue, we will parallelize with the `CUBE_COUNT` and `CUBE_POS` variables, which will allow us to launch multiple kernels in parallel without exceeding the limits. The `CUBE_COUNT` variable will determine how many kernels we will launch, and the `CUBE_POS` variable will determine the position of each kernel in the 3D tensor.
 
 ```rust,ignore
-{{#rustdoc_include code_example/bin/v7-gpu.rs:31:57}}
+{{#rustdoc_include src/bin/v7-gpu.rs:31:57}}
 ```
 Now, let's run the code again.
 ```
