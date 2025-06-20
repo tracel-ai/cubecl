@@ -1,5 +1,6 @@
 use core::time::Duration;
 
+use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
