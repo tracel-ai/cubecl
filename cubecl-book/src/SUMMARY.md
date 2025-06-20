@@ -6,6 +6,7 @@
   - [Benchmark](./getting-started/benchmark.md)
   - [Parallel Reduction](./getting-started/parallel_reduction.md)
   - [Vectorized Reduction](./getting-started/vectorized_reduction.md)
+  - [Parallel Reduction 3D](./getting-started/parallel_reduction_3d.md)
   - [Examples](./getting-started/examples.md)
 - [Core Features](./core-features/summary.md)
   - [Comptime](./core-features/comptime.md)

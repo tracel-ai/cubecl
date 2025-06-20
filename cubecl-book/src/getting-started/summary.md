@@ -9,4 +9,5 @@ with CubeCL. By the end, you'll have a solid understanding of how CubeCL integra
   - [Benchmark](./benchmark.md)
   - [Parallel Reduction](./parallel_reduction.md)
   - [Vectorized Reduction](./vectorized_reduction.md)
+  - [Parallel Reduction 3D](./parallel_reduction_3d.md)
   - [Examples](./examples.md)
