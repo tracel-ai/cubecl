@@ -56,7 +56,6 @@ impl<
 
         // For now we wrap the warmup operation inside a profiling task, since for now we have
         // basic error handling for such task that may help catch ressources errors.
-        println!("Autotune ...");
         let result = self
             .client
             .profile(|| match operation.execute(self.inputs.clone()) {
@@ -65,16 +64,13 @@ impl<
                     error = Some(err);
                 }
             });
-        println!("Autotuned {result:?}");
 
-        match result {
-            Err(err) => return Err(AutotuneError::Unknown(format!("{err:?}"))),
-            Ok(_) => {}
+        if let Err(err) = result {
+            return Err(AutotuneError::Unknown(format!("{err:?}")));
         };
 
-        match error {
-            Some(err) => return Err(err),
-            None => {}
+        if let Some(err) = error {
+            return Err(err);
         };
 
         let num_samples = 10;
