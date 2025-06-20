@@ -22,6 +22,7 @@ pub struct PlaneMatmulSelectionOptions {
     pub specialized: bool,
     pub row_count: Option<u32>,
     pub multi_row_strategy: MultiRowStrategy,
+    pub partition_buffering: Option<PartitionBuffering>,
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
@@ -72,11 +73,13 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    let partition_buffering = if tiling_scheme.tiles_in_stage_partition_n() > 1 {
-        PartitionBuffering::Double
-    } else {
-        PartitionBuffering::Single
-    };
+    let partition_buffering = options.partition_buffering.unwrap_or_else(|| {
+        if tiling_scheme.tiles_in_stage_partition_n() > 1 {
+            PartitionBuffering::Double
+        } else {
+            PartitionBuffering::Single
+        }
+    });
 
     let mut builder =
         MatmulSelection::builder(tiling_scheme, plane_dim).partition_buffering(partition_buffering);

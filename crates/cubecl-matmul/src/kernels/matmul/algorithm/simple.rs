@@ -4,15 +4,24 @@ use super::{MatmulSelection, base, plane_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatmulProblem,
+    LoadSpecializationConfig, MatmulProblem, TilingScheme,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
         single_stage::simple::SimpleMatmulFamily,
     },
-    stage::{ColMajorTilingOrder, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder},
+    stage::{
+        ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
+        RowMajorTilingOrder,
+    },
     tile::TileMatmulFamily,
 };
+
+#[derive(Default, Debug, Clone)]
+pub struct SimpleArgs {
+    // Uses an optimized multi rows strategy.
+    pub multi_rows: bool,
+}
 
 pub struct SimpleAlgorithm<
     TMM,
@@ -33,7 +42,7 @@ where
     RL: SyncFullLoadingStrategy,
     P: Partitioner,
 {
-    type SelectionArgs = ();
+    type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
@@ -46,15 +55,31 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
-        _args: &Self::SelectionArgs,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        plane_matmul_selection::<TMM, R>(
-            client,
-            problem,
-            plane_dim,
-            elem_stage,
-            elem_acc,
-            Default::default(),
-        )
+        if args.multi_rows {
+            let tiling_scheme = TilingScheme::builder()
+                .with_tile_size((8, 32, 16).into())
+                .with_partition_size((4, 4, 2).into())
+                .with_stage_size((4, 1, 1).into())
+                .build()
+                .unwrap();
+
+            MatmulSelection::builder(tiling_scheme, plane_dim)
+                .partition_buffering(PartitionBuffering::Single)
+                .build()
+        } else {
+            plane_matmul_selection::<TMM, R>(
+                client,
+                problem,
+                plane_dim,
+                elem_stage,
+                elem_acc,
+                super::PlaneMatmulSelectionOptions {
+                    partition_buffering: Some(PartitionBuffering::Single),
+                    ..Default::default()
+                },
+            )
+        }
     }
 }

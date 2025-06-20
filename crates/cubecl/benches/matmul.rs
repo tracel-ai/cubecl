@@ -4,7 +4,9 @@ use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
     LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
 };
+use cubecl_matmul::kernels::matmul::double_buffering::DoubleBufferingArgs;
 use cubecl_matmul::kernels::matmul::ordered_double_buffering::OrderedSelectionArgs;
+use cubecl_matmul::kernels::matmul::simple::SimpleArgs;
 use cubecl_matmul::kernels::matmul::{
     MatmulSelection, MultiRowStrategy, Selection, closest_factor_pair,
 };
@@ -175,122 +177,61 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
-    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
-    fn selection(
-        t: (u32, u32, u32),
-        p: (u32, u32, u32),
-        buffering: PartitionBuffering,
-        plane_dim: u32,
-        stage: (u32, u32),
-        lhs: SpecializationTensorConfig,
-        rhs: SpecializationTensorConfig,
-    ) -> MatmulSelection {
-        let (stage_size_m, stage_size_n) = stage;
+    println!("Simple");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: false }),
+        ),
+    );
 
-        let tiling_scheme = TilingScheme::builder()
-            .with_tile_size(t.into())
-            .with_partition_size(p.into())
-            .with_stage_size((stage_size_m, stage_size_n, 1).into())
-            .build()
-            .unwrap();
+    println!("Simple multi rows");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: true }),
+        ),
+    );
 
-        MatmulSelection::builder(tiling_scheme, plane_dim)
-            .partition_buffering(buffering)
-            .load_specialization_config(LoadSpecializationConfig { lhs, rhs })
-            .build()
-    }
+    println!("Double Buffering");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+        ),
+    );
 
-    let selection_optimized = |sm: u32, pm: u32, pk: u32| {
-        run::<R, MP>(
-            Default::default(),
-            matmul::Strategy::Simple(
-                SyncLoadingStrategy::Cyclic,
-                Selection::Forced(selection(
-                    (16, 16, 16),
-                    (pm, sm * pm, 1),
-                    PartitionBuffering::Double,
-                    32,
-                    (sm, 1),
-                    SpecializationTensorConfig::MainFlowOnly,
-                    SpecializationTensorConfig::MainFlowOnly,
-                )),
-            ),
-        );
-    };
+    println!("Double Buffering Specialized");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(DoubleBufferingArgs { specialized: true }),
+        ),
+    );
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-    //         row_count: Some(16),
-    //         rows_per_plane: Some(2),
-    //         partition_k: Some(1),
-    //     })),
-    // );
+    println!("Ordered 1");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+            row_count: Some(16),
+            rows_per_plane: Some(2),
+            partition_k: Some(1),
+        })),
+    );
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-    //         row_count: Some(8),
-    //         rows_per_plane: Some(2),
-    //         partition_k: Some(2),
-    //     })),
-    // );
-
-    // selection_optimized(16, 1, 1);
-    // selection_optimized(8, 2, 2);
-    // selection_optimized(8, 2, 1);
-    // selection_optimized(8, 1, 2);
-    // selection_optimized(4, 2, 2);
-
-    for p in [
-        (2, 8, 2),
-        // (2, 8, 2),
-        // (4, 4, 2),
-        // (1, 2, 8),
-        // (1, 1, 8),
-        // (4, 1, 4),
-    ] {
-        // for s in [(16, 1), (8, 1), (4, 2)] {
-        for s in [(8, 1)] {
-            // for b in [PartitionBuffering::Single, PartitionBuffering::Double] {
-            for b in [PartitionBuffering::Single] {
-                for sp in [
-                    (
-                        SpecializationTensorConfig::MainFlowOnly,
-                        SpecializationTensorConfig::MainFlowOnly,
-                    ),
-                    //  (
-                    //      SpecializationTensorConfig::MainFlowOnly,
-                    //      SpecializationTensorConfig::LoadFlowOnly,
-                    //  ),
-                ] {
-                    println!("==== START ====");
-                    run::<R, MP>(
-                        Default::default(),
-                        matmul::Strategy::Simple(
-                            SyncLoadingStrategy::Cyclic,
-                            Selection::Forced(selection((16, 16, 16), p, b, 32, s, sp.0, sp.1)),
-                        ),
-                    );
-                    println!("===============");
-                }
-            }
-        }
-    }
-
-    if client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
-        run::<R, MP>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-        );
-    }
+    println!("Ordered 2");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+            row_count: Some(8),
+            rows_per_plane: Some(2),
+            partition_k: Some(2),
+        })),
+    );
 }
 
 fn main() {
