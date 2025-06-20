@@ -54,6 +54,9 @@ impl<
         // support profiling recursively.
         let mut error = None;
 
+        // For now we wrap the warmup operation inside a profiling task, since for now we have
+        // basic error handling for such task that may help catch ressources errors.
+        println!("Autotune ...");
         let result = self
             .client
             .profile(|| match operation.execute(self.inputs.clone()) {
@@ -62,6 +65,7 @@ impl<
                     error = Some(err);
                 }
             });
+        println!("Autotuned {result:?}");
 
         match result {
             Err(err) => return Err(AutotuneError::Unknown(format!("{err:?}"))),
