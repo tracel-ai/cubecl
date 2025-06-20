@@ -2,7 +2,7 @@ use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
-use cubecl_core::benchmark::ProfileDuration;
+use cubecl_core::benchmark::{ProfileDuration, TimingMethod};
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::{ProfileError, ProfilingToken};
@@ -42,6 +42,7 @@ impl WgpuServer {
         queue: wgpu::Queue,
         tasks_max: usize,
         backend: wgpu::Backend,
+        timing_method: TimingMethod,
     ) -> Self {
         let stream = WgpuStream::new(
             device.clone(),
@@ -49,6 +50,7 @@ impl WgpuServer {
             memory_properties,
             memory_config,
             tasks_max,
+            timing_method,
         );
 
         Self {
@@ -167,7 +169,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        let profile = self.stream.stop_profile(token);
+        let profile = self.stream.stop_profile(token)?;
 
         Ok(ProfileDuration::from_future(async move {
             profile.resolve().await

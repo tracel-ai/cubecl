@@ -1,5 +1,6 @@
 use crate::memory_management::{HardwareProperties, MemoryDeviceProperties};
 use alloc::collections::BTreeSet;
+use cubecl_common::benchmark::TimingMethod;
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
@@ -10,6 +11,8 @@ pub struct DeviceProperties<Feature: Ord + Copy> {
     pub memory: MemoryDeviceProperties,
     /// The topology properties of this client.
     pub hardware: HardwareProperties,
+    /// The method used for profiling on the device.
+    pub timing_method: TimingMethod,
 }
 
 impl<Feature: Ord + Copy> DeviceProperties<Feature> {
@@ -18,6 +21,7 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
         features: &[Feature],
         memory_props: MemoryDeviceProperties,
         hardware: HardwareProperties,
+        timing_method: TimingMethod,
     ) -> Self {
         let mut set = BTreeSet::new();
         for feature in features {
@@ -28,6 +32,7 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
             set,
             memory: memory_props,
             hardware,
+            timing_method,
         }
     }
 
