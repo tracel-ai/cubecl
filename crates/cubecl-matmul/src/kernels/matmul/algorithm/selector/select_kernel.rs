@@ -42,7 +42,6 @@ where
             A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
         }
     };
-    println!("{selection:?}");
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
     let line_sizes = config.line_sizes();

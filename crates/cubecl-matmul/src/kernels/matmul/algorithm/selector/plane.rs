@@ -33,7 +33,6 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     elem_acc: Elem,
     options: PlaneMatmulSelectionOptions,
 ) -> MatmulSelection {
-    println!("{options:?}");
     let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))

@@ -4,7 +4,7 @@ use super::{MatmulSelection, base, plane_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
-    LoadSpecializationConfig, MatmulProblem, TilingScheme,
+    MatmulProblem, TilingScheme,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},

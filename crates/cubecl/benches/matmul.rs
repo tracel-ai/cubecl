@@ -199,7 +199,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(
-            SyncLoadingStrategy::Cyclic,
+            SyncBufferLoadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: false }),
         ),
     );
@@ -208,7 +208,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(
-            SyncLoadingStrategy::Cyclic,
+            SyncBufferLoadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: true }),
         ),
     );
