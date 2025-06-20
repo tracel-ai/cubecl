@@ -84,12 +84,6 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             }
         }
 
-        if config.plane_role_config().has_specialization() {
-            return Err(FormattedConfigError::new(move || {
-                "Sync buffer tilewise not supported with specialization".to_string()
-            }));
-        }
-
         Ok(())
     }
 }
@@ -167,7 +161,7 @@ pub struct Job {
 impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,

@@ -24,12 +24,46 @@ msl = ["cubecl-cpp/metal"]
 spirv = ["cubecl-spirv", "ash"]
 
 spirv-dump = ["sanitize-filename"]
-unit_matmul_tests = ["cubecl-matmul/unit_matmul_tests"]
-accelerated_matmul_tests = ["cubecl-matmul/accelerated_matmul_tests"]
-matmul_tests = [
-    "cubecl-matmul/matmul_tests",
-    "unit_matmul_tests",
-    "accelerated_matmul_tests",
+
+matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
+matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
+matmul_tests_double = ["cubecl-matmul/matmul_tests_double"]
+matmul_tests_simple = ["cubecl-matmul/matmul_tests_simple"]
+matmul_tests_ordered = ["cubecl-matmul/matmul_tests_ordered"]
+matmul_tests_cyclic = ["cubecl-matmul/matmul_tests_cyclic"]
+matmul_tests_strided = ["cubecl-matmul/matmul_tests_strided"]
+matmul_tests_tilewise = ["cubecl-matmul/matmul_tests_tilewise"]
+matmul_tests_hybrid = ["cubecl-matmul/matmul_tests_hybrid"]
+matmul_tests_barrier = ["cubecl-matmul/matmul_tests_barrier"]
+matmul_tests_specialized = ["cubecl-matmul/matmul_tests_specialized"]
+matmul_tests_f16 = ["cubecl-matmul/matmul_tests_f16"]
+matmul_tests_f32 = ["cubecl-matmul/matmul_tests_f32"]
+matmul_tests_layouts = ["cubecl-matmul/matmul_tests_layouts"]
+matmul_tests_alt_shapes = ["cubecl-matmul/matmul_tests_alt_shapes"]
+matmul_tests_base = [
+    "matmul_tests_plane",
+    "matmul_tests_double",
+    "matmul_tests_simple",
+    "matmul_tests_ordered",
+    "matmul_tests_cyclic",
+    "matmul_tests_f16",
+]
+matmul_tests_all = [
+    "matmul_tests_unit",
+    "matmul_tests_plane",
+    "matmul_tests_double",
+    "matmul_tests_simple",
+    "matmul_tests_ordered",
+    "matmul_tests_cyclic",
+    "matmul_tests_strided",
+    "matmul_tests_tilewise",
+    "matmul_tests_hybrid",
+    "matmul_tests_barrier",
+    "matmul_tests_specialized",
+    "matmul_tests_f16",
+    "matmul_tests_f32",
+    "matmul_tests_layouts",
+    "matmul_tests_alt_shapes",
 ]
 conv_tests = ["cubecl-convolution/conv_tests"]
 

@@ -15,9 +15,54 @@ default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions"]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
 
-unit_matmul_tests = []
-accelerated_matmul_tests = []
-matmul_tests = ["unit_matmul_tests", "accelerated_matmul_tests"]
+matmul_tests_unit = []
+matmul_tests_plane = []
+
+matmul_tests_double = []
+matmul_tests_simple = []
+matmul_tests_ordered = []
+
+matmul_tests_cyclic = []
+matmul_tests_strided = []
+matmul_tests_tilewise = []
+matmul_tests_hybrid = []
+
+matmul_tests_barrier = []
+
+matmul_tests_specialized = []
+
+matmul_tests_f16 = []
+matmul_tests_f32 = []
+
+matmul_tests_layouts = []
+matmul_tests_alt_shapes = []
+
+matmul_tests_base = [
+    "matmul_tests_plane",
+    "matmul_tests_double",
+    "matmul_tests_simple",
+    "matmul_tests_ordered",
+    "matmul_tests_cyclic",
+    "matmul_tests_f16",
+]
+
+matmul_tests_all = [
+    "matmul_tests_unit",
+    "matmul_tests_plane",
+    "matmul_tests_double",
+    "matmul_tests_simple",
+    "matmul_tests_ordered",
+    "matmul_tests_cyclic",
+    "matmul_tests_strided",
+    "matmul_tests_tilewise",
+    "matmul_tests_hybrid",
+    "matmul_tests_barrier",
+    "matmul_tests_specialized",
+    "matmul_tests_f16",
+    "matmul_tests_f32",
+    "matmul_tests_layouts",
+    "matmul_tests_alt_shapes",
+]
 
 [dependencies]
 bytemuck = { workspace = true }

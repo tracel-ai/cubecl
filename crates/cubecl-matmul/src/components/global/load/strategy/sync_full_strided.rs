@@ -93,7 +93,7 @@ pub struct Job {
 impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
         quantization: &CubeOption<Quantization<MP>>,
