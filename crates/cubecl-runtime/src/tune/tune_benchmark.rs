@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -55,13 +57,21 @@ impl<
         let num_samples = 10;
         let durations = (0..num_samples)
             .map(|_| {
-                self.client.profile(|| {
-                    // It is important to return the output since otherwise deadcode elimination
-                    // might optimize away code that needs to be profiled.
-                    operation
-                        .execute(self.inputs.clone())
-                        .expect("Should not fail when previously tried during the warmup.")
-                })
+                let result: Result<ProfileDuration, crate::server::ProfileError> =
+                    self.client.profile(|| {
+                        // It is important to return the output since otherwise deadcode elimination
+                        // might optimize away code that needs to be profiled.
+                        operation
+                            .execute(self.inputs.clone())
+                            .expect("Should not fail when previously tried during the warmup.")
+                    });
+                match result {
+                    Ok(val) => val,
+                    Err(err) => {
+                        log::warn!("Error while autotuning {err:?}");
+                        ProfileDuration::from_duration(Duration::from_millis(u64::MAX))
+                    }
+                }
             })
             .collect();
 

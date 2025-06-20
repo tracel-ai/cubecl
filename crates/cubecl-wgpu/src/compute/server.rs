@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::DynFut;
-use cubecl_core::server::ProfilingToken;
+use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_core::{
     Feature, MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
@@ -166,10 +166,12 @@ impl ComputeServer for WgpuServer {
         self.stream.start_profile()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         let profile = self.stream.stop_profile(token);
 
-        ProfileDuration::from_future(async move { profile.resolve().await })
+        Ok(ProfileDuration::from_future(async move {
+            profile.resolve().await
+        }))
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

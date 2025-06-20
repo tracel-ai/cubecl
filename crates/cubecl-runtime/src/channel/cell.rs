@@ -1,7 +1,8 @@
 use super::ComputeChannel;
 use crate::logging::ServerLogger;
 use crate::server::{
-    Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+    Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
+    ProfilingToken,
 };
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
@@ -128,7 +129,7 @@ where
         self.server.borrow_mut().start_profile()
     }
 
-    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.server.borrow_mut().end_profile(token)
     }
 }

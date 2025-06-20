@@ -1,4 +1,4 @@
-use cubecl_core::server::ProfilingToken;
+use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 
@@ -274,7 +274,7 @@ impl ComputeServer for HipServer {
         self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.stop(token)
     }
