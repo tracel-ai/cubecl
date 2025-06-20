@@ -1,27 +1,37 @@
-use std::cmp::min;
-
 use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
 use crate::components::stage::PartitionBuffering;
+use crate::components::{
+    LoadSpecializationConfig, PartitionSize, SpecializationTensorConfig, StageSize, TileSize,
+    TilingScheme,
+};
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
-use crate::components::{PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::kernels::matmul::MultiRowStrategy;
 
 use super::MatmulSelection;
 
 pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
-const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
+
+#[derive(Default, Debug)]
+/// Options to select the best plane matmul [selection](MatmulSelection).
+pub struct PlaneMatmulSelectionOptions {
+    pub partition_k: Option<u32>,
+    pub specialized: bool,
+    pub row_count: Option<u32>,
+    pub multi_row_strategy: MultiRowStrategy,
+    pub partition_buffering: Option<PartitionBuffering>,
+}
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    multi_row_strategy: MultiRowStrategy,
     elem_stage: Elem,
     elem_acc: Elem,
+    options: PlaneMatmulSelectionOptions,
 ) -> MatmulSelection {
     let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
@@ -33,33 +43,14 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
     );
 
-    let num_tensor_cores = client
-        .properties()
-        .hardware
-        .num_tensor_cores
-        .unwrap_or(NUM_TENSOR_CORES_APPROX);
-    // The number of planes that can send tasks to tensor cores.
-    //
-    // Going over 8 might use too much shared memory.
-    let tensor_cores_channels = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
+    let row_count = options.row_count.unwrap_or_else(|| {
+        let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
+        max_plane_per_cube / 4
+    });
 
-    let partition_shape_n = find_tiles_in_partition_n(
-        problem.m,
-        problem.n,
-        problem.num_batches(),
-        client
-            .properties()
-            .hardware
-            .num_streaming_multiprocessors
-            .unwrap_or(NUM_SM_APPROX) as usize,
-        tensor_cores_channels,
-        tile_size.m() as usize,
-        tile_size.n() as usize,
-    );
-
-    let (rows_per_plane, stage_size_m) = change_rows_per_plane(
-        multi_row_strategy,
-        partition_shape_n,
+    let (rows_per_plane, stage_size_m, partition_shape_n) = select_size(
+        options.multi_row_strategy,
+        row_count as usize,
         tile_size.m() as usize,
         problem.m,
     );
@@ -67,7 +58,9 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let tiles_per_partition = PartitionSize::new(
         rows_per_plane as u32,
         partition_shape_n as u32,
-        plane_dim / tile_size.k(),
+        options
+            .partition_k
+            .unwrap_or_else(|| plane_dim / tile_size.k()),
     );
 
     let partitions_per_stage = StageSize::new(stage_size_m as u32, 1, 1);
@@ -79,86 +72,48 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    let partition_buffering = if tiling_scheme.tiles_in_stage_partition_n() > 1 {
-        PartitionBuffering::Double
-    } else {
-        PartitionBuffering::Single
-    };
+    let partition_buffering = options.partition_buffering.unwrap_or_else(|| {
+        if tiling_scheme.tiles_in_stage_partition_n() > 1 {
+            PartitionBuffering::Double
+        } else {
+            PartitionBuffering::Single
+        }
+    });
 
-    MatmulSelection::builder(tiling_scheme, plane_dim)
-        .partition_buffering(partition_buffering)
-        .build()
+    let mut builder =
+        MatmulSelection::builder(tiling_scheme, plane_dim).partition_buffering(partition_buffering);
+
+    if options.specialized {
+        builder = builder.load_specialization_config(LoadSpecializationConfig {
+            lhs: SpecializationTensorConfig::LoadFlowOnly,
+            rhs: SpecializationTensorConfig::LoadFlowOnly,
+        });
+    }
+
+    builder.build()
 }
 
-fn change_rows_per_plane(
+fn select_size(
     strategy: MultiRowStrategy,
-    total_stage_size_wanted: usize,
+    plane_count: usize,
     instruction_m: usize,
     problem_m: usize,
-) -> (usize, usize) {
-    let use_multi = match strategy {
-        MultiRowStrategy::Never => false,
-        MultiRowStrategy::Always => true,
+) -> (usize, usize, usize) {
+    let rows = match strategy {
+        MultiRowStrategy::Never => 1,
+        MultiRowStrategy::Always(count) => count,
         MultiRowStrategy::Adaptive {
             minimum_stage_count,
-        } => problem_m > total_stage_size_wanted * instruction_m * minimum_stage_count,
-    };
+        } => {
+            if problem_m > plane_count * instruction_m * minimum_stage_count as usize {
+                2
+            } else {
+                1
+            }
+        }
+    } as usize;
 
-    let rows = if use_multi { 2 } else { 1 };
-    (rows, total_stage_size_wanted * rows)
-}
-
-/// A heuristic to find the number of tiles in the stage.
-///
-/// Maximizes tensor core usage unless doing so would significantly impair
-/// parallelization across SMs. It ensures the number of cubes is as close as
-/// possible to the available SMs.
-pub(crate) fn find_tiles_in_partition_n(
-    m: usize,
-    n: usize,
-    num_batches: usize,
-    num_sm: usize,
-    virtual_tensor_cores: usize,
-    instruction_m: usize,
-    instruction_n: usize,
-) -> usize {
-    let min_inst = instruction_m.min(instruction_n);
-    let max_tiles = 256 / min_inst;
-    let mut dim_num_tiles = virtual_tensor_cores.min(max_tiles);
-
-    let total_tiles_m = (m + instruction_m - 1) / instruction_m;
-    let total_tiles_n = (n + instruction_n - 1) / instruction_n;
-
-    let total_tiles = total_tiles_m * total_tiles_n * num_batches;
-
-    let mut stage_num_tiles = dim_num_tiles * dim_num_tiles;
-    let mut num_cubes_expected = (total_tiles + stage_num_tiles - 1) / stage_num_tiles;
-
-    // We keep track of two configurations to select the closest to `num_sm`, whether it's a bit over or under
-    let mut previous_dim_num_tiles = dim_num_tiles;
-    let mut previous_num_cubes = num_cubes_expected;
-
-    // Refine tensor core usage to stay as close as possible to `num_sm`
-    while num_cubes_expected < num_sm && stage_num_tiles > 1 {
-        previous_dim_num_tiles = dim_num_tiles;
-        previous_num_cubes = num_cubes_expected;
-
-        // Reduce tensor core usage
-        dim_num_tiles = (dim_num_tiles + 1) / 2;
-        stage_num_tiles = dim_num_tiles * dim_num_tiles;
-
-        // Number of cubes grows as a consequence of smaller stage
-        num_cubes_expected = (total_tiles + stage_num_tiles - 1) / stage_num_tiles;
-    }
-
-    // Compare previous and current values to determine the closest to `num_sm`
-    if (previous_num_cubes as isize - num_sm as isize).abs()
-        <= (num_cubes_expected as isize - num_sm as isize).abs()
-    {
-        previous_dim_num_tiles
-    } else {
-        dim_num_tiles
-    }
+    (rows, plane_count / rows, plane_count)
 }
 
 /// A heuristic to choose the instruction to use, based on input shape

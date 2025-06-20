@@ -13,7 +13,7 @@ use crate::{
     kernels::matmul::Algorithm,
 };
 
-use super::{MatmulSelection, MultiRowStrategy, plane_matmul_selection};
+use super::{MatmulSelection, plane_matmul_selection};
 
 pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _tmm: PhantomData<TMM>,
@@ -25,6 +25,7 @@ where
     TMM: TileMatmulFamily,
     P: Partitioner,
 {
+    type SelectionArgs = ();
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalMatmul = SimpleTmaMatmulFamily<Self::StageMatmul>;
@@ -37,16 +38,15 @@ where
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        _args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
+            Default::default(),
         )
     }
 }

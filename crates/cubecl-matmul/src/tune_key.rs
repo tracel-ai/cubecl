@@ -59,25 +59,8 @@ pub enum MatmulGlobalScale {
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-/// The potential scale of a stage matmul.
-///
-/// # Notes
-///
-/// The values are powers of 2.
-///
-/// ```rust, ignore
-/// let state_size_m = 2.pow(m);
-/// ```
-pub struct MatmulStageScale {
-    pub m: u8,
-    pub n: u8,
-    pub k: u8,
-}
-
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct MatmulAutotuneAnalysis {
     pub scale_global: MatmulGlobalScale,
-    pub scale_stage: MatmulStageScale,
     pub may_use_tensor_cores: bool,
     pub kind: MatmulKind,
 }
@@ -91,34 +74,6 @@ impl MatmulGlobalScale {
         } else {
             MatmulGlobalScale::Large
         }
-    }
-}
-
-impl MatmulStageScale {
-    pub fn from_size(m_size: usize, n_size: usize, k_size: usize) -> Self {
-        let mut m = 0;
-        let mut n = 0;
-        let mut k = 0;
-
-        let set_scale = |current: u8, size: usize, maybe_updated: u8| {
-            if current != 0 && size % 2usize.pow(maybe_updated as u32) == 0 {
-                maybe_updated
-            } else {
-                current
-            }
-        };
-
-        // Right now we only consider potential stage sizes of 64 (2^6) & 256 (2^8).
-        // But we could include more in the analysis based on the autotune level.
-        //
-        // It is important to start with the biggest stage size first.
-        for scale in [8, 6] {
-            m = set_scale(m, m_size, scale);
-            n = set_scale(n, n_size, scale);
-            k = set_scale(k, k_size, scale);
-        }
-
-        Self { m, n, k }
     }
 }
 
@@ -167,7 +122,6 @@ impl MatmulAutotuneKey {
         );
         let analysis = MatmulAutotuneAnalysis {
             scale_global: MatmulGlobalScale::from_size(m, n, k),
-            scale_stage: MatmulStageScale::from_size(m, n, k),
             may_use_tensor_cores: match client
                 .properties()
                 .hardware

@@ -88,11 +88,6 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let balanced_workload = total_num_lines % total_units == 0;
         let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
         let jump_length = total_units * line_size;
-        comptime!(println!("input_ident {:?}", input_ident));
-        comptime!(println!(
-            "config.num_loading_planes(input_ident) {:?}",
-            config.num_loading_planes(input_ident)
-        ));
 
         let plane_id = RoleRule::new(config.role_rule_config())
             .load_index(input_ident, config.specialized_loading_sides());

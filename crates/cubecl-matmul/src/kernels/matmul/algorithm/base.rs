@@ -9,13 +9,15 @@ use cubecl_core::prelude::*;
 
 use super::MatmulSelection;
 
+#[derive(Debug, Clone, Copy, Default)]
 pub enum MultiRowStrategy {
     /// Always one row per plane
+    #[default]
     Never,
     /// Always multiple rows per plane
-    Always,
+    Always(u32),
     /// Uses multiple rows if the `m` dimension of the matmul implies at least the minimum number of stages along `m`
-    Adaptive { minimum_stage_count: usize },
+    Adaptive { minimum_stage_count: u32 },
 }
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -38,6 +40,7 @@ impl From<LoadingPrecomputeStrategy> for bool {
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
+    type SelectionArgs: Default + Clone;
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily;
     type GlobalMatmul: GlobalMatmulFamily;
@@ -58,6 +61,7 @@ pub trait Algorithm {
         plane_dim: u32,
         elem_stage: Elem,
         elem_acc: Elem,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
