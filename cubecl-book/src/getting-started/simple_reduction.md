@@ -30,7 +30,7 @@ This example demonstrates how to perform a simple reduction operation on a multi
 The `GpuTensor` struct is a representation of a tensor that resides on the GPU. It contains the data handle, shape, strides, and marker types for the runtime and floating-point type. The `GpuTensor` struct provides methods to create tensors, read data from the GPU, and convert them into tensor arguments for kernel execution. Please note that it is generic over the runtime and floating-point type, allowing it to work with different CubeCL runtimes and floating-point types (e.g., `f16`, `f32`). Also, the strides can be computed using the `compact_strides` function from the `cubecl::std::tensor` module, which will compute the strides for a given shape with a compact representation.
 
 <div class="warning">
-If you need a tensor library instead of defining your own kernel and tensor, you should use [Burn](https://github.com/tracel-ai/burn) directly instead.
+If you need a tensor library instead of defining your own kernel and tensor, you should use <a href=https://github.com/tracel-ai/burn target="_blank">Burn</a> directly instead.
 </div>
 
 ```rust,ignore
