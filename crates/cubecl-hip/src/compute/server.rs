@@ -552,14 +552,12 @@ impl HipContext {
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
                 Err(LaunchError::OutOfMemory)
+            } else if status != HIP_SUCCESS {
+                Err(LaunchError::Unknown(format!(
+                    "Unable to launch kernel {kernel_id:?} with status {status:?}"
+                )))
             } else {
-                if status != HIP_SUCCESS {
-                    Err(LaunchError::Unknown(format!(
-                        "Unable to launch kernel {kernel_id:?} with status {status:?}"
-                    )))
-                } else {
-                    Ok(())
-                }
+                Ok(())
             }
         };
 
@@ -617,9 +615,9 @@ pub(crate) enum LaunchError {
     Unknown(String),
 }
 
-impl Into<ProfileError> for LaunchError {
-    fn into(self) -> ProfileError {
-        match self {
+impl From<LaunchError> for ProfileError {
+    fn from(val: LaunchError) -> Self {
+        match val {
             LaunchError::OutOfMemory => ProfileError::Unknown("Out of memory".into()),
             LaunchError::Unknown(msg) => ProfileError::Unknown(msg),
         }
