@@ -39,7 +39,7 @@ use super::{
 
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
-    Simple(SyncLoadingStrategy),
+    Simple(SyncLoadingStrategy, Selection<()>),
     SimpleBarrier(AsyncLoadingStrategy),
     DoubleBuffering(SyncBufferLoadingStrategy, Selection<DoubleBufferingArgs>),
     SimpleUnit(Option<MatmulSelection>),
@@ -105,35 +105,23 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulSetupError> {
     match strategy {
-        Strategy::Simple(loading_strategy) => match loading_strategy {
+        Strategy::Simple(loading_strategy, selection) => match loading_strategy {
             SyncLoadingStrategy::Cyclic => {
                 matmul::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
-                    client,
-                    lhs,
-                    lhs_scale,
-                    rhs,
-                    rhs_scale,
-                    out,
-                    &Default::default(),
+                    client, lhs, lhs_scale, rhs, rhs_scale, out, &selection,
                 )
             }
-            SyncLoadingStrategy::Strided => matmul::launch_ref::<
-                R,
-                MP,
-                SimpleAlgorithm<
-                    AcceleratedMatmul,
-                    sync_full_strided::LoadingStrategy,
-                    sync_full_strided::LoadingStrategy,
-                >,
-            >(
-                client,
-                lhs,
-                lhs_scale,
-                rhs,
-                rhs_scale,
-                out,
-                &Default::default(),
-            ),
+            SyncLoadingStrategy::Strided => {
+                matmul::launch_ref::<
+                    R,
+                    MP,
+                    SimpleAlgorithm<
+                        AcceleratedMatmul,
+                        sync_full_strided::LoadingStrategy,
+                        sync_full_strided::LoadingStrategy,
+                    >,
+                >(client, lhs, lhs_scale, rhs, rhs_scale, out, &selection)
+            }
             SyncLoadingStrategy::Tilewise => matmul::launch_ref::<
                 R,
                 MP,

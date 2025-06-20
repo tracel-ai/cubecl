@@ -204,192 +204,83 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             .build()
     }
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(
-    //         SyncBufferLoadingStrategy::Cyclic,
-    //         Some(selection(
-    //             (16, 16, 16),
-    //             (2, 4, 2),
-    //             PartitionBuffering::Double,
-    //             32,
-    //             (8, 1),
-    //             SpecializationTensorConfig::MainFlowOnly,
-    //             SpecializationTensorConfig::MainFlowOnly,
-    //         )),
-    //     ),
-    // );
-
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-    //         (16, 16, 16),
-    //         (4, 4, 2),
-    //         PartitionBuffering::Double,
-    //         32,
-    //         (8, 1),
-    //         SpecializationTensorConfig::MainFlowOnly,
-    //         SpecializationTensorConfig::MainFlowOnly,
-    //     ))),
-    // );
-
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(None),
-    // );
-
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-    //         (16, 16, 16),
-    //         (2, 8, 2),
-    //         PartitionBuffering::Double,
-    //         32,
-    //         (16, 1),
-    //         SpecializationTensorConfig::MainFlowOnly,
-    //         SpecializationTensorConfig::MainFlowOnly,
-    //     ))),
-    // );
-
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-    //         (16, 16, 16),
-    //         (2, 8, 2),
-    //         PartitionBuffering::Single,
-    //         32,
-    //         (16, 1),
-    //         SpecializationTensorConfig::MainFlowOnly,
-    //         SpecializationTensorConfig::MainFlowOnly,
-    //     ))),
-    // );
-
     let selection_optimized = |sm: u32, pm: u32, pk: u32| {
         run::<R, MP>(
             Default::default(),
-            matmul::Strategy::OrderedDoubleBuffering(Selection::Forced(selection(
-                (16, 16, 16),
-                (pm, sm * pm, 1),
-                PartitionBuffering::Double,
-                32,
-                (sm, 1),
-                SpecializationTensorConfig::MainFlowOnly,
-                SpecializationTensorConfig::MainFlowOnly,
-            ))),
+            matmul::Strategy::Simple(
+                SyncLoadingStrategy::Cyclic,
+                Selection::Forced(selection(
+                    (16, 16, 16),
+                    (pm, sm * pm, 1),
+                    PartitionBuffering::Double,
+                    32,
+                    (sm, 1),
+                    SpecializationTensorConfig::MainFlowOnly,
+                    SpecializationTensorConfig::MainFlowOnly,
+                )),
+            ),
         );
     };
 
-    // 8, 2, 1
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-    //         pk: Some(1),
-    //         plane_count: Some(8),
+    //         row_count: Some(16),
+    //         rows_per_plane: Some(2),
+    //         partition_k: Some(1),
     //     })),
     // );
 
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(16),
-            rows_per_plane: Some(2),
-            partition_k: Some(1),
-        })),
-    );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(8),
-            rows_per_plane: Some(2),
-            partition_k: Some(2),
-        })),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+    //         row_count: Some(8),
+    //         rows_per_plane: Some(2),
+    //         partition_k: Some(2),
+    //     })),
+    // );
 
     // selection_optimized(16, 1, 1);
-    selection_optimized(8, 2, 1);
+    // selection_optimized(8, 2, 2);
+    // selection_optimized(8, 2, 1);
+    // selection_optimized(8, 1, 2);
     // selection_optimized(4, 2, 2);
-    // selection_optimized(2, 2, 2);
-    // selection_optimized(2, 2, 1);
 
-    // for p in [(2, 16, 1)] {
-    //     // for s in [(16, 1), (8, 1), (4, 2)] {
-    //     for s in [(8, 1)] {
-    //         // for b in [PartitionBuffering::Single, PartitionBuffering::Double] {
-    //         for b in [PartitionBuffering::Double] {
-    //             for sp in [
-    //                 (
-    //                     SpecializationTensorConfig::MainFlowOnly,
-    //                     SpecializationTensorConfig::MainFlowOnly,
-    //                 ),
-    //                 //  (
-    //                 //      SpecializationTensorConfig::MainFlowOnly,
-    //                 //      SpecializationTensorConfig::LoadFlowOnly,
-    //                 //  ),
-    //             ] {
-    //                 run::<R, MP>(
-    //                     Default::default(),
-    //                     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-    //                         (16, 16, 16),
-    //                         p,
-    //                         b,
-    //                         32,
-    //                         s,
-    //                         sp.0,
-    //                         sp.1,
-    //                     ))),
-    //                 );
-    //             }
-    //         }
-    //     }
-    // }
-
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(
-    //         SyncBufferLoadingStrategy::Cyclic,
-    //         Some(selection(
-    //             (16, 16, 16),
-    //             (4, 2, 2),
-    //             partitionbuffering::double,
-    //             32,
-    //             (4, 1),
-    //         )),
-    //     ),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(None),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Some(selection(
-    //         (16, 16, 16),
-    //         (2, 2, 4),
-    //         PartitionBuffering::Double,
-    //         32,
-    //         (8, 1),
-    //     ))),
-    // );
-    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleUnit(None));
-
-    // for loading in [SyncLoadingStrategy::Cyclic, SyncLoadingStrategy::Tilewise] {
-    //     let strategy = matmul::Strategy::Simple(loading);
-    //     run::<R, MP>(Default::default(), strategy);
-    // }
-
-    // for loading in [
-    //     SyncBufferLoadingStrategy::Cyclic,
-    //     SyncBufferLoadingStrategy::Tilewise,
-    //     SyncBufferLoadingStrategy::Hybrid,
-    // ] {
-    //     for tile in [
-    //         TileMatmulStrategy::Accelerated,
-    //         // TileMatmulStrategy::Register,
-    //     ] {
-    //         let strategy = matmul::Strategy::DoubleBuffering(loading.clone(), tile.clone());
-    //         run::<R, MP>(Default::default(), strategy);
-    //     }
-    // }
+    for p in [
+        (2, 8, 2),
+        // (2, 8, 2),
+        // (4, 4, 2),
+        // (1, 2, 8),
+        // (1, 1, 8),
+        // (4, 1, 4),
+    ] {
+        // for s in [(16, 1), (8, 1), (4, 2)] {
+        for s in [(8, 1)] {
+            // for b in [PartitionBuffering::Single, PartitionBuffering::Double] {
+            for b in [PartitionBuffering::Single] {
+                for sp in [
+                    (
+                        SpecializationTensorConfig::MainFlowOnly,
+                        SpecializationTensorConfig::MainFlowOnly,
+                    ),
+                    //  (
+                    //      SpecializationTensorConfig::MainFlowOnly,
+                    //      SpecializationTensorConfig::LoadFlowOnly,
+                    //  ),
+                ] {
+                    println!("==== START ====");
+                    run::<R, MP>(
+                        Default::default(),
+                        matmul::Strategy::Simple(
+                            SyncLoadingStrategy::Cyclic,
+                            Selection::Forced(selection((16, 16, 16), p, b, 32, s, sp.0, sp.1)),
+                        ),
+                    );
+                    println!("===============");
+                }
+            }
+        }
+    }
 
     if client
         .properties()
