@@ -1,6 +1,7 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+use cubecl_runtime::DeviceProperties;
 
-use super::{MatmulSelection, base, plane_matmul_selection};
+use super::{MatmulSelection, base, cmma_supported, plane_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -58,16 +59,36 @@ where
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         if args.multi_rows {
-            let tiling_scheme = TilingScheme::builder()
-                .with_tile_size((8, 32, 16).into())
-                .with_partition_size((4, 4, 2).into())
-                .with_stage_size((4, 1, 1).into())
-                .build()
-                .unwrap();
+            let properties = client.properties();
 
-            MatmulSelection::builder(tiling_scheme, plane_dim)
-                .partition_buffering(PartitionBuffering::Single)
-                .build()
+            if cmma_supported(properties, (elem_stage, elem_stage, elem_acc), 8, 32, 16) {
+                // A lot of multi-rows balanced with a
+                // tile size of (8, 32, 16)
+                let tiling_scheme = TilingScheme::builder()
+                    .with_tile_size((8, 32, 16).into())
+                    .with_partition_size((4, 4, 2).into())
+                    .with_stage_size((4, 1, 1).into())
+                    .build()
+                    .unwrap();
+
+                MatmulSelection::builder(tiling_scheme, plane_dim)
+                    .partition_buffering(PartitionBuffering::Single)
+                    .build()
+            } else {
+                plane_matmul_selection::<TMM, R>(
+                    client,
+                    problem,
+                    plane_dim,
+                    elem_stage,
+                    elem_acc,
+                    super::PlaneMatmulSelectionOptions {
+                        partition_buffering: Some(PartitionBuffering::Single),
+                        multi_row_strategy: base::MultiRowStrategy::Always(2),
+                        partition_k: Some(2),
+                        ..Default::default()
+                    },
+                )
+            }
         } else {
             plane_matmul_selection::<TMM, R>(
                 client,
@@ -82,4 +103,16 @@ where
             )
         }
     }
+}
+
+fn cmma_supported(
+    properties: &DeviceProperties<Feature>,
+    elems: (Elem, Elem, Elem),
+    m: u8,
+    n: u8,
+    k: u8,
+) -> bool {
+    properties
+        .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
+        .unwrap_or(true)
 }
