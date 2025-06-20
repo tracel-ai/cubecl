@@ -15,17 +15,24 @@ use super::MatmulSelection;
 pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
 
+#[derive(Default, Debug)]
+/// Options to select the best plane matmul [selection](MatmulSelection).
+pub struct PlaneMatmulSelectionOptions {
+    pub partition_k: Option<u32>,
+    pub specialized: bool,
+    pub row_count: Option<u32>,
+    pub multi_row_strategy: MultiRowStrategy,
+}
+
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    multi_row_strategy: MultiRowStrategy,
     elem_stage: Elem,
     elem_acc: Elem,
-    pk: Option<u32>,
-    occupancy_factor: Option<u32>,
-    specialized: bool,
+    options: PlaneMatmulSelectionOptions,
 ) -> MatmulSelection {
+    println!("{options:?}");
     let tile_size = find_instruction_size(
         if TMM::requires_tensor_cores() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
@@ -36,13 +43,14 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
     );
 
-    let occupancy_factor = occupancy_factor.unwrap_or(4);
-    let max_units_per_cube = client.properties().hardware.max_units_per_cube;
-    let plane_count = max_units_per_cube / (plane_dim * occupancy_factor);
+    let row_count = options.row_count.unwrap_or_else(|| {
+        let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
+        max_plane_per_cube / 4
+    });
 
     let (rows_per_plane, stage_size_m, partition_shape_n) = select_size(
-        multi_row_strategy,
-        plane_count as usize,
+        options.multi_row_strategy,
+        row_count as usize,
         tile_size.m() as usize,
         problem.m,
     );
@@ -50,7 +58,9 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let tiles_per_partition = PartitionSize::new(
         rows_per_plane as u32,
         partition_shape_n as u32,
-        pk.unwrap_or_else(|| plane_dim / tile_size.k()),
+        options
+            .partition_k
+            .unwrap_or_else(|| plane_dim / tile_size.k()),
     );
 
     let partitions_per_stage = StageSize::new(stage_size_m as u32, 1, 1);
@@ -71,7 +81,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let mut builder =
         MatmulSelection::builder(tiling_scheme, plane_dim).partition_buffering(partition_buffering);
 
-    if specialized {
+    if options.specialized {
         builder = builder.load_specialization_config(LoadSpecializationConfig {
             lhs: SpecializationTensorConfig::LoadFlowOnly,
             rhs: SpecializationTensorConfig::LoadFlowOnly,
@@ -87,15 +97,20 @@ fn select_size(
     instruction_m: usize,
     problem_m: usize,
 ) -> (usize, usize, usize) {
-    let use_multi = match strategy {
-        MultiRowStrategy::Never => false,
-        MultiRowStrategy::Always => true,
+    let rows = match strategy {
+        MultiRowStrategy::Never => 1,
+        MultiRowStrategy::Always(count) => count,
         MultiRowStrategy::Adaptive {
             minimum_stage_count,
-        } => problem_m > plane_count * instruction_m * minimum_stage_count,
-    };
+        } => {
+            if problem_m > plane_count * instruction_m * minimum_stage_count as usize {
+                2
+            } else {
+                1
+            }
+        }
+    } as usize;
 
-    let rows = if use_multi { 2 } else { 1 };
     (rows, plane_count / rows, plane_count)
 }
 

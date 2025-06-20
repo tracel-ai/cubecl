@@ -27,7 +27,7 @@ pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
-    selection: &Selection<A>,
+    selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
@@ -38,7 +38,7 @@ where
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Infered(args) => {
+        Selection::Inferred(args) => {
             A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
         }
     };
@@ -73,14 +73,14 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
-    selection: &Selection<A>,
+    selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
     let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
     let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Infered(args) => {
+        Selection::Inferred(args) => {
             A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
         }
     };

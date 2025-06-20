@@ -14,7 +14,9 @@ use crate::components::stage::{
 use crate::components::{MatmulProblem, tile};
 use crate::components::{batch, global};
 
-use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
+use super::{
+    MatmulSelection, MultiRowStrategy, PlaneMatmulSelectionOptions, base, plane_matmul_selection,
+};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
@@ -29,7 +31,7 @@ pub struct HybridDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedParti
 }
 
 #[derive(Default, Debug, Clone, Copy)]
-pub struct DoubleBufferingAlgorithmArgs {
+pub struct DoubleBufferingArgs {
     pub specialized: bool,
 }
 
@@ -38,7 +40,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
-    type SelectionArgs = DoubleBufferingAlgorithmArgs;
+    type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
@@ -61,14 +63,15 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
-            None,
-            None,
-            args.specialized,
+            PlaneMatmulSelectionOptions {
+                specialized: args.specialized,
+                multi_row_strategy: MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                },
+                ..Default::default()
+            },
         )
     }
 }
@@ -78,7 +81,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
-    type SelectionArgs = DoubleBufferingAlgorithmArgs;
+    type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
@@ -102,14 +105,15 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
-            None,
-            None,
-            args.specialized,
+            PlaneMatmulSelectionOptions {
+                specialized: args.specialized,
+                multi_row_strategy: MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                },
+                ..Default::default()
+            },
         )
     }
 }
@@ -119,7 +123,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
-    type SelectionArgs = DoubleBufferingAlgorithmArgs;
+    type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
@@ -142,14 +146,15 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
-            None,
-            None,
-            args.specialized,
+            PlaneMatmulSelectionOptions {
+                specialized: args.specialized,
+                multi_row_strategy: MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                },
+                ..Default::default()
+            },
         )
     }
 }

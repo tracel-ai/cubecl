@@ -9,14 +9,15 @@ use cubecl_core::prelude::*;
 
 use super::MatmulSelection;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum MultiRowStrategy {
     /// Always one row per plane
+    #[default]
     Never,
     /// Always multiple rows per plane
-    Always,
+    Always(u32),
     /// Uses multiple rows if the `m` dimension of the matmul implies at least the minimum number of stages along `m`
-    Adaptive { minimum_stage_count: usize },
+    Adaptive { minimum_stage_count: u32 },
 }
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]

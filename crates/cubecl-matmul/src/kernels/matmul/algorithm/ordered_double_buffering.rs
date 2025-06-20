@@ -15,27 +15,19 @@ use crate::components::stage::{
 use crate::components::tile;
 use crate::components::{MatmulProblem, batch};
 
-use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
+use super::{
+    MatmulSelection, MultiRowStrategy, PlaneMatmulSelectionOptions, base, plane_matmul_selection,
+};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _phantom: PhantomData<(TMM, Dispatch)>,
 }
 
-#[derive(Debug, Clone)]
-pub struct OrderedDoubleBufferingSelectionArgs {
-    pub pk: Option<u32>,
-    pub multi_rows: Option<MultiRowStrategy>,
-    pub occupancy_factor: Option<u32>,
-}
-
-impl Default for OrderedDoubleBufferingSelectionArgs {
-    fn default() -> Self {
-        Self {
-            pk: None,
-            multi_rows: None,
-            occupancy_factor: None,
-        }
-    }
+#[derive(Debug, Clone, Default)]
+pub struct OrderedSelectionArgs {
+    pub partition_k: Option<u32>,
+    pub row_count: Option<u32>,
+    pub rows_per_plane: Option<u32>,
 }
 
 impl<TMM, P> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM, P>
@@ -43,7 +35,7 @@ where
     TMM: tile::TileMatmulFamily,
     P: Partitioner,
 {
-    type SelectionArgs = OrderedDoubleBufferingSelectionArgs;
+    type SelectionArgs = OrderedSelectionArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, BufferReaderFamily>;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
@@ -65,17 +57,19 @@ where
             client,
             problem,
             plane_dim,
-            args.multi_rows
-                .as_ref()
-                .map(|m| m.clone())
-                .unwrap_or_else(|| MultiRowStrategy::Adaptive {
-                    minimum_stage_count: 8,
-                }),
             elem_stage,
             elem_acc,
-            args.pk,
-            args.occupancy_factor,
-            false,
+            PlaneMatmulSelectionOptions {
+                partition_k: args.partition_k,
+                row_count: args.row_count,
+                multi_row_strategy: args
+                    .rows_per_plane
+                    .map(|rpp| MultiRowStrategy::Always(rpp))
+                    .unwrap_or_else(|| MultiRowStrategy::Adaptive {
+                        minimum_stage_count: 8,
+                    }),
+                ..Default::default()
+            },
         )
     }
 }

@@ -13,7 +13,7 @@ use crate::{
     kernels::matmul::Algorithm,
 };
 
-use super::{MatmulSelection, MultiRowStrategy, plane_matmul_selection};
+use super::{MatmulSelection, plane_matmul_selection};
 
 pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
     pub _tmm: PhantomData<TMM>,
@@ -44,14 +44,9 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
-            None,
-            None,
-            false,
+            Default::default(),
         )
     }
 }

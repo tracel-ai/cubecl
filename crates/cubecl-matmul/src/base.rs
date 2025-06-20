@@ -5,9 +5,8 @@ use cubecl_std::tensor::TensorHandle;
 use crate::{
     components::tile::accelerated::AcceleratedMatmul,
     kernels::matmul::{
-        MatmulSelection, Selection, double_buffering::DoubleBufferingAlgorithmArgs,
-        double_unit::DoubleUnitAlgorithm,
-        ordered_double_buffering::OrderedDoubleBufferingSelectionArgs,
+        MatmulSelection, Selection, double_buffering::DoubleBufferingArgs,
+        double_unit::DoubleUnitAlgorithm, ordered_double_buffering::OrderedSelectionArgs,
     },
 };
 
@@ -42,14 +41,10 @@ use super::{
 pub enum Strategy {
     Simple(SyncLoadingStrategy),
     SimpleBarrier(AsyncLoadingStrategy),
-    DoubleBuffering(
-        SyncBufferLoadingStrategy,
-        DoubleBufferingAlgorithmArgs,
-        Option<MatmulSelection>,
-    ),
+    DoubleBuffering(SyncBufferLoadingStrategy, Selection<DoubleBufferingArgs>),
     SimpleUnit(Option<MatmulSelection>),
     DoubleUnit(Option<MatmulSelection>),
-    OrderedDoubleBuffering(OrderedDoubleBufferingSelectionArgs, Option<MatmulSelection>),
+    OrderedDoubleBuffering(Selection<OrderedSelectionArgs>),
     Naive,
     #[default]
     Auto,
@@ -232,48 +227,26 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 )
             }
         },
-        Strategy::DoubleBuffering(loading_strategy, args, selection) => match loading_strategy {
+        Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
             SyncBufferLoadingStrategy::Cyclic => {
                 matmul::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client,
-                    lhs,
-                    lhs_scale,
-                    rhs,
-                    rhs_scale,
-                    out,
-                    &Selection::maybe_forced_or(selection, args),
+                    client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
             SyncBufferLoadingStrategy::Tilewise => {
                 matmul::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client,
-                    lhs,
-                    lhs_scale,
-                    rhs,
-                    rhs_scale,
-                    out,
-                    &Selection::maybe_forced_or(selection, args),
+                    client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
             SyncBufferLoadingStrategy::Hybrid => {
                 matmul::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                    client,
-                    lhs,
-                    lhs_scale,
-                    rhs,
-                    rhs_scale,
-                    out,
-                    &Selection::maybe_forced_or(selection, args),
+                    client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
         },
-        Strategy::OrderedDoubleBuffering(args, selection) => {
-            let selection = match selection {
-                Some(selection) => Selection::Forced(selection.clone()),
-                None => Selection::Infered(args.clone()),
-            };
+        Strategy::OrderedDoubleBuffering(selection) => {
             matmul::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<AcceleratedMatmul>>(
-                client, lhs, lhs_scale, rhs, rhs_scale, out, &selection,
+                client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
             )
         }
         Strategy::SimpleUnit(selection) => matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(

@@ -1,6 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
-use super::{MatmulSelection, MultiRowStrategy, base, plane_matmul_selection};
+use super::{MatmulSelection, base, plane_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -52,14 +52,9 @@ where
             client,
             problem,
             plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
             elem_stage,
             elem_acc,
-            None,
-            None,
-            false,
+            Default::default(),
         )
     }
 }
