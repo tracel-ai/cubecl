@@ -501,8 +501,8 @@ impl ComputeServer for CudaServer {
         match result {
             Ok(_) => {}
             Err(err) => match ctx.timestamps.is_empty() {
-                true => ctx.timestamps.error(ProfileError::Unknown(err)),
-                false => panic!("{err:?}"),
+                false => ctx.timestamps.error(ProfileError::Unknown(err)),
+                true => panic!("{err:?}"),
             },
         }
     }
