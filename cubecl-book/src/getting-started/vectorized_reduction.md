@@ -12,7 +12,7 @@ To apply vectorization to the reduction problem, we will modify our reduction ke
 ```
 
 ## The Result
-The result of adding vectorization is an average of 3x speedup compared to the previous parallel reduction implementation. This is because we are now processing multiple elements at a time in each kernel invocation, which reduces the time of running a single kernel invocation.
+The result of adding vectorization is an average of 3x speedup compared to the previous parallel reduction implementation. This is because we are now processing multiple elements at a time in each invocation, which reduces the time of running a single invocation.
 ```
 wgpu<wgsl>-reduction-[512, 8192]
 
