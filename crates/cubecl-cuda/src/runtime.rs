@@ -5,6 +5,7 @@ use crate::{
 };
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
+    benchmark::TimingMethod,
     ir::{Elem, FloatKind},
 };
 use cubecl_cpp::{
@@ -147,7 +148,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
-    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
+    let mut device_props = DeviceProperties::new(
+        &[Feature::Plane],
+        mem_properties,
+        hardware_props,
+        TimingMethod::System,
+    );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     if arch_version >= 60 {

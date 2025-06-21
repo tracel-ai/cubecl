@@ -2,32 +2,54 @@ use cubecl_common::benchmark::ProfileDuration;
 use hashbrown::HashMap;
 use std::time::Instant;
 
-use crate::server::ProfilingToken;
+use crate::server::{ProfileError, ProfilingToken};
 
 #[derive(Debug, Default)]
 /// A simple struct to keep track of timestamps for kernel execution.
 /// This should be used for servers that do not have native device profiling.
 pub struct KernelTimestamps {
-    start: HashMap<ProfilingToken, Instant>,
+    state: HashMap<ProfilingToken, State>,
     counter: u64,
 }
 
+#[derive(Debug)]
+enum State {
+    Start(Instant),
+    Error(ProfileError),
+}
+
 impl KernelTimestamps {
+    /// If there is some profiling registered.
+    pub fn is_empty(&self) -> bool {
+        self.state.is_empty()
+    }
     /// Start measuring
     pub fn start(&mut self) -> ProfilingToken {
         let token = ProfilingToken { id: self.counter };
         self.counter += 1;
-        self.start.insert(token, std::time::Instant::now());
+        self.state
+            .insert(token, State::Start(std::time::Instant::now()));
         token
     }
 
     /// Stop measuring
-    pub fn stop(&mut self, token: ProfilingToken) -> ProfileDuration {
-        let instant = self.start.remove(&token);
-        ProfileDuration::from_duration(
-            instant
-                .expect("Stopped timestamp before starting one.")
-                .elapsed(),
-        )
+    pub fn stop(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+        let state = self.state.remove(&token);
+        let start = match state {
+            Some(val) => match val {
+                State::Start(instant) => instant,
+                State::Error(profile_error) => return Err(profile_error),
+            },
+            None => return Err(ProfileError::NotRegistered),
+        };
+
+        Ok(ProfileDuration::from_duration(start.elapsed()))
+    }
+
+    /// Register an error during profiling.
+    pub fn error(&mut self, error: ProfileError) {
+        self.state
+            .iter_mut()
+            .for_each(|(_, state)| *state = State::Error(error.clone()));
     }
 }
