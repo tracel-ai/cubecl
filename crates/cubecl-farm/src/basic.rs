@@ -1,11 +1,13 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 use std::collections::HashMap;
 
+use crate::FarmError;
+
 pub trait FarmClient {
     type R: Runtime;
     type Link;
 
-    fn init(group_split: GroupSplit) -> Result<Farm<Self::R, Self::Link>, CudaError>;
+    fn init(group_split: GroupSplit) -> Result<Farm<Self::R, Self::Link>, FarmError>;
 }
 
 pub struct Farm<R: Runtime, L> {
