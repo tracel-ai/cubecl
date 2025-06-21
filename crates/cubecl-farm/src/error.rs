@@ -4,6 +4,14 @@ pub enum FarmError {
     InvalidDevice,
     InvalidConfiguration,
     NcclError(cudarc::nccl::result::NcclError),
+    InvalidGroup(usize),
+    InvalidUnit(usize),
+    InvalidDataCount { expected: usize, got: usize },
+    GroupAlreadyStarted(usize),
+    GroupNotStarted(usize),
+    NoNcclLinks(usize),
+    ChannelClosed,
+    RuntimeError(String),
 }
 
 impl From<cudarc::driver::DriverError> for FarmError {

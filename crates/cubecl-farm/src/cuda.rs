@@ -9,7 +9,7 @@ impl FarmClient for CudaRuntime {
     type R = CudaRuntime;
     type Link = nccl::Comm;
 
-    fn init(group_split: GroupSplit) -> Result<Farm<Self::R, Self::Link>, CudaError> {
+    fn init(group_split: GroupSplit) -> Result<Farm<Self::R, Self::Link>, FarmError> {
         result::init()?;
         let unit_count = result::device::get_count()? as usize;
         let assignments = match (unit_count, group_split) {
@@ -22,7 +22,7 @@ impl FarmClient for CudaRuntime {
         };
 
         if assignments.len() > unit_count {
-            return Err(CudaError::InvalidConfiguration);
+            return Err(FarmError::InvalidConfiguration);
         }
         let mut unit_group_map: HashMap<usize, Vec<usize>> = HashMap::new();
 
