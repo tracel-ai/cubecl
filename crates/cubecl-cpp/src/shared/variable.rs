@@ -571,7 +571,14 @@ impl<D: Dialect> Variable<D> {
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
-            Self::LocalConst { item, .. } => format!("const {item} {self}"),
+            Self::LocalConst { item, .. } => match item.elem {
+                Elem::Atomic(_) => {
+                    format!("{item}* {self}")
+                }
+                _ => {
+                    format!("const {item} {self}")
+                }
+            },
             Variable::Tmp {
                 item,
                 is_declared,
