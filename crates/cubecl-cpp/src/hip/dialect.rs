@@ -255,7 +255,9 @@ extern \"C\" __global__ void {kernel_name}(
         )?;
         shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
         shared::compile_scalars_dynamic::<Self>(f, scalars)?;
-        f.write_str("\n)")
+        f.write_str("\n)")?;
+
+        Ok(())
     }
 }
 
