@@ -291,8 +291,6 @@ impl<D: Dialect> Unary<D> for Assign {
         let item = out.item();
 
         if item.vectorization == 1 || input.item() == item {
-            println!("{input:?}");
-            println!("{out:?}");
             write!(f, "{} = ", out.fmt_left())?;
             Self::format_scalar(f, *input, item.elem)?;
             f.write_str(";\n")
