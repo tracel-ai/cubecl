@@ -2,6 +2,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::sync::Arc;
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::Ordering;
 use core::{
     any::{Any, TypeId},
     fmt::Display,
@@ -43,17 +45,33 @@ macro_rules! storage_id_type {
 }
 
 /// Reference to a buffer handle.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct HandleRef<Id> {
-    id: Arc<Id>,
-    all: Arc<()>,
+    state: Arc<(Id, AtomicU32)>,
+}
+
+impl<Id> Clone for HandleRef<Id> {
+    fn clone(&self) -> Self {
+        self.state.1.fetch_add(1, Ordering::Relaxed);
+        Self {
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl<Id> Clone for BindingRef<Id> {
+    fn clone(&self) -> Self {
+        self.state.1.fetch_add(1, Ordering::Relaxed);
+        Self {
+            state: self.state.clone(),
+        }
+    }
 }
 
 /// Reference to buffer binding.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BindingRef<Id> {
-    id: Id,
-    _all: Arc<()>,
+    state: Arc<(Id, AtomicU32)>,
 }
 
 impl<Id> BindingRef<Id>
@@ -62,7 +80,7 @@ where
 {
     /// The id associated to the buffer.
     pub(crate) fn id(&self) -> &Id {
-        &self.id
+        &self.state.0
     }
 }
 
@@ -73,33 +91,31 @@ where
     /// Create a new handle.
     pub(crate) fn new(id: Id) -> Self {
         Self {
-            id: Arc::new(id),
-            all: Arc::new(()),
+            state: Arc::new((id, AtomicU32::new(1))),
         }
     }
 
     /// The id associated to the handle.
     pub(crate) fn id(&self) -> &Id {
-        &self.id
+        &self.state.0
     }
 
     /// Get the binding.
     pub(crate) fn binding(self) -> BindingRef<Id> {
         BindingRef {
-            id: self.id.as_ref().clone(),
-            _all: self.all,
+            state: self.state.clone(),
         }
     }
 
     /// If the handle can be mut.
     pub(crate) fn can_mut(&self) -> bool {
         // 1 memory management reference with 1 tensor reference.
-        Arc::strong_count(&self.id) <= 2
+        self.state.1.load(Ordering::Relaxed) <= 2
     }
 
     /// If the resource is free.
     pub(crate) fn is_free(&self) -> bool {
-        Arc::strong_count(&self.all) <= 1
+        self.state.1.load(Ordering::Relaxed) <= 1
     }
 }
 
