@@ -8,5 +8,7 @@ For now i will allign the trait FarmCube allong Nccl. The grouping of Nccl here 
 
 pub mod basic;
 pub mod cuda;
+pub mod error;
 
 use basic::*;
+use error::*;
