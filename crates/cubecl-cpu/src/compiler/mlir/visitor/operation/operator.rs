@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Elem, Operator};
+use cubecl_core::ir::{Elem, IndexAssignOperator, Operator};
 use tracel_llvm::melior::dialect::{arith, memref, ods::vector};
 
 use crate::compiler::mlir::visitor::prelude::*;
@@ -9,7 +9,7 @@ impl<'a> Visitor<'a> {
             Operator::Index(index) | Operator::UncheckedIndex(index) => {
                 let memref = self.get_memory(index.list);
                 let vector_type = index.list.item.to_type(self.context);
-                let index = self.get_index(index.index, index.list.item);
+                let index = self.get_index(index.index, out.item);
                 let load_ssa = if out.item.is_vectorized() {
                     self.append_operation_with_result(vector::load(
                         self.context,
@@ -23,16 +23,9 @@ impl<'a> Visitor<'a> {
                 };
                 self.insert_variable(out, load_ssa);
             }
-            Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
-                let value = self.get_variable(index_assign.value);
-                let index = self.get_index(index_assign.index, index_assign.value.item);
-                let memref = self.get_memory(out);
-                let operation = if value.r#type().is_vector() {
-                    vector::store(self.context, value, memref, &[index], self.location).into()
-                } else {
-                    memref::store(value, memref, &[index], self.location)
-                };
-                self.block().append_operation(operation);
+            Operator::IndexAssign(index_assign) => self.visit_index_assign(index_assign, out),
+            Operator::UncheckedIndexAssign(index_assign) => {
+                self.visit_index_assign(index_assign, out)
             }
             Operator::Cast(cast) => {
                 self.visit_cast(cast.input, out);
@@ -52,7 +45,19 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
+    fn visit_index_assign(&mut self, index_assign: &IndexAssignOperator, out: Variable) {
+        let value = self.get_variable(index_assign.value);
+        let index = self.get_index(index_assign.index, index_assign.value.item);
+        let memref = self.get_memory(out);
+        let operation = if index_assign.value.item.is_vectorized() {
+            vector::store(self.context, value, memref, &[index], self.location).into()
+        } else {
+            memref::store(value, memref, &[index], self.location)
+        };
+        self.block().append_operation(operation);
+    }
+
+    fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
         let mut value = self.get_variable(to_cast);
         let target = out.item.to_type(self.context);
 
