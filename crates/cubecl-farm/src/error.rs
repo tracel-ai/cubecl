@@ -16,4 +16,10 @@ pub enum FarmError {
     ExplicitFallback { sum: usize, device_count: usize },
     #[error("Could not sync group")]
     BarrierError,
+    #[error("ChannelError")]
+    ChannelError,
+    #[error("No Links")]
+    NoLinksAvailable,
+    #[error("Invalid Operation")]
+    InvalidOperation,
 }

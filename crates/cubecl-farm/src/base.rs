@@ -2,11 +2,12 @@ use crate::reuse::*;
 
 pub trait Link: Debug + Send + Sync + Clone {
     fn new(index: usize) -> Self;
-    fn all_reduce(&self, trargets: Vec<Handle>) -> Result<()>;
-    fn broadcast(&self, root: Handle, targets: Vec<Handle>) -> Result<()>;
-    fn reduce(&self, targets: Vec<Handle>, root: Handle);
-    fn all_gather(&self, targets: Vec<Handle>);
-    fn reduce_scatter(&self, targets: Vec<Handle>);
+
+    fn all_reduce(&self, trarget: Handle) -> Result<()>;
+    fn broadcast(&self, root: Handle, target: Handle) -> Result<()>;
+    fn reduce(&self, root: Handle, target: Handle);
+    fn all_gather(&self, target: Handle);
+    fn reduce_scatter(&self, target: Handle);
 }
 
 pub trait FarmRuntime: Sized + Clone {
