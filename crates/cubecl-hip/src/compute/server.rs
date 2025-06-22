@@ -1,4 +1,4 @@
-use cubecl_core::server::ProfilingToken;
+use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 
@@ -274,7 +274,7 @@ impl ComputeServer for HipServer {
         self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.stop(token)
     }
@@ -533,7 +533,7 @@ impl HipContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
 
-        unsafe {
+        let result = unsafe {
             let status = cubecl_hip_sys::hipModuleLaunchKernel(
                 kernel.func,
                 dispatch_count.0,
@@ -551,10 +551,23 @@ impl HipContext {
                 std::ptr::null_mut(),
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
-                panic!("Error: Cannot launch kernel (Out of memory)\n{kernel_id}")
+                Err(LaunchError::OutOfMemory)
+            } else if status != HIP_SUCCESS {
+                Err(LaunchError::Unknown(format!(
+                    "Unable to launch kernel {kernel_id:?} with status {status:?}"
+                )))
+            } else {
+                Ok(())
             }
-            assert_eq!(status, HIP_SUCCESS, "Should launch the kernel");
         };
+
+        match result {
+            Ok(_) => {}
+            Err(err) => match self.timestamps.is_empty() {
+                true => panic!("{err:?}"),
+                false => self.timestamps.error(err.into()),
+            },
+        }
     }
 }
 
@@ -594,4 +607,19 @@ pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
+}
+
+#[derive(Debug)]
+pub(crate) enum LaunchError {
+    OutOfMemory,
+    Unknown(String),
+}
+
+impl From<LaunchError> for ProfileError {
+    fn from(val: LaunchError) -> Self {
+        match val {
+            LaunchError::OutOfMemory => ProfileError::Unknown("Out of memory".into()),
+            LaunchError::Unknown(msg) => ProfileError::Unknown(msg),
+        }
+    }
 }

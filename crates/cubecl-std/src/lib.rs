@@ -1,5 +1,7 @@
 //! Cubecl standard library.
 
+extern crate alloc;
+
 mod reinterpret_slice;
 pub use reinterpret_slice::*;
 mod fast_math;

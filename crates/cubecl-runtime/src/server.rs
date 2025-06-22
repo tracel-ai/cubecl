@@ -9,11 +9,21 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use cubecl_ir::Elem;
+
+#[derive(Debug, Clone)]
+/// An error during profiling.
+pub enum ProfileError {
+    /// Unknown error.
+    Unknown(String),
+    /// When no profiling has been registered.
+    NotRegistered,
+}
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -102,7 +112,7 @@ where
     fn start_profile(&mut self) -> ProfilingToken;
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration;
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

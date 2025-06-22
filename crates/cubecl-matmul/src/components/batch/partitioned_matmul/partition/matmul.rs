@@ -23,7 +23,6 @@ pub struct PartitionRanges {
 #[derive(CubeType)]
 pub struct PartitionRangeDim {
     start: u32,
-    end: u32,
     #[cube(comptime)]
     step: u32,
     #[cube(comptime)]
@@ -75,16 +74,13 @@ impl PartitionRanges {
 #[cube]
 impl PartitionRangeDim {
     pub fn new(
-        problem_dim: u32,
         cube_pos: u32,
         #[comptime] stage_dim: u32,
         #[comptime] global_partition_dim: u32,
     ) -> PartitionRangeDim {
         let start = cube_pos * global_partition_dim;
-        let end = Min::min(start + global_partition_dim, problem_dim);
         PartitionRangeDim {
             start,
-            end,
             step: stage_dim,
             num_steps: global_partition_dim.div_ceil(stage_dim),
         }
@@ -104,11 +100,15 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         #[comptime] config: GMM::Config,
     ) {
         #[unroll(ranges.batch.num_steps <= 1)]
-        for batch_iter in range_stepped(ranges.batch.start, ranges.batch.end, ranges.batch.step) {
+        for b in 0..ranges.batch.num_steps {
+            let batch_iter = ranges.batch.start + b * ranges.batch.step;
             #[unroll(ranges.row.num_steps <= 1)]
-            for row_offset in range_stepped(ranges.row.start, ranges.row.end, ranges.row.step) {
+            for r in 0..ranges.row.num_steps {
+                let row_offset = ranges.row.start + r * ranges.row.step;
                 #[unroll(ranges.col.num_steps <= 1)]
-                for col_offset in range_stepped(ranges.col.start, ranges.col.end, ranges.col.step) {
+                for c in 0..ranges.col.num_steps {
+                    let col_offset = ranges.col.start + c * ranges.col.step;
+
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
@@ -141,11 +141,15 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         #[comptime] config: GMM::Config,
     ) {
         #[unroll(ranges.batch.num_steps <= 1)]
-        for batch_iter in range_stepped(ranges.batch.start, ranges.batch.end, ranges.batch.step) {
+        for b in 0..ranges.batch.num_steps {
+            let batch_iter = ranges.batch.start + b * ranges.batch.step;
             #[unroll(ranges.col.num_steps <= 1)]
-            for col_offset in range_stepped(ranges.col.start, ranges.col.end, ranges.col.step) {
+            for c in 0..ranges.col.num_steps {
+                let col_offset = ranges.col.start + c * ranges.col.step;
                 #[unroll(ranges.row.num_steps <= 1)]
-                for row_offset in range_stepped(ranges.row.start, ranges.row.end, ranges.row.step) {
+                for r in 0..ranges.row.num_steps {
+                    let row_offset = ranges.row.start + r * ranges.row.step;
+
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
@@ -180,7 +184,9 @@ impl<const W: u32> GlobalPartitionMatmul for SwizzleGlobalPartitionMatmul<W> {
         let num_swizzle = comptime!(ranges.row.num_steps * ranges.col.num_steps);
 
         #[unroll(ranges.batch.num_steps <= 1)]
-        for batch_iter in range_stepped(ranges.batch.start, ranges.batch.end, ranges.batch.step) {
+        for b in 0..ranges.batch.num_steps {
+            let batch_iter = ranges.batch.start + b * ranges.batch.step;
+
             #[unroll(num_swizzle <= 1)]
             for n in 0..num_swizzle {
                 GMM::zero_accumulator(&mut acc, config);

@@ -14,6 +14,7 @@ version.workspace = true
 autotune-checks = ["cubecl-runtime/autotune-checks"]
 default = [
     "std",
+    "stdlib",
     "matmul",
     "convolution",
     "cubecl-core/default",
@@ -27,6 +28,7 @@ convolution = ["dep:cubecl-convolution"]
 reduce = ["dep:cubecl-reduce"]
 random = ["dep:cubecl-random"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
+stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
 
 # Runtimes
@@ -52,7 +54,7 @@ cubecl-matmul = { path = "../cubecl-matmul", version = "0.6.0", default-features
 cubecl-random = { path = "../cubecl-random", version = "0.6.0", default-features = false, optional = true }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false }
-cubecl-std = { version = "0.6.0", path = "../cubecl-std" }
+cubecl-std = { path = "../cubecl-std", version = "0.6.0", optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.6.0", default-features = false, optional = true }
 half = { workspace = true }
 

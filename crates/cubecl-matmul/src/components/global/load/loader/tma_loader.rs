@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
-use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder};
+use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder, TilingOrderEnum};
 use crate::components::{Ident, InputIdent, MatmulPrecision, MatrixLayout, global::Quantization};
 use crate::components::{
     global::{GlobalConfig, tensor_view::MappedTensorReader},
@@ -43,6 +43,7 @@ impl TilingOrder for TmaTilingOrder {
             ),
         }
     }
+
     fn to_nth_tile<C: StageConfig>(
         row: u32,
         col: u32,
@@ -69,6 +70,10 @@ impl TilingOrder for TmaTilingOrder {
                 config,
             ),
         }
+    }
+
+    fn to_enum() -> comptime_type!(TilingOrderEnum) {
+        TilingOrderEnum::Tma
     }
 }
 

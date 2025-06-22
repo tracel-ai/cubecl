@@ -222,6 +222,7 @@ where
             line_sizes,
             (1, 1).into(),
             None,
+            false,
         )?;
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 

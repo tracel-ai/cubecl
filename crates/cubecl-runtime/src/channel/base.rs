@@ -3,7 +3,8 @@ use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
 use crate::{
     logging::ServerLogger,
     server::{
-        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
+        ProfilingToken,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -85,5 +86,5 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// End the profile and return a [`ProfileDuration`].
     ///
     /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
-    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration;
+    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
 }

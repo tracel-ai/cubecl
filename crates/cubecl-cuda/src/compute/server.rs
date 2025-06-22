@@ -1,7 +1,7 @@
 use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::{self, DynFut};
-use cubecl_core::server::ProfilingToken;
+use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
@@ -496,7 +496,15 @@ impl ComputeServer for CudaServer {
                 .map(|s| find_resource(ctx, s.binding())),
         );
 
-        ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
+        let result = ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
+
+        match result {
+            Ok(_) => {}
+            Err(err) => match ctx.timestamps.is_empty() {
+                true => panic!("{err:?}"),
+                false => ctx.timestamps.error(ProfileError::Unknown(err)),
+            },
+        }
     }
 
     fn flush(&mut self) {}
@@ -511,7 +519,7 @@ impl ComputeServer for CudaServer {
         self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.ctx.sync();
         self.ctx.timestamps.stop(token)
     }
@@ -735,7 +743,7 @@ impl CudaContext {
         tensor_maps: &[CUtensorMap],
         resources: &[CudaResource],
         scalars: &[*mut c_void],
-    ) {
+    ) -> Result<(), String> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
@@ -751,7 +759,7 @@ impl CudaContext {
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
                 kernel.shared_mem_bytes as i32,
             )
-            .unwrap();
+            .map_err(|err| format!("{err:?}"))?;
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
@@ -762,8 +770,10 @@ impl CudaContext {
                 self.stream,
                 &mut bindings,
             )
-            .unwrap();
+            .map_err(|err| format!("{err:?}"))?;
         };
+
+        Ok(())
     }
 }
 

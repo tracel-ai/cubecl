@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_quantized_stage {
     ($algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr) => {
-        use $crate::components::StageSize;
+        use $crate::components::{LoadSpecializationConfig, StageSize};
 
         mod s1x1x1 {
             use super::*;
@@ -12,7 +12,8 @@ macro_rules! testgen_matmul_quantized_stage {
                 $precision,
                 $tile,
                 $partition_size,
-                StageSize { m: 1, n: 1, k: 1 }
+                StageSize { m: 1, n: 1, k: 1 },
+                LoadSpecializationConfig::default()
             );
         }
     };

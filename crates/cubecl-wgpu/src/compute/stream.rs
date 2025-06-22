@@ -7,7 +7,7 @@ use cubecl_core::{
     CubeCount, MemoryConfiguration,
     benchmark::{ProfileDuration, TimingMethod},
     future::{self, DynFut},
-    server::{Binding, Bindings, Handle, ProfilingToken},
+    server::{Binding, Bindings, Handle, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
@@ -37,6 +37,7 @@ impl WgpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         tasks_max: usize,
+        time_measurement: TimingMethod,
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
@@ -49,12 +50,6 @@ impl WgpuStream {
 
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
-
-        let time_measurement = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            TimingMethod::Device
-        } else {
-            TimingMethod::System
-        };
 
         Self {
             mem_manage,
@@ -265,7 +260,7 @@ impl WgpuStream {
         token
     }
 
-    pub fn stop_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    pub fn stop_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.compute_pass = None;
 
         let timestamp = self.timings.stop_profile_prepare(token);
@@ -278,7 +273,9 @@ impl WgpuStream {
                     // If there was no work done between the start and stop of the profile, logically the
                     // time should be 0. We could use a ProfileDuration::from_duration here,
                     // but it seems better to always return things as 'device' timing method.
-                    return ProfileDuration::from_future(async move { Duration::from_secs(0) });
+                    return Ok(ProfileDuration::from_future(async move {
+                        Duration::from_secs(0)
+                    }));
                 };
 
                 // TODO: We could optimize this by having a single handle for both `start` and `end`
@@ -293,7 +290,7 @@ impl WgpuStream {
                     &mut self.encoder,
                     resource_start,
                     resource_end,
-                );
+                )?;
 
                 let period = self.queue.get_timestamp_period() as f64 * 1e-9;
                 let fut = self.read_buffers(vec![handle_start.binding(), handle_end.binding()]);
@@ -321,7 +318,7 @@ impl WgpuStream {
                     let delta = u64::checked_sub(data_end, data_start).unwrap_or(1);
                     Duration::from_secs_f64(delta as f64 * period)
                 };
-                ProfileDuration::from_future(resolve_fut)
+                Ok(ProfileDuration::from_future(resolve_fut))
             }
             Timestamp::Full { start_time } => {
                 let fut = self.sync();
@@ -329,7 +326,7 @@ impl WgpuStream {
                     fut.await;
                     start_time.elapsed()
                 };
-                ProfileDuration::from_future(duration_fut)
+                Ok(ProfileDuration::from_future(duration_fut))
             }
         }
     }

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::global::load::BufferId;
 use crate::components::global::{GlobalConfig, LoadingSides};
-use crate::components::stage::{StageEvent, StageEventListener};
+use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
 use crate::components::{InputIdent, TilingScheme};
 
 #[derive(Copy, Clone)]
@@ -76,10 +76,14 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
 }
 
 #[cube]
-impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
+impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G::StageConfig>
     for DoubleBufferingEventListener<L, R, G>
 {
-    fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
+    fn on_event(
+        this: &mut Self,
+        #[comptime] event: StageEvent,
+        #[comptime] config: G::StageConfig,
+    ) {
         if let StageEvent::Begin = event {
             this.init();
         }
@@ -90,8 +94,9 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
             if comptime![analysis.lhs.should_execute(current)] {
                 let lhs_job = this.state_lhs.index_mut(0);
 
-                #[cfg(target_os = "macos")]
-                sync_plane();
+                if comptime!(config.must_sync_plane_after_execution()) {
+                    sync_plane();
+                }
 
                 L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
             }
@@ -99,8 +104,9 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
             if comptime![analysis.rhs.should_execute(current)] {
                 let rhs_job = this.state_rhs.index_mut(0);
 
-                #[cfg(target_os = "macos")]
-                sync_plane();
+                if comptime!(config.must_sync_plane_after_execution()) {
+                    sync_plane();
+                }
 
                 R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
             }
@@ -132,9 +138,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener
                 comptime!(rhs_num_task_executed += num_task_executed);
             }
 
-            #[cfg(target_os = "macos")]
-            if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0 {
-                sync_plane();
+            #[allow(clippy::collapsible_if)]
+            if comptime!(config.must_sync_plane_after_execution()) {
+                if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0
+                {
+                    sync_plane();
+                }
             }
 
             if comptime!(lhs_len > 0) {

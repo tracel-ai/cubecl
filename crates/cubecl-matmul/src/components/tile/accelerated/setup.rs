@@ -4,8 +4,7 @@ use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem};
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::{MatmulSelection, MultiRowStrategy, plane_matmul_selection};
-use cubecl_core::ir::Elem;
+use crate::kernels::matmul::MatmulSelection;
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for AcceleratedMatmul {
@@ -54,25 +53,6 @@ impl TileMatmulFamily for AcceleratedMatmul {
             matmul_line_sizes.out as u32,
             lhs_stage_line_size,
             rhs_stage_line_size,
-        )
-    }
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection {
-        plane_matmul_selection::<Self, R>(
-            client,
-            problem,
-            plane_dim,
-            MultiRowStrategy::Adaptive {
-                minimum_stage_count: 8,
-            },
-            elem_stage,
-            elem_acc,
         )
     }
 }
