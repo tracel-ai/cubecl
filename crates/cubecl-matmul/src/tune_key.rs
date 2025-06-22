@@ -18,7 +18,7 @@ pub struct MatmulAutotuneKey {
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 struct MatmulProblemDefinition {
     #[autotune(anchor)]
-    bigguest_axis: usize,
+    biggest_axis: usize,
     elem_lhs: Elem,
     elem_rhs: Elem,
     elem_out: Elem,
