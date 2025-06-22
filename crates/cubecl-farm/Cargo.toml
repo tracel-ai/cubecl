@@ -21,5 +21,5 @@ cudarc = { version = "0.16.4", features = [
   "driver",
   "nccl",
 ], default-features = false }
-crossbeam-channel = "0.5.15"
 thiserror = "2.0.12"
+crossbeam = "0.8.4"

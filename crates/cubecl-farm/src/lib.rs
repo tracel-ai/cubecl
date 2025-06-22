@@ -7,8 +7,6 @@ For now i will allign the trait FarmCube allong Nccl. The grouping of Nccl here 
 */
 
 pub mod base;
+pub mod channel;
 pub mod error;
-
-use cubecl_core::{Runtime, client::ComputeClient, server::Handle};
-use error::*;
-use std::collections::HashMap;
+pub mod reuse;

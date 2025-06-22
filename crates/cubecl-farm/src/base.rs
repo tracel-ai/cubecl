@@ -1,8 +1,6 @@
-use crate::*;
-use cubecl_core::server::ComputeServer;
-use std::fmt::Debug;
+use crate::reuse::*;
 
-pub trait Link: Debug + Sized {
+pub trait Link: Sized {
     // Required methods
     fn new(index: usize) -> Self;
     fn new_group(indices: Vec<usize>) -> Vec<Self>;
@@ -195,7 +193,6 @@ impl GroupSplit {
     }
 }
 
-#[derive(Debug)]
 pub struct FarmGroup<FR: FarmRuntime> {
     pub id: usize,
     pub units: Vec<FarmUnit<FR>>,
@@ -232,7 +229,6 @@ impl<FR: FarmRuntime> FarmGroup<FR> {
     }
 }
 
-#[derive(Debug)]
 pub enum FarmUnit<FR: FarmRuntime> {
     Linked {
         id: usize,
