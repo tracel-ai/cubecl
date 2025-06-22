@@ -1,19 +1,19 @@
 use crate::reuse::*;
 
 pub trait Link: Debug + Send + Sync + Clone {
-    // Required methods
     fn new(index: usize) -> Self;
-    fn new_group(indices: Vec<usize>) -> Vec<Self>;
-    // Provided methods
+    fn all_reduce(&self, trargets: Vec<Handle>) -> Result<()>;
+    fn broadcast(&self, root: Handle, targets: Vec<Handle>) -> Result<()>;
+    fn reduce(&self, targets: Vec<Handle>, root: Handle);
+    fn all_gather(&self, targets: Vec<Handle>);
+    fn reduce_scatter(&self, targets: Vec<Handle>);
 }
 
 pub trait FarmRuntime: Sized + Clone {
     type R: Runtime;
     type L: Link;
-    type Server: ComputeServer;
 
     // Required methods
-    fn link() -> Self::L;
     fn runtime() -> Self::R;
     fn device(index: usize) -> <Self::R as Runtime>::Device;
     fn device_count() -> usize;

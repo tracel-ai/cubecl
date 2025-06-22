@@ -103,7 +103,7 @@ pub trait FarmChannel<FR: FarmRuntime + 'static>: Clone + core::fmt::Debug + Sen
         &self,
         farm: &Farm<FR>,
         group: usize,
-        kernel: <<FR as FarmRuntime>::Server as ComputeServer>::Kernel,
+        kernel: <<<FR as FarmRuntime>::R as Runtime>::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Vec<Binding>,
         mode: ExecutionMode,
