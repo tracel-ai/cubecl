@@ -21,7 +21,7 @@ pub trait FarmRuntime: Sized {
     fn device_count() -> usize;
 
     // Provided methods
-    fn farm(split: GroupSplit) -> Result<Farm<Self>, FarmError> {
+    fn farm(split: GroupSplit) -> Result<Farm<Self>> {
         let count = Self::device_count();
         Farm::<Self>::new(0, count, split)
     }
@@ -32,9 +32,8 @@ pub struct Farm<FR: FarmRuntime> {
     pub unit_count: usize,
     pub groups: Vec<FarmGroup<FR>>,
 }
-
 impl<FR: FarmRuntime> Farm<FR> {
-    pub fn new(id: usize, unit_count: usize, split: GroupSplit) -> Result<Self, FarmError> {
+    pub fn new(id: usize, unit_count: usize, split: GroupSplit) -> Result<Self> {
         let resolved_split = split.determine_split(unit_count);
         let groups = match resolved_split {
             GroupSplit::SingleGroup => {
@@ -169,9 +168,7 @@ impl GroupSplit {
         match self {
             GroupSplit::Proportional(proportions) => {
                 if proportions.is_empty() || proportions.iter().all(|&p| p <= 0.0) {
-                    eprintln!(
-                        "Warning: Proportional split has no valid proportions. Falling back to SingleGroup."
-                    );
+                    FarmError::ProportionFallback;
                     return GroupSplit::SingleGroup;
                 }
                 let assignments = assign_units_proportional(device_count, proportions);
@@ -184,13 +181,11 @@ impl GroupSplit {
             }
 
             GroupSplit::Explicit(counts) => {
-                if counts.iter().sum::<usize>() == device_count {
+                let sum = counts.iter().sum::<usize>();
+                if sum == device_count {
                     GroupSplit::Explicit(counts.clone())
                 } else {
-                    eprintln!(
-                        "Warning: Explicit split {:?} does not match device count {}. Falling back to SingleGroup.",
-                        counts, device_count
-                    );
+                    FarmError::ExplicitFallback { sum, device_count };
                     GroupSplit::SingleGroup
                 }
             }
@@ -232,7 +227,7 @@ impl<FR: FarmRuntime> FarmGroup<FR> {
         self.units.iter().filter(|u| u.is_linked())
     }
 
-    pub fn get_unit(&self, index: usize) -> Result<&FarmUnit<FR>, FarmError> {
+    pub fn get_unit(&self, index: usize) -> Result<&FarmUnit<FR>> {
         self.units.get(index).ok_or(FarmError::InvalidDevice)
     }
 }

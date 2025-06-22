@@ -22,3 +22,4 @@ cudarc = { version = "0.16.4", features = [
   "nccl",
 ], default-features = false }
 crossbeam-channel = "0.5.15"
+thiserror = "2.0.12"

@@ -1,29 +1,17 @@
-#[derive(Debug)]
+use thiserror::Error;
+
+pub type Result<T> = core::result::Result<T, FarmError>;
+
+#[derive(Error, Debug)]
 pub enum FarmError {
-    DriverError(cudarc::driver::DriverError),
-    InvalidDevice,
-    InvalidConfiguration,
-    InvalidHandle,
-    NcclError(cudarc::nccl::result::NcclError),
-    InvalidGroup(usize),
-    InvalidUnit(usize),
-    InvalidDataCount { expected: usize, got: usize },
-    GroupAlreadyStarted(usize),
-    GroupNotStarted(usize),
-    NoNcclLinks(usize),
-    ChannelClosed,
-    RuntimeError(String),
+    #[error("The choosen split configuration device count is not equal to your devices")]
     InvalidSplitConfiguration,
-}
-
-impl From<cudarc::driver::DriverError> for FarmError {
-    fn from(err: cudarc::driver::DriverError) -> Self {
-        FarmError::DriverError(err)
-    }
-}
-
-impl From<cudarc::nccl::result::NcclError> for FarmError {
-    fn from(err: cudarc::nccl::result::NcclError) -> Self {
-        FarmError::NcclError(err)
-    }
+    #[error("Warning: Proportional split has no valid proportions. Falling back to SingleGroup.")]
+    ProportionFallback,
+    #[error("Unit index not found")]
+    InvalidDevice,
+    #[error(
+        "Warning: Explicit split {sum} does not match device count {device_count}. Falling back to SingleGroup."
+    )]
+    ExplicitFallback { sum: usize, device_count: usize },
 }
