@@ -4,3 +4,4 @@ pub use cubecl_core::server::ComputeServer;
 pub use cubecl_core::{Runtime, client::ComputeClient, server::Handle};
 pub use std::collections::HashMap;
 pub use std::fmt::Debug;
+pub use std::sync::{Arc, Mutex};

@@ -1,19 +1,14 @@
 use crate::reuse::*;
+use std::sync::Arc;
 
 pub trait Link: Debug + Send + Sync + Clone {
-    type Ctx;
-    type Stream;
-
-    fn ctx() -> Self::Ctx;
-    fn stream(ctx: &Self::Ctx, index: usize) -> Self::Stream;
-    fn new_link(stream: &Self::Stream) -> Self;
-    fn device_count(ctx: &Self::Ctx) -> usize;
-
-    fn all_reduce(&self, trarget: Handle) -> Result<()>;
+    fn device_count() -> usize;
+    fn link_group(id: usize, size: usize) -> Vec<Arc<Self>>;
+    fn all_reduce(&self, target: Handle) -> Result<()>;
     fn broadcast(&self, root: Handle, target: Handle) -> Result<()>;
-    fn reduce(&self, root: Handle, target: Handle);
-    fn all_gather(&self, target: Handle);
-    fn reduce_scatter(&self, target: Handle);
+    fn reduce(&self, root: Handle, target: Handle) -> Result<()>;
+    fn all_gather(&self, target: Handle) -> Result<()>;
+    fn reduce_scatter(&self, target: Handle) -> Result<()>;
 }
 
 pub trait FarmRuntime: Sized + Clone {
@@ -25,8 +20,7 @@ pub trait FarmRuntime: Sized + Clone {
 
     // Provided methods
     fn farm(split: GroupSplit) -> Result<Farm<Self>> {
-        let ctx = Self::L::ctx();
-        let count = Self::L::device_count(&ctx);
+        let count = <Self::L as Link>::device_count();
         Farm::<Self>::new(0, count, split)
     }
 }
@@ -34,14 +28,16 @@ pub trait FarmRuntime: Sized + Clone {
 pub struct Farm<FR: FarmRuntime> {
     pub id: usize,
     pub unit_count: usize,
-    pub groups: Vec<FarmGroup<FR>>,
+    pub groups: Vec<Arc<FarmGroup<FR>>>,
 }
+
 impl<FR: FarmRuntime> Farm<FR> {
     pub fn new(id: usize, unit_count: usize, split: GroupSplit) -> Result<Self> {
         let resolved_split = split.determine_split(unit_count);
         let groups = match resolved_split {
             GroupSplit::SingleGroup => {
                 let mut units = Vec::with_capacity(unit_count);
+
                 if unit_count == 1 {
                     let client = <<FR as FarmRuntime>::R as Runtime>::client(
                         &<FR as FarmRuntime>::device(0),
@@ -49,33 +45,33 @@ impl<FR: FarmRuntime> Farm<FR> {
 
                     units.push(FarmUnit::Single {
                         device_index: 0,
-                        client,
+                        client: Arc::new(client),
                         handles: None,
                     });
                 } else {
-                    let ctx = <FR as FarmRuntime>::L::ctx();
+                    let links = <FR as FarmRuntime>::L::link_group(0, unit_count);
 
-                    for i in 0..unit_count {
+                    for (i, link) in links.into_iter().enumerate() {
                         let client = <<FR as FarmRuntime>::R as Runtime>::client(
                             &<FR as FarmRuntime>::device(i),
                         );
+
                         units.push(FarmUnit::Linked {
                             id: i,
                             device_index: i,
-                            client,
-                            link: <FR as FarmRuntime>::L::new_link(
-                                &<FR as FarmRuntime>::L::stream(&ctx, i),
-                            ),
+                            client: Arc::new(client),
+                            link,
                         });
                     }
                 }
-                vec![FarmGroup::new(0, units)]
+                vec![Arc::new(FarmGroup::new(0, units))]
             }
 
             GroupSplit::Explicit(counts) => {
                 if counts.iter().sum::<usize>() != unit_count {
                     return Err(FarmError::InvalidSplitConfiguration);
                 }
+
                 let mut created_groups = Vec::new();
                 let mut device_index_offset = 0;
 
@@ -87,18 +83,21 @@ impl<FR: FarmRuntime> Farm<FR> {
                     let mut units_for_group = Vec::with_capacity(group_size);
 
                     if group_size == 1 {
+                        // Single unit in group - no links
                         let client = <<FR as FarmRuntime>::R as Runtime>::client(
                             &<FR as FarmRuntime>::device(device_index_offset),
                         );
+
                         units_for_group.push(FarmUnit::Single {
                             device_index: device_index_offset,
-                            client,
+                            client: Arc::new(client),
                             handles: None,
                         });
                     } else {
-                        let ctx = <FR as FarmRuntime>::L::ctx();
+                        // Multiple units in group - create link group
+                        let links = <FR as FarmRuntime>::L::link_group(group_id, group_size);
 
-                        for local_rank in 0..group_size {
+                        for (local_rank, link) in links.into_iter().enumerate() {
                             let device_index = device_index_offset + local_rank;
                             let client = <<FR as FarmRuntime>::R as Runtime>::client(
                                 &<FR as FarmRuntime>::device(device_index),
@@ -107,20 +106,20 @@ impl<FR: FarmRuntime> Farm<FR> {
                             units_for_group.push(FarmUnit::Linked {
                                 id: local_rank,
                                 device_index,
-                                client,
-                                link: <FR as FarmRuntime>::L::new_link(
-                                    &<FR as FarmRuntime>::L::stream(&ctx, device_index),
-                                ),
+                                client: Arc::new(client),
+                                link,
                             });
                         }
                     }
-                    created_groups.push(FarmGroup::new(group_id, units_for_group));
+
+                    created_groups.push(Arc::new(FarmGroup::new(group_id, units_for_group)));
                     device_index_offset += group_size;
                 }
                 created_groups
             }
             GroupSplit::Proportional(_) => unreachable!(),
         };
+
         Ok(Self {
             id,
             unit_count,
@@ -140,7 +139,7 @@ impl<FR: FarmRuntime> Farm<FR> {
         self.all_units().filter(|u| !u.is_linked())
     }
 
-    pub fn group(&self, group_id: usize) -> Option<&FarmGroup<FR>> {
+    pub fn group(&self, group_id: usize) -> Option<&Arc<FarmGroup<FR>>> {
         self.groups.iter().find(|g| g.id == group_id)
     }
 
@@ -150,6 +149,16 @@ impl<FR: FarmRuntime> Farm<FR> {
 
     pub fn total_units(&self) -> usize {
         self.groups.iter().map(|g| g.units.len()).sum()
+    }
+}
+
+impl<FR: FarmRuntime> Clone for Farm<FR> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            unit_count: self.unit_count,
+            groups: self.groups.clone(),
+        }
     }
 }
 
@@ -181,7 +190,6 @@ impl GroupSplit {
         match self {
             GroupSplit::Proportional(proportions) => {
                 if proportions.is_empty() || proportions.iter().all(|&p| p <= 0.0) {
-                    FarmError::ProportionFallback;
                     return GroupSplit::SingleGroup;
                 }
                 let assignments = assign_units_proportional(device_count, proportions);
@@ -198,7 +206,6 @@ impl GroupSplit {
                 if sum == device_count {
                     GroupSplit::Explicit(counts.clone())
                 } else {
-                    FarmError::ExplicitFallback { sum, device_count };
                     GroupSplit::SingleGroup
                 }
             }
@@ -211,7 +218,7 @@ impl GroupSplit {
 pub struct FarmGroup<FR: FarmRuntime> {
     pub id: usize,
     pub units: Vec<FarmUnit<FR>>,
-    pub handles: Option<HashMap<usize, Vec<Handle>>>,
+    pub handles: Option<Arc<Mutex<HashMap<usize, Vec<Handle>>>>>,
 }
 
 impl<FR: FarmRuntime> FarmGroup<FR> {
@@ -242,6 +249,13 @@ impl<FR: FarmRuntime> FarmGroup<FR> {
     pub fn get_unit(&self, index: usize) -> Result<&FarmUnit<FR>> {
         self.units.get(index).ok_or(FarmError::InvalidDevice)
     }
+
+    pub fn get_links(&self) -> Vec<Arc<<FR as FarmRuntime>::L>> {
+        self.units
+            .iter()
+            .filter_map(|unit| unit.link().cloned())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -249,19 +263,23 @@ pub enum FarmUnit<FR: FarmRuntime> {
     Linked {
         id: usize,
         device_index: usize,
-        client: ComputeClient<
-            <<FR as FarmRuntime>::R as Runtime>::Server,
-            <<FR as FarmRuntime>::R as Runtime>::Channel,
+        client: Arc<
+            ComputeClient<
+                <<FR as FarmRuntime>::R as Runtime>::Server,
+                <<FR as FarmRuntime>::R as Runtime>::Channel,
+            >,
         >,
-        link: <FR as FarmRuntime>::L,
+        link: Arc<<FR as FarmRuntime>::L>,
     },
     Single {
         device_index: usize,
-        client: ComputeClient<
-            <<FR as FarmRuntime>::R as Runtime>::Server,
-            <<FR as FarmRuntime>::R as Runtime>::Channel,
+        client: Arc<
+            ComputeClient<
+                <<FR as FarmRuntime>::R as Runtime>::Server,
+                <<FR as FarmRuntime>::R as Runtime>::Channel,
+            >,
         >,
-        handles: Option<HashMap<usize, Handle>>,
+        handles: Option<Arc<Mutex<HashMap<usize, Handle>>>>,
     },
 }
 
@@ -275,9 +293,11 @@ impl<FR: FarmRuntime> FarmUnit<FR> {
 
     pub fn client(
         &self,
-    ) -> &ComputeClient<
-        <<FR as FarmRuntime>::R as Runtime>::Server,
-        <<FR as FarmRuntime>::R as Runtime>::Channel,
+    ) -> &Arc<
+        ComputeClient<
+            <<FR as FarmRuntime>::R as Runtime>::Server,
+            <<FR as FarmRuntime>::R as Runtime>::Channel,
+        >,
     > {
         match self {
             FarmUnit::Linked { client, .. } => client,
@@ -289,7 +309,7 @@ impl<FR: FarmRuntime> FarmUnit<FR> {
         matches!(self, FarmUnit::Linked { .. })
     }
 
-    pub fn link(&self) -> Option<&<FR as FarmRuntime>::L> {
+    pub fn link(&self) -> Option<&Arc<<FR as FarmRuntime>::L>> {
         match self {
             FarmUnit::Linked { link, .. } => Some(link),
             FarmUnit::Single { .. } => None,
