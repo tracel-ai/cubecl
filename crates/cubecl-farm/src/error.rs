@@ -14,4 +14,6 @@ pub enum FarmError {
         "Warning: Explicit split {sum} does not match device count {device_count}. Falling back to SingleGroup."
     )]
     ExplicitFallback { sum: usize, device_count: usize },
+    #[error("Could not sync group")]
+    BarrierError,
 }

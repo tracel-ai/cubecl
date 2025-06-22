@@ -1,13 +1,13 @@
 use crate::reuse::*;
 
-pub trait Link: Sized {
+pub trait Link: Debug + Send + Sync + Clone {
     // Required methods
     fn new(index: usize) -> Self;
     fn new_group(indices: Vec<usize>) -> Vec<Self>;
     // Provided methods
 }
 
-pub trait FarmRuntime: Sized {
+pub trait FarmRuntime: Sized + Clone {
     type R: Runtime;
     type L: Link;
     type Server: ComputeServer;
@@ -229,6 +229,7 @@ impl<FR: FarmRuntime> FarmGroup<FR> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum FarmUnit<FR: FarmRuntime> {
     Linked {
         id: usize,
