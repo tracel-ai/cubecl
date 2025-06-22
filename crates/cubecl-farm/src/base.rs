@@ -1,7 +1,13 @@
 use crate::reuse::*;
 
 pub trait Link: Debug + Send + Sync + Clone {
-    fn new(index: usize) -> Self;
+    type Ctx;
+    type Stream;
+
+    fn ctx() -> Self::Ctx;
+    fn stream(ctx: &Self::Ctx, index: usize) -> Self::Stream;
+    fn new_link(stream: &Self::Stream) -> Self;
+    fn device_count(ctx: &Self::Ctx) -> usize;
 
     fn all_reduce(&self, trarget: Handle) -> Result<()>;
     fn broadcast(&self, root: Handle, target: Handle) -> Result<()>;
@@ -15,13 +21,12 @@ pub trait FarmRuntime: Sized + Clone {
     type L: Link;
 
     // Required methods
-    fn runtime() -> Self::R;
     fn device(index: usize) -> <Self::R as Runtime>::Device;
-    fn device_count() -> usize;
 
     // Provided methods
     fn farm(split: GroupSplit) -> Result<Farm<Self>> {
-        let count = Self::device_count();
+        let ctx = Self::L::ctx();
+        let count = Self::L::device_count(&ctx);
         Farm::<Self>::new(0, count, split)
     }
 }
@@ -48,6 +53,8 @@ impl<FR: FarmRuntime> Farm<FR> {
                         handles: None,
                     });
                 } else {
+                    let ctx = <FR as FarmRuntime>::L::ctx();
+
                     for i in 0..unit_count {
                         let client = <<FR as FarmRuntime>::R as Runtime>::client(
                             &<FR as FarmRuntime>::device(i),
@@ -56,7 +63,9 @@ impl<FR: FarmRuntime> Farm<FR> {
                             id: i,
                             device_index: i,
                             client,
-                            link: <FR as FarmRuntime>::L::new(i),
+                            link: <FR as FarmRuntime>::L::new_link(
+                                &<FR as FarmRuntime>::L::stream(&ctx, i),
+                            ),
                         });
                     }
                 }
@@ -87,16 +96,21 @@ impl<FR: FarmRuntime> Farm<FR> {
                             handles: None,
                         });
                     } else {
+                        let ctx = <FR as FarmRuntime>::L::ctx();
+
                         for local_rank in 0..group_size {
                             let device_index = device_index_offset + local_rank;
                             let client = <<FR as FarmRuntime>::R as Runtime>::client(
                                 &<FR as FarmRuntime>::device(device_index),
                             );
+
                             units_for_group.push(FarmUnit::Linked {
-                                id: local_rank, // Rank is local to the group
+                                id: local_rank,
                                 device_index,
                                 client,
-                                link: <FR as FarmRuntime>::L::new(device_index),
+                                link: <FR as FarmRuntime>::L::new_link(
+                                    &<FR as FarmRuntime>::L::stream(&ctx, device_index),
+                                ),
                             });
                         }
                     }
