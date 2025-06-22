@@ -110,7 +110,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         };
 
         let len = L::Job::task_count(&loading_job);
-        for task_id in 0..len {
+
+        let mut task_id = comptime![0u32];
+
+        #[allow(clippy::explicit_counter_loop)]
+        #[unroll]
+        for _ in 0..len {
             L::Job::<MP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
@@ -119,6 +124,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
                 &this.quantization,
                 config,
             );
+            comptime![task_id += 1];
         }
     }
 }
@@ -174,7 +180,11 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
     fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G) {
         let task_counter = job.current.read().counter;
 
-        for task_id in task_counter..job.num_tasks {
+        let mut task_id = comptime![task_counter];
+
+        #[allow(clippy::explicit_counter_loop)]
+        #[unroll]
+        for _ in task_counter..job.num_tasks {
             L::Job::<MP>::execute_task::<G>(
                 &mut job.loading,
                 task_id,
@@ -183,6 +193,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
                 &this.quantization,
                 config,
             );
+            comptime![task_id += 1];
         }
 
         job.current.store(TaskCounter {

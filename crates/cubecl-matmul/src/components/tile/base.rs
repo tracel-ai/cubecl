@@ -1,5 +1,5 @@
 use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, ir::Elem};
+use cubecl_core::{self as cubecl};
 
 use crate::components::MatmulLineSizes;
 use crate::{
@@ -30,14 +30,6 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
-
-    fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
-    ) -> MatmulSelection;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes

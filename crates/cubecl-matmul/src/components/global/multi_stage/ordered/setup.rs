@@ -53,6 +53,7 @@ where
             line_sizes,
             (1, 2).into(),
             max_loaders,
+            true,
         )?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();

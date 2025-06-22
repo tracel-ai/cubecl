@@ -5,7 +5,7 @@ use crate::{
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::MemoryUsage,
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
+    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError},
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::format;
@@ -264,15 +264,17 @@ where
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
-                let profile = self.profile(|| unsafe {
-                    self.channel.execute(
-                        kernel,
-                        count.clone(),
-                        bindings,
-                        mode,
-                        self.state.logger.clone(),
-                    )
-                });
+                let profile = self
+                    .profile(|| unsafe {
+                        self.channel.execute(
+                            kernel,
+                            count.clone(),
+                            bindings,
+                            mode,
+                            self.state.logger.clone(),
+                        )
+                    })
+                    .unwrap();
                 let info = match level {
                     ProfileLevel::Full => {
                         format!("{name}: {kernel_id} CubeCount {count:?}")
@@ -352,7 +354,7 @@ where
     ///
     /// Nb: this function will only allow one function at a time to be submitted when multi threading.
     /// Recursive measurements are not allowed and will deadlock.
-    pub fn profile<O>(&self, func: impl FnOnce() -> O) -> ProfileDuration {
+    pub fn profile<O>(&self, func: impl FnOnce() -> O) -> Result<ProfileDuration, ProfileError> {
         #[cfg(multi_threading)]
         let stream_id = self.profile_aquire();
         let token = self.channel.start_profile();

@@ -5,6 +5,7 @@ use crate::{
 use cubecl_common::future;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, Runtime,
+    benchmark::TimingMethod,
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -246,7 +247,14 @@ pub(crate) fn create_client_on_setup(
 
     let features = setup.adapter.features();
 
-    let mut device_props = DeviceProperties::new(&[], mem_props.clone(), hardware_props);
+    let time_measurement = if features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+        TimingMethod::Device
+    } else {
+        TimingMethod::System
+    };
+
+    let mut device_props =
+        DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
 
     // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
     // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
@@ -270,6 +278,7 @@ pub(crate) fn create_client_on_setup(
         setup.queue,
         options.tasks_max,
         setup.backend,
+        time_measurement,
     );
     let channel = MutexComputeChannel::new(server);
 

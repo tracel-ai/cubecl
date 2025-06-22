@@ -38,8 +38,15 @@ where
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_config =
-            SMM::setup::<MP, R>(client, problem, selection, line_sizes, (1, 1).into(), None)?;
+        let stage_config = SMM::setup::<MP, R>(
+            client,
+            problem,
+            selection,
+            line_sizes,
+            (1, 1).into(),
+            None,
+            false,
+        )?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
         let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();

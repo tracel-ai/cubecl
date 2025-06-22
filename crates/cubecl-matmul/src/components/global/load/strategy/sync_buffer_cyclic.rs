@@ -75,23 +75,23 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
     ) -> Job {
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
+
         let tile_size = config.tiling_scheme().elements_in_tile(input_ident);
         let tile_count_row = config.tiling_scheme().tiles_in_stage_row(input_ident);
         let tile_count_col = config.tiling_scheme().tiles_in_stage_col(input_ident);
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.plane_dim() * config.num_loading_planes(input_ident);
-        let jump_length = total_units * line_size;
 
         let num_tiles_in_buffer = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
+        let balanced_workload = total_num_lines % total_units == 0;
         let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
-        let balanced_workload = num_tasks_per_unit % total_units == 0;
+        let jump_length = total_units * line_size;
 
-        let unit_id = RoleRule::new(config.role_rule_config())
-            .load_index(input_ident, config.specialized_loading_sides())
-            * config.plane_dim()
-            + UNIT_POS_X;
+        let plane_id = RoleRule::new(config.role_rule_config())
+            .load_index(input_ident, config.specialized_loading_sides());
+        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         Job {
@@ -134,7 +134,7 @@ pub struct Job {
 impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
         quantization: &CubeOption<Quantization<MP>>,

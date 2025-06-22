@@ -17,7 +17,7 @@ pub use cubecl_matmul as matmul;
 #[cfg(feature = "convolution")]
 pub use cubecl_convolution as convolution;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "stdlib")]
 pub use cubecl_std as std;
 
 #[cfg(feature = "reduce")]

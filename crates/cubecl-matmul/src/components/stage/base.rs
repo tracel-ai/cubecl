@@ -50,6 +50,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_loaders: Option<MaxLoaders>,
+        ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
@@ -106,7 +107,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Executes the matrix multiplication of LHS and RHS, with the addition of injected
     /// [event listener](StageEventListener).
-    fn execute_with_listener<SEL: StageEventListener>(
+    fn execute_with_listener<SEL: StageEventListener<Self::Config>>(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
         instruction_lhs: &mut Self::LhsTile,
@@ -181,6 +182,8 @@ pub trait StageConfig: MatmulConfig {
     fn role_rule_config(&self) -> RoleRuleConfig;
     fn num_main_flow_planes(&self) -> u32;
     fn quantized(&self) -> bool;
+
+    fn must_sync_plane_after_execution(&self) -> bool;
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]

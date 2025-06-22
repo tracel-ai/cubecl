@@ -1,4 +1,4 @@
-use cubecl_core::server::ProfilingToken;
+use cubecl_core::server::{ProfileError, ProfilingToken};
 use hashbrown::HashMap;
 use web_time::Instant;
 use wgpu::{CommandEncoder, QuerySet, QueryType, wgt::QuerySetDescriptor};
@@ -89,7 +89,7 @@ impl Timings {
         encoder: &mut CommandEncoder,
         resource_start: WgpuResource,
         resource_end: WgpuResource,
-    ) {
+    ) -> Result<(), ProfileError> {
         let query_set_start = self.query_sets.get_mut(&start).unwrap();
         query_set_start.num_ref -= 1;
 
@@ -104,7 +104,10 @@ impl Timings {
             resource_start.offset(),
         );
 
-        let query_set_end = self.query_sets.get_mut(&end).unwrap();
+        let query_set_end = match self.query_sets.get_mut(&end) {
+            Some(val) => val,
+            None => return Err(ProfileError::NotRegistered),
+        };
 
         encoder.resolve_query_set(
             &query_set_end.query_set,
@@ -112,6 +115,8 @@ impl Timings {
             resource_end.buffer(),
             resource_end.offset(),
         );
+
+        Ok(())
     }
 
     /// Returns the query set to be used by the [wgpu::ComputePass].

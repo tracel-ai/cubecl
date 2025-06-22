@@ -1,7 +1,10 @@
-use super::base;
+use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+
+use super::{MatmulSelection, base, unit_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
+    MatmulProblem,
     batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
@@ -27,10 +30,22 @@ where
     RL: SyncFullLoadingStrategy,
     P: Partitioner,
 {
+    type SelectionArgs = ();
     type TileMatmul = RegisterMatmul;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+
+    fn selection<R: Runtime>(
+        _client: &ComputeClient<R::Server, R::Channel>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        _elem_stage: Elem,
+        _elem_acc: Elem,
+        _args: &Self::SelectionArgs,
+    ) -> MatmulSelection {
+        unit_matmul_selection(problem, plane_dim, false)
+    }
 }

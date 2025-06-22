@@ -11,7 +11,8 @@ use crate::{
     logging::ServerLogger,
     memory_management::MemoryUsage,
     server::{
-        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfilingToken,
+        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
+        ProfilingToken,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -69,7 +70,10 @@ where
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
     StartProfile(Callback<ProfilingToken>),
-    StopMeasure(Callback<ProfileDuration>, ProfilingToken),
+    StopMeasure(
+        Callback<Result<ProfileDuration, ProfileError>>,
+        ProfilingToken,
+    ),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -317,7 +321,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn end_profile(&self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender

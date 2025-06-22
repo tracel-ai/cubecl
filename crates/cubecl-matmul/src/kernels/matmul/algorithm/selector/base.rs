@@ -7,7 +7,7 @@ use crate::{
     kernels::matmul::LoadingPrecomputeStrategy,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
