@@ -3,6 +3,7 @@ pub enum FarmError {
     DriverError(cudarc::driver::DriverError),
     InvalidDevice,
     InvalidConfiguration,
+    InvalidHandle,
     NcclError(cudarc::nccl::result::NcclError),
     InvalidGroup(usize),
     InvalidUnit(usize),
@@ -12,6 +13,7 @@ pub enum FarmError {
     NoNcclLinks(usize),
     ChannelClosed,
     RuntimeError(String),
+    InvalidSplitConfiguration,
 }
 
 impl From<cudarc::driver::DriverError> for FarmError {
