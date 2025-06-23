@@ -6,7 +6,8 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
 use crate::components::batch::{
-    BatchMatmulFamily, CubeCountArgsLaunch, CubeCounterConfig, CubePosStrategy, GlobalPartitioning,
+    BatchMatmulFamily, CubeCountStrategyArgs, CubeCountStrategyConfig, CubeCounterConfig,
+    GlobalPartitioning,
 };
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
@@ -37,14 +38,17 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
         // TODO
-        const NUM_SMS: u32 = 19;
+        // let num_sms = client.properties().hardware.num_streaming_multiprocessors;
+        let num_sms = Some(19);
+        // let num_sms = None;
         let gp = GlobalPartitioning::Natural;
-        // let cube_pos_strategy = CubePosStrategy::CubePerSmFirst;
-        // let cube_pos_strategy = CubePosStrategy::SmPerCubeFirst;
-        // let cube_pos_strategy = CubePosStrategy::Flat;
-        let cube_pos_strategy = CubePosStrategy::FromProblem;
+
+        let cube_pos_strategy = match num_sms {
+            Some(num_sms) => CubeCountStrategyConfig::SmPerCubeFirst(num_sms),
+            None => CubeCountStrategyConfig::Flat,
+        };
         let cube_counter_config =
-            CubeCounterConfig::new(NUM_SMS, &selection.tiling_scheme, gp, cube_pos_strategy);
+            CubeCounterConfig::new(&selection.tiling_scheme, gp, cube_pos_strategy);
 
         PartitionedBatchConfig::new(global_config, cube_counter_config)
     }
@@ -55,7 +59,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountArgsLaunch<'a, R>,
+        cube_count_args: CubeCountStrategyArgs<'a, R>,
         config: Self::Config,
     ) {
         unsafe {

@@ -1,4 +1,4 @@
-use crate::components::batch::CubeCountArgs;
+use crate::components::batch::CubeCountStrategy;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -26,7 +26,7 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    cube_count_args: CubeCountArgs,
+    cube_count_args: CubeCountStrategy,
     #[comptime] config: BMMF::Config,
 ) {
     let mut state = Args::init_state(inputs, output);

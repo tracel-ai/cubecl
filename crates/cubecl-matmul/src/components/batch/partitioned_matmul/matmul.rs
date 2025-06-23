@@ -5,7 +5,7 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountArgs, CubeCounter};
+use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountStrategy};
 use crate::components::global;
 use crate::components::global::Quantization;
 use cubecl_core as cubecl;
@@ -39,35 +39,17 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMa
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
-        cube_count_args: CubeCountArgs,
+        cube_count_args: CubeCountStrategy,
         #[comptime] config: Self::Config,
     ) {
-        // TODO maybe reads too many things
         let lhs_rank = lhs.rank();
-        let rhs_rank = rhs.rank();
-        let out_rank = out.rank();
-
-        let problem_m = lhs.shape(lhs_rank - 2);
-        let problem_n = rhs.shape(rhs_rank - 1);
-
-        let mut problem_batch = 0;
-        for o in 0..out_rank - 2 {
-            problem_batch *= out.shape(o);
-        }
-
-        let cube_counter = CubeCounter::new(
-            problem_m,
-            problem_n,
-            problem_batch,
-            cube_count_args,
-            config.cube_counter_config(),
-        );
 
         let problem_k = lhs.shape(lhs_rank - 1);
         let k_range = (0, problem_k);
 
         let tiling_scheme = config.tiling_scheme();
-        let (m_index, n_index, batch_index) = cube_counter.cube_pos_to_tensor_pos();
+        let (m_index, n_index, batch_index) = cube_count_args
+            .cube_pos_to_tensor_pos(config.cube_counter_config().global_partitioning);
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(
