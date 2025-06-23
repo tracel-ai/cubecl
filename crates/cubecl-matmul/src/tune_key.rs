@@ -18,37 +18,12 @@ pub struct MatmulAutotuneKey {
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 struct MatmulProblemDefinition {
     #[autotune(anchor)]
-    m: usize,
-    #[autotune(anchor)]
-    n: usize,
-    #[autotune(anchor)]
-    k: usize,
+    biggest_axis: usize,
     elem_lhs: Elem,
     elem_rhs: Elem,
     elem_out: Elem,
     matrix_layout_lhs: MatrixBatchLayout,
     matrix_layout_rhs: MatrixBatchLayout,
-}
-
-impl From<MatmulProblemDefinition> for MatmulProblemSize {
-    fn from(problem_definition: MatmulProblemDefinition) -> Self {
-        MatmulProblemSize::new(
-            problem_definition.m as u32,
-            problem_definition.n as u32,
-            problem_definition.k as u32,
-        )
-    }
-}
-
-impl From<&MatmulProblemDefinition> for MatmulKind {
-    fn from(problem_definition: &MatmulProblemDefinition) -> Self {
-        let matmul_size = MatmulProblemSize::new(
-            problem_definition.m as u32,
-            problem_definition.n as u32,
-            problem_definition.k as u32,
-        );
-        matmul_size.into()
-    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -110,10 +85,16 @@ impl MatmulAutotuneKey {
         let matrix_layout_lhs = matrix_batch_layout(lhs_strides);
         let matrix_layout_rhs = matrix_batch_layout(rhs_strides);
 
+        let biggest_axis = usize::max(m, n);
+        let biggest_axis = usize::max(biggest_axis, k);
+        let kind = MatmulKind::from(MatmulProblemSize {
+            m: m as u32,
+            n: n as u32,
+            k: k as u32,
+        });
+
         let definition = MatmulProblemDefinition::new(
-            m,
-            n,
-            k,
+            biggest_axis,
             elem_lhs,
             elem_rhs,
             elem_out,
@@ -131,7 +112,7 @@ impl MatmulAutotuneKey {
                 Some(tc) => m > tc && n > tc && k > tc,
                 None => false,
             },
-            kind: (&definition).into(),
+            kind,
         };
 
         Self::new(definition, analysis)
