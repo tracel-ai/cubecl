@@ -107,6 +107,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             line_sizes.out,
         )
     };
+    let cube_count_data_args = config
+        .cube_counter_config()
+        .cube_count_data(&problem)
+        .to_args();
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
@@ -115,6 +119,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             config.cube_count(&problem),
             inputs,
             output,
+            cube_count_data_args,
             config,
         );
     }

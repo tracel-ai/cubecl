@@ -1,8 +1,12 @@
 use crate::{
     components::{
-        batch::CubeCounterConfig, config::MatmulConfig, global::{self, GlobalConfig as _, Quantization}, AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingScheme
+        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+        MatmulSpec, OutputRuntimeArg, TilingScheme,
+        batch::{CubeCountArgs, CubeCountArgsLaunch, CubeCounterConfig},
+        config::MatmulConfig,
+        global::{self, GlobalConfig as _, Quantization},
     },
-    kernels::{matmul::MatmulSelection, MatmulSetupError},
+    kernels::{MatmulSetupError, matmul::MatmulSelection},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -34,6 +38,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        cube_count_args: CubeCountArgsLaunch<'a, R>,
         config: Self::Config,
     );
 
@@ -69,6 +74,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
+        cube_count_args: CubeCountArgs,
         #[comptime] config: Self::Config,
     );
 }

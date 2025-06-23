@@ -3,7 +3,7 @@ use cubecl_core::{CubeCount, CubeDim};
 use crate::{
     components::{
         Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
-        batch::{BatchConfig, CubeCounterConfig, GlobalPartitioning},
+        batch::{BatchConfig, CubeCounterConfig},
         global::GlobalConfig,
     },
     kernels::MatmulSetupError,
@@ -12,8 +12,7 @@ use crate::{
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
-    num_sms: u32,
-    global_partitioning: GlobalPartitioning,
+    cube_counter_config: CubeCounterConfig,
 }
 
 impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
@@ -40,15 +39,13 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     }
 
     fn cube_count(&self, problem: &MatmulProblem) -> CubeCount {
-        self.cube_counter_config().cube_count(problem)
+        self.cube_counter_config
+            .cube_count_data(problem)
+            .to_cube_count()
     }
 
     fn cube_counter_config(&self) -> CubeCounterConfig {
-        CubeCounterConfig::new(
-            self.num_sms,
-            &self.tiling_scheme(),
-            self.global_partitioning,
-        )
+        self.cube_counter_config
     }
 }
 
@@ -57,13 +54,11 @@ impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
     pub fn new(
         global_config: G,
-        num_sms: u32,
-        global_partitioning: GlobalPartitioning,
+        cube_counter_config: CubeCounterConfig,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             global_config,
-            num_sms,
-            global_partitioning,
+            cube_counter_config,
         }
         .validate()
     }

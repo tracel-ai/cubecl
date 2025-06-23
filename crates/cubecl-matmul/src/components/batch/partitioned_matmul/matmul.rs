@@ -5,7 +5,7 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCounter};
+use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountArgs, CubeCounter};
 use crate::components::global;
 use crate::components::global::Quantization;
 use cubecl_core as cubecl;
@@ -39,8 +39,10 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMa
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
+        cube_count_args: CubeCountArgs,
         #[comptime] config: Self::Config,
     ) {
+        // TODO maybe reads too many things
         let lhs_rank = lhs.rank();
         let rhs_rank = rhs.rank();
         let out_rank = out.rank();
@@ -57,6 +59,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMa
             problem_m,
             problem_n,
             problem_batch,
+            cube_count_args,
             config.cube_counter_config(),
         );
 

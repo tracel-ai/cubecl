@@ -5,7 +5,9 @@ use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
-use crate::components::batch::{BatchMatmulFamily, GlobalPartitioning};
+use crate::components::batch::{
+    BatchMatmulFamily, CubeCountArgsLaunch, CubeCounterConfig, CubePosStrategy, GlobalPartitioning,
+};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -35,10 +37,13 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
         // TODO
-        const NUM_SMS: u32 = 20;
+        const NUM_SMS: u32 = 19;
         let gp = GlobalPartitioning::Natural;
+        let cube_pos_strategy = CubePosStrategy::SmPerCubeFirst;
+        let cube_counter_config =
+            CubeCounterConfig::new(NUM_SMS, &selection.tiling_scheme, gp, cube_pos_strategy);
 
-        PartitionedBatchConfig::new(global_config, NUM_SMS, gp)
+        PartitionedBatchConfig::new(global_config, cube_counter_config)
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
@@ -47,11 +52,18 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        cube_count_args: CubeCountArgsLaunch<'a, R>,
         config: Self::Config,
     ) {
         unsafe {
             matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
-                client, cube_count, cube_dim, input, output, config,
+                client,
+                cube_count,
+                cube_dim,
+                input,
+                output,
+                cube_count_args,
+                config,
             );
         }
     }

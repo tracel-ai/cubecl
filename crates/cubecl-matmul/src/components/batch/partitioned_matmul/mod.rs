@@ -5,7 +5,5 @@ mod partition;
 mod setup;
 
 pub use cube_counter::*;
-pub use partition::{
-    ColMajorGlobalPartitionMatmul, RowMajorGlobalPartitionMatmul, SwizzleGlobalPartitionMatmul,
-};
+pub use partition::{ColMajorGlobalPartitionMatmul, RowMajorGlobalPartitionMatmul};
 pub use setup::PartitionedBatchMatmulFamily;

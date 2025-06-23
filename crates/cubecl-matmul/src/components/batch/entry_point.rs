@@ -1,3 +1,4 @@
+use crate::components::batch::CubeCountArgs;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -25,6 +26,7 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
+    cube_count_args: CubeCountArgs,
     #[comptime] config: BMMF::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
@@ -44,9 +46,17 @@ pub(crate) fn matmul<
             rhs,
             out,
             CubeOption::new_Some(quantization),
+            cube_count_args,
             config,
         );
     } else {
-        BMMF::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
+        BMMF::Matmul::<(EI, ES, EA, EO)>::execute(
+            lhs,
+            rhs,
+            out,
+            CubeOption::new_None(),
+            cube_count_args,
+            config,
+        );
     };
 }
