@@ -41,7 +41,7 @@ macro_rules! testgen_random_interval {
                 );
 
                 assert!(
-                    actual[1] > 0.99999,
+                    actual[1] >= 0.9999999,
                     "Expected u32::MAX to map close to 1.0, but got {}",
                     actual[1]
                 );
