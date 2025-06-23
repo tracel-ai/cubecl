@@ -6,7 +6,6 @@ use crate::{
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
-    benchmark::TimingMethod,
     ir::{Elem, FloatKind},
 };
 use cubecl_cpp::{

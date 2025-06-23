@@ -293,15 +293,18 @@ where
                 let name = kernel.name();
                 let kernel_id = kernel.id();
                 let profile = self
-                    .profile(|| unsafe {
-                        self.channel.execute(
-                            kernel,
-                            count.clone(),
-                            bindings,
-                            mode,
-                            self.state.logger.clone(),
-                        )
-                    })
+                    .profile(
+                        || unsafe {
+                            self.channel.execute(
+                                kernel,
+                                count.clone(),
+                                bindings,
+                                mode,
+                                self.state.logger.clone(),
+                            )
+                        },
+                        name,
+                    )
                     .unwrap();
                 let info = match level {
                     ProfileLevel::Full => {
@@ -386,7 +389,7 @@ where
         &self,
         func: impl FnOnce() -> O,
         #[allow(unused)] func_name: &str,
-    ) -> ProfileDuration {
+    ) -> Result<ProfileDuration, ProfileError> {
         // Get the outer caller. For execute() this points straight to the
         // cube kernel. For general profiling it points to whoever calls profile.
         #[cfg(feature = "profile-tracy")]

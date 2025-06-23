@@ -27,8 +27,7 @@ impl TimestampProfiler {
     pub fn start(&mut self) -> ProfilingToken {
         let token = ProfilingToken { id: self.counter };
         self.counter += 1;
-        self.state
-            .insert(token, State::Start(std::time::Instant::now()));
+        self.state.insert(token, State::Start(Instant::now()));
         token
     }
 
@@ -42,8 +41,7 @@ impl TimestampProfiler {
             },
             None => return Err(ProfileError::NotRegistered),
         };
-
-        Ok(ProfileDuration::from_duration(start.elapsed()))
+        Ok(ProfileDuration::new_system_time(start, Instant::now()))
     }
 
     /// Register an error during profiling.

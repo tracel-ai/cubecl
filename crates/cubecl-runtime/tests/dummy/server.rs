@@ -5,6 +5,7 @@ use cubecl_runtime::id::KernelId;
 use cubecl_runtime::kernel::KernelMetadata;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfileError, ProfilingToken};
+use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use std::sync::Arc;
 
 use super::DummyKernel;
