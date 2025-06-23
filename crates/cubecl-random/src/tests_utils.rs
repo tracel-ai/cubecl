@@ -123,3 +123,43 @@ pub fn assert_at_least_one_value_per_bin<E: Numeric>(
     assert!(stats[1].count >= 1);
     assert!(stats[2].count >= 1);
 }
+
+#[cube(launch)]
+pub(crate) fn kernel_to_unit_interval(input: &Array<u32>, output: &mut Array<f32>) {
+    output[ABSOLUTE_POS] = crate::to_unit_interval(input[ABSOLUTE_POS]);
+}
+
+pub fn test_kernel_to_unit_interval<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    let input = client.create(u32::as_bytes(&[0, u32::MAX]));
+    let output = client.empty(input.size() as usize);
+
+    kernel_to_unit_interval::launch::<R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        unsafe { ArrayArg::from_raw_parts::<u32>(&input, 2, 1) },
+        unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
+    );
+
+    let actual = client.read_one(output.binding());
+    let actual = f32::from_bytes(&actual);
+
+    // Previous implementation would map to `[0, 1]` but the interval should be half open `[0, 1)`
+    assert_eq!(
+        actual[0], 0.0,
+        "Expected 0 to map to 0.0, but got {}",
+        actual[0]
+    );
+
+    assert!(
+        actual[1] < 1.0,
+        "Expected u32::MAX to map to a value strictly less than 1.0, but got {}",
+        actual[1]
+    );
+
+    assert!(
+        actual[1] > 0.99999,
+        "Expected u32::MAX to map close to 1.0, but got {}",
+        actual[1]
+    );
+}
