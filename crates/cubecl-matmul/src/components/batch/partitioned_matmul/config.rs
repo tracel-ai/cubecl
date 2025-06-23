@@ -39,12 +39,9 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     }
 
     fn cube_count(&self, problem: &MatmulProblem) -> CubeCount {
-        let x = self
-            .cube_counter_config
+        self.cube_counter_config
             .cube_count_data(problem)
-            .to_cube_count();
-        println!("cube_count{:?}", x);
-        x
+            .to_cube_count()
     }
 
     fn cube_counter_config(&self) -> CubeCounterConfig {

@@ -196,10 +196,6 @@ impl CubeCounterConfig {
         let m_cubes = (problem.m as u32).div_ceil(self.cube_span.m);
         let n_cubes = (problem.n as u32).div_ceil(self.cube_span.n);
         let batch_cubes = (problem.num_batches() as u32).div_ceil(self.cube_span.batch);
-        println!("m_cubes {:?}", m_cubes);
-        println!("n_cubes {:?}", n_cubes);
-        println!("batch_cubes {:?}", batch_cubes);
-        println!("total {:?}", m_cubes * n_cubes * batch_cubes);
 
         match self.cube_pos_strategy {
             CubeCountStrategyConfig::FromProblem => CubeCountStrategy::FromProblem {
@@ -368,16 +364,13 @@ impl CubeCountStrategy {
             } => (CUBE_POS_X, CUBE_POS_Y, CUBE_POS_Z),
             CubeCountStrategy::SmPerCubeFirst {
                 num_sms_used: _,
-                cubes_per_sm,
+                cubes_per_sm: _,
                 m_cubes,
                 n_cubes,
                 batch_cubes: _,
-            } => self.absolute_index_to_m_n_batch(
-                CUBE_POS_X * cubes_per_sm + CUBE_POS_Y,
-                *m_cubes,
-                *n_cubes,
-                global_partitioning,
-            ),
+            } => {
+                self.absolute_index_to_m_n_batch(CUBE_POS, *m_cubes, *n_cubes, global_partitioning)
+            }
             CubeCountStrategy::CubePerSmFirst {
                 num_sms_used: _,
                 cubes_per_sm,

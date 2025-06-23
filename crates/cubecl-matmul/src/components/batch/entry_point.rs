@@ -29,7 +29,7 @@ pub(crate) fn matmul<
     cube_count_args: CubeCountStrategy,
     #[comptime] config: BMMF::Config,
 ) {
-    if CUBE_POS > cube_count_args.max_cube_pos() {
+    if CUBE_POS >= cube_count_args.max_cube_pos() {
         terminate!()
     }
 
