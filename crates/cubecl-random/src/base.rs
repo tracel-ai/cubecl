@@ -179,7 +179,7 @@ pub(crate) fn lcg_step(z: u32) -> u32 {
 /// Converts a `u32` into a `f32` in the unit interval `[0.0, 1.0)`.
 /// Used for generating random floats.
 #[cube]
-pub(crate) fn to_unit_interval(int_random: u32) -> f32 {
+pub fn to_unit_interval(int_random: u32) -> f32 {
     // Use upper 23 bits for f32 precision
     let shifted = int_random >> 9;
     f32::cast_from(shifted) / 8388608.0 // 2^23
