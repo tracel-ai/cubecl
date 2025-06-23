@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_probability};
+use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_unit_interval};
 
 use super::{PrngArgs, PrngRuntime, random};
 
@@ -51,7 +51,7 @@ impl<E: Numeric> PrngRuntime<E> for Uniform<E> {
                 *state_3 = lcg_step(*state_3);
 
                 let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-                let f32_random = to_probability(int_random);
+                let f32_random = to_unit_interval(int_random);
 
                 let f32_uniform = f32_random * f32::cast_from(scale) + f32::cast_from(lower_bound);
 
