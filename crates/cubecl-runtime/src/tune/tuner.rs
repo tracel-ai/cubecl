@@ -281,19 +281,15 @@ impl<K: AutotuneKey> Tuner<K> {
                                 .first()
                                 .expect("need at least 1 profile")
                                 .timing_method();
-
                             for profile in profiles {
-                                if profile.timing_method() != timing_method {
-                                    panic!("all profiles must use the same timing method");
-                                }
                                 durations.push(profile.resolve().await.duration());
                             }
-                            let bench =
+                            let bench_durations =
                                 BenchmarkDurations::from_durations(timing_method, durations);
                             let outcome = Ok(AutotuneOutcome::new(
                                 name,
                                 index,
-                                BenchmarkComputations::new(&bench),
+                                BenchmarkComputations::new(&bench_durations),
                             ));
                             bench_results.push(outcome);
                         }
