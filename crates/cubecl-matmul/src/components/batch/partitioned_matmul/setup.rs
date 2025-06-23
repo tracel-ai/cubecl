@@ -39,7 +39,10 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         // TODO
         const NUM_SMS: u32 = 19;
         let gp = GlobalPartitioning::Natural;
-        let cube_pos_strategy = CubePosStrategy::SmPerCubeFirst;
+        // let cube_pos_strategy = CubePosStrategy::CubePerSmFirst;
+        // let cube_pos_strategy = CubePosStrategy::SmPerCubeFirst;
+        // let cube_pos_strategy = CubePosStrategy::Flat;
+        let cube_pos_strategy = CubePosStrategy::FromProblem;
         let cube_counter_config =
             CubeCounterConfig::new(NUM_SMS, &selection.tiling_scheme, gp, cube_pos_strategy);
 

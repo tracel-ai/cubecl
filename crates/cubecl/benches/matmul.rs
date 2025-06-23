@@ -186,52 +186,52 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         ),
     );
 
-    println!("Simple multi rows");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(
-            SyncLoadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: true }),
-        ),
-    );
+    // println!("Simple multi rows");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(
+    //         SyncLoadingStrategy::Cyclic,
+    //         Selection::Inferred(SimpleArgs { multi_rows: true }),
+    //     ),
+    // );
 
-    println!("Double Buffering");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            SyncBufferLoadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-        ),
-    );
+    // println!("Double Buffering");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(
+    //         SyncBufferLoadingStrategy::Tilewise,
+    //         Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+    //     ),
+    // );
 
-    println!("Double Buffering Specialized");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            SyncBufferLoadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: true }),
-        ),
-    );
+    // println!("Double Buffering Specialized");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(
+    //         SyncBufferLoadingStrategy::Tilewise,
+    //         Selection::Inferred(DoubleBufferingArgs { specialized: true }),
+    //     ),
+    // );
 
-    println!("Ordered 1");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(16),
-            rows_per_plane: Some(2),
-            partition_k: Some(1),
-        })),
-    );
+    // println!("Ordered 1");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+    //         row_count: Some(16),
+    //         rows_per_plane: Some(2),
+    //         partition_k: Some(1),
+    //     })),
+    // );
 
-    println!("Ordered 2");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(8),
-            rows_per_plane: Some(2),
-            partition_k: Some(2),
-        })),
-    );
+    // println!("Ordered 2");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+    //         row_count: Some(8),
+    //         rows_per_plane: Some(2),
+    //         partition_k: Some(2),
+    //     })),
+    // );
 }
 
 fn main() {

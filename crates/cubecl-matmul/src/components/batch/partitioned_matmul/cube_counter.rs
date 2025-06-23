@@ -83,7 +83,6 @@ impl CubeCounterConfig {
             n: tiling_scheme.elements_in_global_partition_n(),
             batch: tiling_scheme.global_partition_size.batches,
         };
-        println!("{:?}", cube_span);
 
         Self {
             num_sms,
