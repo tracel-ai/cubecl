@@ -4,6 +4,7 @@ use cubecl_core::{self as cubecl};
 use crate::components::{MatmulProblem, TilingScheme};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// TODO rename both name and variants (row/col major?)
 pub enum GlobalPartitioning {
     Natural,
     Transposed,
@@ -16,11 +17,17 @@ pub enum CubeCountStrategyConfig {
 
     /// X: num SMs, Y: num cubes per SM
     /// Given value: num SMs
-    SmPerCubeFirst(u32),
+    SmPerCubeFirst {
+        num_sms: u32,
+        sms_partitioning: SmsCubePartitioning,
+    },
 
     /// X: num cubes per SM, Y: num SMs
     /// Given value: num SMs
-    CubePerSmFirst(u32),
+    CubePerSmFirst {
+        num_sms: u32,
+        sms_partitioning: SmsCubePartitioning,
+    },
 
     #[default]
     /// X: total cubes flattened (num SMs * num cubes per SM)
@@ -39,18 +46,116 @@ pub enum CubeCountStrategy {
         cubes_per_sm: u32,
         m_cubes: u32,
         n_cubes: u32,
+        batch_cubes: u32,
     },
     CubePerSmFirst {
         num_sms_used: u32,
         cubes_per_sm: u32,
         m_cubes: u32,
         n_cubes: u32,
+        batch_cubes: u32,
     },
     Flat {
-        total_cubes: u32,
         m_cubes: u32,
         n_cubes: u32,
+        batch_cubes: u32,
     },
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum SmsCubePartitioning {
+    /// Uses the exact GCD of total_cubes and num_sms to balance perfectly
+    /// Equal to Heuristic with 0% slack
+    ExactGcd,
+
+    /// Forces using all num_sms, even if it causes excess cubes
+    /// Equal to Heuristic with infinite% slack
+    ForceAllSms,
+
+    /// Tries to find a divisor of `num_sms` such that the number of extra cubes
+    /// (allocated but unused) does not exceed a given fraction of `num_sms`.
+    ///
+    /// The maximum tolerated slack is:
+    ///     ceil((max_slack_numerator / max_slack_denominator) × num_sms)
+    ///
+    /// The heuristic chooses the smallest valid `sms_used` (i.e., a divisor of `num_sms`)
+    /// such that:
+    ///     sms_used × ceil(total_cubes / sms_used) - total_cubes <= max_slack
+    ///
+    /// Example:
+    /// - total_cubes = 50
+    /// - num_sms = 24
+    /// - max_slack_numerator = 1
+    /// - max_slack_denominator = 4  // → max_slack = ceil(24 × 1/4) = 6
+    ///
+    /// Then the heuristic might pick `sms_used = 6` and `cubes_per_sm = 9`
+    /// yielding 54 cubes total (slack = 4).
+    Heuristic {
+        max_slack_numerator: u32,
+        max_slack_denominator: u32,
+    },
+}
+
+impl SmsCubePartitioning {
+    fn partition_cubes(&self, num_sms: u32, total_cubes: u32) -> (u32, u32) {
+        match self {
+            SmsCubePartitioning::ExactGcd => SmsCubePartitioning::Heuristic {
+                max_slack_numerator: 0,
+                max_slack_denominator: 1,
+            }
+            .partition_cubes(num_sms, total_cubes),
+
+            SmsCubePartitioning::ForceAllSms => SmsCubePartitioning::Heuristic {
+                max_slack_numerator: u32::MAX,
+                max_slack_denominator: 1,
+            }
+            .partition_cubes(num_sms, total_cubes),
+
+            SmsCubePartitioning::Heuristic {
+                max_slack_numerator,
+                max_slack_denominator,
+            } => {
+                let max_slack = num_sms
+                    .saturating_mul(*max_slack_numerator)
+                    .div_ceil(*max_slack_denominator);
+
+                let fallback_cubes_per_sm = total_cubes.div_ceil(num_sms);
+                let mut best = (num_sms, fallback_cubes_per_sm);
+
+                // Inline closure to generate divisors in descending order
+                let divisors_desc = |n: u32| {
+                    let mut divs = Vec::new();
+                    let mut i = 1;
+
+                    while i * i <= n {
+                        if n % i == 0 {
+                            divs.push(i);
+                            if i != n / i {
+                                divs.push(n / i);
+                            }
+                        }
+                        i += 1;
+                    }
+
+                    divs.sort_by(|a, b| b.cmp(a)); // descending
+                    divs.into_iter()
+                };
+
+                for sms_used in divisors_desc(num_sms) {
+                    let cubes_per_sm = total_cubes.div_ceil(sms_used);
+                    let total_allocated = cubes_per_sm * sms_used;
+                    let slack = total_allocated.saturating_sub(total_cubes);
+
+                    if slack <= max_slack {
+                        best = (sms_used, cubes_per_sm);
+                        break;
+                    }
+                }
+
+                best
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -91,7 +196,10 @@ impl CubeCounterConfig {
         let m_cubes = (problem.m as u32).div_ceil(self.cube_span.m);
         let n_cubes = (problem.n as u32).div_ceil(self.cube_span.n);
         let batch_cubes = (problem.num_batches() as u32).div_ceil(self.cube_span.batch);
-        let total_cubes = m_cubes * n_cubes * batch_cubes;
+        println!("m_cubes {:?}", m_cubes);
+        println!("n_cubes {:?}", n_cubes);
+        println!("batch_cubes {:?}", batch_cubes);
+        println!("total {:?}", m_cubes * n_cubes * batch_cubes);
 
         match self.cube_pos_strategy {
             CubeCountStrategyConfig::FromProblem => CubeCountStrategy::FromProblem {
@@ -99,30 +207,38 @@ impl CubeCounterConfig {
                 n_cubes,
                 batch_cubes,
             },
-            CubeCountStrategyConfig::SmPerCubeFirst(num_sms) => {
-                let num_sms_used = gcd(total_cubes, num_sms);
-                let cubes_per_sm = total_cubes / num_sms_used;
+            CubeCountStrategyConfig::SmPerCubeFirst {
+                num_sms,
+                sms_partitioning,
+            } => {
+                let (num_sms_used, cubes_per_sm) =
+                    sms_partitioning.partition_cubes(num_sms, m_cubes * n_cubes * batch_cubes);
                 CubeCountStrategy::SmPerCubeFirst {
                     num_sms_used,
                     cubes_per_sm,
                     m_cubes,
                     n_cubes,
+                    batch_cubes,
                 }
             }
-            CubeCountStrategyConfig::CubePerSmFirst(num_sms) => {
-                let num_sms_used = gcd(total_cubes, num_sms);
-                let cubes_per_sm = total_cubes / num_sms_used;
+            CubeCountStrategyConfig::CubePerSmFirst {
+                num_sms,
+                sms_partitioning,
+            } => {
+                let (num_sms_used, cubes_per_sm) =
+                    sms_partitioning.partition_cubes(num_sms, m_cubes * n_cubes * batch_cubes);
                 CubeCountStrategy::CubePerSmFirst {
                     num_sms_used,
                     cubes_per_sm,
                     m_cubes,
                     n_cubes,
+                    batch_cubes,
                 }
             }
             CubeCountStrategyConfig::Flat => CubeCountStrategy::Flat {
-                total_cubes,
                 m_cubes,
                 n_cubes,
+                batch_cubes,
             },
         }
     }
@@ -141,18 +257,20 @@ impl CubeCountStrategy {
                 cubes_per_sm,
                 m_cubes: _,
                 n_cubes: _,
+                batch_cubes: _,
             } => CubeCount::Static(*num_sms_used, *cubes_per_sm, 1),
             CubeCountStrategy::CubePerSmFirst {
                 num_sms_used,
                 cubes_per_sm,
                 m_cubes: _,
                 n_cubes: _,
+                batch_cubes: _,
             } => CubeCount::Static(*cubes_per_sm, *num_sms_used, 1),
             CubeCountStrategy::Flat {
-                total_cubes,
-                m_cubes: _,
-                n_cubes: _,
-            } => CubeCount::Static(*total_cubes, 1, 1),
+                m_cubes,
+                n_cubes,
+                batch_cubes,
+            } => CubeCount::Static(*m_cubes * *n_cubes * *batch_cubes, 1, 1),
         }
     }
 
@@ -172,31 +290,35 @@ impl CubeCountStrategy {
                 cubes_per_sm,
                 m_cubes,
                 n_cubes,
+                batch_cubes,
             } => CubeCountStrategyArgs::SmPerCubeFirst {
                 num_sms_used: ScalarArg::new(*num_sms_used),
                 cubes_per_sm: ScalarArg::new(*cubes_per_sm),
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
+                batch_cubes: ScalarArg::new(*batch_cubes),
             },
             CubeCountStrategy::CubePerSmFirst {
                 num_sms_used,
                 cubes_per_sm,
                 m_cubes,
                 n_cubes,
+                batch_cubes,
             } => CubeCountStrategyArgs::CubePerSmFirst {
                 num_sms_used: ScalarArg::new(*num_sms_used),
                 cubes_per_sm: ScalarArg::new(*cubes_per_sm),
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
+                batch_cubes: ScalarArg::new(*batch_cubes),
             },
             CubeCountStrategy::Flat {
-                total_cubes,
                 m_cubes,
                 n_cubes,
+                batch_cubes,
             } => CubeCountStrategyArgs::Flat {
-                total_cubes: ScalarArg::new(*total_cubes),
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
+                batch_cubes: ScalarArg::new(*batch_cubes),
             },
         }
     }
@@ -204,6 +326,35 @@ impl CubeCountStrategy {
 
 #[cube]
 impl CubeCountStrategy {
+    pub fn max_cube_pos(&self) -> u32 {
+        match self {
+            CubeCountStrategy::FromProblem {
+                m_cubes,
+                n_cubes,
+                batch_cubes,
+            } => *m_cubes * *n_cubes * *batch_cubes,
+            CubeCountStrategy::SmPerCubeFirst {
+                num_sms_used: _,
+                cubes_per_sm: _,
+                m_cubes,
+                n_cubes,
+                batch_cubes,
+            } => *m_cubes * *n_cubes * *batch_cubes,
+            CubeCountStrategy::CubePerSmFirst {
+                num_sms_used: _,
+                cubes_per_sm: _,
+                m_cubes,
+                n_cubes,
+                batch_cubes,
+            } => *m_cubes * *n_cubes * *batch_cubes,
+            CubeCountStrategy::Flat {
+                m_cubes,
+                n_cubes,
+                batch_cubes,
+            } => *m_cubes * *n_cubes * *batch_cubes,
+        }
+    }
+
     /// Given a cube position (SM ID, local index), returns the tensor coordinates (m, n, batch).
     pub fn cube_pos_to_tensor_pos(
         &self,
@@ -220,6 +371,7 @@ impl CubeCountStrategy {
                 cubes_per_sm,
                 m_cubes,
                 n_cubes,
+                batch_cubes: _,
             } => self.absolute_index_to_m_n_batch(
                 CUBE_POS_X * cubes_per_sm + CUBE_POS_Y,
                 *m_cubes,
@@ -231,6 +383,7 @@ impl CubeCountStrategy {
                 cubes_per_sm,
                 m_cubes,
                 n_cubes,
+                batch_cubes: _,
             } => self.absolute_index_to_m_n_batch(
                 CUBE_POS_Y * cubes_per_sm + CUBE_POS_X,
                 *m_cubes,
@@ -238,9 +391,9 @@ impl CubeCountStrategy {
                 global_partitioning,
             ),
             CubeCountStrategy::Flat {
-                total_cubes: _,
                 m_cubes,
                 n_cubes,
+                batch_cubes: _,
             } => self.absolute_index_to_m_n_batch(
                 CUBE_POS_X,
                 *m_cubes,
@@ -268,13 +421,4 @@ impl CubeCountStrategy {
 
         (m_pos, n_pos, batch_pos)
     }
-}
-
-fn gcd(mut a: u32, mut b: u32) -> u32 {
-    while b != 0 {
-        let r = a % b;
-        a = b;
-        b = r;
-    }
-    a
 }
