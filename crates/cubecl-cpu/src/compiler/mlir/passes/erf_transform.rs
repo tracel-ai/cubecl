@@ -1,6 +1,6 @@
 use cubecl_core::{
     ir::{Arithmetic, Instruction, Operation, Scope},
-    prelude::expand_erf,
+    prelude::*,
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 

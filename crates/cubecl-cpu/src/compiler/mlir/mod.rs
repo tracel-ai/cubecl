@@ -2,7 +2,7 @@ pub mod builtin;
 pub(super) mod external_function;
 pub(super) mod memref;
 pub mod module;
-pub mod transformer;
+pub mod passes;
 pub(super) mod visitor;
 
 use builtin::Builtin;
