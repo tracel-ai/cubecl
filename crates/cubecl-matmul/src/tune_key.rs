@@ -85,8 +85,8 @@ impl MatmulAutotuneKey {
         let matrix_layout_lhs = matrix_batch_layout(lhs_strides);
         let matrix_layout_rhs = matrix_batch_layout(rhs_strides);
 
-        let bigguest_axis = usize::max(m, n);
-        let bigguest_axis = usize::max(bigguest_axis, k);
+        let biggest_axis = usize::max(m, n);
+        let biggest_axis = usize::max(biggest_axis, k);
         let kind = MatmulKind::from(MatmulProblemSize {
             m: m as u32,
             n: n as u32,
@@ -94,7 +94,7 @@ impl MatmulAutotuneKey {
         });
 
         let definition = MatmulProblemDefinition::new(
-            bigguest_axis,
+            biggest_axis,
             elem_lhs,
             elem_rhs,
             elem_out,
