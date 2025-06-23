@@ -12,10 +12,10 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{
-    ExecutionMode,
-    profile::{ProfileDuration, TimingMethod},
-};
+use cubecl_common::{ExecutionMode, profile::ProfileDuration};
+
+#[allow(unused)]
+use cubecl_common::profile::TimingMethod;
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
@@ -80,7 +80,6 @@ where
 
         let state = ComputeClientState {
             properties,
-            info,
             logger: Arc::new(logger),
             #[cfg(multi_threading)]
             current_profiling: spin::RwLock::new(None),
@@ -98,6 +97,7 @@ where
                 .unwrap(),
             #[cfg(feature = "profile-tracy")]
             epoch_time: web_time::Instant::now(),
+            info,
         };
 
         Self {
@@ -408,10 +408,8 @@ where
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
-        let method = self.state.properties.timing_method;
-
         #[cfg(feature = "profile-tracy")]
-        let gpu_span = if method == TimingMethod::Device {
+        let gpu_span = if self.state.properties.timing_method == TimingMethod::Device {
             let gpu_span = self
                 .state
                 .gpu_client
@@ -436,24 +434,20 @@ where
             gpu_span.end_zone();
             let epoch = self.state.epoch_time;
             // Add in the work to upload the timestamp data.
-            result = ProfileDuration::new(
-                Box::pin(async move {
-                    let ticks = result.resolve().await;
-                    let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
-                    let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                    gpu_span.upload_timestamp_start(start_duration);
-                    gpu_span.upload_timestamp_end(end_duration);
-                    ticks
-                }),
-                method,
-            );
+            result = result.map(|result| {
+                ProfileDuration::new(
+                    Box::pin(async move {
+                        let ticks = result.resolve().await;
+                        let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
+                        let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                        gpu_span.upload_timestamp_start(start_duration);
+                        gpu_span.upload_timestamp_end(end_duration);
+                        ticks
+                    }),
+                    TimingMethod::Device,
+                )
+            });
         }
-
-        let result = if method == TimingMethod::Device {
-            result
-        } else {
-            self.channel.end_profile(token)
-        };
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);

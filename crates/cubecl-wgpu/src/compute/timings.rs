@@ -65,7 +65,7 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
     let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
         label: Some("CubeCL gpu -> cpu sync query_set"),
         ty: wgpu::QueryType::Timestamp,
-        count,
+        count: 1,
     });
 
     let resolve_buffer = create_resolve_buffer(device, 1);
