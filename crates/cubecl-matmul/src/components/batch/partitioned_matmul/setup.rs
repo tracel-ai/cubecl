@@ -39,8 +39,8 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
 
         // TODO
         // let num_sms = client.properties().hardware.num_streaming_multiprocessors;
-        // let num_sms = Some(19);
-        let num_sms = None;
+        let num_sms = Some(19);
+        // let num_sms = None;
         let gp = GlobalPartitioning::Natural;
         let sms_partitioning = SmsCubePartitioning::ExactGcd;
         // let sms_partitioning = SmsCubePartitioning::Heuristic {
@@ -53,8 +53,8 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
                 num_sms,
                 sms_partitioning,
             },
-            // None => CubeCountStrategyConfig::Flat,
-            None => CubeCountStrategyConfig::FromProblem,
+            None => CubeCountStrategyConfig::Flat,
+            // None => CubeCountStrategyConfig::FromProblem,
         };
         let cube_counter_config =
             CubeCounterConfig::new(&selection.tiling_scheme, gp, cube_pos_strategy);
