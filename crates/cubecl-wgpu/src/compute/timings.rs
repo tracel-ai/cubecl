@@ -1,7 +1,10 @@
+use std::{sync::Arc, time::Duration};
+
+use cubecl_common::profile::{ProfileDuration, ProfileTicks};
 use cubecl_core::server::{ProfileError, ProfilingToken};
 use hashbrown::HashMap;
 use web_time::Instant;
-use wgpu::{QUERY_SIZE, QuerySet};
+use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
 
@@ -34,14 +37,6 @@ struct QuerySetItem {
     num_ref: u32,
 }
 
-fn create_query_set(device: &wgpu::Device, count: u32) -> QuerySet {
-    device.create_query_set(&wgpu::QuerySetDescriptor {
-        label: Some("CubeCL gpu -> cpu sync query_set"),
-        ty: wgpu::QueryType::Timestamp,
-        count,
-    })
-}
-
 fn create_resolve_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("CubeCL gpu -> cpu resolve buffer"),
@@ -67,7 +62,12 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
     device.poll(wgpu::PollType::Wait).unwrap();
 
     // Resolve a timestamp for the query set.
-    let query_set = create_query_set(device, 1);
+    let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+        label: Some("CubeCL gpu -> cpu sync query_set"),
+        ty: wgpu::QueryType::Timestamp,
+        count,
+    });
+
     let resolve_buffer = create_resolve_buffer(device, 1);
     let map_buffer = create_map_buffer(device, 1);
 
@@ -121,6 +121,7 @@ impl QueryProfiler {
             counter_query_set: 0,
             counter_token: 0,
             query_sets: HashMap::new(),
+            query_set_pool: Vec::new(),
             current: None,
             timestamps: HashMap::new(),
             init_tokens: Vec::new(),
@@ -189,13 +190,13 @@ impl QueryProfiler {
         &self,
         map_buffer: Option<wgpu::Buffer>,
         poll_signal: Arc<()>,
-    ) -> ProfileDuration {
+    ) -> Result<ProfileDuration, ProfileError> {
         if let Some(map_buffer) = map_buffer {
             let period = self.queue_period;
             let epoch_tick = self.epoch_tick;
             let epoch_instant = self.epoch_instant;
 
-            ProfileDuration::new_device_time(async move {
+            Ok(ProfileDuration::new_device_time(async move {
                 let (sender, rec) = async_channel::bounded(1);
                 map_buffer
                     .slice(..)
@@ -229,13 +230,15 @@ impl QueryProfiler {
                 let instant_end = epoch_instant + end_duration;
 
                 ProfileTicks::from_start_end(instant_start, instant_end)
-            })
+            }))
         } else {
             // If there was no work done between the start and stop of the profile, logically the
             // time should be 0. We could use a ProfileDuration::from_duration here,
             // but it seems better to always return things as 'device' timing method.
             let now = web_time::Instant::now();
-            ProfileDuration::new_device_time(async move { ProfileTicks::from_start_end(now, now) })
+            Ok(ProfileDuration::new_device_time(async move {
+                ProfileTicks::from_start_end(now, now)
+            }))
         }
     }
 

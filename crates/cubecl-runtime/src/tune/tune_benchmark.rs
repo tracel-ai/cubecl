@@ -45,6 +45,8 @@ impl<
     }
 
     /// Benchmark how long this operation takes for a number of samples.
+    ///
+    /// Returns at least one duration, otherwise an error is returned.
     pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
         // If the inner operation need autotuning as well, we need to call it before. This will
         // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
@@ -59,7 +61,7 @@ impl<
 
         let operation = self.operation;
         let num_samples = 10;
-        let durations = (0..num_samples)
+        let durations: Vec<_> = (0..num_samples)
             .filter_map(|_| {
                 let result: Result<ProfileDuration, crate::server::ProfileError> =
                     self.client.profile(
@@ -83,7 +85,11 @@ impl<
             })
             .collect();
 
-        Ok(durations)
+        if durations.is_empty() {
+            Err(AutotuneError::InvalidSamples)
+        } else {
+            Ok(durations)
+        }
     }
 
     fn warmup_full_error_handling(&self) -> Result<(), AutotuneError> {

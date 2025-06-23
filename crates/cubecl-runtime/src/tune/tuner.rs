@@ -63,6 +63,8 @@ enum AutotuneMessage<K> {
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
+    /// All samples are invalid.
+    InvalidSamples,
     /// The autotune is skipped manually.
     Skip,
 }
@@ -257,6 +259,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 match first_error {
                     AutotuneError::Skip => {
                         panic!("No autotune was flagged as valid for the problem.")
+                    }
+                    AutotuneError::InvalidSamples => {
+                        panic!("All samples while autotuning failed.")
                     }
                     AutotuneError::Unknown(reason) => panic!("{reason}"),
                 }

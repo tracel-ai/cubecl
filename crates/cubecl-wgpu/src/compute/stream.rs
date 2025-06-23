@@ -40,7 +40,6 @@ impl WgpuStream {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         tasks_max: usize,
-        time_measurement: TimingMethod,
     ) -> Self {
         let timings = if timing_method == TimingMethod::Device {
             Timings::Device(QueryProfiler::new(&queue, &device))
@@ -278,7 +277,7 @@ impl WgpuStream {
         }
     }
 
-    pub fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         match &mut self.timings {
             Timings::System(..) => {
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
@@ -304,6 +303,7 @@ impl WgpuStream {
                 let Timings::Device(timing) = &mut self.timings else {
                     panic!("Unexpected timings type");
                 };
+
                 timing.stop_profile(buffer, poll)
             }
         }

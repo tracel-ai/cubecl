@@ -5,7 +5,6 @@ use crate::{
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, Runtime,
-    benchmark::TimingMethod,
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -274,7 +273,6 @@ pub(crate) fn create_client_on_setup(
         mem_props,
         options.memory_config,
         compilation_options,
-        timing_method,
         setup.device.clone(),
         setup.queue,
         options.tasks_max,

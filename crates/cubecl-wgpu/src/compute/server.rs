@@ -38,7 +38,6 @@ impl WgpuServer {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         compilation_options: WgpuCompilationOptions,
-        timing_method: TimingMethod,
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
@@ -52,7 +51,6 @@ impl WgpuServer {
             memory_config,
             timing_method,
             tasks_max,
-            timing_method,
         );
 
         Self {
@@ -171,11 +169,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        let profile = self.stream.stop_profile(token)?;
-
-        Ok(ProfileDuration::from_future(async move {
-            profile.resolve().await
-        }))
+        self.stream.end_profile(token)
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
