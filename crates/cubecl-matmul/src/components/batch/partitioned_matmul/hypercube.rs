@@ -5,7 +5,6 @@ use crate::components::{MatmulProblem, TilingScheme};
 use crate::kernels::MatmulSetupError;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-// What we can know comptime
 pub struct HypercubeConfig {
     cube_span: CubeSpan,
     pub global_order: GlobalOrder,
