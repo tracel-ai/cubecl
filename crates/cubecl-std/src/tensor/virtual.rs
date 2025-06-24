@@ -1,6 +1,7 @@
+use alloc::sync::Arc;
+use core::marker::PhantomData;
 use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
-use std::{marker::PhantomData, sync::Arc};
 
 /// The read tag for [virtual tensor](VirtualTensor).
 #[derive(Clone)]

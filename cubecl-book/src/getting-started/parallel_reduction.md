@@ -1,4 +1,9 @@
-# Design
+# Parallel Reduction
+
+Before we dive into the code to implement parallel reduction, let's take a look at the constants that CubeCL provides to help us
+write efficient parallel reduction kernels.
+
+## CubeCL Constants
 
 CubeCL is designed around - you guessed it - Cubes! More specifically, it's based on cuboids,
 because not all axes are the same size. Since all compute APIs need to map to the hardware, which
@@ -55,3 +60,36 @@ often not present in other languages, except WebGPU with `local_invocation_index
 | ABSOLUTE_POS_Z | N/A         | global_id.z            |
 
 </details>
+
+## Parallel Reduction Example
+Remembering the previous example, we will now implement a parallel reduction using CubeCL. The goal is to reduce a 2D matrix into a 1D vector by summing the elements of each row. Where can we parallelize this operation? We can parallelize the reduction of each row, allowing each thread to compute the sum of a row independently. We need to change the launch parameters to set the CubeDim to launch multiple invocation in parallel and we can just remove the outer loop and use the `UNIT_POS_X` to access the rows of the input tensor. Please note that it is important to worry about data races when parallelizing operations, so we need to ensure that each invocation writes to a different position in the output tensor, because each invocation run in parallel.
+```rust,ignore
+{{#rustdoc_include src/bin/v4-gpu.rs:31:54}}
+```
+
+## The Results
+Now that we have improved parallelism, the kernel is up to 70x faster for the first shape and up to 25x faster for the second shape. Why is the first shape faster than the second? Even though the two shape have the same number of elements, the first shape has more rows than the second shape, which means that more invocations can be used to compute the reduction in parallel. The second shape has fewer rows, so fewer invocations are available to compute the reduction in parallel.
+```
+wgpu<wgsl>-reduction-[512, 8192]
+
+―――――――― Result ―――――――――
+  Timing      system
+  Samples     10
+  Mean        3.369ms
+  Variance    48.000ns
+  Median      3.321ms
+  Min         3.177ms
+  Max         4.011ms
+―――――――――――――――――――――――――
+wgpu<wgsl>-reduction-[128, 32768]
+
+―――――――― Result ―――――――――
+  Timing      system
+  Samples     10
+  Mean        8.713ms
+  Variance    5.069µs
+  Median      8.507ms
+  Min         5.963ms
+  Max         12.301ms
+―――――――――――――――――――――――――
+```

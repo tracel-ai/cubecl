@@ -4,7 +4,7 @@ use cubecl_runtime::id::KernelId;
 use cubecl_runtime::kernel::KernelMetadata;
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfilingToken};
+use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfileError, ProfilingToken};
 use std::sync::Arc;
 
 use super::DummyKernel;
@@ -187,7 +187,7 @@ impl ComputeServer for DummyServer {
         self.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.timestamps.stop(token)
     }
 }

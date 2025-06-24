@@ -30,27 +30,6 @@ struct MatmulProblemDefinition {
     matrix_layout_rhs: MatrixBatchLayout,
 }
 
-impl From<MatmulProblemDefinition> for MatmulProblemSize {
-    fn from(problem_definition: MatmulProblemDefinition) -> Self {
-        MatmulProblemSize::new(
-            problem_definition.m as u32,
-            problem_definition.n as u32,
-            problem_definition.k as u32,
-        )
-    }
-}
-
-impl From<&MatmulProblemDefinition> for MatmulKind {
-    fn from(problem_definition: &MatmulProblemDefinition) -> Self {
-        let matmul_size = MatmulProblemSize::new(
-            problem_definition.m as u32,
-            problem_definition.n as u32,
-            problem_definition.k as u32,
-        );
-        matmul_size.into()
-    }
-}
-
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum MatmulGlobalScale {
     Large,
@@ -110,6 +89,12 @@ impl MatmulAutotuneKey {
         let matrix_layout_lhs = matrix_batch_layout(lhs_strides);
         let matrix_layout_rhs = matrix_batch_layout(rhs_strides);
 
+        let kind = MatmulKind::from(MatmulProblemSize {
+            m: m as u32,
+            n: n as u32,
+            k: k as u32,
+        });
+
         let definition = MatmulProblemDefinition::new(
             m,
             n,
@@ -131,7 +116,7 @@ impl MatmulAutotuneKey {
                 Some(tc) => m > tc && n > tc && k > tc,
                 None => false,
             },
-            kind: (&definition).into(),
+            kind,
         };
 
         Self::new(definition, analysis)

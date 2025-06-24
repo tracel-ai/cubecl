@@ -1,5 +1,6 @@
 use super::DummyServer;
 use cubecl_common::CubeDim;
+use cubecl_common::benchmark::TimingMethod;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::LocalTuner;
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
@@ -57,7 +58,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     let channel = MutexComputeChannel::new(server);
     ComputeClient::new(
         channel,
-        DeviceProperties::new(&[], mem_properties, topology),
+        DeviceProperties::new(&[], mem_properties, topology, TimingMethod::System),
         (),
     )
 }

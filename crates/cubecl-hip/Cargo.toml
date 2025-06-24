@@ -71,7 +71,7 @@ cubecl-cpp = { path = "../cubecl-cpp", version = "0.6.0", default-features = fal
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
     "channel-mutex",
 ] }
-cubecl-hip-sys = { version = "6.4.4348200" }
+cubecl-hip-sys = { version = "6.4.4348201" }
 
 bytemuck = { workspace = true }
 
