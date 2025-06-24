@@ -1,19 +1,16 @@
 #[macro_export]
 macro_rules! testgen_matmul_layouts {
-    ($kind: ident, $algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr, $stage_size: expr, $specialized: expr) => {
+    ($kind: ident, $algorithm: ty, $precision: ty, $selection: expr) => {
         use $crate::components::MatrixLayout;
 
         mod rr {
             use super::*;
 
-            $crate::testgen_matmul_problem!(
+            $crate::testgen_matmul_problem_size!(
                 $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
+                $selection,
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor)
             );
         }
@@ -22,14 +19,11 @@ macro_rules! testgen_matmul_layouts {
         mod rc {
             use super::*;
 
-            $crate::testgen_matmul_problem!(
+            $crate::testgen_matmul_problem_size!(
                 $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
+                $selection,
                 (MatrixLayout::RowMajor, MatrixLayout::ColMajor)
             );
         }
@@ -38,14 +32,11 @@ macro_rules! testgen_matmul_layouts {
         mod cr {
             use super::*;
 
-            $crate::testgen_matmul_problem!(
+            $crate::testgen_matmul_problem_size!(
                 $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
+                $selection,
                 (MatrixLayout::ColMajor, MatrixLayout::RowMajor)
             );
         }
@@ -54,14 +45,11 @@ macro_rules! testgen_matmul_layouts {
         mod cc {
             use super::*;
 
-            $crate::testgen_matmul_problem!(
+            $crate::testgen_matmul_problem_size!(
                 $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
+                $selection,
                 (MatrixLayout::ColMajor, MatrixLayout::ColMajor)
             );
         }

@@ -1,22 +1,19 @@
 #[macro_export]
-macro_rules! testgen_matmul_accelerated_specialized {
-    ($algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr, $stage_size: expr) => {
+macro_rules! testgen_matmul_specialized {
+    ($kind: ident, $algorithm: ty, $precision: ty, $selection_builder: expr) => {
         use $crate::components::{LoadSpecializationConfig, SpecializationTensorConfig};
 
         mod mm {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                PlaneAccelerated,
+            $crate::testgen_matmul_hypercube!(
+                $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                LoadSpecializationConfig {
+                $selection_builder.load_specialization_config(LoadSpecializationConfig {
                     lhs: SpecializationTensorConfig::MainFlowOnly,
                     rhs: SpecializationTensorConfig::MainFlowOnly,
-                }
+                })
             );
         }
 
@@ -24,17 +21,14 @@ macro_rules! testgen_matmul_accelerated_specialized {
         mod ml {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                PlaneAccelerated,
+            $crate::testgen_matmul_hypercube!(
+                $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                LoadSpecializationConfig {
+                $selection_builder.load_specialization_config(LoadSpecializationConfig {
                     lhs: SpecializationTensorConfig::MainFlowOnly,
                     rhs: SpecializationTensorConfig::LoadFlowOnly,
-                }
+                })
             );
         }
 
@@ -42,17 +36,14 @@ macro_rules! testgen_matmul_accelerated_specialized {
         mod lm {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                PlaneAccelerated,
+            $crate::testgen_matmul_hypercube!(
+                $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                LoadSpecializationConfig {
+                $selection_builder.load_specialization_config(LoadSpecializationConfig {
                     lhs: SpecializationTensorConfig::LoadFlowOnly,
                     rhs: SpecializationTensorConfig::MainFlowOnly,
-                }
+                })
             );
         }
 
@@ -60,17 +51,14 @@ macro_rules! testgen_matmul_accelerated_specialized {
         mod ll {
             use super::*;
 
-            $crate::testgen_matmul_layouts!(
-                PlaneAccelerated,
+            $crate::testgen_matmul_hypercube!(
+                $kind,
                 $algorithm,
                 $precision,
-                $tile,
-                $partition_size,
-                $stage_size,
-                LoadSpecializationConfig {
+                $selection_builder.load_specialization_config(LoadSpecializationConfig {
                     lhs: SpecializationTensorConfig::LoadFlowOnly,
                     rhs: SpecializationTensorConfig::LoadFlowOnly,
-                }
+                })
             );
         }
     };

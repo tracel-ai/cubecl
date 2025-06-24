@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_launch {
-    (PlaneAccelerated, $algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr, $stage_size: expr, $specialized: expr, $layouts: expr, $problem: expr) => {
+    (PlaneAccelerated, $algorithm: ty, $precision: ty, $selection: expr, $problem: expr) => {
         use super::*;
 
         #[test]
@@ -9,18 +9,11 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >(
-                $layouts,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
-                $problem,
-            );
+            >($selection, $problem);
         }
     };
 
-    (Unit, $algorithm: ty, $precision: ty, $tile: expr, $partition_size: expr, $stage_size: expr, $specialized: expr, $layouts: expr, $problem: expr) => {
+    (Unit, $algorithm: ty, $precision: ty, ) => {
         use super::*;
 
         #[test]
@@ -29,14 +22,7 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >(
-                $layouts,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
-                $problem,
-            );
+            >($selection, $problem);
         }
     };
 
@@ -49,14 +35,7 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >(
-                $layouts,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
-                $problem,
-            );
+            >($selection, $problem);
         }
     };
 
@@ -69,14 +48,7 @@ macro_rules! testgen_matmul_launch {
                 $algorithm,
                 $precision,
                 TestRuntime,
-            >(
-                $layouts,
-                $tile,
-                $partition_size,
-                $stage_size,
-                $specialized,
-                $problem,
-            );
+            >($selection, $problem);
         }
     };
 }

@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_accelerated_tile {
-    ($algorithm: ty, $precision: ty) => {
+    ($algorithm: ty, $precision: ty, $tiling_scheme_builder: expr) => {
         use $crate::components::TileSize;
 
         #[cfg(target_os = "macos")]
@@ -10,7 +10,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 8, n: 8, k: 8 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 8, n: 8, k: 8 })
             );
         }
 
@@ -21,11 +21,11 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                TileSize {
+                $tiling_scheme_builder.with_tile_size(TileSize {
                     m: 16,
                     n: 16,
                     k: 16
-                }
+                })
             );
         }
 
@@ -36,7 +36,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 32, n: 8, k: 16 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 32, n: 8, k: 16 })
             );
         }
 
@@ -47,7 +47,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 8, n: 32, k: 16 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 8, n: 32, k: 16 })
             );
         }
 
@@ -58,7 +58,7 @@ macro_rules! testgen_matmul_accelerated_tile {
             $crate::testgen_matmul_accelerated_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 16, n: 16, k: 8 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 16, n: 16, k: 8 })
             );
         }
     };
