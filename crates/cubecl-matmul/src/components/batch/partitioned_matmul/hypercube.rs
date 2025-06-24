@@ -108,7 +108,7 @@ pub enum SmAllocation {
     Full,
 
     /// Allows overallocating SMs up to a ratio.
-    Overallocate {
+    Ratio {
         max_extra_numerator: u32,
         max_extra_denominator: u32,
     },
@@ -130,19 +130,19 @@ impl GlobalOrder {
 impl SmAllocation {
     fn allocate(&self, num_sms: u32, total_cubes: u32) -> (u32, u32) {
         match self {
-            SmAllocation::Exact => SmAllocation::Overallocate {
+            SmAllocation::Exact => SmAllocation::Ratio {
                 max_extra_numerator: 0,
                 max_extra_denominator: 1,
             }
             .allocate(num_sms, total_cubes),
 
-            SmAllocation::Full => SmAllocation::Overallocate {
+            SmAllocation::Full => SmAllocation::Ratio {
                 max_extra_numerator: u32::MAX,
                 max_extra_denominator: 1,
             }
             .allocate(num_sms, total_cubes),
 
-            SmAllocation::Overallocate {
+            SmAllocation::Ratio {
                 max_extra_numerator,
                 max_extra_denominator,
             } => {
