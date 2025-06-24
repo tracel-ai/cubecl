@@ -22,6 +22,7 @@ compilation-cache = ["cubecl-common/cache", "serde"]
 
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
+matmul_tests_tma = ["cubecl-matmul/matmul_tests_tma"]
 matmul_tests_double = ["cubecl-matmul/matmul_tests_double"]
 matmul_tests_simple = ["cubecl-matmul/matmul_tests_simple"]
 matmul_tests_ordered = ["cubecl-matmul/matmul_tests_ordered"]
@@ -49,6 +50,7 @@ matmul_tests_base = [
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",
+    "matmul_tests_tma",
     "matmul_tests_double",
     "matmul_tests_simple",
     "matmul_tests_ordered",

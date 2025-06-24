@@ -17,6 +17,7 @@ std = ["cubecl-runtime/std", "cubecl-core/std"]
 
 matmul_tests_unit = []
 matmul_tests_plane = []
+matmul_tests_tma = []
 
 matmul_tests_double = []
 matmul_tests_simple = []
@@ -63,7 +64,8 @@ matmul_tests_all = [
     "matmul_tests_f32",
     "matmul_tests_layouts",
     "matmul_tests_alt_shapes",
-    "matmul_tests_partition_buffering"
+    "matmul_tests_partition_buffering",
+    "matmul_tests_tma",
 ]
 
 [dependencies]
