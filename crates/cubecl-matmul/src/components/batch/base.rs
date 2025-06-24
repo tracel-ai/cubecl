@@ -2,7 +2,7 @@ use crate::{
     components::{
         AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
         MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::{HypercubeConfig, CubeDistribution, CubeDistributionArgs},
+        batch::{CubeDistribution, CubeDistributionArgs, HypercubeConfig},
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
@@ -95,8 +95,7 @@ pub trait BatchConfig: MatmulConfig {
     }
 
     fn cube_dim(&self) -> CubeDim;
-    fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
     fn line_sizes(&self) -> MatmulLineSizes;
-    fn cube_counter_config(&self) -> HypercubeConfig;
+    fn hypercube_config(&self) -> HypercubeConfig;
     fn can_overallocate(&self) -> bool;
 }

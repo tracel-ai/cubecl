@@ -1,4 +1,4 @@
-use cubecl_core::{CubeCount, CubeDim};
+use cubecl_core::CubeDim;
 
 use crate::{
     components::{
@@ -12,7 +12,7 @@ use crate::{
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
-    cube_counter_config: HypercubeConfig,
+    hypercube_config: HypercubeConfig,
 }
 
 impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
@@ -38,36 +38,29 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
         }
     }
 
-    fn cube_count(&self, problem: &MatmulProblem) -> CubeCount {
-        self.cube_counter_config
-            .cube_count_data(problem)
-            .to_cube_count()
-    }
-
-    fn cube_counter_config(&self) -> HypercubeConfig {
-        self.cube_counter_config
+    fn hypercube_config(&self) -> HypercubeConfig {
+        self.hypercube_config
     }
 
     fn can_overallocate(&self) -> bool {
-        self.cube_counter_config.cube_distribution_config.can_overallocate()
+        self.hypercube_config
+            .cube_distribution_config
+            .can_overallocate()
     }
 }
 
 impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
-    pub fn new(
-        global_config: G,
-        cube_counter_config: HypercubeConfig,
-    ) -> Result<Self, MatmulSetupError> {
+    pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {
         Self {
             global_config,
-            cube_counter_config,
+            hypercube_config,
         }
-        .validate()
     }
 
-    fn validate(self) -> Result<Self, MatmulSetupError> {
+    pub fn validate(self, problem: &MatmulProblem) -> Result<Self, MatmulSetupError> {
+        self.hypercube_config.validate(problem)?;
         Ok(self)
     }
 }

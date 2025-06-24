@@ -1,3 +1,6 @@
+use crate::components::batch::{
+    CubeDistributionConfig, GlobalOrder, HypercubeConfig, SmAllocation,
+};
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
     LoadSpecializationConfig, MatmulProblem, MatrixLayout, PartitionSize, StageSize, TileSize,
@@ -50,6 +53,15 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     let selection = MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(partition_buffering)
         .load_specialization_config(load_specialization_config)
+        .hypercube_config(
+            HypercubeConfig::builder(&tiling_scheme)
+                .global_order(GlobalOrder::SwizzleColMajor(2))
+                .cube_distribution(CubeDistributionConfig::SmFirst {
+                    num_sms: 19,
+                    sm_usage: SmAllocation::Full,
+                })
+                .build(),
+        )
         .build();
 
     test_matmul_algorithm::<A, P, R>(client, problem, selection);

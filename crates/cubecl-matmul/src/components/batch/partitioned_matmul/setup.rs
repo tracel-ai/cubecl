@@ -5,10 +5,7 @@ use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
-use crate::components::batch::{
-    BatchMatmulFamily, CubeDistributionArgs, CubeDistributionConfig, GlobalOrder, HypercubeConfig,
-    SmUsage,
-};
+use crate::components::batch::{BatchMatmulFamily, CubeDistributionArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -37,15 +34,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
-        let hypercube_config = HypercubeConfig::builder(&selection.tiling_scheme)
-            .global_order(GlobalOrder::RowMajor)
-            .cube_distribution(CubeDistributionConfig::SmFirst {
-                num_sms: 19,
-                sm_usage: SmUsage::Full,
-            })
-            .build();
-
-        PartitionedBatchConfig::new(global_config, hypercube_config)
+        PartitionedBatchConfig::new(global_config, selection.hypercube_config).validate(problem)
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(

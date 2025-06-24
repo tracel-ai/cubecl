@@ -43,14 +43,14 @@ where
         }
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-    let cube_count_data = config.cube_counter_config().cube_count_data(&problem);
+    let cube_distribution = config.hypercube_config().cube_distribution(&problem);
 
     let line_sizes = config.line_sizes();
 
     launch_with_config::<MS, R, A>(
         client,
         config.cube_dim(),
-        config.cube_count(&problem),
+        cube_distribution.to_cube_count(),
         <InputArg<MS> as ConcreteInputsFactory>::create(
             lhs,
             lhs_scale,
@@ -61,7 +61,7 @@ where
             &line_sizes,
         ),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
-        cube_count_data.to_args(),
+        cube_distribution.to_args(),
         config,
     )
 }
@@ -86,15 +86,15 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         }
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-    let cube_count_data = config.cube_counter_config().cube_count_data(&problem);
+    let cube_distribution = config.hypercube_config().cube_distribution(&problem);
 
     launch_with_config::<MS, R, A>(
         client,
         config.cube_dim(),
-        config.cube_count(&problem),
+        cube_distribution.to_cube_count(),
         input,
         output,
-        cube_count_data.to_args(),
+        cube_distribution.to_args(),
         config,
     )
 }
