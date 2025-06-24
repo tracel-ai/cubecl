@@ -2,7 +2,7 @@ use crate::{
     components::{
         AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
         MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::{CubeCountStrategy, CubeCountStrategyArgs, CubeCounterConfig},
+        batch::{HypercubeConfig, CubeDistribution, CubeDistributionArgs},
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
@@ -38,7 +38,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountStrategyArgs<'a, R>,
+        cube_count_args: CubeDistributionArgs<'a, R>,
         config: Self::Config,
     );
 
@@ -74,7 +74,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
-        cube_count_args: CubeCountStrategy,
+        cube_count_args: CubeDistribution,
         #[comptime] config: Self::Config,
     );
 }
@@ -97,6 +97,6 @@ pub trait BatchConfig: MatmulConfig {
     fn cube_dim(&self) -> CubeDim;
     fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
     fn line_sizes(&self) -> MatmulLineSizes;
-    fn cube_counter_config(&self) -> CubeCounterConfig;
-    fn check_max_cube_pos(&self) -> bool;
+    fn cube_counter_config(&self) -> HypercubeConfig;
+    fn can_overallocate(&self) -> bool;
 }

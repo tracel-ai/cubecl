@@ -5,7 +5,7 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountStrategy};
+use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeDistribution};
 use crate::components::global;
 use crate::components::global::Quantization;
 use cubecl_core as cubecl;
@@ -39,7 +39,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMa
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
-        cube_count_args: CubeCountStrategy,
+        cube_count_args: CubeDistribution,
         #[comptime] config: Self::Config,
     ) {
         let lhs_rank = lhs.rank();
@@ -49,7 +49,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMa
 
         let tiling_scheme = config.tiling_scheme();
         let (m_index, n_index, batch_index) = cube_count_args
-            .cube_pos_to_tensor_pos(config.cube_counter_config().global_partitioning);
+            .cube_pos_to_tensor_pos(config.cube_counter_config().global_order);
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(

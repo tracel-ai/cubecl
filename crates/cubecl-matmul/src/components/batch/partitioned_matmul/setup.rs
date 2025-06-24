@@ -6,8 +6,8 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
 use crate::components::batch::{
-    BatchMatmulFamily, CubeCountStrategyArgs, CubeCountStrategyConfig, CubeCounterConfig,
-    GlobalPartitioning, SmsCubePartitioning,
+    BatchMatmulFamily, CubeDistributionArgs, CubeDistributionConfig, GlobalOrder, HypercubeConfig,
+    SmUsage,
 };
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
@@ -37,32 +37,15 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
-        // let num_sms = client.properties().hardware.num_streaming_multiprocessors;
-        let num_sms = Some(19);
-        // let num_sms = None;
+        let hypercube_config = HypercubeConfig::builder(&selection.tiling_scheme)
+            .global_order(GlobalOrder::RowMajor)
+            .cube_distribution(CubeDistributionConfig::SmFirst {
+                num_sms: 19,
+                sm_usage: SmUsage::Full,
+            })
+            .build();
 
-        let gp = GlobalPartitioning::Natural;
-        // let gp = GlobalPartitioning::Transposed;
-
-        // let sms_partitioning = SmsCubePartitioning::ExactGcd;
-        // let sms_partitioning = SmsCubePartitioning::ForceAllSms;
-        let sms_partitioning = SmsCubePartitioning::Heuristic {
-            max_slack_numerator: 1,
-            max_slack_denominator: 10,
-        };
-
-        let cube_pos_strategy = match num_sms {
-            Some(num_sms) => CubeCountStrategyConfig::SmPerCubeFirst {
-            // Some(num_sms) => CubeCountStrategyConfig::CubePerSmFirst {
-                num_sms,
-                sms_partitioning,
-            },
-            None => CubeCountStrategyConfig::Flat,
-        };
-        let cube_counter_config =
-            CubeCounterConfig::new(&selection.tiling_scheme, gp, cube_pos_strategy);
-
-        PartitionedBatchConfig::new(global_config, cube_counter_config)
+        PartitionedBatchConfig::new(global_config, hypercube_config)
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
@@ -71,7 +54,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountStrategyArgs<'a, R>,
+        cube_count_args: CubeDistributionArgs<'a, R>,
         config: Self::Config,
     ) {
         unsafe {

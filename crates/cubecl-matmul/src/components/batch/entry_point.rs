@@ -1,4 +1,4 @@
-use crate::components::batch::CubeCountStrategy;
+use crate::components::batch::CubeDistribution;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -26,10 +26,10 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    cube_count_args: CubeCountStrategy,
+    cube_count_args: CubeDistribution,
     #[comptime] config: BMMF::Config,
 ) {
-    if config.check_max_cube_pos() {
+    if config.can_overallocate() {
         if CUBE_POS >= cube_count_args.max_cube_pos() {
             terminate!()
         }

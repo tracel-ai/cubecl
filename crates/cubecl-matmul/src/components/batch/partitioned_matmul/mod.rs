@@ -1,9 +1,9 @@
 mod config;
-mod cube_counter;
+mod hypercube;
 mod matmul;
 mod partition;
 mod setup;
 
-pub use cube_counter::*;
+pub use hypercube::*;
 pub use partition::{ColMajorGlobalPartitionMatmul, RowMajorGlobalPartitionMatmul};
 pub use setup::PartitionedBatchMatmulFamily;

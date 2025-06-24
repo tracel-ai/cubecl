@@ -3,7 +3,7 @@ use cubecl_core::{CubeCount, CubeDim};
 use crate::{
     components::{
         Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
-        batch::{BatchConfig, CubeCounterConfig},
+        batch::{BatchConfig, HypercubeConfig},
         global::GlobalConfig,
     },
     kernels::MatmulSetupError,
@@ -12,7 +12,7 @@ use crate::{
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
-    cube_counter_config: CubeCounterConfig,
+    cube_counter_config: HypercubeConfig,
 }
 
 impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
@@ -44,12 +44,12 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
             .to_cube_count()
     }
 
-    fn cube_counter_config(&self) -> CubeCounterConfig {
+    fn cube_counter_config(&self) -> HypercubeConfig {
         self.cube_counter_config
     }
 
-    fn check_max_cube_pos(&self) -> bool {
-        self.cube_counter_config.cube_pos_strategy.check_max_pos()
+    fn can_overallocate(&self) -> bool {
+        self.cube_counter_config.cube_distribution_config.can_overallocate()
     }
 }
 
@@ -58,7 +58,7 @@ impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
     pub fn new(
         global_config: G,
-        cube_counter_config: CubeCounterConfig,
+        cube_counter_config: HypercubeConfig,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             global_config,
