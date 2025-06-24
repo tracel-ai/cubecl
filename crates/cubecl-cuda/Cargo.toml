@@ -38,6 +38,9 @@ matmul_tests_f16 = ["cubecl-matmul/matmul_tests_f16"]
 matmul_tests_f32 = ["cubecl-matmul/matmul_tests_f32"]
 matmul_tests_layouts = ["cubecl-matmul/matmul_tests_layouts"]
 matmul_tests_alt_shapes = ["cubecl-matmul/matmul_tests_alt_shapes"]
+matmul_tests_partition_buffering = [
+    "cubecl-matmul/matmul_tests_partition_buffering",
+]
 matmul_tests_base = [
     "matmul_tests_plane",
     "matmul_tests_double",
@@ -62,6 +65,7 @@ matmul_tests_all = [
     "matmul_tests_f32",
     "matmul_tests_layouts",
     "matmul_tests_alt_shapes",
+    "matmul_tests_partition_buffering",
 ]
 conv_tests = ["cubecl-convolution/conv_tests"]
 

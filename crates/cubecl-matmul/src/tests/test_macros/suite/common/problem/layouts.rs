@@ -3,6 +3,16 @@ macro_rules! testgen_matmul_layouts {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection: expr) => {
         use $crate::components::MatrixLayout;
 
+        #[cfg(not(feature = "matmul_tests_layouts"))]
+        $crate::testgen_matmul_problem_size!(
+            $kind,
+            $algorithm,
+            $precision,
+            $selection,
+            (MatrixLayout::RowMajor, MatrixLayout::RowMajor)
+        );
+
+        #[cfg(feature = "matmul_tests_layouts")]
         mod rr {
             use super::*;
 

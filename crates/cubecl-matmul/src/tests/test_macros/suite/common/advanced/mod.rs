@@ -1,4 +1,5 @@
 mod hypercube;
+mod partition_buffering;
 mod specialized;
 
 #[macro_export]

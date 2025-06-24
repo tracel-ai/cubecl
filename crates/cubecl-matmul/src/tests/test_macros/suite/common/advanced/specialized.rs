@@ -3,6 +3,18 @@ macro_rules! testgen_matmul_specialized {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection_builder: expr) => {
         use $crate::components::{LoadSpecializationConfig, SpecializationTensorConfig};
 
+        #[cfg(not(feature = "matmul_tests_specialized"))]
+        $crate::testgen_matmul_hypercube!(
+            $kind,
+            $algorithm,
+            $precision,
+            $selection_builder.load_specialization_config(LoadSpecializationConfig {
+                lhs: SpecializationTensorConfig::MainFlowOnly,
+                rhs: SpecializationTensorConfig::MainFlowOnly,
+            })
+        );
+
+        #[cfg(feature = "matmul_tests_specialized")]
         mod mm {
             use super::*;
 

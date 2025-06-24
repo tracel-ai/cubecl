@@ -1,12 +1,6 @@
 mod algorithm;
-mod launch;
-mod partition;
 mod precision;
-mod specialized;
-mod stage;
-mod tile;
-
-pub use launch::test_algo;
+mod tiling_scheme;
 
 #[macro_export]
 macro_rules! testgen_matmul_unit {
