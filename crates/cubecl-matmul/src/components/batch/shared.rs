@@ -59,21 +59,3 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         config,
     );
 }
-
-#[cube]
-pub fn swizzle(nth: u32, height: u32, #[comptime] swizzle_width: u32) -> (u32, u32) {
-    let num_elem_per_swizzle_col = height * swizzle_width;
-
-    let swizzle_id = nth % num_elem_per_swizzle_col;
-    let swizzle_col = nth / num_elem_per_swizzle_col;
-
-    let col_within_swizzle = swizzle_id / height;
-    let col = swizzle_col * swizzle_width + col_within_swizzle;
-
-    let topdown_row = swizzle_id % height;
-    let is_bottom_up = swizzle_col % 2;
-
-    let row = topdown_row + is_bottom_up * (height - 2 * topdown_row - 1);
-
-    (row, col)
-}

@@ -107,14 +107,16 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             line_sizes.out,
         )
     };
+    let cube_distribution = config.hypercube_config().cube_distribution(&problem);
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
             &client,
             config.cube_dim(),
-            config.cube_count(&problem),
+            cube_distribution.to_cube_count(),
             inputs,
             output,
+            cube_distribution.to_args(),
             config,
         );
     }
