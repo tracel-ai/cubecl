@@ -31,7 +31,7 @@ impl MatmulSelection {
 
 pub struct MatmulSelectionBuilder {
     plane_dim: Option<u32>,
-    tiling_scheme: Option<TilingScheme>,
+    pub tiling_scheme: Option<TilingScheme>,
     hypercube_config: Option<HypercubeConfig>,
     stage_vectorization: StageVectorization,
     quantized: bool,

@@ -32,6 +32,7 @@ matmul_tests_barrier = []
 
 matmul_tests_specialized = []
 matmul_tests_partition_buffering = []
+matmul_tests_hypercube = []
 
 matmul_tests_f16 = []
 matmul_tests_f32 = []
@@ -66,6 +67,7 @@ matmul_tests_all = [
     "matmul_tests_alt_shapes",
     "matmul_tests_partition_buffering",
     "matmul_tests_tma",
+    "matmul_tests_hypercube",
 ]
 
 [dependencies]
