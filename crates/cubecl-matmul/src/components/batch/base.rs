@@ -98,4 +98,5 @@ pub trait BatchConfig: MatmulConfig {
     fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
     fn line_sizes(&self) -> MatmulLineSizes;
     fn cube_counter_config(&self) -> CubeCounterConfig;
+    fn check_max_cube_pos(&self) -> bool;
 }

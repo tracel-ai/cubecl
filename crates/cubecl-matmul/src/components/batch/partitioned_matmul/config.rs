@@ -47,6 +47,10 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     fn cube_counter_config(&self) -> CubeCounterConfig {
         self.cube_counter_config
     }
+
+    fn check_max_cube_pos(&self) -> bool {
+        self.cube_counter_config.cube_pos_strategy.check_max_pos()
+    }
 }
 
 impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}

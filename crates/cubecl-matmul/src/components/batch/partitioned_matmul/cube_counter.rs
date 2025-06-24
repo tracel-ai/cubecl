@@ -163,7 +163,7 @@ impl SmsCubePartitioning {
 pub struct CubeCounterConfig {
     cube_span: CubeSpan,
     pub global_partitioning: GlobalPartitioning,
-    cube_pos_strategy: CubeCountStrategyConfig,
+    pub cube_pos_strategy: CubeCountStrategyConfig,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -171,6 +171,16 @@ pub struct CubeSpan {
     m: u32,
     n: u32,
     batch: u32,
+}
+
+impl CubeCountStrategyConfig {
+    pub fn check_max_pos(&self) -> bool {
+        match self {
+            CubeCountStrategyConfig::FromProblem | CubeCountStrategyConfig::Flat => false,
+            CubeCountStrategyConfig::SmPerCubeFirst { .. }
+            | CubeCountStrategyConfig::CubePerSmFirst { .. } => true,
+        }
+    }
 }
 
 impl CubeCounterConfig {
