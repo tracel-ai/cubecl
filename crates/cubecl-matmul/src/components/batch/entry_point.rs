@@ -29,6 +29,7 @@ pub(crate) fn matmul<
     cube_count_args: CubeDistribution,
     #[comptime] config: BMMF::Config,
 ) {
+    #[allow(clippy::collapsible_if)]
     if config.can_overallocate() {
         if CUBE_POS >= cube_count_args.max_cube_pos() {
             terminate!()
