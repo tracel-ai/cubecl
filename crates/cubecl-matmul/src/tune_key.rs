@@ -18,7 +18,11 @@ pub struct MatmulAutotuneKey {
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 struct MatmulProblemDefinition {
     #[autotune(anchor)]
-    biggest_axis: usize,
+    m: usize,
+    #[autotune(anchor)]
+    n: usize,
+    #[autotune(anchor)]
+    k: usize,
     elem_lhs: Elem,
     elem_rhs: Elem,
     elem_out: Elem,
@@ -85,8 +89,6 @@ impl MatmulAutotuneKey {
         let matrix_layout_lhs = matrix_batch_layout(lhs_strides);
         let matrix_layout_rhs = matrix_batch_layout(rhs_strides);
 
-        let biggest_axis = usize::max(m, n);
-        let biggest_axis = usize::max(biggest_axis, k);
         let kind = MatmulKind::from(MatmulProblemSize {
             m: m as u32,
             n: n as u32,
@@ -94,7 +96,9 @@ impl MatmulAutotuneKey {
         });
 
         let definition = MatmulProblemDefinition::new(
-            biggest_axis,
+            m,
+            n,
+            k,
             elem_lhs,
             elem_rhs,
             elem_out,
