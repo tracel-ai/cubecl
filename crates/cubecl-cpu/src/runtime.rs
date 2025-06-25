@@ -1,3 +1,4 @@
+use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel, client::ComputeClient,
 };
@@ -69,7 +70,8 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
 
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
-    let mut device_props = DeviceProperties::new(&[], mem_properties, topology);
+    let mut device_props =
+        DeviceProperties::new(&[], mem_properties, topology, TimingMethod::Device);
     register_supported_types(&mut device_props);
 
     let ctx = CpuContext::new(memory_management);
