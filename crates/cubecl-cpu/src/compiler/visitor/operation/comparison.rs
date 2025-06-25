@@ -1,7 +1,7 @@
 use cubecl_core::ir::Comparison;
 use tracel_llvm::melior::dialect::arith::{self, CmpfPredicate, CmpiPredicate};
 
-use crate::compiler::mlir::visitor::prelude::*;
+use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_comparison(&mut self, comparison: &Comparison, out: Variable) {

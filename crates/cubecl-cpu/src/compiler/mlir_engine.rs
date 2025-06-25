@@ -1,20 +1,12 @@
-pub mod builtin;
-pub(super) mod external_function;
-pub(super) mod memref;
-pub mod module;
-pub mod passes;
-pub(super) mod visitor;
-
-use builtin::Builtin;
+use super::builtin::Builtin;
+use super::external_function::register_external_function;
+use super::memref::LineMemRef;
 use cubecl_opt::Optimizer;
-use external_function::register_external_function;
-use memref::LineMemRef;
-pub use visitor::elem::register_supported_types;
 
 use std::fmt::{Debug, Display};
 
+use super::module::Module;
 use cubecl_core::{prelude::KernelDefinition, server::ScalarBinding};
-use module::Module;
 use tracel_llvm::melior::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,

@@ -1,12 +1,18 @@
-pub mod mlir;
+pub mod builtin;
+pub(super) mod external_function;
+pub(super) mod memref;
+pub mod mlir_engine;
+pub mod module;
+pub mod passes;
+pub(super) mod visitor;
+
+pub use visitor::elem::register_supported_types;
 
 use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
 use cubecl_opt::OptimizerBuilder;
-use mlir::MlirEngine;
+use mlir_engine::MlirEngine;
 
-use crate::compiler::mlir::passes::{
-    checked_transform::CheckedTransform, erf_transform::ErfTransform,
-};
+use crate::compiler::passes::{checked_transform::CheckedTransform, erf_transform::ErfTransform};
 
 #[derive(Clone, Debug, Default)]
 pub struct MlirCompiler {}

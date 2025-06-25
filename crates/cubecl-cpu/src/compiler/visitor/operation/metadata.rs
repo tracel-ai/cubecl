@@ -4,7 +4,7 @@ use tracel_llvm::melior::{
     ir::{attribute::IntegerAttribute, r#type::IntegerType},
 };
 
-use crate::compiler::mlir::visitor::prelude::*;
+use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_metadata(&mut self, metadata: &Metadata, out: Variable) {
