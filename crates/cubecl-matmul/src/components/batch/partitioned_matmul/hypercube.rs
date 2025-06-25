@@ -8,13 +8,13 @@ use crate::kernels::MatmulSetupError;
 pub struct HypercubeConfig {
     cube_span: CubeSpan,
     pub global_order: GlobalOrder,
-    pub cube_distribution_config: CubeDistributionConfig,
+    pub cube_count_plan_config: CubeCountPlanConfig,
 }
 
 pub struct HypercubeConfigBuilder<'a> {
     tiling_scheme: &'a TilingScheme,
     global_order: GlobalOrder,
-    cube_distribution_config: Option<CubeDistributionConfig>,
+    cube_count_plan_config: Option<CubeCountPlanConfig>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -45,7 +45,7 @@ pub enum GlobalOrder {
 }
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum CubeDistributionConfig {
+pub enum CubeCountPlanConfig {
     /// X: num cubes in m, Y: num cubes in n, Z: num cubes in batch
     FromProblem,
 
@@ -67,7 +67,7 @@ pub enum CubeDistributionConfig {
 }
 
 #[derive(CubeType, CubeLaunch)]
-pub enum CubeDistribution {
+pub enum CubeCountPlan {
     FromProblem {
         m_cubes: u32,
         n_cubes: u32,
@@ -189,13 +189,11 @@ impl SmAllocation {
     }
 }
 
-impl CubeDistributionConfig {
-    pub fn can_overallocate(&self) -> bool {
+impl CubeCountPlanConfig {
+    pub fn can_yield_extra_cubes(&self) -> bool {
         match self {
-            CubeDistributionConfig::FromProblem | CubeDistributionConfig::Flattened => false,
-            CubeDistributionConfig::SmFirst { .. } | CubeDistributionConfig::CubeFirst { .. } => {
-                true
-            }
+            CubeCountPlanConfig::FromProblem | CubeCountPlanConfig::Flattened => false,
+            CubeCountPlanConfig::SmFirst { .. } | CubeCountPlanConfig::CubeFirst { .. } => true,
         }
     }
 }
@@ -205,24 +203,24 @@ impl HypercubeConfig {
         HypercubeConfigBuilder::new(tiling_scheme)
     }
 
-    pub fn cube_distribution(&self, problem: &MatmulProblem) -> CubeDistribution {
+    pub fn cube_count_plan(&self, problem: &MatmulProblem) -> CubeCountPlan {
         let m_cubes = (problem.m as u32).div_ceil(self.cube_span.m);
         let n_cubes = (problem.n as u32).div_ceil(self.cube_span.n);
         let batch_cubes = (problem.num_batches() as u32).div_ceil(self.cube_span.batch);
 
-        match self.cube_distribution_config {
-            CubeDistributionConfig::FromProblem => CubeDistribution::FromProblem {
+        match self.cube_count_plan_config {
+            CubeCountPlanConfig::FromProblem => CubeCountPlan::FromProblem {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
             },
-            CubeDistributionConfig::SmFirst {
+            CubeCountPlanConfig::SmFirst {
                 num_sms,
                 sm_usage: sms_partitioning,
             } => {
                 let (num_sms_used, cubes_per_sm) =
                     sms_partitioning.allocate(num_sms, m_cubes * n_cubes * batch_cubes);
-                CubeDistribution::SmFirst {
+                CubeCountPlan::SmFirst {
                     num_sms_used,
                     cubes_per_sm,
                     m_cubes,
@@ -230,13 +228,13 @@ impl HypercubeConfig {
                     batch_cubes,
                 }
             }
-            CubeDistributionConfig::CubeFirst {
+            CubeCountPlanConfig::CubeFirst {
                 num_sms,
                 sm_usage: sms_partitioning,
             } => {
                 let (num_sms_used, cubes_per_sm) =
                     sms_partitioning.allocate(num_sms, m_cubes * n_cubes * batch_cubes);
-                CubeDistribution::CubeFirst {
+                CubeCountPlan::CubeFirst {
                     num_sms_used,
                     cubes_per_sm,
                     m_cubes,
@@ -244,7 +242,7 @@ impl HypercubeConfig {
                     batch_cubes,
                 }
             }
-            CubeDistributionConfig::Flattened => CubeDistribution::Flattened {
+            CubeCountPlanConfig::Flattened => CubeCountPlan::Flattened {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
@@ -280,29 +278,30 @@ impl HypercubeConfig {
     }
 }
 
-impl CubeDistribution {
-    pub fn to_cube_count(&self) -> CubeCount {
+impl CubeCountPlan {
+    // Resolves the cube count plan into a concrete [`CubeCount`].
+    pub fn resolve(&self) -> CubeCount {
         match self {
-            CubeDistribution::FromProblem {
+            CubeCountPlan::FromProblem {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
             } => CubeCount::Static(*m_cubes, *n_cubes, *batch_cubes),
-            CubeDistribution::SmFirst {
+            CubeCountPlan::SmFirst {
                 num_sms_used,
                 cubes_per_sm,
                 m_cubes: _,
                 n_cubes: _,
                 batch_cubes: _,
             } => CubeCount::Static(*num_sms_used, *cubes_per_sm, 1),
-            CubeDistribution::CubeFirst {
+            CubeCountPlan::CubeFirst {
                 num_sms_used,
                 cubes_per_sm,
                 m_cubes: _,
                 n_cubes: _,
                 batch_cubes: _,
             } => CubeCount::Static(*cubes_per_sm, *num_sms_used, 1),
-            CubeDistribution::Flattened {
+            CubeCountPlan::Flattened {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
@@ -310,48 +309,48 @@ impl CubeDistribution {
         }
     }
 
-    pub fn to_args<'a, R: Runtime>(&self) -> CubeDistributionArgs<'a, R> {
+    pub fn to_args<'a, R: Runtime>(&self) -> CubeCountPlanArgs<'a, R> {
         match self {
-            CubeDistribution::FromProblem {
+            CubeCountPlan::FromProblem {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
-            } => CubeDistributionArgs::FromProblem {
+            } => CubeCountPlanArgs::FromProblem {
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
                 batch_cubes: ScalarArg::new(*batch_cubes),
             },
-            CubeDistribution::SmFirst {
+            CubeCountPlan::SmFirst {
                 num_sms_used,
                 cubes_per_sm,
                 m_cubes,
                 n_cubes,
                 batch_cubes,
-            } => CubeDistributionArgs::SmFirst {
+            } => CubeCountPlanArgs::SmFirst {
                 num_sms_used: ScalarArg::new(*num_sms_used),
                 cubes_per_sm: ScalarArg::new(*cubes_per_sm),
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
                 batch_cubes: ScalarArg::new(*batch_cubes),
             },
-            CubeDistribution::CubeFirst {
+            CubeCountPlan::CubeFirst {
                 num_sms_used,
                 cubes_per_sm,
                 m_cubes,
                 n_cubes,
                 batch_cubes,
-            } => CubeDistributionArgs::CubeFirst {
+            } => CubeCountPlanArgs::CubeFirst {
                 num_sms_used: ScalarArg::new(*num_sms_used),
                 cubes_per_sm: ScalarArg::new(*cubes_per_sm),
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
                 batch_cubes: ScalarArg::new(*batch_cubes),
             },
-            CubeDistribution::Flattened {
+            CubeCountPlan::Flattened {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
-            } => CubeDistributionArgs::Flattened {
+            } => CubeCountPlanArgs::Flattened {
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
                 batch_cubes: ScalarArg::new(*batch_cubes),
@@ -361,29 +360,29 @@ impl CubeDistribution {
 }
 
 #[cube]
-impl CubeDistribution {
+impl CubeCountPlan {
     pub fn max_cube_pos(&self) -> u32 {
         match self {
-            CubeDistribution::FromProblem {
+            CubeCountPlan::FromProblem {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
             } => *m_cubes * *n_cubes * *batch_cubes,
-            CubeDistribution::SmFirst {
+            CubeCountPlan::SmFirst {
                 num_sms_used: _,
                 cubes_per_sm: _,
                 m_cubes,
                 n_cubes,
                 batch_cubes,
             } => *m_cubes * *n_cubes * *batch_cubes,
-            CubeDistribution::CubeFirst {
+            CubeCountPlan::CubeFirst {
                 num_sms_used: _,
                 cubes_per_sm: _,
                 m_cubes,
                 n_cubes,
                 batch_cubes,
             } => *m_cubes * *n_cubes * *batch_cubes,
-            CubeDistribution::Flattened {
+            CubeCountPlan::Flattened {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
@@ -394,19 +393,19 @@ impl CubeDistribution {
     /// Given a cube position (SM ID, local index), returns the tensor coordinates (m, n, batch).
     pub fn cube_pos_to_tensor_pos(&self, #[comptime] global_order: GlobalOrder) -> (u32, u32, u32) {
         match self {
-            CubeDistribution::FromProblem {
+            CubeCountPlan::FromProblem {
                 m_cubes: _,
                 n_cubes: _,
                 batch_cubes: _,
             } => (CUBE_POS_X, CUBE_POS_Y, CUBE_POS_Z),
-            CubeDistribution::SmFirst {
+            CubeCountPlan::SmFirst {
                 num_sms_used: _,
                 cubes_per_sm: _,
                 m_cubes,
                 n_cubes,
                 batch_cubes: _,
             } => self.absolute_index_to_m_n_batch(CUBE_POS, *m_cubes, *n_cubes, global_order),
-            CubeDistribution::CubeFirst {
+            CubeCountPlan::CubeFirst {
                 num_sms_used: _,
                 cubes_per_sm,
                 m_cubes,
@@ -418,7 +417,7 @@ impl CubeDistribution {
                 *n_cubes,
                 global_order,
             ),
-            CubeDistribution::Flattened {
+            CubeCountPlan::Flattened {
                 m_cubes,
                 n_cubes,
                 batch_cubes: _,
@@ -441,8 +440,8 @@ impl CubeDistribution {
             GlobalOrder::RowMajor => (matrix_pos / n_cubes, matrix_pos % n_cubes),
             GlobalOrder::ColMajor => (matrix_pos % m_cubes, matrix_pos / m_cubes),
             GlobalOrder::SwizzleRowMajor(w) => {
-                let swizzle_result = swizzle(matrix_pos, n_cubes, w);
-                (swizzle_result.1, swizzle_result.0)
+                let (x, y) = swizzle(matrix_pos, n_cubes, w);
+                (y, x)
             }
             GlobalOrder::SwizzleColMajor(w) => swizzle(matrix_pos, m_cubes, w),
         };
@@ -456,7 +455,7 @@ impl<'a> HypercubeConfigBuilder<'a> {
         Self {
             tiling_scheme,
             global_order: GlobalOrder::default(),
-            cube_distribution_config: None,
+            cube_count_plan_config: None,
         }
     }
 
@@ -465,8 +464,8 @@ impl<'a> HypercubeConfigBuilder<'a> {
         self
     }
 
-    pub fn cube_distribution(mut self, cube_distribution_config: CubeDistributionConfig) -> Self {
-        self.cube_distribution_config = Some(cube_distribution_config);
+    pub fn cube_count_plan(mut self, cube_count_plan_config: CubeCountPlanConfig) -> Self {
+        self.cube_count_plan_config = Some(cube_count_plan_config);
         self
     }
 
@@ -477,12 +476,12 @@ impl<'a> HypercubeConfigBuilder<'a> {
             batch: self.tiling_scheme.global_partition_size.batches,
         };
 
-        let cube_pos_strategy = self.cube_distribution_config.unwrap_or_default();
+        let cube_pos_strategy = self.cube_count_plan_config.unwrap_or_default();
 
         HypercubeConfig {
             cube_span,
             global_order: self.global_order,
-            cube_distribution_config: cube_pos_strategy,
+            cube_count_plan_config: cube_pos_strategy,
         }
     }
 }

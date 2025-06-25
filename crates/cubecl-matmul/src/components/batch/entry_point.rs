@@ -1,4 +1,4 @@
-use crate::components::batch::CubeDistribution;
+use crate::components::batch::CubeCountPlan;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -26,11 +26,11 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    cube_count_args: CubeDistribution,
+    cube_count_args: CubeCountPlan,
     #[comptime] config: BMMF::Config,
 ) {
     #[allow(clippy::collapsible_if)]
-    if config.can_overallocate() {
+    if config.can_yield_extra_cubes() {
         if CUBE_POS >= cube_count_args.max_cube_pos() {
             terminate!()
         }

@@ -42,10 +42,10 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
         self.hypercube_config
     }
 
-    fn can_overallocate(&self) -> bool {
+    fn can_yield_extra_cubes(&self) -> bool {
         self.hypercube_config
-            .cube_distribution_config
-            .can_overallocate()
+            .cube_count_plan_config
+            .can_yield_extra_cubes()
     }
 }
 

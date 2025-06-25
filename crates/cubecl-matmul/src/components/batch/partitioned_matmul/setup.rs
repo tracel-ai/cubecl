@@ -5,7 +5,7 @@ use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
-use crate::components::batch::{BatchMatmulFamily, CubeDistributionArgs};
+use crate::components::batch::{BatchMatmulFamily, CubeCountPlanArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -43,7 +43,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeDistributionArgs<'a, R>,
+        cube_count_args: CubeCountPlanArgs<'a, R>,
         config: Self::Config,
     ) {
         unsafe {

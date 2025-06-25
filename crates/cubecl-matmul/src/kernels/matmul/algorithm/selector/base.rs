@@ -23,8 +23,10 @@ pub struct MatmulSelection {
 
 impl MatmulSelection {
     pub fn builder(tiling_scheme: TilingScheme, plane_dim: u32) -> MatmulSelectionBuilder {
+        let hypercube_config = HypercubeConfig::builder(&tiling_scheme).build();
         MatmulSelectionBuilder::new()
             .tiling_scheme(tiling_scheme)
+            .hypercube_config(hypercube_config)
             .plane_dim(plane_dim)
     }
 }
@@ -63,9 +65,6 @@ impl MatmulSelectionBuilder {
 
     pub fn tiling_scheme(mut self, tiling_scheme: TilingScheme) -> Self {
         self.tiling_scheme = Some(tiling_scheme);
-
-        // We make a default hypercube config from tiling scheme, but it is overridable
-        self.hypercube_config = Some(HypercubeConfig::builder(&tiling_scheme).build());
         self
     }
 
