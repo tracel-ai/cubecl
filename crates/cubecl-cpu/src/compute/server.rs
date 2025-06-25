@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
+use cubecl_common::profile::ProfileDuration;
 use cubecl_core::{
     CubeCount, ExecutionMode, Feature, MemoryUsage,
-    benchmark::ProfileDuration,
     compute::CubeTask,
     future::DynFut,
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, Handle, ProfilingToken},
+    server::{
+        Binding, BindingWithMeta, Bindings, ComputeServer, Handle, ProfileError, ProfilingToken,
+    },
 };
 use cubecl_runtime::{
-    kernel_timestamps::KernelTimestamps,
     logging::ServerLogger,
     memory_management::MemoryManagement,
     storage::{BindingResource, BytesStorage, ComputeStorage},
+    timestamp_profiler::TimestampProfiler,
 };
 
 use crate::{CpuCompiler, compiler::MlirCompilerOptions};
@@ -34,14 +36,14 @@ impl CpuServer {
 #[derive(Debug)]
 pub struct CpuContext {
     memory_management: MemoryManagement<BytesStorage>,
-    timestamps: KernelTimestamps,
+    timestamps: TimestampProfiler,
 }
 
 impl CpuContext {
     pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
         Self {
             memory_management,
-            timestamps: KernelTimestamps::default(),
+            timestamps: TimestampProfiler::default(),
         }
     }
 }
@@ -210,7 +212,7 @@ impl ComputeServer for CpuServer {
         self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> ProfileDuration {
+    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.logger.profile_summary();
         cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.stop(token)
