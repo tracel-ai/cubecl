@@ -13,7 +13,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 use cubecl_ir::Elem;
 
 #[derive(Debug, Clone)]

@@ -5,8 +5,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
 use async_channel::{Receiver, Sender};
-use cubecl_common::benchmark::ProfileDuration;
 use cubecl_common::future::spawn_detached_fut;
+use cubecl_common::profile::ProfileDuration;
 
 use super::{ProfileLevel, Profiled};
 
@@ -132,7 +132,6 @@ impl ServerLogger {
     }
 }
 
-#[derive(Debug)]
 struct AsyncLogger {
     message: Receiver<LogMessage>,
     logger: Logger,
@@ -146,8 +145,8 @@ impl AsyncLogger {
                 LogMessage::Compilation(msg) => {
                     self.logger.log_compilation(&msg);
                 }
-                LogMessage::Profile(name, duration) => {
-                    let duration = duration.resolve().await;
+                LogMessage::Profile(name, profile) => {
+                    let duration = profile.resolve().await.duration();
                     self.profiled.update(&name, duration);
                     self.logger
                         .log_profiling(&format!("| {duration:<10?} | {name}"));

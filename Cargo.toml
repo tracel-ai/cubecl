@@ -13,7 +13,6 @@ readme = "README.md"
 version = "0.6.0"
 rust-version = "1.85"
 
-
 [workspace.dependencies]
 bitflags = { version = "2.8.0", features = ["serde"] }
 derive-new = { version = "0.6.0", default-features = false }
@@ -67,6 +66,8 @@ paste = "1.0.15"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
+
+tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }

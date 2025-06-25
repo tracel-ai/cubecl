@@ -12,24 +12,33 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::{ExecutionMode, profile::ProfileDuration};
+
+#[allow(unused)]
+use cubecl_common::profile::TimingMethod;
 
 #[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
-#[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
     state: Arc<ComputeClientState<Server>>,
 }
 
-#[derive(new, Debug)]
+#[derive(new)]
 struct ComputeClientState<Server: ComputeServer> {
+    #[cfg(feature = "profile-tracy")]
+    epoch_time: web_time::Instant,
+
+    #[cfg(feature = "profile-tracy")]
+    gpu_client: tracy_client::GpuContext,
+
     properties: DeviceProperties<Server::Feature>,
     info: Server::Info,
     logger: Arc<ServerLogger>,
+
     #[cfg(multi_threading)]
     current_profiling: spin::RwLock<Option<StreamId>>,
 }
@@ -65,13 +74,31 @@ where
     ) -> Self {
         let logger = ServerLogger::default();
 
-        let state = ComputeClientState::new(
+        // Start a tracy client if needed.
+        #[cfg(feature = "profile-tracy")]
+        let client = tracy_client::Client::start();
+
+        let state = ComputeClientState {
             properties,
-            info,
-            Arc::new(logger),
+            logger: Arc::new(logger),
             #[cfg(multi_threading)]
-            spin::RwLock::new(None),
-        );
+            current_profiling: spin::RwLock::new(None),
+            // Create the GPU client if needed.
+            #[cfg(feature = "profile-tracy")]
+            gpu_client: client
+                .clone()
+                .new_gpu_context(
+                    Some(&format!("{info:?}")),
+                    // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
+                    tracy_client::GpuContextType::Invalid,
+                    0,   // Timestamps are manually aligned to this epoch so start at 0.
+                    1.0, // Timestamps are manually converted to be nanoseconds so period is 1.
+                )
+                .unwrap(),
+            #[cfg(feature = "profile-tracy")]
+            epoch_time: web_time::Instant::now(),
+            info,
+        };
 
         Self {
             channel,
@@ -236,6 +263,7 @@ where
         self.channel.empty_tensors(shapes, elem_size)
     }
 
+    #[track_caller]
     unsafe fn execute_inner(
         &self,
         kernel: Server::Kernel,
@@ -265,15 +293,18 @@ where
                 let name = kernel.name();
                 let kernel_id = kernel.id();
                 let profile = self
-                    .profile(|| unsafe {
-                        self.channel.execute(
-                            kernel,
-                            count.clone(),
-                            bindings,
-                            mode,
-                            self.state.logger.clone(),
-                        )
-                    })
+                    .profile(
+                        || unsafe {
+                            self.channel.execute(
+                                kernel,
+                                count.clone(),
+                                bindings,
+                                mode,
+                                self.state.logger.clone(),
+                            )
+                        },
+                        name,
+                    )
                     .unwrap();
                 let info = match level {
                     ProfileLevel::Full => {
@@ -287,6 +318,7 @@ where
     }
 
     /// Executes the `kernel` over the given `bindings`.
+    #[track_caller]
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
         // SAFETY: Using checked execution mode.
         unsafe {
@@ -301,6 +333,7 @@ where
     /// To ensure this is safe, you must verify your kernel:
     /// - Has no out-of-bound reads and writes that can happen.
     /// - Has no infinite loops that might never terminate.
+    #[track_caller]
     pub unsafe fn execute_unchecked(
         &self,
         kernel: Server::Kernel,
@@ -351,19 +384,70 @@ where
     }
 
     /// Measure the execution time of some inner operations.
-    ///
-    /// Nb: this function will only allow one function at a time to be submitted when multi threading.
-    /// Recursive measurements are not allowed and will deadlock.
-    pub fn profile<O>(&self, func: impl FnOnce() -> O) -> Result<ProfileDuration, ProfileError> {
+    #[track_caller]
+    pub fn profile<O>(
+        &self,
+        func: impl FnOnce() -> O,
+        #[allow(unused)] func_name: &str,
+    ) -> Result<ProfileDuration, ProfileError> {
+        // Get the outer caller. For execute() this points straight to the
+        // cube kernel. For general profiling it points to whoever calls profile.
+        #[cfg(feature = "profile-tracy")]
+        let location = std::panic::Location::caller();
+
+        // Make a CPU span. If the server has system profiling this is all you need.
+        #[cfg(feature = "profile-tracy")]
+        let _span = tracy_client::Client::running().unwrap().span_alloc(
+            None,
+            func_name,
+            location.file(),
+            location.line(),
+            0,
+        );
+
         #[cfg(multi_threading)]
-        let stream_id = self.profile_aquire();
+        let stream_id = self.profile_acquire();
+
+        #[cfg(feature = "profile-tracy")]
+        let gpu_span = if self.state.properties.timing_method == TimingMethod::Device {
+            let gpu_span = self
+                .state
+                .gpu_client
+                .span_alloc(func_name, "profile", location.file(), location.line())
+                .unwrap();
+            Some(gpu_span)
+        } else {
+            None
+        };
+
         let token = self.channel.start_profile();
 
         let out = func();
 
-        let result = self.channel.end_profile(token);
+        #[allow(unused_mut)]
+        let mut result = self.channel.end_profile(token);
 
         core::mem::drop(out);
+
+        #[cfg(feature = "profile-tracy")]
+        if let Some(mut gpu_span) = gpu_span {
+            gpu_span.end_zone();
+            let epoch = self.state.epoch_time;
+            // Add in the work to upload the timestamp data.
+            result = result.map(|result| {
+                ProfileDuration::new(
+                    Box::pin(async move {
+                        let ticks = result.resolve().await;
+                        let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
+                        let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                        gpu_span.upload_timestamp_start(start_duration);
+                        gpu_span.upload_timestamp_end(end_duration);
+                        ticks
+                    }),
+                    TimingMethod::Device,
+                )
+            });
+        }
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);
@@ -406,7 +490,7 @@ where
     }
 
     #[cfg(multi_threading)]
-    fn profile_aquire(&self) -> Option<StreamId> {
+    fn profile_acquire(&self) -> Option<StreamId> {
         let stream_id = StreamId::current();
         let mut current = self.state.current_profiling.write();
 
