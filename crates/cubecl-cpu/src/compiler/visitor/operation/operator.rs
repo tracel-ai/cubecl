@@ -9,7 +9,7 @@ use tracel_llvm::melior::{
     ir::{Block, Region, attribute::IntegerAttribute},
 };
 
-use crate::compiler::mlir::visitor::prelude::*;
+use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {

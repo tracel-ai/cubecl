@@ -5,7 +5,7 @@ use tracel_llvm::melior::{
     ir::Attribute,
 };
 
-use crate::compiler::mlir::visitor::prelude::*;
+use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: Variable) {

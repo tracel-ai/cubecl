@@ -5,7 +5,7 @@ use tracel_llvm::melior::{
     ir::r#type::IntegerType,
 };
 
-use crate::compiler::mlir::visitor::prelude::*;
+use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: Variable) {

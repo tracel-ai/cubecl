@@ -13,7 +13,7 @@ use tracel_llvm::melior::{
     },
 };
 
-use crate::compiler::mlir::visitor::prelude::*;
+use crate::compiler::visitor::prelude::*;
 
 use super::Visitor;
 
