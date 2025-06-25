@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MLIRKernel;
 
 impl Display for MLIRKernel {
