@@ -2,10 +2,9 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::future;
+use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, Runtime,
-    benchmark::TimingMethod,
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;

@@ -7,7 +7,7 @@ use derive_new::new;
 
 use crate::dummy::{DummyChannel, DummyServer, KernelTask};
 
-#[derive(new, Debug, Clone)]
+#[derive(new, Clone)]
 /// Extended kernel that accounts for additional parameters, i.e. needed
 /// information that does not count as an input/output.
 pub struct OneKernelAutotuneOperation {

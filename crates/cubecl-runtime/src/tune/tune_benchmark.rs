@@ -1,13 +1,11 @@
-use core::time::Duration;
-
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use cubecl_common::profile::{ProfileDuration, TimingMethod};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-use cubecl_common::benchmark::{ProfileDuration, TimingMethod};
 
 use super::{AutotuneError, Tunable};
 
@@ -47,11 +45,12 @@ impl<
     }
 
     /// Benchmark how long this operation takes for a number of samples.
+    ///
+    /// Returns at least one duration, otherwise an error is returned.
     pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
         // If the inner operation need autotuning as well, we need to call it before. This will
         // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
-        // does a depth-first traversal of the operation tree. Without this, client.profile() would have to
-        // support profiling recursively.
+        // does a depth-first traversal of the operation tree.
 
         // For now we wrap the warmup operation inside a profiling task, since we have basic error
         // handling for system timing methods.
@@ -61,42 +60,49 @@ impl<
         }?;
 
         let operation = self.operation;
-
         let num_samples = 10;
-        let durations = (0..num_samples)
-            .map(|_| {
+        let durations: Vec<_> = (0..num_samples)
+            .filter_map(|_| {
                 let result: Result<ProfileDuration, crate::server::ProfileError> =
-                    self.client.profile(|| {
-                        // It is important to return the output since otherwise deadcode elimination
-                        // might optimize away code that needs to be profiled.
-                        operation
-                            .execute(self.inputs.clone())
-                            .expect("Should not fail when previously tried during the warmup.")
-                    });
+                    self.client.profile(
+                        || {
+                            // It is important to return the output since otherwise deadcode elimination
+                            // might optimize away code that needs to be profiled.
+                            operation
+                                .execute(self.inputs.clone())
+                                .expect("Should not fail when previously tried during the warmup.")
+                        },
+                        operation.name(),
+                    );
+
                 match result {
-                    Ok(val) => val,
+                    Ok(val) => Some(val),
                     Err(err) => {
                         log::warn!("Error while autotuning {err:?}");
-                        ProfileDuration::from_duration(Duration::from_millis(u64::MAX))
+                        None
                     }
                 }
             })
             .collect();
 
-        Ok(durations)
+        if durations.is_empty() {
+            Err(AutotuneError::InvalidSamples)
+        } else {
+            Ok(durations)
+        }
     }
 
     fn warmup_full_error_handling(&self) -> Result<(), AutotuneError> {
         let mut error = None;
 
-        let result = self
-            .client
-            .profile(|| match self.operation.execute(self.inputs.clone()) {
-                Ok(_) => {}
-                Err(err) => {
+        let result = self.client.profile(
+            || {
+                if let Err(err) = self.operation.execute(self.inputs.clone()) {
                     error = Some(err);
                 }
-            });
+            },
+            self.operation.name(),
+        );
 
         if let Err(err) = result {
             return Err(AutotuneError::Unknown(format!("{err:?}")));

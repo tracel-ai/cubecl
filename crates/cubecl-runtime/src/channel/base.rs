@@ -1,4 +1,4 @@
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration, future::DynFut};
+use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 
 use crate::{
     logging::ServerLogger,
@@ -79,8 +79,6 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// This will measure execution time either by measuring the 'full' execution time by synchronizing
     /// the execution at the start and the end of the profile, or 'device' time by using device timestamps.
     /// This function will handle any required synchronization.
-    ///
-    /// Recursive profiling is not allowed and will panic.
     fn start_profile(&self) -> ProfilingToken;
 
     /// End the profile and return a [`ProfileDuration`].

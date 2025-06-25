@@ -1,13 +1,13 @@
-use cubecl_common::benchmark::ProfileDuration;
+use cubecl_common::profile::ProfileDuration;
 use hashbrown::HashMap;
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::server::{ProfileError, ProfilingToken};
 
-#[derive(Debug, Default)]
+#[derive(Default, Debug)]
 /// A simple struct to keep track of timestamps for kernel execution.
 /// This should be used for servers that do not have native device profiling.
-pub struct KernelTimestamps {
+pub struct TimestampProfiler {
     state: HashMap<ProfilingToken, State>,
     counter: u64,
 }
@@ -18,7 +18,7 @@ enum State {
     Error(ProfileError),
 }
 
-impl KernelTimestamps {
+impl TimestampProfiler {
     /// If there is some profiling registered.
     pub fn is_empty(&self) -> bool {
         self.state.is_empty()
@@ -27,8 +27,7 @@ impl KernelTimestamps {
     pub fn start(&mut self) -> ProfilingToken {
         let token = ProfilingToken { id: self.counter };
         self.counter += 1;
-        self.state
-            .insert(token, State::Start(std::time::Instant::now()));
+        self.state.insert(token, State::Start(Instant::now()));
         token
     }
 
@@ -42,8 +41,7 @@ impl KernelTimestamps {
             },
             None => return Err(ProfileError::NotRegistered),
         };
-
-        Ok(ProfileDuration::from_duration(start.elapsed()))
+        Ok(ProfileDuration::new_system_time(start, Instant::now()))
     }
 
     /// Register an error during profiling.

@@ -1,4 +1,3 @@
-use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::{self, DynFut};
 use cubecl_core::server::{ProfileError, ProfilingToken};
@@ -6,7 +5,7 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::{kernel_timestamps::KernelTimestamps, memory_management::offset_handles};
+use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
 use crate::{CudaCompiler, WmmaCompiler};
@@ -14,6 +13,7 @@ use crate::{CudaCompiler, WmmaCompiler};
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{CudaResource, uninit_vec};
+use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{Elem, IntKind, UIntKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -57,7 +57,7 @@ pub(crate) struct CudaContext {
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
-    timestamps: KernelTimestamps,
+    timestamps: TimestampProfiler,
     pub(crate) arch: CudaArchitecture,
     compilation_options: CompilationOptions,
 }
@@ -576,7 +576,7 @@ impl CudaContext {
             },
             stream,
             arch,
-            timestamps: KernelTimestamps::default(),
+            timestamps: TimestampProfiler::default(),
             compilation_options,
         }
     }
