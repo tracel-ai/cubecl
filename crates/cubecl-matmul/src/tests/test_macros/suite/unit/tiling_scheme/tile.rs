@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! testgen_matmul_unit_tile {
-    ($algorithm: ty, $precision: ty) => {
+    ($algorithm: ty, $precision: ty, $tiling_scheme_builder: expr) => {
         use $crate::components::TileSize;
 
         mod t1x1x1 {
@@ -9,7 +9,7 @@ macro_rules! testgen_matmul_unit_tile {
             $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 1, n: 1, k: 1 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 1, n: 1, k: 1 })
             );
         }
 
@@ -19,7 +19,7 @@ macro_rules! testgen_matmul_unit_tile {
             $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 8, n: 1, k: 4 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 8, n: 1, k: 4 })
             );
         }
 
@@ -29,7 +29,7 @@ macro_rules! testgen_matmul_unit_tile {
             $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 2, n: 4, k: 1 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 2, n: 4, k: 1 })
             );
         }
 
@@ -39,7 +39,7 @@ macro_rules! testgen_matmul_unit_tile {
             $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 1, n: 8, k: 8 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 1, n: 8, k: 8 })
             );
         }
 
@@ -49,7 +49,7 @@ macro_rules! testgen_matmul_unit_tile {
             $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 4, n: 4, k: 4 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 4, n: 4, k: 4 })
             );
         }
 
@@ -59,7 +59,7 @@ macro_rules! testgen_matmul_unit_tile {
             $crate::testgen_matmul_unit_partition!(
                 $algorithm,
                 $precision,
-                TileSize { m: 8, n: 8, k: 8 }
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 8, n: 8, k: 8 })
             );
         }
     };

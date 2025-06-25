@@ -5,8 +5,7 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::partitioned_matmul::partitioner::Partitioner;
-use crate::components::batch::{BatchConfig as _, BatchMatmul};
+use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountPlan};
 use crate::components::global;
 use crate::components::global::Quantization;
 use cubecl_core as cubecl;
@@ -23,37 +22,34 @@ pub struct PartitionedBatchMatmul<
     MP: MatmulPrecision,
     GMM: global::GlobalMatmul<MP>,
     S: GlobalPartitionMatmul,
-    P: Partitioner,
 > {
     _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
-    _c: PhantomData<P>,
 }
 
 #[cube]
-impl<
-    MP: MatmulPrecision,
-    GMM: global::GlobalMatmul<MP>,
-    GPMM: GlobalPartitionMatmul,
-    P: Partitioner,
-> BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM, P>
+impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul>
+    BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM>
 {
-    type Config = PartitionedBatchConfig<GMM::Config, P>;
+    type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn execute(
         lhs: VirtualTensor<MP::EI>,
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
+        cube_count_args: CubeCountPlan,
         #[comptime] config: Self::Config,
     ) {
-        let problem_k = lhs.shape(lhs.rank() - 1);
+        let lhs_rank = lhs.rank();
+
+        let problem_k = lhs.shape(lhs_rank - 1);
         let k_range = (0, problem_k);
 
         let tiling_scheme = config.tiling_scheme();
-        let (m_index, n_index) = P::m_n_indices();
-        let batch_index = P::batch_index();
+        let (m_index, n_index, batch_index) =
+            cube_count_args.cube_pos_to_tensor_pos(config.hypercube_config().global_order);
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(

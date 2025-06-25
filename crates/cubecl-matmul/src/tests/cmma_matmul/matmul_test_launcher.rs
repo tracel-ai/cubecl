@@ -75,11 +75,13 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
+    let cube_count_plan = config.hypercube_config().cube_count_plan(&problem);
+
     unsafe {
         A::BatchMatmul::launch_unchecked::<P::MP, R>(
             &client,
             config.cube_dim(),
-            config.cube_count(&problem),
+            cube_count_plan.resolve(),
             TensorInputsLaunch::new(
                 TensorArg::<R>::from_raw_parts::<P::EG>(
                     &lhs.handle,
@@ -108,6 +110,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &out.shape,
                 line_sizes.out,
             ),
+            cube_count_plan.to_args(),
             config,
         );
     }

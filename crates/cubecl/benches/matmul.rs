@@ -271,6 +271,6 @@ fn main() {
     }
     #[cfg(feature = "wgpu-msl")]
     {
-        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 }

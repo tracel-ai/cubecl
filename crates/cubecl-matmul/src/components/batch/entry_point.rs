@@ -1,3 +1,4 @@
+use crate::components::batch::CubeCountPlan;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -25,8 +26,16 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
+    cube_count_args: CubeCountPlan,
     #[comptime] config: BMMF::Config,
 ) {
+    #[allow(clippy::collapsible_if)]
+    if config.can_yield_extra_cubes() {
+        if CUBE_POS >= cube_count_args.max_cube_pos() {
+            terminate!()
+        }
+    }
+
     let mut state = Args::init_state(inputs, output);
 
     let lhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Lhs);
@@ -44,9 +53,17 @@ pub(crate) fn matmul<
             rhs,
             out,
             CubeOption::new_Some(quantization),
+            cube_count_args,
             config,
         );
     } else {
-        BMMF::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, CubeOption::new_None(), config);
+        BMMF::Matmul::<(EI, ES, EA, EO)>::execute(
+            lhs,
+            rhs,
+            out,
+            CubeOption::new_None(),
+            cube_count_args,
+            config,
+        );
     };
 }
