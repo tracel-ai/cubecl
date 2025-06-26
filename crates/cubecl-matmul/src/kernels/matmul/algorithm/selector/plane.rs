@@ -88,9 +88,14 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         },
         None => CubeCountPlanConfig::Flattened,
     };
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(GlobalOrder::SwizzleRowMajor(4))
+        .global_order(global_order)
         .cube_count_plan(cube_count_plan)
         .build();
 
