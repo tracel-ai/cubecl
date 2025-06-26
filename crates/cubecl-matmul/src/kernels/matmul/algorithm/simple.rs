@@ -74,6 +74,11 @@ where
                 },
                 None => CubeCountPlanConfig::Flattened,
             };
+            let global_order = if problem.m >= 4 {
+                GlobalOrder::SwizzleRowMajor(4)
+            } else {
+                GlobalOrder::RowMajor
+            };
 
             if supported(8, 32, 16) {
                 // A lot of multi-rows balanced with a
@@ -86,7 +91,7 @@ where
                     .unwrap();
 
                 let hypercube = HypercubeConfig::builder(&tiling_scheme)
-                    .global_order(GlobalOrder::SwizzleRowMajor(4))
+                    .global_order(global_order)
                     .cube_count_plan(cube_count_plan)
                     .build();
 
@@ -101,9 +106,8 @@ where
                     .with_stage_size((4, 1, 1).into())
                     .build()
                     .unwrap();
-
                 let hypercube = HypercubeConfig::builder(&tiling_scheme)
-                    .global_order(GlobalOrder::SwizzleRowMajor(4))
+                    .global_order(global_order)
                     .cube_count_plan(cube_count_plan)
                     .build();
 
