@@ -59,6 +59,12 @@ fn general_unit_selector(
         partition_size.2 /= 2;
     }
 
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
+
     selection(
         tile_size,
         partition_size,
@@ -69,6 +75,7 @@ fn general_unit_selector(
             num_plane: 8,
         },
         num_sms,
+        global_order,
     )
 }
 
@@ -87,6 +94,12 @@ fn matvec_unit_selector(
         (ColMajor, ColMajor) => ((4, 1, 4), (1, 1, 4)),
     };
 
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
+
     selection(
         tile_size,
         partition_size,
@@ -94,6 +107,7 @@ fn matvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
+        global_order,
     )
 }
 
@@ -119,6 +133,7 @@ fn vecmat_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
@@ -144,17 +159,24 @@ fn scalarvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
 /// (M, 1) @ (1, 1) → (M, 1)
 fn vecscalar_unit_selector(
-    _problem: &MatmulProblem,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 1, 4), (1, 1, 2));
+
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
 
     selection(
         tile_size,
@@ -163,6 +185,7 @@ fn vecscalar_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 4 },
         num_sms,
+        global_order,
     )
 }
 
@@ -188,17 +211,24 @@ fn inner_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
 /// (M, 1) @ (1, N) → (M, N)
 fn outer_product_unit_selector(
-    _problem: &MatmulProblem,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 4, 1), (1, 1, 1));
+
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
 
     selection(
         tile_size,
@@ -207,6 +237,7 @@ fn outer_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
+        global_order,
     )
 }
 
@@ -229,6 +260,7 @@ fn scalar_product_unit_selector(
             num_plane: 8,
         },
         num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
@@ -259,6 +291,7 @@ fn selection(
     plane_dim: u32,
     stage: StageSelection,
     num_sms: Option<u32>,
+    global_order: GlobalOrder,
 ) -> MatmulSelection {
     let (stage_size_m, stage_size_n) = stage.into_stages();
 
@@ -278,7 +311,7 @@ fn selection(
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(GlobalOrder::SwizzleRowMajor(4))
+        .global_order(global_order)
         .cube_count_plan(cube_count_plan)
         .build();
 
