@@ -8,7 +8,8 @@ use cubecl::{CubeLaunch, CubeType, Runtime};
 use crate::RandomFamily;
 
 use super::{
-    PrngArgs, PrngRuntime, lcg_step, random, taus_step_0, taus_step_1, taus_step_2, to_probability,
+    PrngArgs, PrngRuntime, lcg_step, random, taus_step_0, taus_step_1, taus_step_2,
+    to_unit_interval_closed_open,
 };
 
 #[derive(CubeLaunch, CubeType)]
@@ -55,7 +56,7 @@ impl<E: Numeric> PrngRuntime<E> for Bernoulli<E> {
                 *state_3 = lcg_step(*state_3);
 
                 let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-                let float_random = to_probability(int_random);
+                let float_random = to_unit_interval_closed_open(int_random);
                 output_line[i] = E::cast_from(float_random < prob);
             }
             let write_index = line_index * n_invocations + write_index_base;

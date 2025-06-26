@@ -5,10 +5,10 @@ use alloc::vec::Vec;
 use core::fmt::Display;
 use core::time::Duration;
 
-use crate::profile::TimingMethod;
+pub use crate::profile::TimingMethod;
 
 #[cfg(feature = "std")]
-use crate::profile::ProfileDuration;
+pub use crate::profile::ProfileDuration;
 
 /// Results of a benchmark run.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

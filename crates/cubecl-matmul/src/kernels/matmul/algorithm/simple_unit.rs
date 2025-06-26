@@ -36,13 +36,13 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
         _elem_stage: Elem,
         _elem_acc: Elem,
         _args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection(problem, plane_dim, false)
+        unit_matmul_selection::<R>(client, problem, plane_dim, false)
     }
 }

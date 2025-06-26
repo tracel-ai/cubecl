@@ -75,15 +75,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 }
 
 #[cube]
-pub(crate) fn small_int_reverse<I: Int>(x: Line<I>, out: &mut Line<I>, #[comptime] width: u32) {
+pub(crate) fn small_int_reverse<I: Int>(x: Line<I>, #[comptime] width: u32) -> Line<I> {
     let shift = comptime!(32 - width);
 
     let reversed = Line::reverse_bits(Line::<u32>::cast_from(x));
-    *out = Line::cast_from(reversed >> Line::new(shift))
+    Line::cast_from(reversed >> Line::new(shift))
 }
 
 #[cube]
-pub(crate) fn u64_reverse<I: Int>(x: Line<I>, out: &mut Line<I>) {
+pub(crate) fn u64_reverse<I: Int>(x: Line<I>) -> Line<I> {
     let shift = Line::new(I::new(32));
 
     let low = Line::<u32>::cast_from(x);
@@ -93,11 +93,11 @@ pub(crate) fn u64_reverse<I: Int>(x: Line<I>, out: &mut Line<I>) {
     let high_rev = Line::reverse_bits(high);
     // Swap low and high values
     let high = Line::cast_from(low_rev) << shift;
-    *out = high | Line::cast_from(high_rev);
+    high | Line::cast_from(high_rev)
 }
 
 #[cube]
-pub(crate) fn u64_count_bits<I: Int>(x: Line<I>, out: &mut Line<u32>) {
+pub(crate) fn u64_count_bits<I: Int>(x: Line<I>) -> Line<u32> {
     let shift = Line::new(I::new(32));
 
     let low = Line::<u32>::cast_from(x);
@@ -105,11 +105,11 @@ pub(crate) fn u64_count_bits<I: Int>(x: Line<I>, out: &mut Line<u32>) {
 
     let low_cnt = Line::<u32>::cast_from(Line::count_ones(low));
     let high_cnt = Line::<u32>::cast_from(Line::count_ones(high));
-    *out = low_cnt + high_cnt;
+    low_cnt + high_cnt
 }
 
 #[cube]
-pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>, out: &mut Line<u32>) {
+pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
     let shift = Line::new(I::new(32));
 
     let low = Line::<u32>::cast_from(x);
@@ -117,11 +117,11 @@ pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>, out: &mut Line<u32>) {
     let low_zeros = Line::leading_zeros(low);
     let high_zeros = Line::leading_zeros(high);
 
-    *out = select_many(
+    select_many(
         high_zeros.equal(Line::new(32)),
         low_zeros + high_zeros,
         high_zeros,
-    );
+    )
 }
 
 /// There are three possible outcomes:
@@ -129,7 +129,7 @@ pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>, out: &mut Line<u32>) {
 /// * low is empty, high has any set -> return high + 32
 /// * low and high are empty -> return 0
 #[cube]
-pub(crate) fn u64_ffs<I: Int>(x: Line<I>, out: &mut Line<u32>) {
+pub(crate) fn u64_ffs<I: Int>(x: Line<I>) -> Line<u32> {
     let shift = Line::new(I::new(32));
 
     let low = Line::<u32>::cast_from(x);
@@ -142,5 +142,5 @@ pub(crate) fn u64_ffs<I: Int>(x: Line<I>, out: &mut Line<u32>) {
         high_ffs,
         high_ffs + Line::new(32),
     );
-    *out = select_many(low_ffs.equal(Line::new(0)), high_ffs, low_ffs);
+    select_many(low_ffs.equal(Line::new(0)), high_ffs, low_ffs)
 }

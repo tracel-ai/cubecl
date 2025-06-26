@@ -22,6 +22,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(inst.out());
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
+                let in_id = input.item().broadcast(self, in_id, None, &out.item());
                 let out_id = self.write_id(&out);
 
                 self.copy_object(ty, Some(out_id), in_id).unwrap();

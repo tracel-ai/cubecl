@@ -1,9 +1,10 @@
 #![allow(unknown_lints, unnecessary_transmutes)]
 
 use std::{
+    cell::RefCell,
+    collections::HashSet,
     mem::{replace, transmute},
     rc::Rc,
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 use cubecl_ir::{ConstantScalarValue, Instruction, Operation, OperationReflect, VariableKind};
@@ -29,67 +30,50 @@ impl OptimizerPass for EliminateUnusedVariables {
 }
 
 fn search_loop(opt: &mut Optimizer) -> bool {
-    for node in opt.program.node_indices().collect::<Vec<_>>() {
-        let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
+    let nodes = opt.program.node_indices().collect::<Vec<_>>();
+    let mut contains_modification = false;
 
+    // REFACTOR: Rc<RefCell<>> is necessary for the current visitor function bound, but it needs to be refactored to cleanup the bounds
+    let var_used = Rc::new(RefCell::new(HashSet::new()));
+    opt.visit_all(
+        |_, var| {
+            var_used.borrow_mut().insert(*var);
+        },
+        visit_noop,
+    );
+
+    for node in nodes {
         let phi = opt.block(node).phi_nodes.borrow().clone();
         let filtered_phi = phi
             .into_iter()
-            .filter(|phi| {
-                let used = AtomicBool::new(false);
-                opt.visit_all(
-                    |_, var| {
-                        if *var == phi.out {
-                            used.store(true, Ordering::Release);
-                        }
-                    },
-                    visit_noop,
-                );
-                used.load(Ordering::Acquire)
-            })
+            .filter(|phi| var_used.borrow().contains(&phi.out))
             .collect::<Vec<_>>();
         if opt.block(node).phi_nodes.borrow().len() != filtered_phi.len() {
             *opt.block_mut(node).phi_nodes.borrow_mut() = filtered_phi;
-            return true;
+            contains_modification = true;
         }
 
+        let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
         for idx in ops {
-            let mut op = opt.program[node].ops.borrow()[idx].clone();
+            let op = opt.program[node].ops.borrow()[idx].clone();
             // Impure operations must be skipped because they can change things even if the output
             // is unused
             if !op.operation.is_pure() {
                 continue;
             }
-            let mut out = None;
-            let used = Rc::new(AtomicBool::new(false));
-            opt.visit_out(&mut op.out, |_, var| {
-                // Exclude outputs
-                if !matches!(
-                    var.kind,
-                    VariableKind::GlobalOutputArray { .. } | VariableKind::GlobalInputArray { .. }
-                ) {
-                    out = Some(*var);
-                }
-            });
-            if let Some(out) = out {
-                let used = used.clone();
-                opt.visit_all(
-                    |_, var| {
-                        if *var == out {
-                            used.store(true, Ordering::Release);
-                        }
-                    },
-                    visit_noop,
-                );
-                if !used.load(Ordering::Acquire) {
-                    opt.program[node].ops.borrow_mut().remove(idx);
-                    return true;
-                }
+            let Some(out) = op.out else { continue };
+            if !matches!(
+                out.kind,
+                VariableKind::GlobalInputArray(_) | VariableKind::GlobalOutputArray(_)
+            ) && !var_used.borrow().contains(&out)
+            {
+                opt.program[node].ops.borrow_mut().remove(idx);
+                contains_modification = true;
             }
         }
     }
 
-    false
+    contains_modification
 }
 
 /// Eliminates branches that can be evaluated at compile time.

@@ -4,7 +4,10 @@ use std::marker::PhantomData;
 
 use crate::components::{
     MatmulProblem, TilingScheme,
-    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
+    batch::{
+        CubeCountPlanConfig, GlobalOrder, HypercubeConfig, PartitionedBatchMatmulFamily,
+        RowMajorGlobalPartitionMatmul, SmAllocation,
+    },
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
         single_stage::simple::SimpleMatmulFamily,
@@ -64,6 +67,18 @@ where
                     k,
                 })
             };
+            let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
+                Some(num_sms) => CubeCountPlanConfig::CubeFirst {
+                    num_sms,
+                    sm_usage: SmAllocation::Exact,
+                },
+                None => CubeCountPlanConfig::Flattened,
+            };
+            let global_order = if problem.m >= 4 {
+                GlobalOrder::SwizzleRowMajor(4)
+            } else {
+                GlobalOrder::RowMajor
+            };
 
             if supported(8, 32, 16) {
                 // A lot of multi-rows balanced with a
@@ -75,8 +90,14 @@ where
                     .build()
                     .unwrap();
 
+                let hypercube = HypercubeConfig::builder(&tiling_scheme)
+                    .global_order(global_order)
+                    .cube_count_plan(cube_count_plan)
+                    .build();
+
                 MatmulSelection::builder(tiling_scheme, plane_dim)
                     .partition_buffering(PartitionBuffering::Single)
+                    .hypercube_config(hypercube)
                     .build()
             } else if supported(8, 8, 8) {
                 let tiling_scheme = TilingScheme::builder()
@@ -85,9 +106,14 @@ where
                     .with_stage_size((4, 1, 1).into())
                     .build()
                     .unwrap();
+                let hypercube = HypercubeConfig::builder(&tiling_scheme)
+                    .global_order(global_order)
+                    .cube_count_plan(cube_count_plan)
+                    .build();
 
                 MatmulSelection::builder(tiling_scheme, plane_dim)
                     .partition_buffering(PartitionBuffering::Single)
+                    .hypercube_config(hypercube)
                     .build()
             } else {
                 plane_matmul_selection::<TMM, R>(

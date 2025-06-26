@@ -139,6 +139,25 @@ impl Item {
         b.static_cast(ConstVal::Bit32(value), &Elem::Int(32, false), self)
     }
 
+    /// Broadcast a scalar to a vector if needed, ex: f32 -> vec2<f32>, vec2<f32> -> vec2<f32>
+    pub fn broadcast<T: SpirvTarget>(
+        &self,
+        b: &mut SpirvCompiler<T>,
+        obj: Word,
+        out_id: Option<Word>,
+        other: &Item,
+    ) -> Word {
+        match (self, other) {
+            (Item::Scalar(elem), Item::Vector(_, factor)) => {
+                let item = Item::Vector(*elem, *factor);
+                let ty = item.id(b);
+                b.composite_construct(ty, out_id, (0..*factor).map(|_| obj).collect::<Vec<_>>())
+                    .unwrap()
+            }
+            _ => obj,
+        }
+    }
+
     pub fn cast_to<T: SpirvTarget>(
         &self,
         b: &mut SpirvCompiler<T>,
@@ -154,18 +173,6 @@ impl Item {
             _ => false,
         };
         let matching_elem = self.elem() == other.elem();
-
-        let broadcast = |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>| -> Word {
-            match (self, other) {
-                (Item::Scalar(elem), Item::Vector(_, factor)) => {
-                    let item = Item::Vector(*elem, *factor);
-                    let ty = item.id(b);
-                    b.composite_construct(ty, out_id, (0..*factor).map(|_| obj).collect::<Vec<_>>())
-                        .unwrap()
-                }
-                (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
-            }
-        };
 
         let convert_i_width =
             |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>, signed: bool| {
@@ -243,9 +250,9 @@ impl Item {
             (true, true) if out_id.is_some() => b.copy_object(ty, out_id, obj).unwrap(),
             (true, true) => obj,
             (true, false) => cast_elem(b, obj, out_id),
-            (false, true) => broadcast(b, obj, out_id),
+            (false, true) => self.broadcast(b, obj, out_id, other),
             (false, false) => {
-                let broadcast = broadcast(b, obj, None);
+                let broadcast = self.broadcast(b, obj, None, other);
                 cast_elem(b, broadcast, out_id)
             }
         }

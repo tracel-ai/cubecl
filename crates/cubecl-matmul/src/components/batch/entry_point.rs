@@ -30,7 +30,7 @@ pub(crate) fn matmul<
     #[comptime] config: BMMF::Config,
 ) {
     #[allow(clippy::collapsible_if)]
-    if config.can_yield_extra_cubes() {
+    if comptime!(config.can_yield_extra_cubes()) {
         if CUBE_POS >= cube_count_args.max_cube_pos() {
             terminate!()
         }

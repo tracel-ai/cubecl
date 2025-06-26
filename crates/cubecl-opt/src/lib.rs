@@ -42,9 +42,9 @@ use cubecl_ir::{
 use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
-    EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EmptyBranchToSelect,
-    InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength,
-    RemoveIndexScalar,
+    EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
+    EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
+    ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{
     Direction,
@@ -263,9 +263,7 @@ impl Optimizer {
         // Passes that run regardless of execution mode
         let mut passes: Vec<Box<dyn OptimizerPass>> = vec![
             Box::new(InlineAssignments),
-            // FIX: Really slowdown compilation making the compiler unusable.
-            //
-            // Box::new(EliminateUnusedVariables),
+            Box::new(EliminateUnusedVariables),
             Box::new(ConstOperandSimplify),
             Box::new(MergeSameExpressions),
             Box::new(ConstEval),
