@@ -13,7 +13,7 @@ pub struct HypercubeConfig {
 
 pub struct HypercubeConfigBuilder<'a> {
     tiling_scheme: &'a TilingScheme,
-    global_order: GlobalOrder,
+    global_order: GlobalOrderConfig,
     cube_count_plan_config: Option<CubeCountPlanConfig>,
 }
 
@@ -450,17 +450,58 @@ impl CubeCountPlan {
     }
 }
 
+#[derive(Default)]
+pub(crate) enum GlobalOrderConfig {
+    #[default]
+    Default,
+    NoCheck(GlobalOrder),
+    SwizzleRow {
+        m: u32,
+        w: u32,
+    },
+    SwizzleCol {
+        n: u32,
+        w: u32,
+    },
+}
+
+impl GlobalOrderConfig {
+    pub fn into_config(self, span: &CubeSpan) -> GlobalOrder {
+        match self {
+            GlobalOrderConfig::Default => GlobalOrder::default(),
+            GlobalOrderConfig::NoCheck(global_order) => global_order,
+            GlobalOrderConfig::SwizzleRow { m, w } => {
+                let m_cubes = m.div_ceil(span.m);
+                if m_cubes % w != 0 {
+                    GlobalOrder::RowMajor
+                } else {
+                    GlobalOrder::SwizzleRowMajor(w)
+                }
+            }
+            GlobalOrderConfig::SwizzleCol { n, w } => {
+                let n_cubes = n.div_ceil(span.n);
+                if n_cubes % w != 0 {
+                    GlobalOrder::RowMajor
+                } else {
+                    GlobalOrder::SwizzleRowMajor(w)
+                }
+            }
+        }
+        .canonicalize()
+    }
+}
+
 impl<'a> HypercubeConfigBuilder<'a> {
     fn new(tiling_scheme: &'a TilingScheme) -> Self {
         Self {
             tiling_scheme,
-            global_order: GlobalOrder::default(),
+            global_order: GlobalOrderConfig::default(),
             cube_count_plan_config: None,
         }
     }
 
-    pub fn global_order(mut self, global_order: GlobalOrder) -> Self {
-        self.global_order = global_order.canonicalize();
+    pub fn global_order(mut self, global_order: GlobalOrderConfig) -> Self {
+        self.global_order = global_order;
         self
     }
 
@@ -476,11 +517,12 @@ impl<'a> HypercubeConfigBuilder<'a> {
             batch: self.tiling_scheme.global_partition_size.batches,
         };
 
+        let global_order = self.global_order.into_config(&cube_span);
         let cube_pos_strategy = self.cube_count_plan_config.unwrap_or_default();
 
         HypercubeConfig {
             cube_span,
-            global_order: self.global_order,
+            global_order,
             cube_count_plan_config: cube_pos_strategy,
         }
     }

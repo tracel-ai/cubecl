@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use crate::components::{
     MatmulProblem, TilingScheme,
     batch::{
-        CubeCountPlanConfig, GlobalOrder, HypercubeConfig, PartitionedBatchMatmulFamily,
+        CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, PartitionedBatchMatmulFamily,
         RowMajorGlobalPartitionMatmul, SmAllocation,
     },
     global::{
@@ -74,11 +74,6 @@ where
                 },
                 None => CubeCountPlanConfig::Flattened,
             };
-            let global_order = if problem.m >= 4 {
-                GlobalOrder::SwizzleRowMajor(4)
-            } else {
-                GlobalOrder::RowMajor
-            };
 
             if supported(8, 32, 16) {
                 // A lot of multi-rows balanced with a
@@ -91,7 +86,10 @@ where
                     .unwrap();
 
                 let hypercube = HypercubeConfig::builder(&tiling_scheme)
-                    .global_order(global_order)
+                    .global_order(GlobalOrderConfig::SwizzleRow {
+                        m: problem.m as u32,
+                        w: 4,
+                    })
                     .cube_count_plan(cube_count_plan)
                     .build();
 
@@ -107,7 +105,10 @@ where
                     .build()
                     .unwrap();
                 let hypercube = HypercubeConfig::builder(&tiling_scheme)
-                    .global_order(global_order)
+                    .global_order(GlobalOrderConfig::SwizzleRow {
+                        m: problem.m as u32,
+                        w: 4,
+                    })
                     .cube_count_plan(cube_count_plan)
                     .build();
 
