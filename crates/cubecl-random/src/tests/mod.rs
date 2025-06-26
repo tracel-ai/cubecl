@@ -1,4 +1,5 @@
 pub mod bernoulli;
+pub mod interval;
 pub mod normal;
 pub mod uniform;
 
@@ -18,5 +19,6 @@ macro_rules! testgen_random {
         cubecl_random::testgen_random_bernoulli!();
         cubecl_random::testgen_random_normal!();
         cubecl_random::testgen_random_uniform!();
+        cubecl_random::testgen_random_interval!();
     };
 }

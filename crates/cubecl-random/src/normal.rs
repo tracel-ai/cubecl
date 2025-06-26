@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use super::{PrngArgs, PrngRuntime, random};
 
-use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_probability};
+use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_unit_interval_open};
 
 #[derive(CubeLaunch, CubeType)]
 pub(crate) struct Normal<E: Numeric> {
@@ -52,7 +52,7 @@ impl<E: Numeric> PrngRuntime<E> for Normal<E> {
                 *state_3 = lcg_step(*state_3);
 
                 let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-                let unit_0 = to_probability(int_random);
+                let unit_0 = to_unit_interval_open(int_random);
 
                 // Second random uniform integer
                 *state_0 = taus_step_0(*state_0);
@@ -61,7 +61,7 @@ impl<E: Numeric> PrngRuntime<E> for Normal<E> {
                 *state_3 = lcg_step(*state_3);
 
                 let int_random = *state_0 ^ *state_1 ^ *state_2 ^ *state_3;
-                let unit_1 = to_probability(int_random);
+                let unit_1 = to_unit_interval_open(int_random);
 
                 // Box-Muller transform
                 let coeff = Log::log(unit_0) * -2.0;

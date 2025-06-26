@@ -400,7 +400,7 @@ impl HipContext {
         let include_option_cstr = CString::new(include_option).unwrap();
         // needed for rocWMMA extension to compile
         let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
-        let optimization_level = CString::new("-o=3").unwrap();
+        let optimization_level = CString::new("-O3").unwrap();
         let mut options = vec![
             cpp_std_option_cstr.as_ptr(),
             include_option_cstr.as_ptr(),
