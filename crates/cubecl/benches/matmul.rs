@@ -105,7 +105,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     }
 
     fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args))
+        self.client.profile(|| self.execute(args)).unwrap()
     }
 }
 
@@ -130,7 +130,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     // for tl in [true, false] {
     // for tr in [true, false] {
     for tl in [true, false] {
-        for tr in [false] {
+        for tr in [true, false] {
             for (b, m, n, k) in [
                 // (1, 8192, 8192, 8192),
                 (1, 6144, 6144, 6144),
@@ -177,32 +177,32 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    println!("Simple");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(
-            SyncLoadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: false }),
-        ),
-    );
+    // println!("Simple");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(
+    //         SyncLoadingStrategy::Cyclic,
+    //         Selection::Inferred(SimpleArgs { multi_rows: false }),
+    //     ),
+    // );
 
-    println!("Simple multi rows");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(
-            SyncLoadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: true }),
-        ),
-    );
+    // println!("Simple multi rows");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(
+    //         SyncLoadingStrategy::Cyclic,
+    //         Selection::Inferred(SimpleArgs { multi_rows: true }),
+    //     ),
+    // );
 
-    println!("Double Buffering");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            SyncBufferLoadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-        ),
-    );
+    // println!("Double Buffering");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleBuffering(
+    //         SyncBufferLoadingStrategy::Tilewise,
+    //         Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+    //     ),
+    // );
 
     println!("Double Buffering Specialized");
     run::<R, MP>(
@@ -213,15 +213,15 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         ),
     );
 
-    println!("Ordered 1");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(16),
-            rows_per_plane: Some(2),
-            partition_k: Some(1),
-        })),
-    );
+    // println!("Ordered 1");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+    //         row_count: Some(16),
+    //         rows_per_plane: Some(2),
+    //         partition_k: Some(1),
+    //     })),
+    // );
 
     println!("Ordered 2");
     run::<R, MP>(
