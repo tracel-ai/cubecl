@@ -3,7 +3,7 @@ use cubecl_core::{
         Arithmetic, Bitwise, Elem, ExpandElement, Instruction, IntKind, Operation, Scope, UIntKind,
         Variable,
     },
-    prelude::{IntExpand, expand_erf},
+    prelude::{IntExpand, assign, expand_erf},
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 
@@ -40,29 +40,37 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::CountOnes(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
                 scope.register_elem::<IntExpand<0>>(op.input.elem());
-                u64_count_bits::expand::<IntExpand<0>>(
+                let res = u64_count_bits::expand::<IntExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),
-                    ExpandElement::Plain(inst.out()).into(),
                 );
+                assign::expand_no_check(&mut scope, res, ExpandElement::Plain(inst.out()).into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::ReverseBits(op) if op.input.elem().size() != 4 => {
                 let mut scope = scope.child();
                 scope.register_elem::<IntExpand<0>>(op.input.item.elem);
                 let input = ExpandElement::Plain(op.input);
-                let out = ExpandElement::Plain(inst.out());
                 match op.input.elem().size() {
                     8 => {
-                        u64_reverse::expand::<IntExpand<0>>(&mut scope, input.into(), out.into());
+                        let res = u64_reverse::expand::<IntExpand<0>>(&mut scope, input.into());
+                        assign::expand_no_check(
+                            &mut scope,
+                            res,
+                            ExpandElement::Plain(inst.out()).into(),
+                        );
                         TransformAction::Replace(into_instructions(scope))
                     }
                     width => {
-                        small_int_reverse::expand::<IntExpand<0>>(
+                        let res = small_int_reverse::expand::<IntExpand<0>>(
                             &mut scope,
                             input.into(),
-                            out.into(),
                             width as u32 * 8,
+                        );
+                        assign::expand_no_check(
+                            &mut scope,
+                            res,
+                            ExpandElement::Plain(inst.out()).into(),
                         );
                         TransformAction::Replace(into_instructions(scope))
                     }
@@ -71,21 +79,21 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::LeadingZeros(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
                 scope.register_elem::<IntExpand<0>>(op.input.elem());
-                u64_leading_zeros::expand::<IntExpand<0>>(
+                let res = u64_leading_zeros::expand::<IntExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),
-                    ExpandElement::Plain(inst.out()).into(),
                 );
+                assign::expand_no_check(&mut scope, res, ExpandElement::Plain(inst.out()).into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::FindFirstSet(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
                 scope.register_elem::<IntExpand<0>>(op.input.elem());
-                u64_ffs::expand::<IntExpand<0>>(
+                let res = u64_ffs::expand::<IntExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),
-                    ExpandElement::Plain(inst.out()).into(),
                 );
+                assign::expand_no_check(&mut scope, res, ExpandElement::Plain(inst.out()).into());
                 TransformAction::Replace(into_instructions(scope))
             }
             _ => TransformAction::Ignore,
