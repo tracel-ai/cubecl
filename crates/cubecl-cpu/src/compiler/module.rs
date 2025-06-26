@@ -14,6 +14,12 @@
 ///             %absolute_pos_tmp1 = arith.muli %cube_count_y, %cube_dim_y : index
 ///             %absolute_pos_tmp2 = arith.muli %absolute_pos_tmp0, %absolute_pos_tmp1 : index
 ///
+///             %unit_pos_tmp0 = arith.muli %cube_dim_y, %cube_dim_z : index
+///             %unit_pos_tmp1 = arith.muli %unit_pos_tmp0, %unit_pos_z : index
+///             %unit_pos_tmp2 = arith.muli %cube_dim_y, %unit_pos_z : index
+///             %unit_pos_tmp3 = arith.addi %unit_pos_tmp1, %unit_pos_tmp2 : index
+///             %unit_pos = arith.addi %unit_pos_tmp3, %unit_pos_x : index
+///
 ///             scf.for %cube_pos_x = %cc0 to %cube_count_x step %cc1 {
 ///                 %absolute_pos_x0 = arith.muli %cube_pos_x, %cube_dim_x : index
 ///                 %absolute_pos_x1 = arith.addi %absolute_pos_x0, %unit_pos_x : index
@@ -48,7 +54,7 @@
 ///     "#,
 /// ).unwrap();
 /// ```
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_opt::Optimizer;
@@ -85,6 +91,7 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn run_pass(&mut self) {
+        let _ = fs::remove_dir_all("debug");
         let pass_manager = PassManager::new(self.context);
         pass_manager.enable_verifier(true);
         pass_manager.enable_ir_printing(&PassIrPrintingOptions {

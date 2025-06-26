@@ -272,6 +272,7 @@ impl<'a> Visitor<'a> {
             Builtin::CubePosX => self.cube_pos_x,
             Builtin::CubePosY => self.cube_pos_y,
             Builtin::CubePosZ => self.cube_pos_z,
+            Builtin::UnitPos => self.unit_pos,
             Builtin::UnitPosX => self.unit_pos_x,
             Builtin::UnitPosY => self.unit_pos_y,
             Builtin::UnitPosZ => self.unit_pos_z,

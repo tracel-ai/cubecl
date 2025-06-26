@@ -54,6 +54,7 @@ pub struct Visitor<'a> {
     pub cube_count_x: Value<'a, 'a>,
     pub cube_count_y: Value<'a, 'a>,
     pub cube_count_z: Value<'a, 'a>,
+    pub unit_pos: Value<'a, 'a>,
     pub unit_pos_x: Value<'a, 'a>,
     pub unit_pos_y: Value<'a, 'a>,
     pub unit_pos_z: Value<'a, 'a>,
@@ -83,6 +84,7 @@ impl<'a> Visitor<'a> {
         cube_count_x: Value<'a, 'a>,
         cube_count_y: Value<'a, 'a>,
         cube_count_z: Value<'a, 'a>,
+        unit_pos: Value<'a, 'a>,
         unit_pos_x: Value<'a, 'a>,
         unit_pos_y: Value<'a, 'a>,
         unit_pos_z: Value<'a, 'a>,
@@ -121,6 +123,7 @@ impl<'a> Visitor<'a> {
             cube_count_x,
             cube_count_y,
             cube_count_z,
+            unit_pos,
             unit_pos_x,
             unit_pos_y,
             unit_pos_z,
@@ -380,6 +383,36 @@ impl<'a> Visitor<'a> {
             .unwrap()
             .into();
 
+        let unit_pos_tmp0: Value<'a, 'a> = block
+            .append_operation(arith::muli(cube_dim_y, cube_dim_z, location))
+            .result(0)
+            .unwrap()
+            .into();
+
+        let unit_pos_tmp1: Value<'a, 'a> = block
+            .append_operation(arith::muli(unit_pos_tmp0, unit_pos_z, location))
+            .result(0)
+            .unwrap()
+            .into();
+
+        let unit_pos_tmp2: Value<'a, 'a> = block
+            .append_operation(arith::muli(cube_dim_y, unit_pos_z, location))
+            .result(0)
+            .unwrap()
+            .into();
+
+        let unit_pos_tmp3: Value<'a, 'a> = block
+            .append_operation(arith::muli(unit_pos_tmp1, unit_pos_tmp2, location))
+            .result(0)
+            .unwrap()
+            .into();
+
+        let unit_pos: Value<'a, 'a> = block
+            .append_operation(arith::muli(unit_pos_tmp3, unit_pos_x, location))
+            .result(0)
+            .unwrap()
+            .into();
+
         block.append_operation(scf::r#for(
             c0,
             cube_count_x,
@@ -510,6 +543,7 @@ impl<'a> Visitor<'a> {
                                     cube_count_x,
                                     cube_count_y,
                                     cube_count_z,
+                                    unit_pos,
                                     unit_pos_x,
                                     unit_pos_y,
                                     unit_pos_z,
