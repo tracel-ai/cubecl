@@ -18,6 +18,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {
+                assert_eq!(var.item, inst.out.unwrap().item);
                 let input = self.compile_variable(var);
                 let out = self.compile_variable(inst.out());
                 let ty = out.item().id(self);
