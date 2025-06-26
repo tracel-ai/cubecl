@@ -1,29 +1,40 @@
+use cubecl_core::{Runtime, client::ComputeClient};
+
 use crate::components::{
-    MatmulKind, MatmulProblem, MatrixLayout, TilingScheme, stage::PartitionBuffering,
+    MatmulKind, MatmulProblem, MatrixLayout, TilingScheme,
+    batch::{CubeCountPlanConfig, GlobalOrder, HypercubeConfig, SmAllocation},
+    stage::PartitionBuffering,
 };
 
 use super::MatmulSelection;
 
-pub fn unit_matmul_selection(
+pub fn unit_matmul_selection<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
 ) -> MatmulSelection {
     let kind: MatmulKind = problem.into();
+    let num_sms = client.properties().hardware.num_streaming_multiprocessors;
+
     match kind {
-        MatmulKind::General => general_unit_selector(problem, plane_dim, double_buffering),
-        MatmulKind::MatVec => matvec_unit_selector(problem, plane_dim, double_buffering),
-        MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim, double_buffering),
-        MatmulKind::ScalarVec => scalarvec_unit_selector(problem, plane_dim, double_buffering),
-        MatmulKind::VecScalar => vecscalar_unit_selector(problem, plane_dim, double_buffering),
+        MatmulKind::General => general_unit_selector(problem, plane_dim, double_buffering, num_sms),
+        MatmulKind::MatVec => matvec_unit_selector(problem, plane_dim, double_buffering, num_sms),
+        MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim, double_buffering, num_sms),
+        MatmulKind::ScalarVec => {
+            scalarvec_unit_selector(problem, plane_dim, double_buffering, num_sms)
+        }
+        MatmulKind::VecScalar => {
+            vecscalar_unit_selector(problem, plane_dim, double_buffering, num_sms)
+        }
         MatmulKind::InnerProduct => {
-            inner_product_unit_selector(problem, plane_dim, double_buffering)
+            inner_product_unit_selector(problem, plane_dim, double_buffering, num_sms)
         }
         MatmulKind::OuterProduct => {
-            outer_product_unit_selector(problem, plane_dim, double_buffering)
+            outer_product_unit_selector(problem, plane_dim, double_buffering, num_sms)
         }
         MatmulKind::ScalarProduct => {
-            scalar_product_unit_selector(problem, plane_dim, double_buffering)
+            scalar_product_unit_selector(problem, plane_dim, double_buffering, num_sms)
         }
     }
 }
@@ -33,6 +44,7 @@ fn general_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, mut partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
@@ -47,6 +59,12 @@ fn general_unit_selector(
         partition_size.2 /= 2;
     }
 
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
+
     selection(
         tile_size,
         partition_size,
@@ -56,6 +74,8 @@ fn general_unit_selector(
             plane_dim,
             num_plane: 8,
         },
+        num_sms,
+        global_order,
     )
 }
 
@@ -64,6 +84,7 @@ fn matvec_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
@@ -73,12 +94,20 @@ fn matvec_unit_selector(
         (ColMajor, ColMajor) => ((4, 1, 4), (1, 1, 4)),
     };
 
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
+
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
+        num_sms,
+        global_order,
     )
 }
 
@@ -87,6 +116,7 @@ fn vecmat_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
@@ -102,6 +132,8 @@ fn vecmat_unit_selector(
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
+        num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
@@ -110,6 +142,7 @@ fn scalarvec_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
@@ -125,16 +158,25 @@ fn scalarvec_unit_selector(
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
+        num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
 /// (M, 1) @ (1, 1) → (M, 1)
 fn vecscalar_unit_selector(
-    _problem: &MatmulProblem,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 1, 4), (1, 1, 2));
+
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
 
     selection(
         tile_size,
@@ -142,6 +184,8 @@ fn vecscalar_unit_selector(
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed { m: 8, n: 4 },
+        num_sms,
+        global_order,
     )
 }
 
@@ -150,6 +194,7 @@ fn inner_product_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
@@ -165,16 +210,25 @@ fn inner_product_unit_selector(
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
+        num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
 /// (M, 1) @ (1, N) → (M, N)
 fn outer_product_unit_selector(
-    _problem: &MatmulProblem,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 4, 1), (1, 1, 1));
+
+    let global_order = if problem.m >= 4 {
+        GlobalOrder::SwizzleRowMajor(4)
+    } else {
+        GlobalOrder::RowMajor
+    };
 
     selection(
         tile_size,
@@ -182,6 +236,8 @@ fn outer_product_unit_selector(
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
+        num_sms,
+        global_order,
     )
 }
 
@@ -190,6 +246,7 @@ fn scalar_product_unit_selector(
     _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((1, 1, 1), (1, 1, 1));
 
@@ -202,6 +259,8 @@ fn scalar_product_unit_selector(
             plane_dim,
             num_plane: 8,
         },
+        num_sms,
+        GlobalOrder::RowMajor,
     )
 }
 
@@ -231,6 +290,8 @@ fn selection(
     buffering: PartitionBuffering,
     plane_dim: u32,
     stage: StageSelection,
+    num_sms: Option<u32>,
+    global_order: GlobalOrder,
 ) -> MatmulSelection {
     let (stage_size_m, stage_size_n) = stage.into_stages();
 
@@ -241,8 +302,22 @@ fn selection(
         .build()
         .unwrap();
 
+    let cube_count_plan = match num_sms {
+        Some(num_sms) => CubeCountPlanConfig::CubeFirst {
+            num_sms,
+            sm_usage: SmAllocation::Exact,
+        },
+        None => CubeCountPlanConfig::Flattened,
+    };
+
+    let hypercube = HypercubeConfig::builder(&tiling_scheme)
+        .global_order(global_order)
+        .cube_count_plan(cube_count_plan)
+        .build();
+
     MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(buffering)
+        .hypercube_config(hypercube)
         .build()
 }
 

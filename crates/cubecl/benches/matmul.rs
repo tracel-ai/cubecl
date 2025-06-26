@@ -105,7 +105,9 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     }
 
     fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args)).unwrap()
+        self.client
+            .profile(|| self.execute(args), "matmul-bench")
+            .unwrap()
     }
 }
 
@@ -130,28 +132,28 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     // for tl in [true, false] {
     // for tr in [true, false] {
     for tl in [true, false] {
-        for tr in [true, false] {
+        for tr in [false] {
             for (b, m, n, k) in [
-                // (1, 8192, 8192, 8192),
+                (1, 8192, 8192, 8192),
                 (1, 6144, 6144, 6144),
-                // (1, 5000, 5000, 5000),
-                // (2, 4096, 4096, 4096),
-                // (5, 512, 512, 512),
-                // (10, 256, 256, 256),
+                (1, 5000, 5000, 5000),
+                (2, 4096, 4096, 4096),
+                (5, 512, 512, 512),
+                (10, 256, 256, 256),
                 // OuterProduct
-                // (2, 4096, 4096, 1),
+                (2, 4096, 4096, 1),
                 // InnerProduct
-                // (2, 1, 8 * 4096, 1),
+                (2, 1, 8 * 4096, 1),
                 // VecScalar
-                // (2, 8 * 4096, 1, 1),
+                (2, 8 * 4096, 1, 1),
                 // ScalarVec
-                // (2, 1, 4096, 1),
+                (2, 1, 4096, 1),
                 // MatVec
-                // (2, 4096, 1, 4096),
+                (2, 4096, 1, 4096),
                 // VecMat
-                // (2, 1, 4096, 4096),
+                (2, 1, 4096, 4096),
                 // General
-                // (2, 4096, 4096, 4096),
+                (2, 4096, 4096, 4096),
             ] {
                 let bench = MatmulBench::<R, MP> {
                     b,
@@ -177,32 +179,35 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // println!("Simple");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(
-    //         SyncLoadingStrategy::Cyclic,
-    //         Selection::Inferred(SimpleArgs { multi_rows: false }),
-    //     ),
-    // );
+    println!("Simple Unit");
+    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
 
-    // println!("Simple multi rows");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(
-    //         SyncLoadingStrategy::Cyclic,
-    //         Selection::Inferred(SimpleArgs { multi_rows: true }),
-    //     ),
-    // );
+    println!("Simple");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: false }),
+        ),
+    );
 
-    // println!("Double Buffering");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(
-    //         SyncBufferLoadingStrategy::Tilewise,
-    //         Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-    //     ),
-    // );
+    println!("Simple multi rows");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: true }),
+        ),
+    );
+
+    println!("Double Buffering");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncBufferLoadingStrategy::Tilewise,
+            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+        ),
+    );
 
     println!("Double Buffering Specialized");
     run::<R, MP>(
@@ -213,15 +218,15 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
         ),
     );
 
-    // println!("Ordered 1");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-    //         row_count: Some(16),
-    //         rows_per_plane: Some(2),
-    //         partition_k: Some(1),
-    //     })),
-    // );
+    println!("Ordered 1");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+            row_count: Some(16),
+            rows_per_plane: Some(2),
+            partition_k: Some(1),
+        })),
+    );
 
     println!("Ordered 2");
     run::<R, MP>(
