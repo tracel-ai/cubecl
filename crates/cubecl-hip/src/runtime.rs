@@ -8,9 +8,9 @@ use cubecl_cpp::{
     },
 };
 
+use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime,
-    benchmark::TimingMethod,
     ir::{Elem, FloatKind},
 };
 use cubecl_hip_sys::HIP_SUCCESS;

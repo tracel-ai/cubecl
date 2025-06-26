@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     MatmulProblem,
-    batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
         single_stage::simple::SimpleMatmulFamily,
@@ -17,18 +17,15 @@ use crate::components::{
 pub struct SimpleUnitAlgorithm<
     LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
     RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-    Dispatch = batch::TransposedPartitioner,
 > {
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
-    pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<LL, RL, P> base::Algorithm for SimpleUnitAlgorithm<LL, RL, P>
+impl<LL, RL> base::Algorithm for SimpleUnitAlgorithm<LL, RL>
 where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
-    P: Partitioner,
 {
     type SelectionArgs = ();
     type TileMatmul = RegisterMatmul;
@@ -36,7 +33,7 @@ where
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 
     type BatchMatmul =
-        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
         _client: &ComputeClient<R::Server, R::Channel>,

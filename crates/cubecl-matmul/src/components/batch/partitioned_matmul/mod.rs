@@ -1,11 +1,9 @@
 mod config;
+mod hypercube;
 mod matmul;
 mod partition;
-mod partitioner;
 mod setup;
 
-pub use partition::{
-    ColMajorGlobalPartitionMatmul, RowMajorGlobalPartitionMatmul, SwizzleGlobalPartitionMatmul,
-};
-pub use partitioner::*;
+pub use hypercube::*;
+pub use partition::{ColMajorGlobalPartitionMatmul, RowMajorGlobalPartitionMatmul};
 pub use setup::PartitionedBatchMatmulFamily;

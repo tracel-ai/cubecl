@@ -1,6 +1,7 @@
 use crate::{
     components::{
         LoadSpecializationConfig, TilingScheme,
+        batch::HypercubeConfig,
         global::load::LoaderMode,
         stage::{PartitionBuffering, StageVectorization},
     },
@@ -17,19 +18,23 @@ pub struct MatmulSelection {
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
     pub loader_mode: LoaderMode,
     pub load_specialization_config: LoadSpecializationConfig,
+    pub hypercube_config: HypercubeConfig,
 }
 
 impl MatmulSelection {
     pub fn builder(tiling_scheme: TilingScheme, plane_dim: u32) -> MatmulSelectionBuilder {
+        let hypercube_config = HypercubeConfig::builder(&tiling_scheme).build();
         MatmulSelectionBuilder::new()
             .tiling_scheme(tiling_scheme)
+            .hypercube_config(hypercube_config)
             .plane_dim(plane_dim)
     }
 }
 
 pub struct MatmulSelectionBuilder {
     plane_dim: Option<u32>,
-    tiling_scheme: Option<TilingScheme>,
+    pub tiling_scheme: Option<TilingScheme>,
+    hypercube_config: Option<HypercubeConfig>,
     stage_vectorization: StageVectorization,
     quantized: bool,
     partition_buffering: PartitionBuffering,
@@ -43,6 +48,7 @@ impl MatmulSelectionBuilder {
         Self {
             plane_dim: None,
             tiling_scheme: None,
+            hypercube_config: None,
             stage_vectorization: StageVectorization::default(),
             quantized: false,
             partition_buffering: PartitionBuffering::default(),
@@ -59,6 +65,11 @@ impl MatmulSelectionBuilder {
 
     pub fn tiling_scheme(mut self, tiling_scheme: TilingScheme) -> Self {
         self.tiling_scheme = Some(tiling_scheme);
+        self
+    }
+
+    pub fn hypercube_config(mut self, hypercube_config: HypercubeConfig) -> Self {
+        self.hypercube_config = Some(hypercube_config);
         self
     }
 
@@ -102,6 +113,7 @@ impl MatmulSelectionBuilder {
         MatmulSelection {
             plane_dim: self.plane_dim.unwrap(),
             tiling_scheme: self.tiling_scheme.unwrap(),
+            hypercube_config: self.hypercube_config.unwrap(),
             stage_vectorization: self.stage_vectorization,
             quantized: self.quantized,
             partition_buffering: self.partition_buffering,

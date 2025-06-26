@@ -2,7 +2,7 @@ use crate::{
     components::{
         AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
         MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::Partitioner,
+        batch::{CubeCountPlan, CubeCountPlanArgs, HypercubeConfig},
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
@@ -18,7 +18,6 @@ use cubecl_std::{
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
-    type Partitioner: Partitioner;
     type Config: BatchConfig;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
@@ -39,6 +38,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        cube_count_args: CubeCountPlanArgs<'a, R>,
         config: Self::Config,
     );
 
@@ -74,6 +74,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
+        cube_count_args: CubeCountPlan,
         #[comptime] config: Self::Config,
     );
 }
@@ -94,6 +95,7 @@ pub trait BatchConfig: MatmulConfig {
     }
 
     fn cube_dim(&self) -> CubeDim;
-    fn cube_count(&self, problem: &MatmulProblem) -> CubeCount;
     fn line_sizes(&self) -> MatmulLineSizes;
+    fn hypercube_config(&self) -> HypercubeConfig;
+    fn can_yield_extra_cubes(&self) -> bool;
 }

@@ -5,27 +5,21 @@ use std::marker::PhantomData;
 
 use crate::components::{
     MatmulProblem,
-    batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
     global::{load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily},
     stage::{FullReaderFamily, PlaneMatmulFamily},
     tile,
 };
 
-pub struct SimpleBarrierAlgorithm<
-    TMM,
-    L: AsyncFullLoadingStrategy,
-    Dispatch = batch::TransposedPartitioner,
-> {
+pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
     pub _tmm: PhantomData<TMM>,
     pub _l: PhantomData<L>,
-    pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, L, P> base::Algorithm for SimpleBarrierAlgorithm<TMM, L, P>
+impl<TMM, L> base::Algorithm for SimpleBarrierAlgorithm<TMM, L>
 where
     TMM: tile::TileMatmulFamily,
     L: AsyncFullLoadingStrategy,
-    P: Partitioner,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
@@ -33,7 +27,7 @@ where
     type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
 
     type BatchMatmul =
-        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

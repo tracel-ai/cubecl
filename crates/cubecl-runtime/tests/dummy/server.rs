@@ -1,10 +1,11 @@
+use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
-use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use cubecl_common::profile::ProfileDuration;
 use cubecl_runtime::id::KernelId;
 use cubecl_runtime::kernel::KernelMetadata;
-use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfileError, ProfilingToken};
+use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use std::sync::Arc;
 
 use super::DummyKernel;
@@ -22,7 +23,7 @@ use cubecl_runtime::{
 #[derive(Debug)]
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
-    timestamps: KernelTimestamps,
+    timestamps: TimestampProfiler,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,10 @@ pub struct KernelTask {
 }
 
 impl KernelMetadata for KernelTask {
+    fn name(&self) -> &'static str {
+        self.kernel.name()
+    }
+
     fn id(&self) -> KernelId {
         self.kernel.id()
     }
@@ -196,7 +201,7 @@ impl DummyServer {
     pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
         Self {
             memory_management,
-            timestamps: KernelTimestamps::default(),
+            timestamps: TimestampProfiler::default(),
         }
     }
 }

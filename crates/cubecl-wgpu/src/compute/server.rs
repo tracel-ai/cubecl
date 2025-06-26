@@ -2,7 +2,7 @@ use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
-use cubecl_core::benchmark::{ProfileDuration, TimingMethod};
+use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::{ProfileError, ProfilingToken};
@@ -49,8 +49,8 @@ impl WgpuServer {
             queue.clone(),
             memory_properties,
             memory_config,
-            tasks_max,
             timing_method,
+            tasks_max,
         );
 
         Self {
@@ -169,11 +169,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        let profile = self.stream.stop_profile(token)?;
-
-        Ok(ProfileDuration::from_future(async move {
-            profile.resolve().await
-        }))
+        self.stream.end_profile(token)
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -193,11 +189,9 @@ impl ComputeServer for WgpuServer {
         let data = self.read(bindings);
         Box::pin(async move {
             let mut data = data.await;
-
             for (data, expected_size) in data.iter_mut().zip(expected_sizes) {
                 data.truncate(expected_size);
             }
-
             data
         })
     }
@@ -213,7 +207,6 @@ impl ComputeServer for WgpuServer {
         for i in 0..data.len() {
             let data = data[i];
             let (handle, _) = &handles_strides[i];
-
             self.stream.copy_to_handle(handle.clone(), data);
         }
 

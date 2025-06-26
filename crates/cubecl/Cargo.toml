@@ -31,6 +31,9 @@ std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
 
+profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
+
+
 # Runtimes
 cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]

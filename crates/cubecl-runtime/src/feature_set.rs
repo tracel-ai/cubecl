@@ -1,6 +1,6 @@
 use crate::memory_management::{HardwareProperties, MemoryDeviceProperties};
 use alloc::collections::BTreeSet;
-use cubecl_common::benchmark::TimingMethod;
+use cubecl_common::profile::TimingMethod;
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.

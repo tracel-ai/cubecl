@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     MatmulProblem, TilingScheme,
-    batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
         single_stage::simple::SimpleMatmulFamily,
@@ -26,27 +26,24 @@ pub struct SimpleAlgorithm<
     TMM,
     LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
     RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-    Dispatch = batch::TransposedPartitioner,
 > {
     pub _tmm: PhantomData<TMM>,
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
-    pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, LL, RL, P> base::Algorithm for SimpleAlgorithm<TMM, LL, RL, P>
+impl<TMM, LL, RL> base::Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
     TMM: TileMatmulFamily,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
-    P: Partitioner,
 {
     type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
     type BatchMatmul =
-        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

@@ -63,6 +63,8 @@ enum AutotuneMessage<K> {
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
+    /// All samples are invalid.
+    InvalidSamples,
     /// The autotune is skipped manually.
     Skip,
 }
@@ -258,6 +260,9 @@ impl<K: AutotuneKey> Tuner<K> {
                     AutotuneError::Skip => {
                         panic!("No autotune was flagged as valid for the problem.")
                     }
+                    AutotuneError::InvalidSamples => {
+                        panic!("All samples while autotuning failed.")
+                    }
                     AutotuneError::Unknown(reason) => panic!("{reason}"),
                 }
             }
@@ -271,11 +276,20 @@ impl<K: AutotuneKey> Tuner<K> {
                         Ok(result) => {
                             let (name, index, profiles) = result;
                             // Wait for the results to come in, and determine the outcome.
-                            let durations = BenchmarkDurations::from_profiles(profiles).await;
+                            let mut durations = Vec::new();
+                            let timing_method = profiles
+                                .first()
+                                .expect("need at least 1 profile")
+                                .timing_method();
+                            for profile in profiles {
+                                durations.push(profile.resolve().await.duration());
+                            }
+                            let bench_durations =
+                                BenchmarkDurations::from_durations(timing_method, durations);
                             let outcome = Ok(AutotuneOutcome::new(
                                 name,
                                 index,
-                                BenchmarkComputations::new(&durations),
+                                BenchmarkComputations::new(&bench_durations),
                             ));
                             bench_results.push(outcome);
                         }

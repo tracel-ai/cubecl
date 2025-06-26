@@ -5,7 +5,7 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use crate::{
     components::{
         MatmulProblem,
-        batch::{self, PartitionedBatchMatmulFamily, Partitioner, RowMajorGlobalPartitionMatmul},
+        batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::single_stage::tma::SimpleTmaMatmulFamily,
         stage::{FullReaderFamily, PlaneMatmulFamily},
         tile::TileMatmulFamily,
@@ -15,22 +15,20 @@ use crate::{
 
 use super::{MatmulSelection, plane_matmul_selection};
 
-pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedPartitioner> {
+pub struct SimpleTmaAlgorithm<TMM> {
     pub _tmm: PhantomData<TMM>,
-    pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, P> Algorithm for SimpleTmaAlgorithm<TMM, P>
+impl<TMM> Algorithm for SimpleTmaAlgorithm<TMM>
 where
     TMM: TileMatmulFamily,
-    P: Partitioner,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
     type GlobalMatmul = SimpleTmaMatmulFamily<Self::StageMatmul>;
     type BatchMatmul =
-        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul, P>;
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

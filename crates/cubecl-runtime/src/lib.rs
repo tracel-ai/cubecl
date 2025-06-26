@@ -45,6 +45,6 @@ pub mod logging;
 /// TMA-related runtime types
 pub mod tma;
 
-/// Simple measuring for timestamps.
+/// Simple system profiling using timestamps.
 #[cfg(feature = "std")]
-pub mod kernel_timestamps;
+pub mod timestamp_profiler;

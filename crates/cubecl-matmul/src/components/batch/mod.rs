@@ -5,4 +5,3 @@ mod shared;
 
 pub use base::*;
 pub use partitioned_matmul::*;
-pub use shared::*;

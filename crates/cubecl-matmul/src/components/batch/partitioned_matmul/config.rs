@@ -1,23 +1,21 @@
-use std::marker::PhantomData;
-
-use cubecl_core::{CubeCount, CubeDim};
+use cubecl_core::CubeDim;
 
 use crate::{
     components::{
         Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
-        batch::{BatchConfig, Partitioner},
+        batch::{BatchConfig, HypercubeConfig},
         global::GlobalConfig,
     },
     kernels::MatmulSetupError,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PartitionedBatchConfig<G: GlobalConfig, P: Partitioner> {
+pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
-    _phantom: PhantomData<P>,
+    hypercube_config: HypercubeConfig,
 }
 
-impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, P> {
+impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
@@ -40,33 +38,29 @@ impl<G: GlobalConfig, P: Partitioner> BatchConfig for PartitionedBatchConfig<G, 
         }
     }
 
-    fn cube_count(&self, problem: &MatmulProblem) -> CubeCount {
-        let tiling_scheme = self.tiling_scheme();
-        let elements_in_m = tiling_scheme.elements_in_global_partition_m();
-        let elements_in_n = tiling_scheme.elements_in_global_partition_n();
+    fn hypercube_config(&self) -> HypercubeConfig {
+        self.hypercube_config
+    }
 
-        let (x, y, z) = P::create_cube_count(
-            (problem.m as u32).div_ceil(elements_in_m),
-            (problem.n as u32).div_ceil(elements_in_n),
-            (problem.num_batches() as u32).div_ceil(tiling_scheme.global_partition_size.batches),
-        );
-
-        CubeCount::Static(x, y, z)
+    fn can_yield_extra_cubes(&self) -> bool {
+        self.hypercube_config
+            .cube_count_plan_config
+            .can_yield_extra_cubes()
     }
 }
 
-impl<G: GlobalConfig, P: Partitioner> MatmulConfig for PartitionedBatchConfig<G, P> {}
+impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
-impl<G: GlobalConfig, P: Partitioner> PartitionedBatchConfig<G, P> {
-    pub fn new(global_config: G) -> Result<Self, MatmulSetupError> {
+impl<G: GlobalConfig> PartitionedBatchConfig<G> {
+    pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {
         Self {
             global_config,
-            _phantom: PhantomData,
+            hypercube_config,
         }
-        .validate()
     }
 
-    fn validate(self) -> Result<Self, MatmulSetupError> {
+    pub fn validate(self, problem: &MatmulProblem) -> Result<Self, MatmulSetupError> {
+        self.hypercube_config.validate(problem)?;
         Ok(self)
     }
 }
