@@ -2,6 +2,7 @@ use cubecl_core::Feature;
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
+use crate::components::batch::{CubeCountPlanConfig, GlobalOrder, HypercubeConfig, SmAllocation};
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
     LoadSpecializationConfig, PartitionSize, SpecializationTensorConfig, StageSize, TileSize,
@@ -80,8 +81,22 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         }
     });
 
-    let mut builder =
-        MatmulSelection::builder(tiling_scheme, plane_dim).partition_buffering(partition_buffering);
+    let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
+        Some(num_sms) => CubeCountPlanConfig::CubeFirst {
+            num_sms,
+            sm_usage: SmAllocation::Exact,
+        },
+        None => CubeCountPlanConfig::Flattened,
+    };
+
+    let hypercube = HypercubeConfig::builder(&tiling_scheme)
+        .global_order(GlobalOrder::SwizzleRowMajor(4))
+        .cube_count_plan(cube_count_plan)
+        .build();
+
+    let mut builder = MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(partition_buffering)
+        .hypercube_config(hypercube);
 
     if options.specialized {
         builder = builder.load_specialization_config(LoadSpecializationConfig {
