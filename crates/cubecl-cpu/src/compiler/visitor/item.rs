@@ -25,7 +25,8 @@ impl IntoType for Item {
 
 impl<'a> Visitor<'a> {
     pub fn create_float_constant_from_item(&self, item: Item, constant: f64) -> Value<'a, 'a> {
-        let constant = FloatAttribute::new(self.context, Type::float32(self.context), constant);
+        let float = item.elem.to_type(self.context);
+        let constant = FloatAttribute::new(self.context, float, constant);
         let constant = self.append_operation_with_result(arith::constant(
             self.context,
             constant.into(),

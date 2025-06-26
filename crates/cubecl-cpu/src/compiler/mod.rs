@@ -12,7 +12,7 @@ use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
 use cubecl_opt::OptimizerBuilder;
 use mlir_engine::MlirEngine;
 
-use crate::compiler::passes::{checked_transform::CheckedTransform, erf_transform::ErfTransform};
+use crate::compiler::passes::erf_transform::ErfTransform;
 
 #[derive(Clone, Debug, Default)]
 pub struct MlirCompiler {}
@@ -31,13 +31,10 @@ impl Compiler for MlirCompiler {
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
-        let mut opt = OptimizerBuilder::default().with_transformer(ErfTransform);
-
-        if mode == ExecutionMode::Checked {
-            opt = opt.with_transformer(CheckedTransform);
-        }
-
-        let opt = opt.optimize(kernel.body.clone(), kernel.cube_dim, mode);
+        let opt = OptimizerBuilder::default()
+            .with_transformer(ErfTransform)
+            .optimize(kernel.body.clone(), kernel.cube_dim, mode);
+        println!("{}", opt);
         MlirEngine::from_cubecl_ir(kernel, &opt)
     }
 
