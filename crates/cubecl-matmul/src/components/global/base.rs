@@ -106,6 +106,10 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     /// Fill the accumulator with zeros
+    ///
+    /// TODO: The global matmul is responsible to zero the accumulator not the batch.
+    ///
+    /// this is unused.
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Initialize the writer at row m and column n
