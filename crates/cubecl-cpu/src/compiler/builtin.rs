@@ -29,18 +29,16 @@ impl Builtin {
             self.dims[2] as u32,
         )
     }
-    pub fn set_cube_count(&mut self, cube_count: (u32, u32, u32)) {
-        self.dims[3] = cube_count.0 as u64;
-        self.dims[4] = cube_count.1 as u64;
-        self.dims[5] = cube_count.2 as u64;
+    pub fn set_cube_count(&mut self, cube_count: [u32; 3]) {
+        self.dims[3] = cube_count[0] as u64;
+        self.dims[4] = cube_count[1] as u64;
+        self.dims[5] = cube_count[2] as u64;
     }
-    pub fn set_unit_pos_x(&mut self, x: u32) {
-        self.dims[6] = x as u64;
-    }
-    pub fn set_unit_pos_y(&mut self, y: u32) {
-        self.dims[7] = y as u64;
-    }
-    pub fn set_unit_pos_z(&mut self, z: u32) {
-        self.dims[8] = z as u64;
+    pub fn set_unit_pos(&mut self, unit_pos: [u32; 3]) {
+        // TODO fix alignment issue and pass dims as u32 instead of u64
+        // self.dims[6..9].copy_from_slice(unit_pos);
+        self.dims[6] = unit_pos[0] as u64;
+        self.dims[7] = unit_pos[1] as u64;
+        self.dims[8] = unit_pos[2] as u64;
     }
 }
