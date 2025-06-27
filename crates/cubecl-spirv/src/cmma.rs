@@ -49,7 +49,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mat = self.matrix_var(&mat).1;
 
         let value = self.compile_variable(value);
-        let offset = self.compile_variable(offset);
         let stride = self.compile_variable(stride);
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
@@ -67,6 +66,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .or(mat.layout)
             .unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
+        println!("{offset:?}");
+        let offset = self.compile_variable(offset);
         let ptr = self.deref_slice(&value, &offset);
 
         let out_ty = self.item(&mat);
@@ -114,12 +115,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
 
         let out = self.compile_variable(out);
-        let offset = self.compile_variable(offset);
         let stride = self.compile_variable(stride);
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
+        let offset = self.compile_variable(offset);
         let ptr = self.deref_slice(&out, &offset);
 
         if let Item::Vector(_, line_size) = out.item() {
@@ -209,7 +210,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn deref_slice(&mut self, var: &Variable, offset: &Variable) -> Word {
-        match self.index(var, offset, false) {
+        match self.index(var, &offset, true) {
             IndexedVariable::Pointer(ptr, _) => ptr,
             _ => unreachable!("CMMA store always takes array pointer"),
         }
