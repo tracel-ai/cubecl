@@ -2,7 +2,7 @@ use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Matrix,
-    variable::{ConstVal, IndexedVariable, Variable},
+    variable::{IndexedVariable, Variable},
 };
 use cubecl_core::ir::{self as core, CoopMma, Id, MatrixLayout};
 use rspirv::spirv::{
@@ -210,7 +210,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn deref_slice(&mut self, var: &Variable, offset: &Variable) -> Word {
-        match self.index(var, &offset, true) {
+        match self.index(var, offset, true) {
             IndexedVariable::Pointer(ptr, _) => ptr,
             _ => unreachable!("CMMA store always takes array pointer"),
         }
