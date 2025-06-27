@@ -20,8 +20,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 value,
                 stride,
                 layout,
-                ..
-            } => self.compile_load(out, value, stride, layout),
+                offset,
+            } => self.compile_load(out, value, stride, offset, layout),
             CoopMma::Execute {
                 mat_a,
                 mat_b,
@@ -31,8 +31,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 mat,
                 stride,
                 layout,
-                ..
-            } => self.compile_store(mat, out, stride, layout),
+                offset,
+            } => self.compile_store(mat, out, stride, offset, layout),
             CoopMma::Cast { input } => self.compile_cast(input, out),
         }
     }
@@ -42,12 +42,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         mat: core::Variable,
         value: core::Variable,
         stride: core::Variable,
+        offset: core::Variable,
         layout: Option<MatrixLayout>,
     ) {
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
 
         let value = self.compile_variable(value);
+        let offset = self.compile_variable(offset);
         let stride = self.compile_variable(stride);
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
@@ -65,7 +67,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .or(mat.layout)
             .unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
-        let ptr = self.deref_slice(&value);
+        let ptr = self.deref_slice(&value, &offset);
 
         let out_ty = self.item(&mat);
         let ty = out_ty.id(self);
@@ -101,6 +103,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         mat: core::Variable,
         out: core::Variable,
         stride: core::Variable,
+        offset: core::Variable,
         layout: MatrixLayout,
     ) {
         let mat = self.compile_variable(mat);
@@ -111,12 +114,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
 
         let out = self.compile_variable(out);
+        let offset = self.compile_variable(offset);
         let stride = self.compile_variable(stride);
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
-        let ptr = self.deref_slice(&out);
+        let ptr = self.deref_slice(&out, &offset);
 
         if let Item::Vector(_, line_size) = out.item() {
             let shift = stride_item.const_u32(self, line_size.trailing_zeros());
@@ -204,10 +208,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         (id, mat)
     }
 
-    pub fn deref_slice(&mut self, var: &Variable) -> Word {
-        let zero = self.const_u32(0);
-        let zero = Variable::ConstantScalar(zero, ConstVal::Bit32(0), Elem::Int(32, false));
-        match self.index(var, &zero, false) {
+    pub fn deref_slice(&mut self, var: &Variable, offset: &Variable) -> Word {
+        match self.index(var, offset, false) {
             IndexedVariable::Pointer(ptr, _) => ptr,
             _ => unreachable!("CMMA store always takes array pointer"),
         }
