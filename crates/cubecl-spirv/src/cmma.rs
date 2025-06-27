@@ -2,12 +2,12 @@ use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Matrix,
-    variable::{IndexedVariable, Variable},
+    variable::Variable,
 };
 use cubecl_core::ir::{self as core, CoopMma, Id, MatrixLayout};
 use rspirv::spirv::{
     Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
-    StorageClass, Word,
+    StorageClass,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -66,10 +66,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .or(mat.layout)
             .unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
-        println!("{offset:?}");
-        let offset = self.compile_variable(offset);
-        let ptr = self.deref_slice(&value, &offset);
 
+        let offset = self.compile_variable(offset);
+        let ptr = self.index_ptr(&value, &offset);
         let out_ty = self.item(&mat);
         let ty = out_ty.id(self);
 
@@ -121,7 +120,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
         let offset = self.compile_variable(offset);
-        let ptr = self.deref_slice(&out, &offset);
+        let ptr = self.index_ptr(&out, &offset);
 
         if let Item::Vector(_, line_size) = out.item() {
             let shift = stride_item.const_u32(self, line_size.trailing_zeros());
@@ -207,13 +206,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let mat = self.state.matrices[&id];
         (id, mat)
-    }
-
-    pub fn deref_slice(&mut self, var: &Variable, offset: &Variable) -> Word {
-        match self.index(var, offset, true) {
-            IndexedVariable::Pointer(ptr, _) => ptr,
-            _ => unreachable!("CMMA store always takes array pointer"),
-        }
     }
 
     fn rows(&mut self, mat: &Matrix) -> u32 {

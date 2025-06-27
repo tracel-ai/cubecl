@@ -456,11 +456,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn read(&mut self, variable: &Variable) -> Word {
         match variable {
-            Variable::GlobalInputArray(id, _, _) => *id,
-            Variable::GlobalOutputArray(id, _, _) => *id,
-            Variable::SharedMemory(id, _, _) => *id,
-            Variable::ConstantArray(id, _, _) => *id,
-            Variable::LocalArray(id, _, _) => *id,
             Variable::Slice { ptr, .. } => self.read(ptr),
             Variable::Local { id, item } => {
                 let ty = item.id(self);
@@ -531,7 +526,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 variable,
             } => IndexedVariable::DynamicComposite(
                 self.get_binding(*id, variable),
-                self.read(index),
+                index_id,
                 Item::Vector(*elem, *vec),
             ),
             Variable::Versioned {
@@ -549,7 +544,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 variable,
             } => IndexedVariable::DynamicComposite(
                 self.get_versioned(*id, variable),
-                self.read(index),
+                index_id,
                 Item::Vector(*elem, *vec),
             ),
             Variable::Local { .. } | Variable::LocalBinding { .. } | Variable::Versioned { .. } => {
@@ -570,12 +565,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
-            Variable::ConstantArray(id, item, _) => {
-                let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-                let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
-                IndexedVariable::Pointer(id, item.clone())
-            }
-            Variable::LocalArray(id, item, _) => {
+            Variable::ConstantArray(id, item, _) | Variable::LocalArray(id, item, _) => {
                 let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
                 let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
@@ -661,7 +651,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn index_ptr(&mut self, var: &Variable, index: &Variable) -> Word {
-        match self.index(var, index, false) {
+        let always_in_bounds = is_always_in_bounds(var, index);
+        match self.index(var, index, always_in_bounds) {
             IndexedVariable::Pointer(ptr, _) => ptr,
             other => unreachable!("{other:?}"),
         }
