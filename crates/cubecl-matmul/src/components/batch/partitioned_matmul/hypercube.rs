@@ -466,7 +466,7 @@ pub(crate) enum GlobalOrderConfig {
 }
 
 impl GlobalOrderConfig {
-    pub fn into_config(self, span: &CubeSpan) -> GlobalOrder {
+    pub fn into_order(self, span: &CubeSpan) -> GlobalOrder {
         match self {
             GlobalOrderConfig::Default => GlobalOrder::default(),
             GlobalOrderConfig::NoCheck(global_order) => global_order,
@@ -517,7 +517,7 @@ impl<'a> HypercubeConfigBuilder<'a> {
             batch: self.tiling_scheme.global_partition_size.batches,
         };
 
-        let global_order = self.global_order.into_config(&cube_span);
+        let global_order = self.global_order.into_order(&cube_span);
         let cube_pos_strategy = self.cube_count_plan_config.unwrap_or_default();
 
         HypercubeConfig {
