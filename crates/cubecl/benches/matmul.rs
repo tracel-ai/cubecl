@@ -128,16 +128,6 @@ struct MatmulBench<R: Runtime, MP> {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
-    use tracing_core::LevelFilter;
-
-    pub fn init_log() {
-        let result = tracing_subscriber::fmt()
-            .with_max_level(LevelFilter::DEBUG)
-            .without_time()
-            .try_init()
-            .unwrap();
-    }
-    init_log();
 
     // for tl in [true, false] {
     // for tr in [true, false] {

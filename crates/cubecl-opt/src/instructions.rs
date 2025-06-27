@@ -281,7 +281,7 @@ impl Optimizer {
                 value,
                 stride,
                 offset,
-                ..
+                layout: _,
             } => {
                 visit_read(self, value);
                 visit_read(self, stride);
@@ -300,7 +300,7 @@ impl Optimizer {
                 mat,
                 stride,
                 offset,
-                ..
+                layout: _,
             } => {
                 visit_read(self, mat);
                 visit_read(self, stride);
