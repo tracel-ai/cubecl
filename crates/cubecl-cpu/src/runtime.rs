@@ -30,16 +30,11 @@ static RUNTIME: ComputeRuntime<CpuDevice, Server, Channel> = ComputeRuntime::new
 pub type CpuCompiler = MlirCompiler;
 
 type Server = CpuServer;
-// Take a MSPC channel
+// TODO Investigate MSPC channel, it blocks, but may be better
 type Channel = MutexComputeChannel<Server>;
 
 fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
-    let max_thread = std::thread::available_parallelism()
-        .map(|n| n.get() as u32)
-        .unwrap_or(1);
-    // TODO determine how parallelism should be distributed with cube_count
-    // For now cube_dim is parallel and cube_count sequential
-    let max_cube_dim = CubeDim::new(max_thread, 1, 1);
+    let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
     let max_cube_count = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
     let system = System::new_all();
     let max_shared_memory_size = system

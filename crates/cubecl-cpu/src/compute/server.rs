@@ -16,11 +16,14 @@ use cubecl_runtime::{
     timestamp_profiler::TimestampProfiler,
 };
 
-use crate::{CpuCompiler, compiler::MlirCompilerOptions};
+use crate::CpuCompiler;
+
+use super::scheduler::Scheduler;
 
 #[derive(Debug)]
 pub struct CpuServer {
     ctx: CpuContext,
+    scheduler: Scheduler,
     logger: ServerLogger,
 }
 
@@ -28,6 +31,7 @@ impl CpuServer {
     pub fn new(ctx: CpuContext) -> Self {
         Self {
             logger: ServerLogger::default(),
+            scheduler: Scheduler::new(),
             ctx,
         }
     }
@@ -143,60 +147,37 @@ impl ComputeServer for CpuServer {
             buffers, scalars, ..
         } = bindings;
         // TODO implement the runtime
-        let kernel = kernel.compile(
-            &mut Default::default(),
-            &MlirCompilerOptions::default(),
-            kind,
-        );
-        let mut execution_engine = kernel.repr.unwrap();
 
-        for binding in buffers.into_iter() {
-            let handle = self
-                .ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource");
-            let ptr = handle.write();
-            unsafe {
-                execution_engine.push_buffer(ptr);
-            }
-        }
+        // for binding in buffers.into_iter() {
+        //     let handle = self
+        //         .ctx
+        //         .memory_management
+        //         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        //         .expect("Failed to find resource");
+        //     let ptr = handle.write();
+        //     unsafe {
+        //         execution_engine.push_buffer(ptr);
+        //     }
+        // }
 
-        for (_, scalar) in scalars.into_iter() {
-            execution_engine.push_scalar(scalar);
-        }
 
-        let cube_count = match count {
-            CubeCount::Static(x, y, z) => (x, y, z),
-            CubeCount::Dynamic(binding) => {
-                let handle = self
-                    .ctx
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Failed to find resource");
-                let bytes = handle.read();
-                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
-                (x, y, z)
-            }
-        };
-        execution_engine.push_builtin();
-        execution_engine.builtin.set_cube_count(cube_count);
-        let (cube_dim_x, cube_dim_y, cube_dim_z) = execution_engine.builtin.get_cube_dim();
-        // Will be multithreaded later
-        for unit_pos_x in 0..cube_dim_x {
-            execution_engine.builtin.set_unit_pos_x(unit_pos_x);
-            for unit_pos_y in 0..cube_dim_y {
-                execution_engine.builtin.set_unit_pos_y(unit_pos_y);
-                for unit_pos_z in 0..cube_dim_z {
-                    execution_engine.builtin.set_unit_pos_z(unit_pos_z);
-                    unsafe {
-                        execution_engine.run_kernel();
-                    }
-                }
-            }
-        }
+        // let cube_count = match count {
+        //     CubeCount::Static(x, y, z) => [x, y, z],
+        //     CubeCount::Dynamic(binding) => {
+        //         let handle = self
+        //             .ctx
+        //             .memory_management
+        //             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        //             .expect("Failed to find resource");
+        //         let bytes = handle.read();
+        //         let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
+        //         let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
+        //         let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
+        //         [x, y, z]
+        //     }
+        // };
+        // execution_engine.builtin.set_cube_count(cube_count);
+        // let (cube_dim_x, cube_dim_y, cube_dim_z) = execution_engine.builtin.get_cube_dim();
     }
 
     fn flush(&mut self) {}
