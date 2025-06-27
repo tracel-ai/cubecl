@@ -114,7 +114,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         let mut task_id = comptime![0u32];
 
         #[allow(clippy::explicit_counter_loop)]
-        #[unroll]
+        #[unroll(len == 1)]
         for _ in 0..len {
             L::Job::<MP>::execute_task::<G>(
                 &mut loading_job,
