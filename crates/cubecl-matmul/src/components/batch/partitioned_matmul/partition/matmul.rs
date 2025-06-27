@@ -107,10 +107,6 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                 for c in 0..num_steps_col {
                     let col_offset = ranges.col.start + c * ranges.col.step;
 
-                    if comptime!(num_steps_batch > 1 && num_steps_col > 1 && num_steps_row > 1) {
-                        GMM::zero_accumulator(&mut acc, config);
-                    }
-
                     gmm_execute::<MP, GMM>(
                         lhs,
                         rhs,
@@ -157,10 +153,6 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
                 #[unroll(num_steps_row == 1)]
                 for r in 0..num_steps_row {
                     let row_offset = ranges.row.start + r * ranges.row.step;
-
-                    if comptime!(num_steps_batch > 1 && num_steps_col > 1 && num_steps_row > 1) {
-                        GMM::zero_accumulator(&mut acc, config);
-                    }
 
                     gmm_execute::<MP, GMM>(
                         lhs,
