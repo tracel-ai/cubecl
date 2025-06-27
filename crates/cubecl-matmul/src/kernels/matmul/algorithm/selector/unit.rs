@@ -2,7 +2,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::{
     MatmulKind, MatmulProblem, MatrixLayout, TilingScheme,
-    batch::{CubeCountPlanConfig, GlobalOrder, HypercubeConfig, SmAllocation},
+    batch::{CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, SmAllocation},
     stage::PartitionBuffering,
 };
 
@@ -59,12 +59,6 @@ fn general_unit_selector(
         partition_size.2 /= 2;
     }
 
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
-
     selection(
         tile_size,
         partition_size,
@@ -75,7 +69,7 @@ fn general_unit_selector(
             num_plane: 8,
         },
         num_sms,
-        global_order,
+        problem,
     )
 }
 
@@ -94,12 +88,6 @@ fn matvec_unit_selector(
         (ColMajor, ColMajor) => ((4, 1, 4), (1, 1, 4)),
     };
 
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
-
     selection(
         tile_size,
         partition_size,
@@ -107,7 +95,7 @@ fn matvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        global_order,
+        problem,
     )
 }
 
@@ -133,7 +121,7 @@ fn vecmat_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        GlobalOrder::RowMajor,
+        problem,
     )
 }
 
@@ -159,7 +147,7 @@ fn scalarvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrder::RowMajor,
+        problem,
     )
 }
 
@@ -172,12 +160,6 @@ fn vecscalar_unit_selector(
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 1, 4), (1, 1, 2));
 
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
-
     selection(
         tile_size,
         partition_size,
@@ -185,7 +167,7 @@ fn vecscalar_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 4 },
         num_sms,
-        global_order,
+        problem,
     )
 }
 
@@ -211,7 +193,7 @@ fn inner_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrder::RowMajor,
+        problem,
     )
 }
 
@@ -224,12 +206,6 @@ fn outer_product_unit_selector(
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 4, 1), (1, 1, 1));
 
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
-
     selection(
         tile_size,
         partition_size,
@@ -237,13 +213,13 @@ fn outer_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        global_order,
+        problem,
     )
 }
 
 /// (1, 1) @ (1, 1) → (1, 1)
 fn scalar_product_unit_selector(
-    _problem: &MatmulProblem,
+    problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
     num_sms: Option<u32>,
@@ -260,7 +236,7 @@ fn scalar_product_unit_selector(
             num_plane: 8,
         },
         num_sms,
-        GlobalOrder::RowMajor,
+        problem,
     )
 }
 
@@ -291,7 +267,7 @@ fn selection(
     plane_dim: u32,
     stage: StageSelection,
     num_sms: Option<u32>,
-    global_order: GlobalOrder,
+    problem: &MatmulProblem,
 ) -> MatmulSelection {
     let (stage_size_m, stage_size_n) = stage.into_stages();
 
@@ -311,7 +287,10 @@ fn selection(
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(global_order)
+        .global_order(GlobalOrderConfig::SwizzleRow {
+            m: problem.m as u32,
+            w: 4,
+        })
         .cube_count_plan(cube_count_plan)
         .build();
 
