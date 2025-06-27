@@ -261,15 +261,13 @@ impl HypercubeConfig {
 
             SwizzleRowMajor(w) if m_cubes % w != 0 => {
                 Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                    "In swizzle row major, number of cubes in m {:?} must be divisible by swizzle step length {:?}.",
-                    m_cubes, w
+                    "In swizzle row major, number of cubes in m {m_cubes:?} must be divisible by swizzle step length {w:?}."
                 ))))
             }
 
             SwizzleColMajor(w) if n_cubes % w != 0 => {
                 Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                    "In swizzle col major, number of cubes in n {:?} must be divisible by swizzle step length {:?}.",
-                    n_cubes, w
+                    "In swizzle col major, number of cubes in n {n_cubes:?} must be divisible by swizzle step length {w:?}."
                 ))))
             }
 
@@ -451,25 +449,26 @@ impl CubeCountPlan {
 }
 
 #[derive(Default)]
-pub(crate) enum GlobalOrderConfig {
+/// Used to create [GlobalOrder].
+#[allow(unused)]
+pub enum GlobalOrderConfig {
+    /// It creates the default global order.
     #[default]
     Default,
-    NoCheck(GlobalOrder),
-    SwizzleRow {
-        m: u32,
-        w: u32,
-    },
-    SwizzleCol {
-        n: u32,
-        w: u32,
-    },
+    /// Creates swizzle row global order if possible.
+    ///
+    /// Fallbacks to row global order otherwise.
+    SwizzleRow { m: u32, w: u32 },
+    /// Creates swizzle col global order if possible.
+    ///
+    /// Fallbacks to col global order otherwise.
+    SwizzleCol { n: u32, w: u32 },
 }
 
 impl GlobalOrderConfig {
     pub fn into_order(self, span: &CubeSpan) -> GlobalOrder {
         match self {
             GlobalOrderConfig::Default => GlobalOrder::default(),
-            GlobalOrderConfig::NoCheck(global_order) => global_order,
             GlobalOrderConfig::SwizzleRow { m, w } => {
                 let m_cubes = m.div_ceil(span.m);
                 if m_cubes % w != 0 {

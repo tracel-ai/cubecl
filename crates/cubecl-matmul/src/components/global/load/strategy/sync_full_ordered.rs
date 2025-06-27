@@ -62,8 +62,7 @@ impl LoadingValidation for LoadingStrategy {
         if num_tiles_per_plane != rows_per_plane * tile_count_col {
             return Err(FormattedConfigError::new(move || {
                 format!(
-                    "Number of tiles per plane {:?} must equal rows_per_plane {:?} times cols {:?} for ordered loading.",
-                    num_tiles_per_plane, rows_per_plane, tile_count_col,
+                    "Number of tiles per plane {num_tiles_per_plane:?} must equal rows_per_plane {rows_per_plane:?} times cols {tile_count_col:?} for ordered loading.",
                 )
             }));
         }
