@@ -3,7 +3,7 @@ use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool},
 };
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
-#[cfg(not(feature = "std"))]
+#[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashSet;

@@ -16,7 +16,7 @@ version.workspace = true
 [features]
 default = ["std"]
 serde = []
-std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
+std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std", "dep:web-time"]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 
 [dependencies]
@@ -40,7 +40,8 @@ spin = { workspace = true } # using in place of use std::sync::Mutex;
 
 cfg-if = { workspace = true }
 
-web-time = { workspace = true }
+web-time = { workspace = true, optional = true }
+embassy-time = { workspace = true } # cannot make it optional/restricted to no-std
 
 # Cache
 hashbrown = { workspace = true }
