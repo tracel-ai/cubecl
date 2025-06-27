@@ -213,9 +213,10 @@ pub mod wmma_api_base {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
+                    let qualifier = value.const_qualifier();
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride});"
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem}{qualifier}*>({value} + {offset}), {stride});"
                     )
                 } else {
                     writeln!(

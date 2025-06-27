@@ -131,7 +131,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
     // for tl in [true, false] {
     // for tr in [true, false] {
-    for tl in [true, false] {
+    for tl in [false] {
         for tr in [false] {
             for (b, m, n, k) in [
                 // (1, 8192, 8192, 8192),
