@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use std::time::Duration;
 use std::{
     sync::{
         Arc,
@@ -41,8 +42,11 @@ struct InnerWorker {
 impl InnerWorker {
     fn work(self) {
         log::trace!("Thread numero {} started", self.thread_id);
-        for compute_task in self.rx.iter() {
-            compute_task.compute();
+        loop {
+            let rx_fifo = self.rx.recv_timeout(Duration::from_millis(100));
+            if let Ok(compute_task) = rx_fifo {
+                compute_task.compute();
+            }
             if self.stop.load(Ordering::Relaxed) {
                 break;
             }

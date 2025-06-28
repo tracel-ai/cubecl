@@ -24,6 +24,8 @@ pub struct MlirEngine {
     execution_engine: ExecutionEngine,
 }
 
+unsafe impl Send for MlirEngine {}
+
 impl Debug for MlirEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Work in progress")
