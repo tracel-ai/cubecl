@@ -34,7 +34,6 @@ impl Compiler for MlirCompiler {
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .optimize(kernel.body.clone(), kernel.cube_dim, mode);
-        println!("{}", opt);
         MlirEngine::from_cubecl_ir(kernel, &opt)
     }
 

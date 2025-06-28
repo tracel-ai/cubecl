@@ -143,41 +143,28 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         _logger: Arc<ServerLogger>,
     ) {
-        let Bindings {
-            buffers, scalars, ..
-        } = bindings;
-        // TODO implement the runtime
-
-        // for binding in buffers.into_iter() {
-        //     let handle = self
-        //         .ctx
-        //         .memory_management
-        //         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-        //         .expect("Failed to find resource");
-        //     let ptr = handle.write();
-        //     unsafe {
-        //         execution_engine.push_buffer(ptr);
-        //     }
-        // }
-
-
-        // let cube_count = match count {
-        //     CubeCount::Static(x, y, z) => [x, y, z],
-        //     CubeCount::Dynamic(binding) => {
-        //         let handle = self
-        //             .ctx
-        //             .memory_management
-        //             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-        //             .expect("Failed to find resource");
-        //         let bytes = handle.read();
-        //         let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-        //         let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-        //         let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
-        //         [x, y, z]
-        //     }
-        // };
-        // execution_engine.builtin.set_cube_count(cube_count);
-        // let (cube_dim_x, cube_dim_y, cube_dim_z) = execution_engine.builtin.get_cube_dim();
+        let cube_count = match count {
+            CubeCount::Static(x, y, z) => [x, y, z],
+            CubeCount::Dynamic(binding) => {
+                let handle = self
+                    .ctx
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource");
+                let bytes = handle.read();
+                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
+                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
+                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
+                [x, y, z]
+            }
+        };
+        self.scheduler.dispatch_execute(
+            kernel,
+            cube_count,
+            bindings,
+            kind,
+            &mut self.ctx.memory_management,
+        );
     }
 
     fn flush(&mut self) {}

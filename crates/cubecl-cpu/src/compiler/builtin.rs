@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Builtin {
     pub dims: [u64; 9],
     //[
