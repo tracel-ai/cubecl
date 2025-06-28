@@ -1,9 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use cubecl_common::profile::{ProfileDuration, ProfileTicks};
+use cubecl_common::profile::{Duration, Instant, ProfileDuration, ProfileTicks};
 use cubecl_core::server::{ProfileError, ProfilingToken};
 use hashbrown::HashMap;
-use web_time::Instant;
 use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
@@ -235,7 +234,7 @@ impl QueryProfiler {
             // If there was no work done between the start and stop of the profile, logically the
             // time should be 0. We could use a ProfileDuration::from_duration here,
             // but it seems better to always return things as 'device' timing method.
-            let now = web_time::Instant::now();
+            let now = Instant::now();
             Ok(ProfileDuration::new_device_time(async move {
                 ProfileTicks::from_start_end(now, now)
             }))
