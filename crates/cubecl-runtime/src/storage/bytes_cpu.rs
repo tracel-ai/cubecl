@@ -19,6 +19,7 @@ unsafe impl Send for BytesStorage {}
 unsafe impl Send for BytesResource {}
 
 /// This struct is a pointer to a memory chunk or slice.
+#[derive(Debug, Clone)]
 pub struct BytesResource {
     ptr: *mut u8,
     utilization: StorageUtilization,
