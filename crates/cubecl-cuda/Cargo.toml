@@ -13,12 +13,12 @@ version.workspace = true
 [features]
 compilation-cache = ["cubecl-common/cache"]
 default = [
-    "std",
-    "cubecl-runtime/default",
-    "cubecl-common/default",
-    "cubecl-core/default",
-    "cudarc/cuda-12050",
-    "cudarc/dynamic-loading",
+  "std",
+  "cubecl-runtime/default",
+  "cubecl-common/default",
+  "cubecl-core/default",
+  "cudarc/cuda-12050",
+  "cudarc/dynamic-loading",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 ptx-wmma = []
@@ -40,36 +40,36 @@ matmul_tests_f32 = ["cubecl-matmul/matmul_tests_f32"]
 matmul_tests_layouts = ["cubecl-matmul/matmul_tests_layouts"]
 matmul_tests_alt_shapes = ["cubecl-matmul/matmul_tests_alt_shapes"]
 matmul_tests_partition_buffering = [
-    "cubecl-matmul/matmul_tests_partition_buffering",
+  "cubecl-matmul/matmul_tests_partition_buffering",
 ]
 matmul_tests_hypercube = ["cubecl-matmul/matmul_tests_hypercube"]
 matmul_tests_base = [
-    "matmul_tests_plane",
-    "matmul_tests_double",
-    "matmul_tests_simple",
-    "matmul_tests_ordered",
-    "matmul_tests_cyclic",
-    "matmul_tests_f16",
+  "matmul_tests_plane",
+  "matmul_tests_double",
+  "matmul_tests_simple",
+  "matmul_tests_ordered",
+  "matmul_tests_cyclic",
+  "matmul_tests_f16",
 ]
 matmul_tests_all = [
-    "matmul_tests_unit",
-    "matmul_tests_plane",
-    "matmul_tests_tma",
-    "matmul_tests_double",
-    "matmul_tests_simple",
-    "matmul_tests_ordered",
-    "matmul_tests_cyclic",
-    "matmul_tests_strided",
-    "matmul_tests_tilewise",
-    "matmul_tests_hybrid",
-    "matmul_tests_barrier",
-    "matmul_tests_specialized",
-    "matmul_tests_f16",
-    "matmul_tests_f32",
-    "matmul_tests_layouts",
-    "matmul_tests_alt_shapes",
-    "matmul_tests_partition_buffering",
-    "matmul_tests_hypercube",
+  "matmul_tests_unit",
+  "matmul_tests_plane",
+  "matmul_tests_tma",
+  "matmul_tests_double",
+  "matmul_tests_simple",
+  "matmul_tests_ordered",
+  "matmul_tests_cyclic",
+  "matmul_tests_strided",
+  "matmul_tests_tilewise",
+  "matmul_tests_hybrid",
+  "matmul_tests_barrier",
+  "matmul_tests_specialized",
+  "matmul_tests_f16",
+  "matmul_tests_f32",
+  "matmul_tests_layouts",
+  "matmul_tests_alt_shapes",
+  "matmul_tests_partition_buffering",
+  "matmul_tests_hypercube",
 ]
 conv_tests = ["cubecl-convolution/conv_tests"]
 
@@ -77,18 +77,19 @@ conv_tests = ["cubecl-convolution/conv_tests"]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
 cubecl-cpp = { path = "../cubecl-cpp", version = "0.6.0", default-features = false, features = [
-    "cuda",
+  "cuda",
 ] }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
-    "channel-mutex",
+  "channel-mutex",
 ] }
 
 bytemuck = { workspace = true }
 cudarc = { version = "0.16.3", features = [
-    "std",
-    "driver",
-    "cuda-version-from-build-system",
-    "dynamic-loading",
+  "std",
+  "driver",
+  "cuda-version-from-build-system",
+  "dynamic-loading",
+  "nccl",
 ], default-features = false }
 
 derive-new = { workspace = true }
@@ -98,22 +99,22 @@ serde = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
 cubecl-matmul = { path = "../cubecl-matmul", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
 cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
 cubecl-std = { path = "../cubecl-std", version = "0.6.0", features = [
-    "export_tests",
+  "export_tests",
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
