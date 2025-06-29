@@ -53,6 +53,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
+    comm: Option<cudarc::nccl::sys::ncclComm_t>,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
@@ -575,6 +576,40 @@ impl CudaContext {
                 }
             },
             stream,
+            comm: None,
+            arch,
+            timestamps: TimestampProfiler::default(),
+            compilation_options,
+        }
+    }    
+
+    pub fn new_with_comm(
+        memory_management: MemoryManagement<CudaStorage>,
+        compilation_options: CompilationOptions,
+        stream: cudarc::driver::sys::CUstream,
+        comm: cudarc::nccl::sys::ncclComm_t,
+        context: *mut CUctx_st,
+        arch: CudaArchitecture,
+    ) -> Self {
+        Self {
+            context,
+            memory_management,
+            module_names: HashMap::new(),
+            #[cfg(feature = "compilation-cache")]
+            ptx_cache: {
+                let config = cubecl_runtime::config::GlobalConfig::get();
+                if let Some(cache) = &config.compilation.cache {
+                    let root = cache.root();
+                    Some(Cache::new(
+                        "ptx",
+                        CacheOption::default().name("cuda").root(root),
+                    ))
+                } else {
+                    None
+                }
+            },
+            stream,
+            comm: Some(comm),
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,

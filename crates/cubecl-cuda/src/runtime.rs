@@ -47,7 +47,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
-    let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
+    let device_ptr = cudarc::driver::result::device::get(device.id() as i32).unwrap();
     let arch_major;
     let arch_version = unsafe {
         arch_major = cudarc::driver::result::device::get_attribute(
@@ -231,7 +231,9 @@ impl Runtime for CudaRuntime {
     }
 
     fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
+        let device_info = device.info();
+
+        DeviceId::new(device_info.group as u16, device_info.id as u32)
     }
 
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
