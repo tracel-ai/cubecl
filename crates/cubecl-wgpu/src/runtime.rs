@@ -314,15 +314,9 @@ fn modify_plane_info<R: Runtime>(client: &mut ComputeClient<R::Server, R::Channe
     let plane_dim_min = get_plane_dim::<R>(client, CubeDim::new_1d(plane_size_min));
     let plane_dim_max = get_plane_dim::<R>(client, CubeDim::new_1d(plane_size_max));
 
-    let remove_plane_feature = plane_dim_min != plane_dim_max;
-
     if let Some(properties) = client.properties_mut() {
         properties.hardware.plane_size_min = plane_dim_min;
         properties.hardware.plane_size_max = plane_dim_max;
-
-        if remove_plane_feature {
-            properties.remove_feature(Feature::Plane);
-        }
     } else {
         unreachable!("Unable to modify the device properties.");
     }
