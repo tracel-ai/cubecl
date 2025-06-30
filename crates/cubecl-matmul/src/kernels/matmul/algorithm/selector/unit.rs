@@ -48,28 +48,25 @@ fn general_unit_selector(
 ) -> MatmulSelection {
     use MatrixLayout::*;
 
-    // let (tile_size, mut partition_size) = ((4, 4, 4), (2, 2, 8));
-
+    // Manually tested for good performance on many shapes.
     let (tile_size, mut partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, _) => {
-            // Manually tested for good performance on many shapes.
-
-            // Max partition size m of 16
-            let psm_exp = usize::min(problem.m / (8 * 64) + 1, 4);
-            // Max partition size k of 4
-            let psk_exp = usize::min(problem.k / (8 * 128) + 1, 2);
-
-            let psm = 2u32.pow(psm_exp as u32);
-            let psk = 2u32.pow(psk_exp as u32);
-
-            ((1, 4, 4), (psm, 2, psk))
-        }
-        (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, 8)),
-        (ColMajor, ColMajor) => ((4, 4, 4), (4, 2, 4)),
+        (RowMajor, _) => (
+            (1, 4, 4),
+            (scale_axis(problem.m, 4, 9), 2, scale_axis(problem.k, 2, 10)),
+        ),
+        (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, scale_axis(problem.k, 3, 10))),
+        (ColMajor, ColMajor) => (
+            (4, 4, 4),
+            (
+                scale_axis(problem.m, 2, 10),
+                2,
+                scale_axis(problem.k, 2, 10),
+            ),
+        ),
     };
 
     // It seems to be faster, it's not a requirement of the algo.
-    if double_buffering {
+    if double_buffering && partition_size.2 > 2 {
         partition_size.2 /= 2;
     }
 
@@ -123,9 +120,9 @@ fn vecmat_unit_selector(
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, 8)),
+        (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_axis(problem.k, 3, 10))),
         (ColMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (ColMajor, ColMajor) => ((1, 4, 4), (2, 1, 8)),
+        (ColMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_axis(problem.k, 3, 10))),
     };
 
     selection(
@@ -324,4 +321,9 @@ pub fn closest_factor_pair(n: u32) -> (u32, u32) {
         }
     }
     (n, 1)
+}
+
+fn scale_axis(axis: usize, max_exp: u32, div_exp: u32) -> u32 {
+    let exp = u32::min((axis as u32 / 2u32.pow(div_exp)) + 1, max_exp);
+    2u32.pow(exp)
 }
