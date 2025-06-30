@@ -21,7 +21,7 @@ pub(crate) fn get_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Cha
         );
 
         let value = client.read_one(output.binding());
-        let plane_dim = u32::from_bytes(&value)[0];
-        plane_dim
+
+        u32::from_bytes(&value)[0]
     }
 }
