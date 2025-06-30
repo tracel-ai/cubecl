@@ -47,9 +47,23 @@ fn general_unit_selector(
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
+
+    // let (tile_size, mut partition_size) = ((4, 4, 4), (2, 2, 8));
+
     let (tile_size, mut partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 4, 4), (16, 2, 4)),
-        (RowMajor, ColMajor) => ((1, 4, 4), (16, 2, 4)),
+        (RowMajor, _) => {
+            // Manually tested for good performance on many shapes.
+
+            // Max partition size m of 16
+            let psm_exp = usize::min(problem.m / (8 * 64) + 1, 4);
+            // Max partition size k of 4
+            let psk_exp = usize::min(problem.k / (8 * 128) + 1, 2);
+
+            let psm = 2u32.pow(psm_exp as u32);
+            let psk = 2u32.pow(psk_exp as u32);
+
+            ((1, 4, 4), (psm, 2, psk))
+        }
         (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, 8)),
         (ColMajor, ColMajor) => ((4, 4, 4), (4, 2, 4)),
     };
