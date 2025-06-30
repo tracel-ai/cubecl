@@ -1,6 +1,6 @@
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
-    contiguous_strides,
+    contiguous_strides, plane::get_plane_dim,
 };
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
@@ -288,7 +288,24 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 
-    ComputeClient::new(channel, device_props, setup.backend)
+    let check_real_plane_dim = (device_props.hardware.plane_size_min
+        != device_props.hardware.plane_size_max)
+        && device_props.feature_enabled(Feature::Plane);
+
+    let mut client = ComputeClient::new(channel, device_props, setup.backend);
+
+    if check_real_plane_dim {
+        let plane_dim = get_plane_dim::<WgpuRuntime>(&client);
+
+        if let Some(properties) = client.properties_mut() {
+            properties.hardware.plane_size_min = plane_dim;
+            properties.hardware.plane_size_max = plane_dim;
+        } else {
+            unreachable!("Unable to modify the device properties.");
+        }
+    }
+
+    client
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice) and

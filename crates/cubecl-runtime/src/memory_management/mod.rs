@@ -128,9 +128,6 @@ impl HardwareProperties {
     pub fn defined_plane_size(&self) -> Option<u32> {
         if self.plane_size_min == self.plane_size_max {
             Some(self.plane_size_min)
-        } else if self.plane_size_min == 32 {
-            // Normally 32 is chosen by default when it's the min plane size.
-            Some(self.plane_size_min)
         } else {
             None
         }
