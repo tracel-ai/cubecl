@@ -288,24 +288,44 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 
-    let check_real_plane_dim = (device_props.hardware.plane_size_min
-        != device_props.hardware.plane_size_max)
-        && device_props.feature_enabled(Feature::Plane);
-
     let mut client = ComputeClient::new(channel, device_props, setup.backend);
 
-    if check_real_plane_dim {
-        let plane_dim = get_plane_dim::<WgpuRuntime>(&client);
-
-        if let Some(properties) = client.properties_mut() {
-            properties.hardware.plane_size_min = plane_dim;
-            properties.hardware.plane_size_max = plane_dim;
-        } else {
-            unreachable!("Unable to modify the device properties.");
-        }
+    #[cfg(not(target_family = "wasm"))]
+    if setup.backend == wgpu::Backend::Vulkan {
+        modify_plane_info::<WgpuRuntime>(&mut client);
     }
 
     client
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn modify_plane_info<R: Runtime>(client: &mut ComputeClient<R::Server, R::Channel>) {
+    let plane_size_min = client.properties().hardware.plane_size_min;
+    let plane_size_max = client.properties().hardware.plane_size_max;
+
+    if plane_size_min == plane_size_max {
+        return;
+    }
+
+    if !client.properties().feature_enabled(Feature::Plane) {
+        return;
+    }
+
+    let plane_dim_min = get_plane_dim::<R>(client, CubeDim::new_1d(plane_size_min));
+    let plane_dim_max = get_plane_dim::<R>(client, CubeDim::new_1d(plane_size_max));
+
+    let remove_plane_feature = plane_dim_min != plane_dim_max;
+
+    if let Some(properties) = client.properties_mut() {
+        properties.hardware.plane_size_min = plane_dim_min;
+        properties.hardware.plane_size_max = plane_dim_max;
+
+        if remove_plane_feature {
+            properties.remove_feature(Feature::Plane);
+        }
+    } else {
+        unreachable!("Unable to modify the device properties.");
+    }
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice) and
