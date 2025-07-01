@@ -1,8 +1,3 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
-
 use cubecl_core::{CubeDim, ExecutionMode, compute::CubeTask, server::Bindings};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
@@ -13,29 +8,19 @@ use super::{compute_task::ComputeTask, worker::Worker};
 #[derive(Debug)]
 pub struct Scheduler {
     workers: Vec<Worker>,
-    stop: Arc<AtomicBool>,
-}
-
-impl Drop for Scheduler {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-    }
 }
 
 impl Scheduler {
     pub fn new() -> Scheduler {
-        let stop = Arc::new(AtomicBool::new(false));
-        let threads = (0..std::thread::available_parallelism()
+        let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
-            .get())
+            .get();
+        let threads = (0..available_parallelism)
             .into_iter()
-            .map(|i| Worker::new(i, stop.clone()))
+            .map(|i| Worker::new(i))
             .collect();
 
-        Scheduler {
-            workers: threads,
-            stop,
-        }
+        Scheduler { workers: threads }
     }
 
     pub fn dispatch_execute(
@@ -63,6 +48,8 @@ impl Scheduler {
                 }
             }
         }
+
+        println!("{:?}", cube_dims);
 
         let Bindings {
             buffers, scalars, ..

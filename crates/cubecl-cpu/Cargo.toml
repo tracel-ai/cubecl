@@ -11,7 +11,7 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpu"
 version.workspace = true
 
 [features]
-compilation-cache = ["cubecl-common/cache"]
+# compilation-cache = ["cubecl-common/cache"]
 default = [
     "std",
     "cubecl-runtime/default",
@@ -36,6 +36,7 @@ serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
 libc = { workspace = true }
+dtor = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
