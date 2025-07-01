@@ -23,6 +23,12 @@ impl Scheduler {
         Scheduler { workers: threads }
     }
 
+    pub fn sync(&mut self) {
+        for worker in self.workers.iter_mut() {
+            worker.sync();
+        }
+    }
+
     pub fn dispatch_execute(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
@@ -48,8 +54,6 @@ impl Scheduler {
                 }
             }
         }
-
-        println!("{:?}", cube_dims);
 
         let Bindings {
             buffers, scalars, ..
@@ -91,5 +95,6 @@ impl Scheduler {
             };
             worker.send_task(compute_task);
         }
+        self.sync();
     }
 }
