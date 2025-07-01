@@ -135,7 +135,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
         for tr in [false] {
             for (b, m, n, k) in [
                 // (1, 8192, 8192, 8192),
-                (1, 6144, 6144, 6144),
+                // (1, 6144, 6144, 6144),
                 //  (1, 5000, 5000, 5000),
                 //  (2, 4096, 4096, 4096),
                 //  (5, 512, 512, 512),

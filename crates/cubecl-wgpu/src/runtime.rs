@@ -321,6 +321,8 @@ fn modify_plane_info<R: Runtime>(client: &mut ComputeClient<R::Server, R::Channe
     if let Some(properties) = client.properties_mut() {
         properties.hardware.plane_size_min = plane_dim_min;
         properties.hardware.plane_size_max = plane_dim_max;
+        properties.hardware.plane_size_min = 32;
+        properties.hardware.plane_size_max = 32;
     } else {
         unreachable!("Unable to modify the device properties.");
     }
