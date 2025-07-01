@@ -142,6 +142,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 //  (10, 256, 256, 256),
                 //  // OuterProduct
                 //  (2, 4096, 4096, 1),
+                (1, 4 * 4096, 4 * 4096, 1),
                 //  // InnerProduct
                 //  (2, 1, 8 * 4096, 1),
                 //  // VecScalar
@@ -179,8 +180,8 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // println!("Simple Unit");
-    // run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
+    println!("Simple Unit");
+    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
 
     // println!("Simple");
     // run::<R, MP>(
@@ -191,14 +192,14 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     ),
     // );
 
-    println!("Simple multi rows");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(
-            SyncLoadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: true }),
-        ),
-    );
+    // println!("Simple multi rows");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(
+    //         SyncLoadingStrategy::Cyclic,
+    //         Selection::Inferred(SimpleArgs { multi_rows: true }),
+    //     ),
+    // );
 
     // println!("Double Buffering");
     // run::<R, MP>(
@@ -237,7 +238,7 @@ fn main() {
     ))]
     {
         run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
-        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
+        // run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 
     #[cfg(feature = "wgpu-spirv")]

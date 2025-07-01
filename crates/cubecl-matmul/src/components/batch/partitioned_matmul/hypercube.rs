@@ -455,6 +455,8 @@ pub enum GlobalOrderConfig {
     /// It creates the default global order.
     #[default]
     Default,
+    /// Use the one provided.
+    Fix(GlobalOrder),
     /// Creates swizzle row global order if possible.
     ///
     /// Fallbacks to row global order otherwise.
@@ -469,6 +471,7 @@ impl GlobalOrderConfig {
     pub fn into_order(self, span: &CubeSpan) -> GlobalOrder {
         match self {
             GlobalOrderConfig::Default => GlobalOrder::default(),
+            GlobalOrderConfig::Fix(order) => order,
             GlobalOrderConfig::SwizzleRow { m, w } => {
                 let m_cubes = m.div_ceil(span.m);
                 if m_cubes % w != 0 {

@@ -43,6 +43,6 @@ where
         _elem_acc: Elem,
         _args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection::<R>(client, problem, plane_dim, false)
+        unit_matmul_selection::<R>(client, problem, 32, false)
     }
 }

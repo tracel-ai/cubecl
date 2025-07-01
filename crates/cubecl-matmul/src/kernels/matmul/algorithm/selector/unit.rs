@@ -283,14 +283,17 @@ fn selection(
             num_sms,
             sm_usage: SmAllocation::Exact,
         },
-        None => CubeCountPlanConfig::Flattened,
+        None => CubeCountPlanConfig::FromProblem,
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(GlobalOrderConfig::SwizzleRow {
-            m: problem.m as u32,
-            w: 4,
-        })
+        .global_order(GlobalOrderConfig::Fix(
+            crate::components::batch::GlobalOrder::RowMajor,
+        ))
+        // .global_order(GlobalOrderConfig::SwizzleRow {
+        //     m: problem.m as u32,
+        //     w: 4,
+        // })
         .cube_count_plan(cube_count_plan)
         .build();
 

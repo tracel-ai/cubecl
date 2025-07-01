@@ -47,10 +47,13 @@ where
 
     let line_sizes = config.line_sizes();
 
+    let cube_count = cube_count_plan.resolve();
+    println!("{cube_count:?}");
+
     launch_with_config::<MS, R, A>(
         client,
         config.cube_dim(),
-        cube_count_plan.resolve(),
+        cube_count,
         <InputArg<MS> as ConcreteInputsFactory>::create(
             lhs,
             lhs_scale,
