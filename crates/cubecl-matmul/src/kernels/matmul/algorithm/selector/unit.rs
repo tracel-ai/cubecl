@@ -57,11 +57,7 @@ fn general_unit_selector(
         (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, scale_axis(problem.k, 3, 10))),
         (ColMajor, ColMajor) => (
             (4, 4, 4),
-            (
-                scale_axis(problem.m, 2, 10),
-                2,
-                scale_axis(problem.k, 2, 10),
-            ),
+            (scale_axis(problem.m, 2, 9), 2, scale_axis(problem.k, 2, 9)),
         ),
     };
 
@@ -120,9 +116,9 @@ fn vecmat_unit_selector(
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_axis(problem.k, 3, 10))),
+        (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_axis(problem.k, 3, 7))),
         (ColMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (ColMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_axis(problem.k, 3, 10))),
+        (ColMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_axis(problem.k, 3, 7))),
     };
 
     selection(
