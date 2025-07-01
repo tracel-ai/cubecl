@@ -109,7 +109,7 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                 for c in 0..ranges.col.num_steps {
                     let col_offset = ranges.col.start + c * ranges.col.step;
 
-                    GMM::zero_accumulator(&mut acc, config);
+                    // GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
                         rhs,
