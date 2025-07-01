@@ -218,16 +218,6 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     ),
     // );
 
-    // println!("Ordered 1");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-    //         row_count: Some(16),
-    //         rows_per_plane: Some(2),
-    //         partition_k: Some(1),
-    //     })),
-    // );
-
     // println!("Ordered 2");
     // run::<R, MP>(
     //     Default::default(),

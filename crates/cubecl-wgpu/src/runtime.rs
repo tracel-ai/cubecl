@@ -1,6 +1,6 @@
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
-    contiguous_strides,
+    contiguous_strides, plane::get_plane_dim,
 };
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
@@ -288,7 +288,38 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 
-    ComputeClient::new(channel, device_props, setup.backend)
+    let mut client = ComputeClient::new(channel, device_props, setup.backend);
+
+    #[cfg(not(target_family = "wasm"))]
+    if setup.backend == wgpu::Backend::Vulkan {
+        modify_plane_info::<WgpuRuntime>(&mut client);
+    }
+
+    client
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn modify_plane_info<R: Runtime>(client: &mut ComputeClient<R::Server, R::Channel>) {
+    let plane_size_min = client.properties().hardware.plane_size_min;
+    let plane_size_max = client.properties().hardware.plane_size_max;
+
+    if plane_size_min == plane_size_max {
+        return;
+    }
+
+    if !client.properties().feature_enabled(Feature::Plane) {
+        return;
+    }
+
+    let plane_dim_min = get_plane_dim::<R>(client, CubeDim::new_1d(plane_size_min));
+    let plane_dim_max = get_plane_dim::<R>(client, CubeDim::new_1d(plane_size_max));
+
+    if let Some(properties) = client.properties_mut() {
+        properties.hardware.plane_size_min = plane_dim_min;
+        properties.hardware.plane_size_max = plane_dim_max;
+    } else {
+        unreachable!("Unable to modify the device properties.");
+    }
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice) and

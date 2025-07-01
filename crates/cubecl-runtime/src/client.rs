@@ -366,6 +366,13 @@ where
         &self.state.properties
     }
 
+    /// # Warning
+    ///
+    /// For private use only.
+    pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties<Server::Feature>> {
+        Arc::get_mut(&mut self.state).map(|state| &mut state.properties)
+    }
+
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
         self.profile_guard();
