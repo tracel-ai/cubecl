@@ -292,7 +292,11 @@ pub(crate) fn create_client_on_setup(
 
     #[cfg(not(target_family = "wasm"))]
     if setup.backend == wgpu::Backend::Vulkan {
-        modify_plane_info::<WgpuRuntime>(&mut client);
+        let info = setup.adapter.get_info();
+        // Fix AMD devices where the min and max subgroup sizes doesn't vary.
+        if info.driver == "radv" && info.name.to_uppercase().contains("AMD") {
+            modify_plane_info::<WgpuRuntime>(&mut client);
+        }
     }
 
     client
