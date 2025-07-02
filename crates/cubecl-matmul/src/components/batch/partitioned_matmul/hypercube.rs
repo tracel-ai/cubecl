@@ -1,7 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::global::GlobalConfig;
 use crate::components::{MatmulProblem, TilingScheme};
 use crate::kernels::MatmulSetupError;
 
