@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 use crate::components::{
     MatmulProblem, TilingScheme,
     batch::{
-        CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, PartitionedBatchMatmulFamily,
-        RowMajorGlobalPartitionMatmul, SmAllocation,
+        CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
+        PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
     },
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},

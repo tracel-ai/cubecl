@@ -4,7 +4,8 @@ use crate::{
 };
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
-    ir::{Elem, FloatKind}, AtomicFeature, CubeCount, CubeDim, Feature, Runtime
+    AtomicFeature, CubeCount, CubeDim, Feature, Runtime,
+    ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
