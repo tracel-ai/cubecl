@@ -47,6 +47,7 @@ pub enum GlobalOrder {
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum CubeCountPlanConfig {
     /// X: num cubes in m, Y: num cubes in n, Z: num cubes in batch
+    #[default]
     FromProblem,
 
     /// X: num SMs, Y: num cubes per SM
@@ -61,7 +62,6 @@ pub enum CubeCountPlanConfig {
         sm_usage: SmAllocation,
     },
 
-    #[default]
     /// X: total cubes flattened (num SMs * num cubes per SM)
     Flattened,
 }

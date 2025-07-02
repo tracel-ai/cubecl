@@ -290,7 +290,7 @@ fn selection(
             num_sms,
             sm_usage: SmAllocation::Exact,
         },
-        None => CubeCountPlanConfig::Flattened,
+        None => CubeCountPlanConfig::FromProblem,
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)

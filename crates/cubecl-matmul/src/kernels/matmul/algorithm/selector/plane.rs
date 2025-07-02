@@ -88,7 +88,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             num_sms,
             sm_usage: SmAllocation::Exact,
         },
-        None => CubeCountPlanConfig::Flattened,
+        None => CubeCountPlanConfig::FromProblem,
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
