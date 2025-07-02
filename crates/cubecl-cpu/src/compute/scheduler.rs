@@ -17,7 +17,7 @@ impl Scheduler {
             .get();
         let threads = (0..available_parallelism)
             .into_iter()
-            .map(|i| Worker::new(i))
+            .map(|_| Worker::new())
             .collect();
 
         Scheduler { workers: threads }
