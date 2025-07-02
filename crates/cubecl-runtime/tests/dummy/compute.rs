@@ -1,6 +1,7 @@
 use super::DummyServer;
 use cubecl_common::CubeDim;
 use cubecl_common::profile::TimingMethod;
+use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::LocalTuner;
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
@@ -42,7 +43,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         plane_size_max: 32,
         max_bindings: 32,
         max_shared_memory_size: 48000,
-        max_cube_count: CubeDim::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
+        max_cube_count: CubeCount::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
         max_units_per_cube: 1024,
         max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
         num_streaming_multiprocessors: None,

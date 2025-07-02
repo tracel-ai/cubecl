@@ -43,7 +43,10 @@ where
         }
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-    let cube_count_plan = config.hypercube_config().cube_count_plan(&problem);
+    let cube_count_plan = config.hypercube_config().cube_count_plan(
+        &problem,
+        client.properties().hardware.max_cube_count.clone(),
+    );
 
     let line_sizes = config.line_sizes();
 
@@ -86,7 +89,11 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         }
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-    let cube_count_plan = config.hypercube_config().cube_count_plan(&problem);
+
+    let cube_count_plan = config.hypercube_config().cube_count_plan(
+        &problem,
+        client.properties().hardware.max_cube_count.clone(),
+    );
 
     launch_with_config::<MS, R, A>(
         client,

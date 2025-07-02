@@ -2,9 +2,7 @@ use cubecl_core::CubeDim;
 
 use crate::{
     components::{
-        Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
-        batch::{BatchConfig, HypercubeConfig},
-        global::GlobalConfig,
+        batch::{BatchConfig, HypercubeConfig}, global::GlobalConfig, Ident, MatmulConfig, MatmulLineSizes, MatmulProblem
     },
     kernels::MatmulSetupError,
 };

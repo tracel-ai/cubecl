@@ -34,7 +34,13 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
-        PartitionedBatchConfig::new(global_config, selection.hypercube_config).validate(problem)
+        PartitionedBatchConfig::new(
+            global_config,
+            selection
+                .hypercube_selection
+                .to_hypercube_config(problem, client.properties().hardware.max_cube_count.clone()),
+        )
+        .validate(problem)
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(

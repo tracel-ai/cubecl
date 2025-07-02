@@ -5,7 +5,7 @@ use crate::{
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
+    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
     ir::{Elem, FloatKind},
 };
 use cubecl_cpp::{
@@ -118,7 +118,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         let grid_dim_y = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y).unwrap();
         let grid_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z).unwrap();
         let max_cube_count =
-            CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
+            CubeCount::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
         let num_streaming_multiprocessors = Some(
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
