@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
 use core::fmt::Display;
 
-#[cfg(feature = "std")]
+#[cfg(not(target_os = "none"))]
 pub use web_time::{Duration, Instant};
 
-#[cfg(not(feature = "std"))]
+#[cfg(target_os = "none")]
 pub use embassy_time::{Duration, Instant};
 
 use crate::future::DynFut;
