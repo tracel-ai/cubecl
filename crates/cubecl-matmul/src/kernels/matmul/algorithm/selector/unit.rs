@@ -294,7 +294,7 @@ fn selection(
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(GlobalOrderConfig::Fix(GlobalOrder::ColMajor))
+        .global_order(GlobalOrderConfig::Fix(GlobalOrder::RowMajor))
         .cube_count_plan(cube_count_plan)
         .build();
 
