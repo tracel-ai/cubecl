@@ -4,7 +4,7 @@ use core::fmt::Display;
 #[cfg(feature = "std")]
 pub use web_time::{Duration, Instant};
 
-#[cfg(all(not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 pub use embassy_time::{Duration, Instant};
 
 use crate::future::DynFut;
