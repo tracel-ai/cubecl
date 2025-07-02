@@ -767,21 +767,19 @@ pub fn test_cmma_strided<R: Runtime>(
 macro_rules! testgen_cmma {
     () => {
         use super::*;
-        use cubecl_core::CubeDim;
+        use cubecl_core::prelude::*;
 
         #[test]
         fn test_cmma_simple_1() {
             let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
         }
 
         #[test]
         fn test_cmma_simple_1_lined() {
             let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1_lined::<TestRuntime>(
                 client,
                 cube_dimensions,
@@ -791,8 +789,7 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_simple_1_lined_offset() {
             let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1_lined_offset::<TestRuntime>(
                 client,
                 cube_dimensions,
@@ -802,7 +799,7 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_simple_tf32() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_tf32::<TestRuntime>(
                 client,
                 cube_dimensions,
@@ -812,7 +809,7 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_cast_f16() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_cmma_cast_f16::<TestRuntime>(
                 client,
                 cube_dimensions,
@@ -822,7 +819,7 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_cast_bf16() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_cmma_cast_bf16::<TestRuntime>(
                 client,
                 cube_dimensions,
@@ -832,11 +829,20 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_strided() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = CubeDim::new(32, 2, 1);
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_cmma_strided::<TestRuntime>(
                 client,
                 cube_dimensions,
             );
+        }
+
+        fn cube_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> CubeDim {
+            let plane_dim = client
+                .properties()
+                .hardware
+                .defined_plane_size()
+                .unwrap_or(32);
+            CubeDim::new(plane_dim, 1, 1)
         }
     };
 }

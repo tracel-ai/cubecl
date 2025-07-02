@@ -1,6 +1,5 @@
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::profile::{Instant, ProfileDuration};
 use hashbrown::HashMap;
-use web_time::Instant;
 
 use crate::server::{ProfileError, ProfilingToken};
 
