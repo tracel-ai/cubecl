@@ -2,7 +2,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::{
     MatmulKind, MatmulProblem, MatrixLayout, TilingScheme,
-    batch::{CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, SmAllocation},
+    batch::{CubeCountPlanConfig, GlobalOrder, GlobalOrderConfig, HypercubeConfig, SmAllocation},
     stage::PartitionBuffering,
 };
 
@@ -294,10 +294,7 @@ fn selection(
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(GlobalOrderConfig::SwizzleRow {
-            m: problem.m as u32,
-            w: 4,
-        })
+        .global_order(GlobalOrderConfig::Fix(GlobalOrder::ColMajor))
         .cube_count_plan(cube_count_plan)
         .build();
 

@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::components::global::GlobalConfig;
 use crate::components::{MatmulProblem, TilingScheme};
 use crate::kernels::MatmulSetupError;
 
@@ -455,6 +456,8 @@ pub enum GlobalOrderConfig {
     /// It creates the default global order.
     #[default]
     Default,
+    /// Set a global order.
+    Fix(GlobalOrder),
     /// Creates swizzle row global order if possible.
     ///
     /// Fallbacks to row global order otherwise.
@@ -469,6 +472,7 @@ impl GlobalOrderConfig {
     pub fn into_order(self, span: &CubeSpan) -> GlobalOrder {
         match self {
             GlobalOrderConfig::Default => GlobalOrder::default(),
+            GlobalOrderConfig::Fix(order) => order,
             GlobalOrderConfig::SwizzleRow { m, w } => {
                 let m_cubes = m.div_ceil(span.m);
                 if m_cubes % w != 0 {
