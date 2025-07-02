@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use core::fmt::Display;
 use core::time::Duration;
 
-pub use crate::profile::TimingMethod;
+pub use crate::profile::{Instant, TimingMethod};
 
 #[cfg(feature = "std")]
 pub use crate::profile::ProfileDuration;
@@ -188,11 +188,11 @@ pub trait Benchmark {
     #[cfg(feature = "std")]
     fn profile_full(&self, args: Self::Input) -> ProfileDuration {
         self.sync();
-        let start_time = web_time::Instant::now();
+        let start_time = Instant::now();
         let out = self.execute(args);
         self.sync();
         core::mem::drop(out);
-        ProfileDuration::new_system_time(start_time, web_time::Instant::now())
+        ProfileDuration::new_system_time(start_time, Instant::now())
     }
 
     /// Run the benchmark a number of times.

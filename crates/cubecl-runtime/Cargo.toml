@@ -39,7 +39,6 @@ hashbrown = { workspace = true }
 log = { workspace = true }
 variadics_please = { workspace = true }
 serde = { workspace = true }
-web-time = { workspace = true }
 toml = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 

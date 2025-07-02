@@ -277,9 +277,15 @@ impl Optimizer {
             CoopMma::Fill { value } => {
                 visit_read(self, value);
             }
-            CoopMma::Load { value, stride, .. } => {
+            CoopMma::Load {
+                value,
+                stride,
+                offset,
+                layout: _,
+            } => {
                 visit_read(self, value);
                 visit_read(self, stride);
+                visit_read(self, offset);
             }
             CoopMma::Execute {
                 mat_a,
@@ -290,9 +296,15 @@ impl Optimizer {
                 visit_read(self, mat_b);
                 visit_read(self, mat_c);
             }
-            CoopMma::Store { mat, stride, .. } => {
+            CoopMma::Store {
+                mat,
+                stride,
+                offset,
+                layout: _,
+            } => {
                 visit_read(self, mat);
                 visit_read(self, stride);
+                visit_read(self, offset);
             }
             CoopMma::Cast { input } => {
                 visit_read(self, input);

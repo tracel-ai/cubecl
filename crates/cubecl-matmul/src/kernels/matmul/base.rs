@@ -210,16 +210,16 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         .filter_out_with_tensor(out.strides, out.shape)
         .pick_max()?;
 
-    let plane_size = client.properties().hardware.defined_plane_size();
-
-    let plane_dim = match plane_size {
-        Some(plane_dim) => plane_dim,
-        None => {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::PlaneDimUnknown,
-            ));
-        }
+    let fix_plane_dim = |plane_dim: u32| {
+        // Sometimes the GPU doesn't support plane instructions and doesn't report the
+        // plane size, but we can still execute algorithms that don't use plane instructions.
+        //
+        // In this case, we set a plane size for the selector to work, defaulting to 32 as it
+        // is a common plane size.
+        if plane_dim == 0 { 32 } else { plane_dim }
     };
+
+    let plane_dim = fix_plane_dim(client.properties().hardware.plane_size_max);
 
     launch_inner_ref_fix_dtype::<R, MP, A>(
         client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,

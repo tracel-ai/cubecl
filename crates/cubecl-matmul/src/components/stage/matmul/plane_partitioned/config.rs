@@ -149,8 +149,7 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
 
         if smem_total_size > smem_limit {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "This algorithm needs {:?} shared memory bytes but hardware limit is {:?}. ",
-                smem_total_size, smem_limit
+                "This algorithm needs {smem_total_size:?} shared memory bytes but hardware limit is {smem_limit:?}. "
             ))));
         }
 

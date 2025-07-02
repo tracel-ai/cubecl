@@ -47,4 +47,11 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     pub fn register_feature(&mut self, feature: Feature) -> bool {
         self.set.insert(feature)
     }
+
+    /// Removes a `Feature` from the compute server.
+    ///
+    /// This should only be used by a [runtime](cubecl_core::Runtime) when initializing a device.
+    pub fn remove_feature(&mut self, feature: Feature) {
+        self.set.remove(&feature);
+    }
 }

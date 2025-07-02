@@ -90,17 +90,23 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
-        #[unroll(ranges.batch.num_steps <= 1)]
-        for b in 0..ranges.batch.num_steps {
+        // Needed for the unroll macro to work.
+        let num_steps_batch = comptime!(ranges.batch.num_steps);
+        let num_steps_row = comptime!(ranges.row.num_steps);
+        let num_steps_col = comptime!(ranges.col.num_steps);
+
+        #[unroll(num_steps_batch == 1)]
+        for b in 0..num_steps_batch {
             let batch_iter = ranges.batch.start + b * ranges.batch.step;
-            #[unroll(ranges.row.num_steps <= 1)]
-            for r in 0..ranges.row.num_steps {
+
+            #[unroll(num_steps_row == 1)]
+            for r in 0..num_steps_row {
                 let row_offset = ranges.row.start + r * ranges.row.step;
-                #[unroll(ranges.col.num_steps <= 1)]
-                for c in 0..ranges.col.num_steps {
+
+                #[unroll(num_steps_col == 1)]
+                for c in 0..num_steps_col {
                     let col_offset = ranges.col.start + c * ranges.col.step;
 
-                    GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
                         rhs,
@@ -131,17 +137,23 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
-        #[unroll(ranges.batch.num_steps <= 1)]
-        for b in 0..ranges.batch.num_steps {
+        // Needed for the unroll macro to work.
+        let num_steps_batch = comptime!(ranges.batch.num_steps);
+        let num_steps_row = comptime!(ranges.row.num_steps);
+        let num_steps_col = comptime!(ranges.col.num_steps);
+
+        #[unroll(num_steps_batch == 1)]
+        for b in 0..num_steps_batch {
             let batch_iter = ranges.batch.start + b * ranges.batch.step;
-            #[unroll(ranges.col.num_steps <= 1)]
-            for c in 0..ranges.col.num_steps {
+
+            #[unroll(num_steps_col == 1)]
+            for c in 0..num_steps_col {
                 let col_offset = ranges.col.start + c * ranges.col.step;
-                #[unroll(ranges.row.num_steps <= 1)]
-                for r in 0..ranges.row.num_steps {
+
+                #[unroll(num_steps_row == 1)]
+                for r in 0..num_steps_row {
                     let row_offset = ranges.row.start + r * ranges.row.step;
 
-                    GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
                         lhs,
                         rhs,

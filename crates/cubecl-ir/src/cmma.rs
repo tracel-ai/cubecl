@@ -123,8 +123,7 @@ impl Display for CoopMma {
                 layout,
             } => write!(
                 f,
-                "matrix_store({}, stride: {}, layout: {:?}, offset: {:?})",
-                mat, stride, layout, offset
+                "matrix_store({mat}, stride: {stride}, layout: {layout:?}, offset: {offset:?})"
             ),
             CoopMma::Cast { input } => {
                 write!(f, "matrix_cast(input: {input})")

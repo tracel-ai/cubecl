@@ -13,7 +13,7 @@ pub struct HypercubeConfig {
 
 pub struct HypercubeConfigBuilder<'a> {
     tiling_scheme: &'a TilingScheme,
-    global_order: GlobalOrder,
+    global_order: GlobalOrderConfig,
     cube_count_plan_config: Option<CubeCountPlanConfig>,
 }
 
@@ -47,6 +47,7 @@ pub enum GlobalOrder {
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum CubeCountPlanConfig {
     /// X: num cubes in m, Y: num cubes in n, Z: num cubes in batch
+    #[default]
     FromProblem,
 
     /// X: num SMs, Y: num cubes per SM
@@ -61,7 +62,6 @@ pub enum CubeCountPlanConfig {
         sm_usage: SmAllocation,
     },
 
-    #[default]
     /// X: total cubes flattened (num SMs * num cubes per SM)
     Flattened,
 }
@@ -261,15 +261,13 @@ impl HypercubeConfig {
 
             SwizzleRowMajor(w) if m_cubes % w != 0 => {
                 Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                    "In swizzle row major, number of cubes in m {:?} must be divisible by swizzle step length {:?}.",
-                    m_cubes, w
+                    "In swizzle row major, number of cubes in m {m_cubes:?} must be divisible by swizzle step length {w:?}."
                 ))))
             }
 
             SwizzleColMajor(w) if n_cubes % w != 0 => {
                 Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                    "In swizzle col major, number of cubes in n {:?} must be divisible by swizzle step length {:?}.",
-                    n_cubes, w
+                    "In swizzle col major, number of cubes in n {n_cubes:?} must be divisible by swizzle step length {w:?}."
                 ))))
             }
 
@@ -450,17 +448,62 @@ impl CubeCountPlan {
     }
 }
 
+#[derive(Default)]
+/// Used to create [GlobalOrder].
+#[allow(unused)]
+pub enum GlobalOrderConfig {
+    /// It creates the default global order.
+    #[default]
+    Default,
+    /// Set a global order.
+    Fix(GlobalOrder),
+    /// Creates swizzle row global order if possible.
+    ///
+    /// Fallbacks to row global order otherwise.
+    SwizzleRow { m: u32, w: u32 },
+    /// Creates swizzle col global order if possible.
+    ///
+    /// Fallbacks to col global order otherwise.
+    SwizzleCol { n: u32, w: u32 },
+}
+
+impl GlobalOrderConfig {
+    pub fn into_order(self, span: &CubeSpan) -> GlobalOrder {
+        match self {
+            GlobalOrderConfig::Default => GlobalOrder::default(),
+            GlobalOrderConfig::Fix(order) => order,
+            GlobalOrderConfig::SwizzleRow { m, w } => {
+                let m_cubes = m.div_ceil(span.m);
+                if m_cubes % w != 0 {
+                    GlobalOrder::RowMajor
+                } else {
+                    GlobalOrder::SwizzleRowMajor(w)
+                }
+            }
+            GlobalOrderConfig::SwizzleCol { n, w } => {
+                let n_cubes = n.div_ceil(span.n);
+                if n_cubes % w != 0 {
+                    GlobalOrder::RowMajor
+                } else {
+                    GlobalOrder::SwizzleRowMajor(w)
+                }
+            }
+        }
+        .canonicalize()
+    }
+}
+
 impl<'a> HypercubeConfigBuilder<'a> {
     fn new(tiling_scheme: &'a TilingScheme) -> Self {
         Self {
             tiling_scheme,
-            global_order: GlobalOrder::default(),
+            global_order: GlobalOrderConfig::default(),
             cube_count_plan_config: None,
         }
     }
 
-    pub fn global_order(mut self, global_order: GlobalOrder) -> Self {
-        self.global_order = global_order.canonicalize();
+    pub fn global_order(mut self, global_order: GlobalOrderConfig) -> Self {
+        self.global_order = global_order;
         self
     }
 
@@ -476,11 +519,12 @@ impl<'a> HypercubeConfigBuilder<'a> {
             batch: self.tiling_scheme.global_partition_size.batches,
         };
 
+        let global_order = self.global_order.into_order(&cube_span);
         let cube_pos_strategy = self.cube_count_plan_config.unwrap_or_default();
 
         HypercubeConfig {
             cube_span,
-            global_order: self.global_order,
+            global_order,
             cube_count_plan_config: cube_pos_strategy,
         }
     }

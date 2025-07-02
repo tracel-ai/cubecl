@@ -8,6 +8,9 @@ use cubecl_core::{self as cubecl};
 /// Uses one unit to perform a small matmul entirely using its registers
 pub struct RegisterMatmul;
 
+// Doesn't impact performance in any meaninful way, but increases kernel size too much (often ~6X).
+static UNROLL: bool = false;
+
 #[derive(CubeType)]
 /// Contains the accumulated result, within a row major array of size rows x cols
 pub struct TileAccumulator<EA: Numeric> {
@@ -100,9 +103,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] _config: Self::Config,
     ) {
-        #[unroll]
+        #[unroll(UNROLL)]
         for i in 0..comptime!(acc.rows) {
-            #[unroll]
+            #[unroll(UNROLL)]
             for j in 0..comptime!(acc.cols) {
                 acc.data[i * acc.cols + j] =
                     tile.slice.with_line_size(1u32)[i * tile.stride + j][0];
@@ -116,10 +119,10 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         #[comptime] config: Self::Config,
     ) {
         let out_line_size = config.stage_line_size(Ident::Out);
-        #[unroll]
+        #[unroll(UNROLL)]
         for i in 0..comptime!(acc.rows * acc.cols / out_line_size) {
             let mut line = Line::empty(out_line_size);
-            #[unroll]
+            #[unroll(UNROLL)]
             for j in 0..comptime!(out_line_size) {
                 line[j] = acc.data[i * out_line_size + j];
             }
@@ -139,7 +142,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        #[unroll]
+        #[unroll(UNROLL)]
         for i in 0..comptime!(acc.rows * acc.cols) {
             acc.data[i] = MP::EA::cast_from(0);
         }
@@ -157,11 +160,11 @@ impl RegisterMatmul {
         let (m, n, k) =
             comptime! {let (m, n, k): (u32, u32, u32) = (*config.tile_size()).into(); (m, n, k)};
 
-        #[unroll]
+        #[unroll(UNROLL)]
         for m_ in 0..m {
-            #[unroll]
+            #[unroll(UNROLL)]
             for n_ in 0..n {
-                #[unroll]
+                #[unroll(UNROLL)]
                 for k_ in 0..k {
                     let lhs_elem = EA::cast_from(lhs[m_ * k + k_]);
                     let rhs_elem = EA::cast_from(rhs[n_ * k + k_]);
@@ -180,12 +183,12 @@ impl RegisterMatmul {
         let (m, n, k) =
             comptime! {let (m, n, k): (u32, u32, u32) = (*config.tile_size()).into(); (m, n, k)};
 
-        #[unroll]
+        #[unroll(UNROLL)]
         for k_ in 0..k {
-            #[unroll]
+            #[unroll(UNROLL)]
             for m_ in 0..m {
                 let lhs_elem = EA::cast_from(lhs[k_ * m + m_]);
-                #[unroll]
+                #[unroll(UNROLL)]
                 for n_ in 0..n {
                     let rhs_elem = EA::cast_from(rhs[k_ * n + n_]);
                     acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
@@ -203,12 +206,12 @@ impl RegisterMatmul {
     ) {
         let num_lines_per_segment = segment_size / line_size;
 
-        #[unroll]
+        #[unroll(UNROLL)]
         for segment in 0..num_segments {
-            #[unroll]
+            #[unroll(UNROLL)]
             for line_within_segment in 0..num_lines_per_segment {
                 let line = tile.get_line(segment, line_within_segment);
-                #[unroll]
+                #[unroll(UNROLL)]
                 for pos_within_line in 0..line_size {
                     array[segment * segment_size
                         + line_within_segment * line_size
@@ -227,12 +230,12 @@ impl RegisterMatmul {
     ) {
         let num_lines_per_segment = segment_size / line_size;
 
-        #[unroll]
+        #[unroll(UNROLL)]
         for segment in 0..num_segments {
-            #[unroll]
+            #[unroll(UNROLL)]
             for line_within_segment in 0..num_lines_per_segment {
                 let line = tile.get_line(segment, line_within_segment);
-                #[unroll]
+                #[unroll(UNROLL)]
                 for pos_within_line in 0..line_size {
                     array[(line_within_segment * line_size + pos_within_line) * num_segments
                         + segment] = line[pos_within_line];

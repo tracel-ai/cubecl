@@ -2,7 +2,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::{
     MatmulKind, MatmulProblem, MatrixLayout, TilingScheme,
-    batch::{CubeCountPlanConfig, GlobalOrder, HypercubeConfig, SmAllocation},
+    batch::{CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, SmAllocation},
     stage::PartitionBuffering,
 };
 
@@ -47,23 +47,32 @@ fn general_unit_selector(
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
+
+    // Manually tested for good performance on many shapes.
     let (tile_size, mut partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 4, 4), (16, 2, 4)),
-        (RowMajor, ColMajor) => ((1, 4, 4), (16, 2, 4)),
-        (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, 8)),
-        (ColMajor, ColMajor) => ((4, 4, 4), (4, 2, 4)),
+        (RowMajor, _) => (
+            (1, 4, 4),
+            (
+                scale_partition(problem.m, 4, 9),
+                2,
+                scale_partition(problem.k, 2, 10),
+            ),
+        ),
+        (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, scale_partition(problem.k, 3, 10))),
+        (ColMajor, ColMajor) => (
+            (4, 4, 4),
+            (
+                scale_partition(problem.m, 2, 9),
+                2,
+                scale_partition(problem.k, 2, 9),
+            ),
+        ),
     };
 
     // It seems to be faster, it's not a requirement of the algo.
-    if double_buffering {
+    if double_buffering && partition_size.2 > 2 {
         partition_size.2 /= 2;
     }
-
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
 
     selection(
         tile_size,
@@ -75,7 +84,10 @@ fn general_unit_selector(
             num_plane: 8,
         },
         num_sms,
-        global_order,
+        GlobalOrderConfig::SwizzleRow {
+            m: problem.m as u32,
+            w: 4,
+        },
     )
 }
 
@@ -94,12 +106,6 @@ fn matvec_unit_selector(
         (ColMajor, ColMajor) => ((4, 1, 4), (1, 1, 4)),
     };
 
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
-
     selection(
         tile_size,
         partition_size,
@@ -107,7 +113,7 @@ fn matvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        global_order,
+        GlobalOrderConfig::Default,
     )
 }
 
@@ -121,9 +127,9 @@ fn vecmat_unit_selector(
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
         (RowMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, 8)),
+        (RowMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_partition(problem.k, 3, 7))),
         (ColMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (ColMajor, ColMajor) => ((1, 4, 4), (2, 1, 8)),
+        (ColMajor, ColMajor) => ((1, 4, 4), (2, 1, scale_partition(problem.k, 3, 7))),
     };
 
     selection(
@@ -133,7 +139,7 @@ fn vecmat_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        GlobalOrder::RowMajor,
+        GlobalOrderConfig::Default,
     )
 }
 
@@ -159,24 +165,18 @@ fn scalarvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrder::RowMajor,
+        GlobalOrderConfig::Default,
     )
 }
 
 /// (M, 1) @ (1, 1) → (M, 1)
 fn vecscalar_unit_selector(
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 1, 4), (1, 1, 2));
-
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
 
     selection(
         tile_size,
@@ -185,7 +185,7 @@ fn vecscalar_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 4 },
         num_sms,
-        global_order,
+        GlobalOrderConfig::Default,
     )
 }
 
@@ -211,24 +211,18 @@ fn inner_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrder::RowMajor,
+        GlobalOrderConfig::Default,
     )
 }
 
 /// (M, 1) @ (1, N) → (M, N)
 fn outer_product_unit_selector(
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((4, 4, 1), (1, 1, 1));
-
-    let global_order = if problem.m >= 4 {
-        GlobalOrder::SwizzleRowMajor(4)
-    } else {
-        GlobalOrder::RowMajor
-    };
 
     selection(
         tile_size,
@@ -237,7 +231,7 @@ fn outer_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        global_order,
+        GlobalOrderConfig::Default,
     )
 }
 
@@ -260,7 +254,7 @@ fn scalar_product_unit_selector(
             num_plane: 8,
         },
         num_sms,
-        GlobalOrder::RowMajor,
+        GlobalOrderConfig::Default,
     )
 }
 
@@ -291,7 +285,7 @@ fn selection(
     plane_dim: u32,
     stage: StageSelection,
     num_sms: Option<u32>,
-    global_order: GlobalOrder,
+    global_order: GlobalOrderConfig,
 ) -> MatmulSelection {
     let (stage_size_m, stage_size_n) = stage.into_stages();
 
@@ -307,7 +301,7 @@ fn selection(
             num_sms,
             sm_usage: SmAllocation::Exact,
         },
-        None => CubeCountPlanConfig::Flattened,
+        None => CubeCountPlanConfig::FromProblem,
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
@@ -331,4 +325,9 @@ pub fn closest_factor_pair(n: u32) -> (u32, u32) {
         }
     }
     (n, 1)
+}
+
+fn scale_partition(axis: usize, max_exp: u32, div_exp: u32) -> u32 {
+    let exp = u32::min((axis as u32 / 2u32.pow(div_exp)) + 1, max_exp);
+    2u32.pow(exp)
 }

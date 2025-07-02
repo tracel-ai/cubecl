@@ -18,8 +18,7 @@ impl ComputeResources {
                     Ok(ComputeResources::Planes(units / plane_dim))
                 } else {
                     Err(Box::new(format!(
-                        "Number of units {:?} should be divisible by plane_dim {:?}",
-                        units, plane_dim
+                        "Number of units {units:?} should be divisible by plane_dim {plane_dim:?}"
                     )))
                 }
             }
