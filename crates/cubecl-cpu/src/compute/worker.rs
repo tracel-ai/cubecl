@@ -1,4 +1,3 @@
-use dtor::dtor;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 use std::{
@@ -6,38 +5,34 @@ use std::{
     thread,
 };
 
+use dtor::dtor;
+
 use super::compute_task::ComputeTask;
 
 pub static STOP_SIGNAL: AtomicBool = AtomicBool::new(false);
 
 #[dtor]
 fn stop_program() {
-    STOP_SIGNAL.store(true, Ordering::Relaxed);
+    STOP_SIGNAL.store(true, Ordering::Release);
 }
 
 #[derive(Debug)]
 pub struct Worker {
     // TODO: A circular sync buffer with cache alignment would be a better fit, but for the moment a mpsc channel will do the job.
-    pub thread_id: usize,
     waiting: Arc<AtomicBool>,
     tx: mpsc::Sender<ComputeTask>,
 }
 
 impl Worker {
-    pub fn new(thread_id: usize) -> Self {
+    pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         let waiting = Arc::new(AtomicBool::new(true));
         let inner_worker = InnerWorker {
-            thread_id,
             rx,
             waiting: Arc::clone(&waiting),
         };
         thread::spawn(move || inner_worker.work());
-        Self {
-            thread_id,
-            tx,
-            waiting,
-        }
+        Self { tx, waiting }
     }
 
     pub fn send_task(&mut self, compute_task: ComputeTask) {
@@ -54,25 +49,22 @@ impl Worker {
 }
 
 struct InnerWorker {
-    thread_id: usize,
     waiting: Arc<AtomicBool>,
     rx: mpsc::Receiver<ComputeTask>,
 }
 
 impl InnerWorker {
     fn work(self) {
-        log::trace!("Thread numero {} started", self.thread_id);
         loop {
             let rx_fifo = self.rx.recv_timeout(Duration::from_millis(1));
             match rx_fifo {
                 Ok(compute_task) => compute_task.compute(),
                 Err(mpsc::RecvTimeoutError::Timeout) => self.waiting.store(true, Ordering::Release),
-                _ => break,
+                _ => (),
             }
-            if STOP_SIGNAL.load(Ordering::Relaxed) {
+            if STOP_SIGNAL.load(Ordering::Acquire) {
                 break;
             }
         }
-        log::trace!("Thread numero {} stopped", self.thread_id);
     }
 }
