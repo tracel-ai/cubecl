@@ -48,7 +48,11 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
-        max_plane_per_cube / 4
+        let precision_factor = match elem_stage.size() >= 4 {
+            true => 2,
+            false => 1,
+        };
+        max_plane_per_cube / (4 * precision_factor)
     });
 
     let (rows_per_plane, stage_size_m, partition_shape_n) = select_size(
