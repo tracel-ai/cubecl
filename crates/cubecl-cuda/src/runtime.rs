@@ -5,8 +5,7 @@ use crate::{
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
-    ir::{Elem, FloatKind},
+    ir::{Elem, FloatKind, IntKind, UIntKind}, AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
@@ -199,6 +198,14 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+
+    // Supported by all architectures
+    device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
+    device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
+    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
 
     device_props.register_feature(Feature::DynamicLineSize);
 

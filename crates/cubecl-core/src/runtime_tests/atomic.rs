@@ -11,23 +11,33 @@ pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
 
 fn supports_feature<R: Runtime, F: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    float_feat: AtomicFeature,
+    feat: AtomicFeature,
 ) -> bool {
     match F::as_elem_native_unchecked() {
         Elem::Float(kind) => {
             client
                 .properties()
-                .feature_enabled(Feature::AtomicFloat(float_feat))
+                .feature_enabled(Feature::AtomicFloat(feat))
                 && client
                     .properties()
                     .feature_enabled(Feature::Type(Elem::AtomicFloat(kind)))
         }
-        Elem::Int(kind) => client
-            .properties()
-            .feature_enabled(Feature::Type(Elem::AtomicInt(kind))),
-        Elem::UInt(kind) => client
-            .properties()
-            .feature_enabled(Feature::Type(Elem::AtomicUInt(kind))),
+        Elem::Int(kind) => {
+            client
+                .properties()
+                .feature_enabled(Feature::AtomicInt(feat))
+                && client
+                    .properties()
+                    .feature_enabled(Feature::Type(Elem::AtomicInt(kind)))
+        }
+        Elem::UInt(kind) => {
+            client
+                .properties()
+                .feature_enabled(Feature::AtomicUInt(feat))
+                && client
+                    .properties()
+                    .feature_enabled(Feature::Type(Elem::AtomicUInt(kind)))
+        }
         _ => unreachable!(),
     }
 }
