@@ -41,6 +41,7 @@ impl Worker {
     }
 
     pub fn send_task(&mut self, compute_task: ComputeTask) {
+        self.waiting.store(false, Ordering::Release);
         self.tx.send(compute_task).unwrap();
     }
 
@@ -64,10 +65,7 @@ impl InnerWorker {
         loop {
             let rx_fifo = self.rx.recv_timeout(Duration::from_millis(1));
             match rx_fifo {
-                Ok(compute_task) => {
-                    self.waiting.store(false, Ordering::Release);
-                    compute_task.compute()
-                }
+                Ok(compute_task) => compute_task.compute(),
                 Err(mpsc::RecvTimeoutError::Timeout) => self.waiting.store(true, Ordering::Release),
                 _ => break,
             }
