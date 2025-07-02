@@ -227,6 +227,9 @@ pub(crate) fn create_client_on_setup(
         plane_size_min: 32,
         #[cfg(not(apple_silicon))]
         plane_size_min: adapter_limits.min_subgroup_size,
+        #[cfg(apple_silicon)]
+        plane_size_max: 32,
+        #[cfg(not(apple_silicon))]
         plane_size_max: adapter_limits.max_subgroup_size,
         max_bindings: limits.max_storage_buffers_per_shader_stage,
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
