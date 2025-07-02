@@ -273,7 +273,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             ) {
                 match err {
                     super::kernels::MatmulSetupError::Unavailable(_) => {
-                        matmul::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
+                        matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(
                             client,
                             lhs,
                             lhs_scale,
