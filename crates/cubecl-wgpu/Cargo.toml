@@ -102,7 +102,6 @@ async-channel = { workspace = true }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
-web-time = { workspace = true }
 
 cfg-if = { workspace = true }
 

@@ -40,8 +40,6 @@ spin = { workspace = true } # using in place of use std::sync::Mutex;
 
 cfg-if = { workspace = true }
 
-web-time = { workspace = true }
-
 # Cache
 hashbrown = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"], optional = true }
@@ -67,6 +65,14 @@ spin = { workspace = true, features = [
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
+
+# Default dependency for all targets
+[target.'cfg(not(target_os = "none"))'.dependencies]
+web-time = { workspace = true }
+
+# Only for true no_std / embedded targets
+[target.'cfg(target_os = "none")'.dependencies]
+embassy-time = { workspace = true }
 
 [dev-dependencies]
 dashmap = { workspace = true }
