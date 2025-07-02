@@ -66,7 +66,6 @@ pub enum CubeCountPlanConfig {
     Flattened,
 }
 
-#[derive(CubeType, CubeLaunch)]
 pub enum CubeCountPlan {
     FromProblem {
         m_cubes: u32,
@@ -91,6 +90,26 @@ pub enum CubeCountPlan {
         m_cubes: u32,
         n_cubes: u32,
         batch_cubes: u32,
+    },
+}
+
+#[derive(CubeType, CubeLaunch)]
+/// CubeCountPlan stripped of non-essential runtime information
+pub enum CubeCountInput {
+    FromProblem,
+    SmFirst {
+        m_cubes: u32,
+        n_cubes: u32,
+        batch_cubes: u32,
+    },
+    CubeFirst {
+        m_cubes: u32,
+        n_cubes: u32,
+        batch_cubes: u32,
+    },
+    Flattened {
+        m_cubes: u32,
+        n_cubes: u32,
     },
 }
 
@@ -288,16 +307,12 @@ impl CubeCountPlan {
             CubeCountPlan::SmFirst {
                 num_sms_used,
                 cubes_per_sm,
-                m_cubes: _,
-                n_cubes: _,
-                batch_cubes: _,
+                ..
             } => CubeCount::Static(*num_sms_used, *cubes_per_sm, 1),
             CubeCountPlan::CubeFirst {
                 num_sms_used,
                 cubes_per_sm,
-                m_cubes: _,
-                n_cubes: _,
-                batch_cubes: _,
+                ..
             } => CubeCount::Static(*cubes_per_sm, *num_sms_used, 1),
             CubeCountPlan::Flattened {
                 m_cubes,
@@ -307,80 +322,52 @@ impl CubeCountPlan {
         }
     }
 
-    pub fn to_args<'a, R: Runtime>(&self) -> CubeCountPlanArgs<'a, R> {
+    pub fn to_args<'a, R: Runtime>(&self) -> CubeCountInputArgs<'a, R> {
         match self {
-            CubeCountPlan::FromProblem {
-                m_cubes,
-                n_cubes,
-                batch_cubes,
-            } => CubeCountPlanArgs::FromProblem {
-                m_cubes: ScalarArg::new(*m_cubes),
-                n_cubes: ScalarArg::new(*n_cubes),
-                batch_cubes: ScalarArg::new(*batch_cubes),
-            },
+            CubeCountPlan::FromProblem { .. } => CubeCountInputArgs::FromProblem,
             CubeCountPlan::SmFirst {
-                num_sms_used,
-                cubes_per_sm,
                 m_cubes,
                 n_cubes,
                 batch_cubes,
-            } => CubeCountPlanArgs::SmFirst {
-                num_sms_used: ScalarArg::new(*num_sms_used),
-                cubes_per_sm: ScalarArg::new(*cubes_per_sm),
+                ..
+            } => CubeCountInputArgs::SmFirst {
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
                 batch_cubes: ScalarArg::new(*batch_cubes),
             },
             CubeCountPlan::CubeFirst {
-                num_sms_used,
-                cubes_per_sm,
                 m_cubes,
                 n_cubes,
                 batch_cubes,
-            } => CubeCountPlanArgs::CubeFirst {
-                num_sms_used: ScalarArg::new(*num_sms_used),
-                cubes_per_sm: ScalarArg::new(*cubes_per_sm),
+                ..
+            } => CubeCountInputArgs::CubeFirst {
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
                 batch_cubes: ScalarArg::new(*batch_cubes),
             },
             CubeCountPlan::Flattened {
-                m_cubes,
-                n_cubes,
-                batch_cubes,
-            } => CubeCountPlanArgs::Flattened {
+                m_cubes, n_cubes, ..
+            } => CubeCountInputArgs::Flattened {
                 m_cubes: ScalarArg::new(*m_cubes),
                 n_cubes: ScalarArg::new(*n_cubes),
-                batch_cubes: ScalarArg::new(*batch_cubes),
             },
         }
     }
 }
 
 #[cube]
-impl CubeCountPlan {
+impl CubeCountInput {
     pub fn max_cube_pos(&self) -> u32 {
         match self {
-            CubeCountPlan::FromProblem {
+            CubeCountInput::FromProblem | CubeCountInput::Flattened { .. } => {
+                panic!("Shouldn't need to be called because the cube count should always be exact")
+            }
+            CubeCountInput::SmFirst {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
             } => *m_cubes * *n_cubes * *batch_cubes,
-            CubeCountPlan::SmFirst {
-                num_sms_used: _,
-                cubes_per_sm: _,
-                m_cubes,
-                n_cubes,
-                batch_cubes,
-            } => *m_cubes * *n_cubes * *batch_cubes,
-            CubeCountPlan::CubeFirst {
-                num_sms_used: _,
-                cubes_per_sm: _,
-                m_cubes,
-                n_cubes,
-                batch_cubes,
-            } => *m_cubes * *n_cubes * *batch_cubes,
-            CubeCountPlan::Flattened {
+            CubeCountInput::CubeFirst {
                 m_cubes,
                 n_cubes,
                 batch_cubes,
@@ -391,35 +378,25 @@ impl CubeCountPlan {
     /// Given a cube position (SM ID, local index), returns the tensor coordinates (m, n, batch).
     pub fn cube_pos_to_tensor_pos(&self, #[comptime] global_order: GlobalOrder) -> (u32, u32, u32) {
         match self {
-            CubeCountPlan::FromProblem {
-                m_cubes: _,
-                n_cubes: _,
-                batch_cubes: _,
-            } => (CUBE_POS_X, CUBE_POS_Y, CUBE_POS_Z),
-            CubeCountPlan::SmFirst {
-                num_sms_used: _,
-                cubes_per_sm: _,
+            CubeCountInput::FromProblem => (CUBE_POS_X, CUBE_POS_Y, CUBE_POS_Z),
+            CubeCountInput::SmFirst {
                 m_cubes,
                 n_cubes,
                 batch_cubes: _,
             } => self.absolute_index_to_m_n_batch(CUBE_POS, *m_cubes, *n_cubes, global_order),
-            CubeCountPlan::CubeFirst {
-                num_sms_used: _,
-                cubes_per_sm,
+            CubeCountInput::CubeFirst {
                 m_cubes,
                 n_cubes,
                 batch_cubes: _,
             } => self.absolute_index_to_m_n_batch(
-                CUBE_POS_Y * cubes_per_sm + CUBE_POS_X,
+                CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X,
                 *m_cubes,
                 *n_cubes,
                 global_order,
             ),
-            CubeCountPlan::Flattened {
-                m_cubes,
-                n_cubes,
-                batch_cubes: _,
-            } => self.absolute_index_to_m_n_batch(CUBE_POS_X, *m_cubes, *n_cubes, global_order),
+            CubeCountInput::Flattened { m_cubes, n_cubes } => {
+                self.absolute_index_to_m_n_batch(CUBE_POS_X, *m_cubes, *n_cubes, global_order)
+            }
         }
     }
 
@@ -456,7 +433,7 @@ pub enum GlobalOrderConfig {
     #[default]
     Default,
     /// Set a global order.
-    Fix(GlobalOrder),
+    Fixed(GlobalOrder),
     /// Creates swizzle row global order if possible.
     ///
     /// Fallbacks to row global order otherwise.
@@ -471,7 +448,7 @@ impl GlobalOrderConfig {
     pub fn into_order(self, span: &CubeSpan) -> GlobalOrder {
         match self {
             GlobalOrderConfig::Default => GlobalOrder::default(),
-            GlobalOrderConfig::Fix(order) => order,
+            GlobalOrderConfig::Fixed(order) => order,
             GlobalOrderConfig::SwizzleRow { m, w } => {
                 let m_cubes = m.div_ceil(span.m);
                 if m_cubes % w != 0 {

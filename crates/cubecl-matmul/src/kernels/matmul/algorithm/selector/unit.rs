@@ -285,7 +285,7 @@ fn selection(
     plane_dim: u32,
     stage: StageSelection,
     num_sms: Option<u32>,
-    global_order: GlobalOrderConfig,
+    global_order_config: GlobalOrderConfig,
 ) -> MatmulSelection {
     let (stage_size_m, stage_size_n) = stage.into_stages();
 
@@ -305,7 +305,7 @@ fn selection(
     };
 
     let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(global_order)
+        .global_order(global_order_config)
         .cube_count_plan(cube_count_plan)
         .build();
 
