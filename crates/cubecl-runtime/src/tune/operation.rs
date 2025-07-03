@@ -33,6 +33,9 @@ pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
 
+unsafe impl<K: AutotuneKey, In: Send, Out> Send for TunableSet<K, In, Out> {}
+unsafe impl<K: AutotuneKey, In: Send, Out> Sync for TunableSet<K, In, Out> {}
+
 type ShouldAutotuneFn<K> = Option<Arc<dyn Fn(&K) -> bool>>;
 
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>

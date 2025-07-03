@@ -2,7 +2,8 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
-use core::{fmt::Display, hash::Hash};
+use alloc::sync::Arc;
+use core::{any::Any, fmt::Display, hash::Hash};
 use hashbrown::HashMap;
 
 #[cfg(not(feature = "std"))]
@@ -13,7 +14,10 @@ use alloc::string::ToString;
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: spin::RwLock<Option<HashMap<ID, Tuner<AK>>>>,
     name: &'static str,
+    set: spin::RwLock<Option<Arc<dyn Any + Send + Sync>>>,
 }
+
+unsafe impl<AK: AutotuneKey, ID> Sync for LocalTuner<AK, ID> {}
 
 /// Create a local tuner with the provided name.
 #[macro_export]
@@ -28,13 +32,46 @@ macro_rules! local_tuner {
 
 pub use local_tuner;
 
-impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK, ID> {
+impl<AK, ID> LocalTuner<AK, ID>
+where
+    AK: AutotuneKey + 'static,
+    ID: Hash + PartialEq + Eq + Clone + Display,
+{
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
         Self {
             state: spin::RwLock::new(None),
             name,
+            set: spin::RwLock::new(None),
         }
+    }
+
+    /// Execute the best operation in the provided [tunable set](TunableSet)
+    pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
+    where
+        F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
+    {
+        let set = self.set.read();
+
+        static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
+
+        if let Some(set) = set.as_ref() {
+            return set.clone().downcast().expect(DOWNCAST_ERROR);
+        };
+
+        let mut set = self.set.write();
+
+        if let Some(set) = set.as_ref() {
+            return set.clone().downcast().expect(DOWNCAST_ERROR);
+        };
+
+        let content = Arc::new(init_set());
+
+        *set = Some(content.clone());
+
+        content
     }
 
     /// Clear the autotune state.
@@ -59,16 +96,18 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
     }
 
     /// Execute the best operation in the provided [tunable set](TunableSet)
-    pub fn execute<S, C, In: Send + Clone + 'static, Out: AutotuneOutput>(
+    pub fn execute<S, C, In, Out>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
-        operations: &TunableSet<AK, In, Out>,
+        operations: Arc<TunableSet<AK, In, Out>>,
         inputs: In,
     ) -> Out
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
     {
         let key = operations.generate_key(&inputs);
 
@@ -148,7 +187,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                         .as_ref()
                         .and_then(|s| s.get(id))
                         .expect("Should be initialized");
-                    tuner.execute_autotune(key.clone(), &inputs, operations, client);
+                    tuner.execute_autotune(key.clone(), &inputs, &operations, client);
                 } else {
                     // We're waiting for results to come in.
                 }
