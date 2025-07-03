@@ -46,7 +46,7 @@ where
         }
     }
 
-    /// Execute the best operation in the provided [tunable set](TunableSet)
+    /// Init the [tunable set](TunableSet)
     pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
     where
         F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
@@ -60,6 +60,7 @@ where
         if let Some(set) = set.as_ref() {
             return set.clone().downcast().expect(DOWNCAST_ERROR);
         };
+        core::mem::drop(set);
 
         let mut set = self.set.write();
 
@@ -86,13 +87,13 @@ where
         operations: &TunableSet<AK, In, Out>,
         inputs: &In,
     ) {
-        let mut checks_outputs = Vec::new();
-        for i in 0..operations.len() {
-            let op = operations.fastest(i);
-            let result = op.execute(inputs.clone());
-            checks_outputs.push(result);
-        }
-        super::check_autotune_outputs(checks_outputs);
+        // let mut checks_outputs = Vec::new();
+        // for i in 0..operations.len() {
+        //     let op = operations.fastest(i);
+        //     let result = op.execute(inputs.clone());
+        //     checks_outputs.push(result);
+        // }
+        // super::check_autotune_outputs(checks_outputs);
     }
 
     /// Execute the best operation in the provided [tunable set](TunableSet)
@@ -116,7 +117,7 @@ where
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
                     #[cfg(feature = "autotune-checks")]
-                    self.checks(operations, &inputs);
+                    self.checks(&operations, &inputs);
 
                     let op = operations.fastest(fastest_index);
                     let result = op

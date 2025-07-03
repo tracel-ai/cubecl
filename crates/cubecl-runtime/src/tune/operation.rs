@@ -9,23 +9,23 @@ use super::{
     input_generator::{InputGenerator, IntoInputGenerator},
     key_generator::{IntoKeyGenerator, KeyGenerator},
 };
+use super::{Tunable, TunePlan};
 
 /// Default checksum for an operation set
 #[cfg(std_io)]
 pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
-    autotunables: &[Arc<dyn Tunable<Inputs = In, Output = Out>>],
+    autotunables: impl Iterator<Item = Arc<dyn TuneFn<Inputs = In, Output = Out>>>,
 ) -> String {
     let mut checksum = String::new();
-    autotunables.iter().for_each(|op| {
+    autotunables.for_each(|op| {
         checksum += op.name();
     });
     format!("{:x}", md5::compute(checksum))
 }
 
 /// Groups operations of the same type for autotune
-#[derive(Clone)]
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
-    tunables: Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>>,
+    tunables: Vec<Tunable<K, Inputs, Output>>,
     should_autotune: Vec<ShouldAutotuneFn<K>>,
     key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
     input_gen: Arc<dyn InputGenerator<K, Inputs>>,
@@ -64,24 +64,8 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     }
 
     /// Register a tunable with this tunable set
-    pub fn with_tunable<Marker>(
-        mut self,
-        tunable: impl IntoTunable<Inputs, Output, Marker>,
-    ) -> Self {
-        self.tunables.push(Arc::new(tunable.into_tunable()));
-        self.should_autotune.push(None);
-        self
-    }
-
-    /// Register a tunable with this tunable set alongside a function that calculates
-    /// if the function should be used based on the autotune key.
-    pub fn with_tunable_optional<Marker>(
-        mut self,
-        tunable: impl IntoTunable<Inputs, Output, Marker>,
-        should_autotune: impl Fn(&K) -> bool + 'static,
-    ) -> Self {
-        self.tunables.push(Arc::new(tunable.into_tunable()));
-        self.should_autotune.push(Some(Arc::new(should_autotune)));
+    pub fn with(mut self, tunable: Tunable<K, Inputs, Output>) -> Self {
+        self.tunables.push(tunable);
         self
     }
 
@@ -96,19 +80,16 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
 
     /// All candidate operations for autotuning this operation type
     /// Operations can run on toy tensors of relevant size
-    pub fn autotunables(&self) -> Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>> {
-        self.tunables.clone()
+    pub fn autotunables(&self) -> Vec<Arc<dyn TuneFn<Inputs = Inputs, Output = Output>>> {
+        self.tunables
+            .iter()
+            .map(|tunable| tunable.function.clone())
+            .collect()
     }
 
     /// Returns a vector of all candidates that should run during autotuning.
-    pub fn should_autotune(&self, key: &K) -> Vec<bool> {
-        self.should_autotune
-            .iter()
-            .map(|func| match func.as_ref() {
-                Some(func) => func(key),
-                None => true,
-            })
-            .collect()
+    pub fn plan(&self, key: &K) -> TunePlan {
+        TunePlan::new(key, &self.tunables)
     }
 
     /// Returns the operation for the given index, matching the order
@@ -117,8 +98,8 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     pub fn fastest(
         &self,
         fastest_index: usize,
-    ) -> Arc<dyn Tunable<Inputs = Inputs, Output = Output>> {
-        self.tunables[fastest_index].clone()
+    ) -> Arc<dyn TuneFn<Inputs = Inputs, Output = Output>> {
+        self.tunables[fastest_index].function.clone()
     }
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
@@ -127,7 +108,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         if let Some(checksum_override) = &self.checksum_override {
             checksum_override(self)
         } else {
-            compute_checksum(&self.tunables)
+            compute_checksum(self.tunables.iter().map(|tune| tune.function.clone()))
         }
     }
 
@@ -143,7 +124,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
 }
 
 /// A tunable entry in a tunable set
-pub trait Tunable: Send + Sync + 'static {
+pub trait TuneFn: Send + Sync + 'static {
     /// Inputs to the tunable function
     type Inputs: Clone;
     /// Output from the tunable function
@@ -163,9 +144,9 @@ pub trait Tunable: Send + Sync + 'static {
 /// # Marker
 /// The marker generic is used to work around limitations in the trait resolver that causes
 /// conflicting implementation errors.
-pub trait IntoTunable<In, Out, Marker> {
+pub trait IntoTuneFn<In, Out, Marker> {
     /// The output tunable type
-    type Tunable: Tunable<Inputs = In, Output = Out>;
+    type Tunable: TuneFn<Inputs = In, Output = Out>;
 
     /// Convert to a tunable
     fn into_tunable(self) -> Self::Tunable;
@@ -175,7 +156,7 @@ pub trait IntoTunable<In, Out, Marker> {
 #[doc(hidden)]
 pub struct IsIdentity;
 
-impl<T: Tunable> IntoTunable<T::Inputs, T::Output, IsIdentity> for T {
+impl<T: TuneFn> IntoTuneFn<T::Inputs, T::Output, IsIdentity> for T {
     type Tunable = T;
 
     fn into_tunable(self) -> Self::Tunable {

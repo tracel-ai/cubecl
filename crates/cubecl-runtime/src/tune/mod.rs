@@ -55,6 +55,7 @@
 //! done by using [`#[diagnostic::on_unimplemented(...)]`](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-diagnosticon_unimplemented-attribute).
 
 mod function_tunable;
+mod group;
 mod input_generator;
 mod key_generator;
 mod local;
@@ -65,6 +66,7 @@ mod tuner;
 mod util;
 
 pub use function_tunable::*;
+pub use group::*;
 pub use input_generator::*;
 pub use key_generator::*;
 pub use local::*;

@@ -7,12 +7,12 @@ use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
 
-use super::{AutotuneError, Tunable};
+use super::{AutotuneError, TuneFn};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
 pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: Send + 'static> {
-    operation: Arc<dyn Tunable<Inputs = In, Output = Out>>,
+    operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
     inputs: In,
     client: ComputeClient<S, C>,
 }
