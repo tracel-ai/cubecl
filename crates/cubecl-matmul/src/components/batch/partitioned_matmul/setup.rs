@@ -5,7 +5,7 @@ use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
-use crate::components::batch::{BatchMatmulFamily, CubeCountPlanArgs};
+use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -34,7 +34,13 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     ) -> Result<Self::Config, MatmulSetupError> {
         let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
-        PartitionedBatchConfig::new(global_config, selection.hypercube_config).validate(problem)
+        PartitionedBatchConfig::new(
+            global_config,
+            selection
+                .hypercube_selection
+                .to_hypercube_config(problem, client.properties().hardware.max_cube_count.clone()),
+        )
+        .validate(problem)
     }
 
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
@@ -43,7 +49,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountPlanArgs<'a, R>,
+        cube_count_args: CubeCountInputArgs<'a, R>,
         config: Self::Config,
     ) {
         unsafe {

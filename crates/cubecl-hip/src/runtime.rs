@@ -10,7 +10,7 @@ use cubecl_cpp::{
 
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
     ir::{Elem, FloatKind},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -56,7 +56,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let mut prop_arch_name = "";
     #[allow(unused_assignments)]
     let mut prop_max_shared_memory_size = 0;
-    let mut max_cube_count = CubeDim::new_single();
+    #[allow(unused_assignments)]
+    let mut max_cube_count = CubeCount::new_single();
     #[allow(unused_assignments)]
     let mut prop_max_threads = 0;
     let mut max_cube_dim = CubeDim::new_single();
@@ -74,9 +75,11 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
             .to_str()
             .unwrap();
         prop_max_shared_memory_size = ll_device_props.sharedMemPerBlock;
-        max_cube_count.x = ll_device_props.maxGridSize[0] as u32;
-        max_cube_count.y = ll_device_props.maxGridSize[1] as u32;
-        max_cube_count.z = ll_device_props.maxGridSize[2] as u32;
+        max_cube_count = CubeCount::new_3d(
+            ll_device_props.maxGridSize[0] as u32,
+            ll_device_props.maxGridSize[1] as u32,
+            ll_device_props.maxGridSize[2] as u32,
+        );
         prop_max_threads = ll_device_props.maxThreadsPerBlock as u32;
         max_cube_dim.x = ll_device_props.maxThreadsDim[0] as u32;
         max_cube_dim.y = ll_device_props.maxThreadsDim[1] as u32;
