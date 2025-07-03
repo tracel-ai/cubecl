@@ -39,8 +39,12 @@ impl OperationReflect for Branch {
 impl Display for Branch {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Branch::If(if_) => write!(f, "if({})", if_.cond),
-            Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
+            Branch::If(if_) => write!(f, "if({}) {}", if_.cond, if_.scope),
+            Branch::IfElse(if_else) => write!(
+                f,
+                "if({}) {} else {}",
+                if_else.cond, if_else.scope_if, if_else.scope_else
+            ),
             Branch::Switch(switch) => write!(
                 f,
                 "switch({}) {:?}",
@@ -53,13 +57,14 @@ impl Display for Branch {
             ),
             Branch::RangeLoop(range_loop) => write!(
                 f,
-                "for({} in {}{}{})",
+                "for({} in {}{}{}) {}",
                 range_loop.i,
                 range_loop.start,
                 if range_loop.inclusive { "..=" } else { ".." },
-                range_loop.end
+                range_loop.end,
+                range_loop.scope
             ),
-            Branch::Loop(_) => write!(f, "loop{{}}"),
+            Branch::Loop(loop_) => write!(f, "loop {}", loop_.scope),
             Branch::Return => write!(f, "return"),
             Branch::Break => write!(f, "break"),
         }
