@@ -54,9 +54,9 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
 
 #[derive(Debug)]
 pub struct TunePlan {
-    priorities: Vec<(u32, u8)>,
+    priorities: Vec<u8>,
     no_groups: Vec<usize>,
-    groups: HashMap<u32, GroupPlan>,
+    groups: HashMap<u8, GroupPlan>,
 }
 
 #[derive(Default, Debug)]
@@ -67,23 +67,26 @@ struct GroupPlan {
 
 impl TunePlan {
     pub fn new<K: AutotuneKey, In, Out>(key: &K, tunables: &[Tunable<K, In, Out>]) -> Self {
-        let mut priorities = Vec::<(u32, u8)>::new();
+        let mut priorities = Vec::<u8>::new();
         let mut no_groups = Vec::new();
-        let mut groups = HashMap::<u32, GroupPlan>::new();
+        let mut groups = HashMap::<u8, GroupPlan>::new();
 
         for (index, tunable) in tunables.iter().enumerate() {
             if tunable.groups.is_empty() {
                 no_groups.push(index);
             } else {
                 for (group, within_group_priority_fn) in tunable.groups.iter() {
-                    let group_priorities = match groups.get_mut(&group.id) {
+                    let priority_fn = &group.priority;
+                    let priority = priority_fn(key);
+                    if !priorities.contains(&priority) {
+                        priorities.push(priority);
+                    }
+
+                    let group_priorities = match groups.get_mut(&priority) {
                         Some(val) => val,
                         None => {
-                            let priority_fn = &group.priority;
-                            let priority = priority_fn(key);
-                            priorities.push((group.id, priority));
-                            groups.insert(group.id, GroupPlan::default());
-                            groups.get_mut(&group.id).unwrap()
+                            groups.insert(priority, GroupPlan::default());
+                            groups.get_mut(&priority).unwrap()
                         }
                     };
                     let priority = within_group_priority_fn(key);
@@ -102,7 +105,7 @@ impl TunePlan {
             }
         }
 
-        priorities.sort_by(|(_, priority_a), (_, priority_b)| priority_b.cmp(priority_a));
+        priorities.sort();
 
         for group in groups.iter_mut() {
             group.1.priorities.sort();
@@ -117,12 +120,12 @@ impl TunePlan {
 
     pub fn next(&mut self) -> Vec<usize> {
         let mut indices = core::mem::take(&mut self.no_groups);
-        let group = self.priorities.last();
+        let priority = self.priorities.last();
 
         let mut cleanup = false;
 
-        if let Some(group) = group {
-            let plan = self.groups.get_mut(&group.0).expect("To be filled");
+        if let Some(priority) = priority {
+            let plan = self.groups.get_mut(priority).expect("To be filled");
             let within_group_prio = plan.priorities.pop().unwrap();
             let mut next_indices = plan.indices.remove(&within_group_prio).unwrap();
 
@@ -135,7 +138,7 @@ impl TunePlan {
 
         if cleanup {
             let group_prio = self.priorities.pop().unwrap();
-            self.groups.remove(&group_prio.0);
+            self.groups.remove(&group_prio);
         }
 
         indices
