@@ -264,6 +264,7 @@ pub(crate) fn create_client_on_setup(
     let fake_plane_info =
         adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
 
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SUBGROUP)
         && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
         && !fake_plane_info
@@ -284,11 +285,24 @@ pub(crate) fn create_client_on_setup(
     );
     let channel = MutexComputeChannel::new(server);
 
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
 
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+    }
+
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
+    {
+        use cubecl_core::ir::{IntKind, UIntKind};
+
+        device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
+        device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+        device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
+        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
     }
 
     let mut client = ComputeClient::new(channel, device_props, setup.backend);

@@ -66,9 +66,12 @@ pub enum Feature {
     },
     CmmaWarpSize(i32),
     Type(Elem),
-    /// Features supported for floating point atomics. For integers, all methods are supported as
-    /// long as the type is.
+    /// Features supported for floating point atomics.
     AtomicFloat(AtomicFeature),
+    /// Features supported for integer atomics.
+    AtomicInt(AtomicFeature),
+    /// Features supported for unsigned integer atomics.
+    AtomicUInt(AtomicFeature),
     /// The pipeline feature enables pipelined (async) operations
     Pipeline,
     /// The barrier feature enables barrier (async) operations
