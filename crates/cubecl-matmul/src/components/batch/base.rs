@@ -2,7 +2,7 @@ use crate::{
     components::{
         AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
         MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::{CubeCountPlan, CubeCountPlanArgs, HypercubeConfig},
+        batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
@@ -38,7 +38,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountPlanArgs<'a, R>,
+        cube_count_args: CubeCountInputArgs<'a, R>,
         config: Self::Config,
     );
 
@@ -74,7 +74,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
-        cube_count_args: CubeCountPlan,
+        cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     );
 }

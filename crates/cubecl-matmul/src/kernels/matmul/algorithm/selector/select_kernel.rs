@@ -43,7 +43,10 @@ where
         }
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-    let cube_count_plan = config.hypercube_config().cube_count_plan(&problem);
+    let cube_count_plan = config.hypercube_config().cube_count_plan(
+        &problem,
+        client.properties().hardware.max_cube_count.clone(),
+    );
 
     let line_sizes = config.line_sizes();
 
@@ -61,7 +64,7 @@ where
             &line_sizes,
         ),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
-        cube_count_plan.to_args(),
+        cube_count_plan.as_args(),
         config,
     )
 }
@@ -86,7 +89,11 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         }
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-    let cube_count_plan = config.hypercube_config().cube_count_plan(&problem);
+
+    let cube_count_plan = config.hypercube_config().cube_count_plan(
+        &problem,
+        client.properties().hardware.max_cube_count.clone(),
+    );
 
     launch_with_config::<MS, R, A>(
         client,
@@ -94,7 +101,7 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         cube_count_plan.resolve(),
         input,
         output,
-        cube_count_plan.to_args(),
+        cube_count_plan.as_args(),
         config,
     )
 }

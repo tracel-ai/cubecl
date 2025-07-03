@@ -3,7 +3,7 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_runtime::DeviceProperties;
 
 use crate::components::batch::{
-    CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, SmAllocation,
+    CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation,
 };
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
@@ -88,15 +88,16 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     });
 
     let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
-        Some(num_sms) => CubeCountPlanConfig::CubeFirst {
+        Some(num_sms) => CubeCountPlanSelection::Sm {
             num_sms,
             sm_usage: SmAllocation::Exact,
+            cubes_first: true,
         },
-        None => CubeCountPlanConfig::FromProblem,
+        None => CubeCountPlanSelection::FromProblem,
     };
 
-    let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(GlobalOrderConfig::SwizzleRow {
+    let hypercube = HypercubeSelection::builder(&tiling_scheme)
+        .global_order(GlobalOrderSelection::SwizzleRow {
             m: problem.m as u32,
             w: 4,
         })

@@ -4,7 +4,7 @@ use crate::{
 };
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::{
-    AtomicFeature, CubeDim, Feature, Runtime,
+    AtomicFeature, CubeCount, CubeDim, Feature, Runtime,
     ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -233,7 +233,7 @@ pub(crate) fn create_client_on_setup(
         plane_size_max: adapter_limits.max_subgroup_size,
         max_bindings: limits.max_storage_buffers_per_shader_stage,
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
-        max_cube_count: CubeDim::new_3d(max_count, max_count, max_count),
+        max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
         max_cube_dim: CubeDim::new_3d(
             adapter_limits.max_compute_workgroup_size_x,
