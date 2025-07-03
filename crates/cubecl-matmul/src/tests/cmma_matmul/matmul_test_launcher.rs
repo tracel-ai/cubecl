@@ -113,7 +113,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &out.shape,
                 line_sizes.out,
             ),
-            cube_count_plan.to_args(),
+            cube_count_plan.as_args(),
             config,
         );
     }

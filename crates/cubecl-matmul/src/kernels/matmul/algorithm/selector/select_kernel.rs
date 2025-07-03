@@ -64,7 +64,7 @@ where
             &line_sizes,
         ),
         <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
-        cube_count_plan.to_args(),
+        cube_count_plan.as_args(),
         config,
     )
 }
@@ -101,7 +101,7 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         cube_count_plan.resolve(),
         input,
         output,
-        cube_count_plan.to_args(),
+        cube_count_plan.as_args(),
         config,
     )
 }

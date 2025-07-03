@@ -14,6 +14,7 @@ use crate::components::batch::partitioned_matmul::hypercube::base::CubeSpan;
 /// Special cases:
 /// - `SwizzleColMajor(1)` is equivalent to `ColMajor`
 /// - `SwizzleRowMajor(1)` is equivalent to `RowMajor`
+#[allow(clippy::enum_variant_names)]
 pub enum GlobalOrder {
     #[default]
     RowMajor,

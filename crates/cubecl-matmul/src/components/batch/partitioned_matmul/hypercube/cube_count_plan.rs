@@ -369,7 +369,7 @@ impl CubeCountPlan {
         }
     }
 
-    pub fn to_args<'a, R: Runtime>(&self) -> CubeCountInputArgs<'a, R> {
+    pub fn as_args<'a, R: Runtime>(&self) -> CubeCountInputArgs<'a, R> {
         match self {
             CubeCountPlan::FromProblem { .. } => CubeCountInputArgs::FromProblem,
             CubeCountPlan::Sm {

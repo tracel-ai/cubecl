@@ -119,7 +119,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             cube_count_plan.resolve(),
             inputs,
             output,
-            cube_count_plan.to_args(),
+            cube_count_plan.as_args(),
             config,
         );
     }
