@@ -311,7 +311,7 @@ pub(crate) fn spread_cube_count_plan(
                 let volume = x * y * z;
                 let score = (volume, std::cmp::Reverse(z), std::cmp::Reverse(y));
 
-                if best.map_or(true, |(_, _, _, _, best_score)| score < best_score) {
+                if best.is_none_or(|(_, _, _, _, best_score)| score < best_score) {
                     best = Some((x, y, z, volume, score));
                 }
             }
