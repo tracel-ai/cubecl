@@ -1,6 +1,8 @@
 use alloc::format;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
+use cubecl_common::profile::ProfileDuration;
 use hashbrown::HashSet;
 
 use core::time::Duration;
@@ -14,7 +16,7 @@ use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::ComputeServer;
 use crate::tune::{TuneBenchmark, TuneCache};
 
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
 
 #[derive(Debug)]
 /// Executes autotune benchmarking and caching
@@ -48,18 +50,17 @@ enum AutotuneMessage<K> {
     Done {
         key: K,
         fastest_index: usize,
-        results: Vec<Result<AutotuneOutcome, String>>,
+        results: Vec<Result<AutotuneOutcome, AutotuneError>>,
         #[cfg(std_io)]
         checksum: String,
-        #[cfg(feature = "autotune-checks")]
-        autotune_checks: alloc::boxed::Box<dyn FnOnce() + Send>,
     },
     #[allow(dead_code)]
     Pending(K),
 }
 
 /// Error from running autotune.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
@@ -116,9 +117,6 @@ impl<K: AutotuneKey> Tuner<K> {
                 results,
                 #[cfg(std_io)]
                 checksum,
-                #[cfg(std_io)]
-                #[cfg(feature = "autotune-checks")]
-                    autotune_checks: check,
             } => {
                 match self.logger.log_level_autotune() {
                     AutotuneLogLevel::Minimal => {
@@ -171,9 +169,6 @@ impl<K: AutotuneKey> Tuner<K> {
 
                 self.tune_cache.cache_insert(key.clone(), fastest_index);
 
-                #[cfg(feature = "autotune-checks")]
-                check();
-
                 #[cfg(std_io)]
                 {
                     self.tune_cache
@@ -207,130 +202,43 @@ impl<K: AutotuneKey> Tuner<K> {
     ) {
         log::info!("Tuning {key}");
 
-        let autotunables: Vec<_> = tunables
-            .autotunables()
-            .iter()
-            .cloned()
-            .enumerate()
-            .collect();
+        let autotunables = tunables.autotunables();
+        let mut results = Vec::with_capacity(autotunables.len());
 
-        let should_autotune = tunables.should_autotune(&key);
+        for _ in 0..autotunables.len() {
+            results.push(Err(AutotuneError::Skip));
+        }
 
+        let plan = tunables.plan(&key);
         let client = client.clone();
 
         let message = 'message: {
             if autotunables.len() == 1 {
                 break 'message AutotuneMessage::Done {
                     key,
-                    fastest_index: autotunables[0].0,
-                    results: Vec::new(),
+                    fastest_index: 0,
+                    results,
                     #[cfg(std_io)]
                     checksum: tunables.compute_checksum(),
-                    #[cfg(feature = "autotune-checks")]
-                    autotune_checks: Box::new(|| {}),
                 };
             }
 
+            let test_inputs = tunables.generate_inputs(&key, inputs);
             #[cfg(std_io)]
             let checksum = tunables.compute_checksum();
-            let test_inputs = tunables.generate_inputs(&key, inputs);
 
-            #[cfg(feature = "autotune-checks")]
-            let mut checks_outputs = Vec::new();
-
-            let mut tunable_profiles = Vec::with_capacity(autotunables.len());
-
-            for (index, op) in autotunables.into_iter() {
-                if should_autotune[index] {
-                    let name = op.name().to_string();
-                    let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
-                    #[cfg(feature = "autotune-checks")]
-                    checks_outputs.push(tuner.output_for_checks());
-                    let profiles = tuner.profile().map(|bench| (name, index, bench));
-                    tunable_profiles.push(profiles);
-                } else {
-                    tunable_profiles.push(Err(AutotuneError::Skip));
-                }
-            }
-
-            // Panic if all tuners panicked.
-            if tunable_profiles.iter().all(|result| result.is_err()) {
-                let first_error = tunable_profiles.into_iter().next().unwrap().err().unwrap();
-                match first_error {
-                    AutotuneError::Skip => {
-                        panic!("No autotune was flagged as valid for the problem.")
-                    }
-                    AutotuneError::InvalidSamples => {
-                        panic!("All samples while autotuning failed.")
-                    }
-                    AutotuneError::Unknown(reason) => panic!("{reason}"),
-                }
-            }
-
-            let key_clone = key.clone();
             let fut_result = async move {
-                let mut bench_results = Vec::new();
-
-                for result in tunable_profiles {
-                    match result {
-                        Ok(result) => {
-                            let (name, index, profiles) = result;
-                            // Wait for the results to come in, and determine the outcome.
-                            let mut durations = Vec::new();
-                            let timing_method = profiles
-                                .first()
-                                .expect("need at least 1 profile")
-                                .timing_method();
-                            for profile in profiles {
-                                durations.push(profile.resolve().await.duration());
-                            }
-                            let bench_durations =
-                                BenchmarkDurations::from_durations(timing_method, durations);
-                            let outcome = Ok(AutotuneOutcome::new(
-                                name,
-                                index,
-                                BenchmarkComputations::new(&bench_durations),
-                            ));
-                            bench_results.push(outcome);
-                        }
-                        Err(err) => {
-                            bench_results.push(Err(format!("{err:?}")));
-                        }
-                    }
-                }
-
-                // Finds the fastest operation (by the median time).
-                bench_results.sort_by(|a, b| {
-                    let a = a
-                        .as_ref()
-                        .map(|r| r.computation.median)
-                        .unwrap_or(Duration::MAX);
-                    let b = b
-                        .as_ref()
-                        .map(|r| r.computation.median)
-                        .unwrap_or(Duration::MAX);
-
-                    a.cmp(&b)
-                });
-
-                // Log & send results.
-                let result = bench_results
-                    .first()
-                    .expect("At least one kernel needed.")
-                    .as_ref()
-                    .expect("At least one kernel has to succeed.");
-
-                AutotuneMessage::Done {
-                    key: key_clone,
-                    fastest_index: result.index,
-                    results: bench_results,
+                Self::generate_tune_message(
+                    key,
+                    &client,
+                    plan,
+                    autotunables,
+                    test_inputs,
+                    results,
                     #[cfg(std_io)]
                     checksum,
-                    #[cfg(feature = "autotune-checks")]
-                    autotune_checks: Box::new(|| {
-                        check_autotune_outputs(checks_outputs);
-                    }),
-                }
+                )
+                .await
             };
 
             cfg_if::cfg_if! {
@@ -358,6 +266,131 @@ impl<K: AutotuneKey> Tuner<K> {
             .0
             .try_send(message)
             .expect("Loss message channel somehow");
+    }
+
+    async fn generate_tune_message<
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
+        S: ComputeServer + 'static,
+        C: ComputeChannel<S> + 'static,
+    >(
+        key: K,
+        client: &ComputeClient<S, C>,
+        mut plan: TunePlan,
+        autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
+        test_inputs: In,
+        mut results: Vec<Result<AutotuneOutcome, AutotuneError>>,
+        #[cfg(std_io)] checksum: String,
+    ) -> AutotuneMessage<K> {
+        Self::execute_tune_plan(client, &mut plan, autotunables, &test_inputs, &mut results).await;
+
+        // Finds the fastest operation (by the median time).
+        results.sort_by(|a, b| {
+            let a = a
+                .as_ref()
+                .map(|r| r.computation.median)
+                .unwrap_or(Duration::MAX);
+            let b = b
+                .as_ref()
+                .map(|r| r.computation.median)
+                .unwrap_or(Duration::MAX);
+
+            a.cmp(&b)
+        });
+
+        // Log & send results.
+        let result = results
+            .first()
+            .expect("At least one kernel needed.")
+            .as_ref()
+            .expect("At least one kernel has to succeed.");
+
+        AutotuneMessage::Done {
+            key,
+            fastest_index: result.index,
+            results,
+            #[cfg(std_io)]
+            checksum,
+        }
+    }
+
+    async fn execute_tune_plan<
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
+        S: ComputeServer + 'static,
+        C: ComputeChannel<S> + 'static,
+    >(
+        client: &ComputeClient<S, C>,
+        plan: &mut TunePlan,
+        autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
+        test_inputs: &In,
+        results: &mut [Result<AutotuneOutcome, AutotuneError>],
+    ) {
+        loop {
+            let mut num_autotuned = 0;
+
+            let tunable_indices = plan.next();
+
+            if tunable_indices.is_empty() {
+                panic!("No autotune was flagged as valid for the problem.")
+            }
+
+            for index in tunable_indices {
+                let op = &autotunables[index];
+                let name = op.name().to_string();
+                let tuner = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
+                let profiles = tuner.profile().map(|bench| (name, index, bench));
+
+                match profiles {
+                    Ok(result) => {
+                        // Wait for the results to come in, and determine the outcome.
+                        let (name, index, profiles) = result;
+                        let result = Self::process_autotune(name, index, profiles).await;
+                        match result {
+                            Ok(val) => {
+                                results[index] = Ok(val);
+                                num_autotuned += 1;
+                            }
+                            Err(err) => {
+                                results[index] = Err(err);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        results[index] = Err(err);
+                    }
+                }
+            }
+
+            if num_autotuned > 0 {
+                break;
+            }
+        }
+    }
+
+    async fn process_autotune(
+        name: String,
+        index: usize,
+        profiles: Vec<ProfileDuration>,
+    ) -> Result<AutotuneOutcome, AutotuneError> {
+        let mut durations = Vec::new();
+        if !profiles.is_empty() {
+            let timing_method = profiles.first().unwrap().timing_method();
+            for profile in profiles {
+                durations.push(profile.resolve().await.duration());
+            }
+            let bench_durations = BenchmarkDurations::from_durations(timing_method, durations);
+
+            Ok(AutotuneOutcome::new(
+                name,
+                index,
+                BenchmarkComputations::new(&bench_durations),
+            ))
+        } else {
+            Err(AutotuneError::Unknown(format!(
+                "Runtime error while profiling {name}."
+            )))
+        }
     }
 }
 

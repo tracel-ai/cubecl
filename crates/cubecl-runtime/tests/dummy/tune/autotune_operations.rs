@@ -1,7 +1,7 @@
 use cubecl_runtime::{
     client::ComputeClient,
     server::{Binding, Bindings, CubeCount},
-    tune::{AutotuneError, Tunable},
+    tune::{AutotuneError, TuneFn},
 };
 use derive_new::new;
 
@@ -15,7 +15,7 @@ pub struct OneKernelAutotuneOperation {
     client: ComputeClient<DummyServer, DummyChannel>,
 }
 
-impl Tunable for OneKernelAutotuneOperation {
+impl TuneFn for OneKernelAutotuneOperation {
     type Inputs = Vec<Binding>;
     type Output = ();
 
