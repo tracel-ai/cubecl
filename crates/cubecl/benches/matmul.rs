@@ -5,10 +5,12 @@ use cubecl_matmul::components::{
     LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
 };
 use cubecl_matmul::kernels::matmul::double_buffering::DoubleBufferingArgs;
+use cubecl_matmul::kernels::matmul::double_unit::DoubleUnitSelectionArgs;
 use cubecl_matmul::kernels::matmul::ordered_double_buffering::OrderedSelectionArgs;
 use cubecl_matmul::kernels::matmul::simple::SimpleArgs;
+use cubecl_matmul::kernels::matmul::simple_unit::SimpleUnitSelectionArgs;
 use cubecl_matmul::kernels::matmul::{
-    MatmulSelection, MultiRowStrategy, Selection, closest_factor_pair,
+    MatmulSelection, MultiRowStrategy, Selection, TileSizeSelection, closest_factor_pair,
 };
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
@@ -139,6 +141,9 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 (1, 5000, 5000, 5000),
                 (2, 4096, 4096, 4096),
                 (5, 512, 512, 512),
+                (5, 256, 512, 512),
+                (5, 256, 512, 1024),
+                (5, 1024, 256, 1024),
                 (10, 256, 256, 256),
                 // OuterProduct
                 // (1, 4 * 4096, 4 * 4096, 1),
@@ -179,8 +184,35 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    println!("Simple Unit");
-    run::<R, MP>(Default::default(), matmul::Strategy::SimpleUnit(None));
+    println!("Simple Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
+    println!("Simple Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
+    );
+
+    println!("Double Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
+    println!("Double Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
+    );
 
     // println!("Simple");
     // run::<R, MP>(
@@ -248,8 +280,8 @@ fn main() {
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
-        // run_benches::<cubecl::hip::HipRuntime, f32>();
-        run_benches::<cubecl::hip::HipRuntime, half::f16>();
+        run_benches::<cubecl::hip::HipRuntime, f32>();
+        // run_benches::<cubecl::hip::HipRuntime, half::f16>();
     }
 
     #[cfg(feature = "cuda")]

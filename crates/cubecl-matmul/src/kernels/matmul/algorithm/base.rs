@@ -71,4 +71,8 @@ pub trait Algorithm {
             )),
         ))
     }
+
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+        client.properties().hardware.plane_size_max
+    }
 }

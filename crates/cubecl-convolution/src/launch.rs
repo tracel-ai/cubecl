@@ -101,11 +101,7 @@ where
     let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
     let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
 
-    let plane_dim = client
-        .properties()
-        .hardware
-        .defined_plane_size()
-        .unwrap_or(32);
+    let plane_dim = client.properties().hardware.plane_size_max;
 
     let problem = ConvolutionProblem {
         m: n * out_shape.iter().product::<usize>(),

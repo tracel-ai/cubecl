@@ -100,18 +100,8 @@ impl RegisterConfig {
     }
 
     pub fn product_type(&self) -> ProductType {
-        // Best algorithm benchmarked on metal
-        // Very surprising that RowCol is better in Outer while
-        // ColRow is better in Inner
-        match (
-            self.matrix_layout(Ident::Lhs),
-            self.matrix_layout(Ident::Rhs),
-        ) {
-            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Inner,
-            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Outer,
-            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Outer,
-            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
-        }
+        // TODO: Make it configurable.
+        ProductType::Outer
     }
 
     fn validate(self) -> Result<Self, MatmulSetupError> {
