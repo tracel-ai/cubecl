@@ -68,6 +68,7 @@ impl SpirvTarget for GLCompute {
         b.capability(Capability::Shader);
         b.capability(Capability::VulkanMemoryModel);
         b.capability(Capability::VulkanMemoryModelDeviceScope);
+        b.capability(Capability::GroupNonUniform);
 
         let caps: Vec<_> = b.capabilities.iter().copied().collect();
         for cap in caps.iter() {

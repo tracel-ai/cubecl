@@ -75,7 +75,10 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
-    let cube_count_plan = config.hypercube_config().cube_count_plan(&problem);
+    let cube_count_plan = config.hypercube_config().cube_count_plan(
+        &problem,
+        client.properties().hardware.max_cube_count.clone(),
+    );
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<P::MP, R>(
@@ -110,7 +113,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &out.shape,
                 line_sizes.out,
             ),
-            cube_count_plan.to_args(),
+            cube_count_plan.as_args(),
             config,
         );
     }

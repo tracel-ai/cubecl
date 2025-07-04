@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 use crate::components::{
     MatmulProblem, TilingScheme,
     batch::{
-        CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, PartitionedBatchMatmulFamily,
-        RowMajorGlobalPartitionMatmul, SmAllocation,
+        CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
+        PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
     },
     global::{
         load::{SyncFullLoadingStrategy, sync_full_cyclic},
@@ -68,11 +68,12 @@ where
                 })
             };
             let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
-                Some(num_sms) => CubeCountPlanConfig::CubeFirst {
+                Some(num_sms) => CubeCountPlanSelection::Sm {
                     num_sms,
                     sm_usage: SmAllocation::Exact,
+                    cubes_first: true,
                 },
-                None => CubeCountPlanConfig::Flattened,
+                None => CubeCountPlanSelection::Flattened,
             };
 
             if supported(8, 32, 16) {
@@ -85,8 +86,8 @@ where
                     .build()
                     .unwrap();
 
-                let hypercube = HypercubeConfig::builder(&tiling_scheme)
-                    .global_order(GlobalOrderConfig::SwizzleRow {
+                let hypercube = HypercubeSelection::builder(&tiling_scheme)
+                    .global_order(GlobalOrderSelection::SwizzleRow {
                         m: problem.m as u32,
                         w: 4,
                     })
@@ -104,8 +105,8 @@ where
                     .with_stage_size((4, 1, 1).into())
                     .build()
                     .unwrap();
-                let hypercube = HypercubeConfig::builder(&tiling_scheme)
-                    .global_order(GlobalOrderConfig::SwizzleRow {
+                let hypercube = HypercubeSelection::builder(&tiling_scheme)
+                    .global_order(GlobalOrderSelection::SwizzleRow {
                         m: problem.m as u32,
                         w: 4,
                     })

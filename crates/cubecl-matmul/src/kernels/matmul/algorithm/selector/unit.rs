@@ -2,7 +2,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::{
     MatmulKind, MatmulProblem, MatrixLayout, TilingScheme,
-    batch::{CubeCountPlanConfig, GlobalOrderConfig, HypercubeConfig, SmAllocation},
+    batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::PartitionBuffering,
 };
 
@@ -84,7 +84,7 @@ fn general_unit_selector(
             num_plane: 8,
         },
         num_sms,
-        GlobalOrderConfig::SwizzleRow {
+        GlobalOrderSelection::SwizzleRow {
             m: problem.m as u32,
             w: 4,
         },
@@ -113,7 +113,7 @@ fn matvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -139,7 +139,7 @@ fn vecmat_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -165,7 +165,7 @@ fn scalarvec_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -185,7 +185,7 @@ fn vecscalar_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 4 },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -211,7 +211,7 @@ fn inner_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -231,7 +231,7 @@ fn outer_product_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 8, n: 8 },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -254,7 +254,7 @@ fn scalar_product_unit_selector(
             num_plane: 8,
         },
         num_sms,
-        GlobalOrderConfig::Default,
+        GlobalOrderSelection::Default,
     )
 }
 
@@ -285,7 +285,7 @@ fn selection(
     plane_dim: u32,
     stage: StageSelection,
     num_sms: Option<u32>,
-    global_order: GlobalOrderConfig,
+    global_order_config: GlobalOrderSelection,
 ) -> MatmulSelection {
     let (stage_size_m, stage_size_n) = stage.into_stages();
 
@@ -297,15 +297,16 @@ fn selection(
         .unwrap();
 
     let cube_count_plan = match num_sms {
-        Some(num_sms) => CubeCountPlanConfig::CubeFirst {
+        Some(num_sms) => CubeCountPlanSelection::Sm {
             num_sms,
             sm_usage: SmAllocation::Exact,
+            cubes_first: true,
         },
-        None => CubeCountPlanConfig::FromProblem,
+        None => CubeCountPlanSelection::Flattened,
     };
 
-    let hypercube = HypercubeConfig::builder(&tiling_scheme)
-        .global_order(global_order)
+    let hypercube = HypercubeSelection::builder(&tiling_scheme)
+        .global_order(global_order_config)
         .cube_count_plan(cube_count_plan)
         .build();
 

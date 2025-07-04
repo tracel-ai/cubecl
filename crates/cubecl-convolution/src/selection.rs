@@ -1,4 +1,5 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+use cubecl_matmul::components::stage::PartitionBuffering;
 
 use super::base::ConvolutionProblem;
 use cubecl_matmul::components::TilingScheme;
@@ -118,5 +119,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    MatmulSelection::builder(tiling_scheme, plane_dim).build()
+    MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(PartitionBuffering::Single)
+        .build()
 }

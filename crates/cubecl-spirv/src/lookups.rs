@@ -164,13 +164,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         item: Item,
         insert: impl FnOnce(&mut Self) -> Word,
     ) -> Word {
-        if let Some(id) = self.state.constants.get(&(value, item.clone())) {
-            *id
-        } else {
-            let id = insert(self);
-            self.state.constants.insert((value, item), id);
-            id
-        }
+        let id = insert(self);
+        self.state.constants.insert((value, item), id);
+        id
     }
 
     pub fn get_or_insert_global(
@@ -178,17 +174,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         global: Globals,
         insert: impl FnOnce(&mut Self) -> Word,
     ) -> Word {
-        if let Some(id) = self.state.globals.get(&global) {
-            *id
-        } else {
-            let current_block = self.selected_block();
-            let setup = self.setup_block;
-            self.select_block(Some(setup)).unwrap();
-            let id = insert(self);
-            self.select_block(current_block).unwrap();
-            self.state.globals.insert(global, id);
-            id
-        }
+        let current_block = self.selected_block();
+        let setup = self.setup_block;
+        self.select_block(Some(setup)).unwrap();
+        let id = insert(self);
+        self.select_block(current_block).unwrap();
+        self.state.globals.insert(global, id);
+        id
     }
 
     pub fn get_local(&mut self, id: Id, item: &Item, var: ir::Variable) -> Word {

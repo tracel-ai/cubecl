@@ -70,9 +70,9 @@ fn debug_print_kernel<F: Float>(out: &mut Array<F>) {
     }
 }
 
+#[cfg(not(all(target_os = "macos")))]
 pub fn test_debug_print<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     //let logger = MemoryLogger::setup(log::Level::Info);
-
     let handle = client.create(f32::as_bytes(&[10.0, 1.0]));
 
     let vectorization = 1;
@@ -110,6 +110,7 @@ macro_rules! testgen_debug {
             cubecl_core::runtime_tests::debug::test_nested_call::<TestRuntime>(client);
         }
 
+        #[cfg(not(all(target_os = "macos")))]
         #[test]
         fn test_debug_print() {
             let client = TestRuntime::client(&Default::default());

@@ -1,4 +1,4 @@
-use crate::components::batch::{BatchMatmulFamily, CubeCountPlanArgs};
+use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::{
     AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
     MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
@@ -337,7 +337,7 @@ pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     cube_count: CubeCount,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
-    cube_count_args: CubeCountPlanArgs<'a, R>,
+    cube_count_args: CubeCountInputArgs<'a, R>,
     config: <A::BatchMatmul as BatchMatmulFamily>::Config,
 ) -> Result<(), MatmulSetupError> {
     unsafe {

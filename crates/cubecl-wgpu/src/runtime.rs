@@ -3,10 +3,13 @@ use crate::{
     contiguous_strides, plane::get_plane_dim,
 };
 use cubecl_common::{future, profile::TimingMethod};
+
+#[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
-    AtomicFeature, CubeDim, Feature, Runtime,
+    AtomicFeature,
     ir::{Elem, FloatKind},
 };
+use cubecl_core::{CubeCount, CubeDim, Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -233,7 +236,7 @@ pub(crate) fn create_client_on_setup(
         plane_size_max: adapter_limits.max_subgroup_size,
         max_bindings: limits.max_storage_buffers_per_shader_stage,
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
-        max_cube_count: CubeDim::new_3d(max_count, max_count, max_count),
+        max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
         max_cube_dim: CubeDim::new_3d(
             adapter_limits.max_compute_workgroup_size_x,
@@ -258,18 +261,22 @@ pub(crate) fn create_client_on_setup(
     let mut device_props =
         DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
 
-    // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
-    // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
-    // For now just disable subgroups on WebGPU, until this information is added.
-    let fake_plane_info =
-        adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
-
-    if features.contains(wgpu::Features::SUBGROUP)
-        && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
-        && !fake_plane_info
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {
-        device_props.register_feature(Feature::Plane);
+        // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
+        // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
+        // For now just disable subgroups on WebGPU, until this information is added.
+        let fake_plane_info =
+            adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
+
+        if features.contains(wgpu::Features::SUBGROUP)
+            && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
+            && !fake_plane_info
+        {
+            device_props.register_feature(Feature::Plane);
+        }
     }
+
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
     let server = WgpuServer::new(
@@ -284,11 +291,24 @@ pub(crate) fn create_client_on_setup(
     );
     let channel = MutexComputeChannel::new(server);
 
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
 
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+    }
+
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
+    {
+        use cubecl_core::ir::{IntKind, UIntKind};
+
+        device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
+        device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+        device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
+        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
     }
 
     let mut client = ComputeClient::new(channel, device_props, setup.backend);
