@@ -112,27 +112,25 @@ impl Item {
 
     pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
         let scalar = self.elem().constant(b, value);
-        b.get_or_insert_const(value, self.clone(), |b| {
-            let ty = self.id(b);
-            match self {
-                Item::Scalar(_) => scalar,
-                Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
-                Item::Array(item, len) => {
-                    let elem = item.constant(b, value);
-                    b.constant_composite(ty, (0..*len).map(|_| elem))
-                }
-                Item::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
-                Item::Struct(elems) => {
-                    let items = elems
-                        .iter()
-                        .map(|item| item.constant(b, value))
-                        .collect::<Vec<_>>();
-                    b.constant_composite(ty, items)
-                }
-                Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
-                Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+        let ty = self.id(b);
+        match self {
+            Item::Scalar(_) => scalar,
+            Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
+            Item::Array(item, len) => {
+                let elem = item.constant(b, value);
+                b.constant_composite(ty, (0..*len).map(|_| elem))
             }
-        })
+            Item::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
+            Item::Struct(elems) => {
+                let items = elems
+                    .iter()
+                    .map(|item| item.constant(b, value))
+                    .collect::<Vec<_>>();
+                b.constant_composite(ty, items)
+            }
+            Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
+            Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+        }
     }
 
     pub fn const_u32<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u32) -> Word {
@@ -295,18 +293,16 @@ impl Elem {
     }
 
     pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
-        b.get_or_insert_const(value, Item::Scalar(*self), |b| {
-            let ty = self.id(b);
-            match self {
-                Elem::Void => unreachable!(),
-                Elem::Bool if value.as_u64() != 0 => b.constant_true(ty),
-                Elem::Bool => b.constant_false(ty),
-                _ => match value {
-                    ConstVal::Bit32(val) => b.constant_bit32(ty, val),
-                    ConstVal::Bit64(val) => b.constant_bit64(ty, val),
-                },
-            }
-        })
+        let ty = self.id(b);
+        match self {
+            Elem::Void => unreachable!(),
+            Elem::Bool if value.as_u64() != 0 => b.constant_true(ty),
+            Elem::Bool => b.constant_false(ty),
+            _ => match value {
+                ConstVal::Bit32(val) => b.constant_bit32(ty, val),
+                ConstVal::Bit64(val) => b.constant_bit64(ty, val),
+            },
+        }
     }
 }
 
