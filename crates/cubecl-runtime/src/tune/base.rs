@@ -1,5 +1,7 @@
 use super::{AutotuneKey, IntoTuneFn, TuneFn};
 use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, Ordering};
 use hashbrown::HashMap;
 

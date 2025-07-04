@@ -1,3 +1,4 @@
+#[cfg(std_io)]
 use super::AutotuneError;
 #[cfg(std_io)]
 use super::AutotuneOutcome;

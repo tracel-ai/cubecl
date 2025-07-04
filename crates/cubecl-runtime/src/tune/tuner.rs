@@ -224,6 +224,7 @@ impl<K: AutotuneKey> Tuner<K> {
             }
 
             let test_inputs = tunables.generate_inputs(&key, inputs);
+            #[cfg(std_io)]
             let checksum = tunables.compute_checksum();
 
             let fut_result = async move {
@@ -234,6 +235,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     autotunables,
                     test_inputs,
                     results,
+                    #[cfg(std_io)]
                     checksum,
                 )
                 .await

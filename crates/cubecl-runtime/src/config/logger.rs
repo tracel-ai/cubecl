@@ -52,6 +52,7 @@ pub struct LoggerConfig<L: LogLevel> {
 impl<L: LogLevel> Default for LoggerConfig<L> {
     fn default() -> Self {
         Self {
+            #[cfg(std_io)]
             file: None,
             append: true,
             #[cfg(feature = "autotune-checks")]
