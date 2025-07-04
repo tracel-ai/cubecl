@@ -138,7 +138,7 @@ impl TunePlan {
 
     /// Get the next batch of [tunable](Tunable) index to be autotuned.
     ///
-    /// Note that if the list of empty, it means no more autotuned entry can be executed.
+    /// Note that if the list is empty, it means no more autotuned entry can be executed.
     pub(crate) fn next(&mut self) -> Vec<usize> {
         let mut indices = core::mem::take(&mut self.no_groups);
         let priority = self.priorities.last();
@@ -248,16 +248,16 @@ mod tests {
 
     #[test]
     fn test_plan_order() {
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
-        let group2 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
 
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 1);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
+        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 1);
+        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
         let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
-        let tunable4 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group2, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlan::new(&key, &[tunable1, tunable2, tunable3, tunable4]);
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         assert_eq!(plan.next(), vec![0, 2]);
         assert_eq!(plan.next(), vec![1]);
@@ -267,18 +267,18 @@ mod tests {
 
     #[test]
     fn test_plan_order_multi_groups_same_priority() {
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
         let group2 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
-        let group3 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
 
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 1);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
+        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 1);
+        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
         let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
         let tunable4 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group2, |_| 2);
-        let tunable5 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group3, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlan::new(&key, &[tunable1, tunable2, tunable3, tunable4, tunable5]);
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
         assert_eq!(plan.next(), vec![0, 2]);
         assert_eq!(plan.next(), vec![1]);
@@ -288,18 +288,18 @@ mod tests {
 
     #[test]
     fn test_plan_order_tunable_multiple_groups() {
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
-        let group2 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
 
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel)
-            .group(&group1, |_| 1)
-            .group(&group2, |_| 2);
-        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
-        let tunable4 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group2, |_| 3);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
+        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel)
+            .group(&group0, |_| 1)
+            .group(&group1, |_| 2);
+        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
+        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 3);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlan::new(&key, &[tunable1, tunable2, tunable3, tunable4]);
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         assert_eq!(plan.next(), vec![0, 3]);
         assert_eq!(plan.next(), vec![1]);
@@ -309,11 +309,11 @@ mod tests {
 
     #[test]
     fn test_plan_no_group() {
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
         let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlan::new(&key, &[tunable1, tunable2]);
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
         assert_eq!(plan.next(), vec![0, 1]);
         assert!(plan.next().is_empty());

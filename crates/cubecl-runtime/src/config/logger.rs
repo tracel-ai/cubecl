@@ -58,7 +58,7 @@ impl<L: LogLevel> Default for LoggerConfig<L> {
             #[cfg(feature = "autotune-checks")]
             stdout: true,
             #[cfg(not(feature = "autotune-checks"))]
-            stdout: true,
+            stdout: false,
             stderr: false,
             log: None,
             level: L::default(),
