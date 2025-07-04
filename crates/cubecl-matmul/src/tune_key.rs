@@ -11,23 +11,25 @@ use super::components::{MatmulKind, MatmulProblemSize};
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
 pub struct MatmulAutotuneKey {
-    definition: MatmulProblemDefinition,
+    pub definition: MatmulProblemDefinition,
     pub analysis: MatmulAutotuneAnalysis,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
-struct MatmulProblemDefinition {
+pub struct MatmulProblemDefinition {
     #[autotune(anchor)]
-    m: usize,
+    pub m: usize,
     #[autotune(anchor)]
-    n: usize,
+    pub n: usize,
     #[autotune(anchor)]
-    k: usize,
-    elem_lhs: Elem,
-    elem_rhs: Elem,
-    elem_out: Elem,
-    matrix_layout_lhs: MatrixBatchLayout,
-    matrix_layout_rhs: MatrixBatchLayout,
+    pub k: usize,
+    pub lhs_pow2_factor: u8,
+    pub rhs_pow2_factor: u8,
+    pub elem_lhs: Elem,
+    pub elem_rhs: Elem,
+    pub elem_out: Elem,
+    pub matrix_layout_lhs: MatrixBatchLayout,
+    pub matrix_layout_rhs: MatrixBatchLayout,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -93,10 +95,29 @@ impl MatmulAutotuneKey {
             k: k as u32,
         });
 
+        let lhs_pow2_factor = match matrix_layout_lhs {
+            MatrixBatchLayout::Contiguous => pow2_factor(k),
+            MatrixBatchLayout::MildlyPermuted { transposed, .. } => match transposed {
+                true => pow2_factor(m),
+                false => pow2_factor(k),
+            },
+            MatrixBatchLayout::HighlyPermuted => 0,
+        };
+        let rhs_pow2_factor = match matrix_layout_rhs {
+            MatrixBatchLayout::Contiguous => pow2_factor(n),
+            MatrixBatchLayout::MildlyPermuted { transposed, .. } => match transposed {
+                true => pow2_factor(k),
+                false => pow2_factor(n),
+            },
+            MatrixBatchLayout::HighlyPermuted => 0,
+        };
+
         let definition = MatmulProblemDefinition::new(
             m,
             n,
             k,
+            lhs_pow2_factor,
+            rhs_pow2_factor,
             elem_lhs,
             elem_rhs,
             elem_out,
@@ -110,4 +131,15 @@ impl MatmulAutotuneKey {
 
         Self::new(definition, analysis)
     }
+}
+
+/// Defines the potential vectorization.
+fn pow2_factor(axis: usize) -> u8 {
+    for i in (1..4).rev() {
+        if axis % 2usize.pow(i as u32) == 0 {
+            return i;
+        }
+    }
+
+    0
 }

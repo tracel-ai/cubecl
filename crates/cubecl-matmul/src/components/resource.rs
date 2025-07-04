@@ -1,8 +1,11 @@
 use cubecl_core::prelude::*;
 
-use crate::components::{
-    InvalidConfigError,
-    global::{MaxLoaders, PlaneRoles},
+use crate::{
+    components::{
+        InvalidConfigError,
+        global::{MaxLoaders, PlaneRoles},
+    },
+    gcd,
 };
 
 pub enum ComputeResources {
@@ -104,15 +107,6 @@ impl LoadSpecializationConfig {
         // Don't stray too far from main_flow
         best_divisor_close_to_reference(ideal_load_only, main_flow)
     }
-}
-
-fn gcd(mut a: u32, mut b: u32) -> u32 {
-    while b != 0 {
-        let r = a % b;
-        a = b;
-        b = r;
-    }
-    a
 }
 
 fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 {
