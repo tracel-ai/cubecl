@@ -227,8 +227,14 @@ impl<K: AutotuneKey> Tuner<K> {
             #[cfg(std_io)]
             let checksum = tunables.compute_checksum();
 
+            #[cfg(target_family = "wasm")]
+            let key_cloned = key.clone();
+
             let fut_result = async move {
                 Self::generate_tune_message(
+                    #[cfg(target_family = "wasm")]
+                    key_cloned,
+                    #[cfg(not(target_family = "wasm"))]
                     key,
                     &client,
                     plan,
