@@ -5,9 +5,12 @@ use cubecl_std::tensor::TensorHandle;
 use crate::{
     components::tile::accelerated::AcceleratedMatmul,
     kernels::matmul::{
-        MatmulSelection, Selection, double_buffering::DoubleBufferingArgs,
-        double_unit::DoubleUnitAlgorithm, ordered_double_buffering::OrderedSelectionArgs,
+        Selection,
+        double_buffering::DoubleBufferingArgs,
+        double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
+        ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
+        simple_unit::SimpleUnitSelectionArgs,
     },
 };
 
@@ -43,8 +46,8 @@ pub enum Strategy {
     Simple(SyncLoadingStrategy, Selection<SimpleArgs>),
     SimpleBarrier(AsyncLoadingStrategy),
     DoubleBuffering(SyncBufferLoadingStrategy, Selection<DoubleBufferingArgs>),
-    SimpleUnit(Option<MatmulSelection>),
-    DoubleUnit(Option<MatmulSelection>),
+    SimpleUnit(Selection<SimpleUnitSelectionArgs>),
+    DoubleUnit(Selection<DoubleUnitSelectionArgs>),
     OrderedDoubleBuffering(Selection<OrderedSelectionArgs>),
     Naive,
     #[default]
@@ -239,22 +242,10 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             )
         }
         Strategy::SimpleUnit(selection) => matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(
-            client,
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-            &Selection::maybe_forced_default(selection),
+            client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
         Strategy::DoubleUnit(selection) => matmul::launch_ref::<R, MP, DoubleUnitAlgorithm>(
-            client,
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-            &Selection::maybe_forced_default(selection),
+            client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
         Strategy::Naive => {
             // TODO Implement naive with EI and EO

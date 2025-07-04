@@ -8,18 +8,32 @@ use crate::components::{
 
 use super::MatmulSelection;
 
+#[derive(Default, Clone, Copy, Debug)]
+pub enum TileSizeSelection {
+    // Choses the smallest tile size possible.
+    MinTileSize,
+    #[default]
+    // Choses the biggest tile size possible.
+    MaxTileSize,
+}
+
 pub fn unit_matmul_selection<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
+    tile_size: TileSizeSelection,
 ) -> MatmulSelection {
     let kind: MatmulKind = problem.into();
     let num_sms = client.properties().hardware.num_streaming_multiprocessors;
 
     match kind {
-        MatmulKind::General => general_unit_selector(problem, plane_dim, double_buffering, num_sms),
-        MatmulKind::MatVec => matvec_unit_selector(problem, plane_dim, double_buffering, num_sms),
+        MatmulKind::General => {
+            general_unit_selector(problem, plane_dim, double_buffering, num_sms, tile_size)
+        }
+        MatmulKind::MatVec => {
+            matvec_unit_selector(problem, plane_dim, double_buffering, num_sms, tile_size)
+        }
         MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim, double_buffering, num_sms),
         MatmulKind::ScalarVec => {
             scalarvec_unit_selector(problem, plane_dim, double_buffering, num_sms)
@@ -45,29 +59,33 @@ fn general_unit_selector(
     plane_dim: u32,
     double_buffering: bool,
     num_sms: Option<u32>,
+    tile_size_selection: TileSizeSelection,
 ) -> MatmulSelection {
     use MatrixLayout::*;
 
     // Manually tested for good performance on many shapes.
-    let (tile_size, mut partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, _) => (
-            (1, 4, 4),
-            (
-                scale_partition(problem.m, 4, 9),
-                2,
-                scale_partition(problem.k, 2, 10),
+    let (tile_size, mut partition_size) =
+        match (problem.lhs_layout, problem.rhs_layout, tile_size_selection) {
+            (RowMajor, _, TileSizeSelection::MinTileSize) => (
+                (1, 4, 4),
+                (
+                    scale_partition(problem.m, 4, 9),
+                    2,
+                    scale_partition(problem.k, 2, 10),
+                ),
             ),
-        ),
-        (ColMajor, RowMajor) => ((4, 4, 1), (2, 2, scale_partition(problem.k, 3, 10))),
-        (ColMajor, ColMajor) => (
-            (4, 4, 4),
-            (
-                scale_partition(problem.m, 2, 9),
-                2,
-                scale_partition(problem.k, 2, 9),
+            (ColMajor, RowMajor, TileSizeSelection::MinTileSize) => {
+                ((4, 4, 1), (2, 2, scale_partition(problem.k, 3, 10)))
+            }
+            (ColMajor, ColMajor, _) | (_, _, TileSizeSelection::MaxTileSize) => (
+                (4, 4, 4),
+                (
+                    scale_partition(problem.m, 2, 9),
+                    2,
+                    scale_partition(problem.k, 2, 9),
+                ),
             ),
-        ),
-    };
+        };
 
     // It seems to be faster, it's not a requirement of the algo.
     if double_buffering && partition_size.2 > 2 {
@@ -97,14 +115,14 @@ fn matvec_unit_selector(
     plane_dim: u32,
     _double_buffering: bool,
     num_sms: Option<u32>,
+    tile_size_selection: TileSizeSelection,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 1, 4), (1, 1, 4)),
-        (RowMajor, ColMajor) => ((1, 1, 4), (1, 1, 4)),
-        (ColMajor, RowMajor) => ((4, 1, 4), (1, 1, 4)),
-        (ColMajor, ColMajor) => ((4, 1, 4), (1, 1, 4)),
-    };
+    let (tile_size, partition_size) =
+        match (problem.lhs_layout, problem.rhs_layout, tile_size_selection) {
+            (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 4), (1, 1, 4)),
+            _ => ((4, 1, 4), (1, 1, 4)),
+        };
 
     selection(
         tile_size,

@@ -219,7 +219,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         if plane_dim == 0 { 32 } else { plane_dim }
     };
 
-    let plane_dim = fix_plane_dim(client.properties().hardware.plane_size_max);
+    let plane_dim = fix_plane_dim(A::select_plane_dim::<R>(client));
 
     launch_inner_ref_fix_dtype::<R, MP, A>(
         client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
@@ -303,18 +303,15 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         rhs_layout,
     };
 
-    let plane_size = client.properties().hardware.defined_plane_size();
+    let plane_size = client.properties().hardware.plane_size_max;
 
     let plane_dim = match plane_size {
-        Some(32) | Some(64) => plane_size.expect("32 or 64"),
-        Some(plane_dim) => {
+        32 | 64 => plane_size,
+        _ => {
             return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
-            ));
-        }
-        None => {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::PlaneDimUnknown,
+                MatmulAvailabilityError::PlaneDimUnsupported {
+                    plane_dim: plane_size,
+                },
             ));
         }
     };

@@ -1,6 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
-use super::{MatmulSelection, base, unit_matmul_selection};
+use super::{MatmulSelection, TileSizeSelection, base, unit_matmul_selection};
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -13,6 +13,11 @@ use crate::components::{
     stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
     tile::register::RegisterMatmul,
 };
+
+#[derive(Default, Clone, Debug)]
+pub struct SimpleUnitSelectionArgs {
+    pub tile_size: TileSizeSelection,
+}
 
 pub struct SimpleUnitAlgorithm<
     LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
@@ -27,7 +32,7 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type SelectionArgs = ();
+    type SelectionArgs = SimpleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
@@ -41,8 +46,12 @@ where
         plane_dim: u32,
         _elem_stage: Elem,
         _elem_acc: Elem,
-        _args: &Self::SelectionArgs,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection::<R>(client, problem, plane_dim, false)
+        unit_matmul_selection::<R>(client, problem, plane_dim, false, args.tile_size)
+    }
+
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+        client.properties().hardware.plane_size_min
     }
 }

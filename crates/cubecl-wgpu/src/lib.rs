@@ -9,7 +9,6 @@ mod compute;
 mod device;
 mod element;
 mod graphics;
-mod plane;
 mod runtime;
 
 pub use compiler::base::*;

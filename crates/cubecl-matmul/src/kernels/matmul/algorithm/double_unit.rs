@@ -13,12 +13,17 @@ use crate::{
     kernels::matmul::Algorithm,
 };
 
-use super::{MatmulSelection, unit_matmul_selection};
+use super::{MatmulSelection, TileSizeSelection, unit_matmul_selection};
+
+#[derive(Default, Clone, Debug)]
+pub struct DoubleUnitSelectionArgs {
+    pub tile_size: TileSizeSelection,
+}
 
 pub struct DoubleUnitAlgorithm {}
 
 impl Algorithm for DoubleUnitAlgorithm {
-    type SelectionArgs = ();
+    type SelectionArgs = DoubleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
@@ -35,8 +40,12 @@ impl Algorithm for DoubleUnitAlgorithm {
         plane_dim: u32,
         _elem_stage: Elem,
         _elem_acc: Elem,
-        _args: &Self::SelectionArgs,
+        args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection::<R>(client, problem, plane_dim, true)
+        unit_matmul_selection::<R>(client, problem, plane_dim, true, args.tile_size)
+    }
+
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+        client.properties().hardware.plane_size_min
     }
 }

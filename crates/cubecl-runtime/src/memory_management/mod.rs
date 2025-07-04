@@ -124,14 +124,3 @@ pub struct HardwareProperties {
     /// For a backend that also supports 32x8x16, the value would be 8.
     pub min_tensor_cores_dim: Option<u32>,
 }
-
-impl HardwareProperties {
-    /// Plane size that is defined for the device.
-    pub fn defined_plane_size(&self) -> Option<u32> {
-        if self.plane_size_min == self.plane_size_max {
-            Some(self.plane_size_min)
-        } else {
-            None
-        }
-    }
-}
