@@ -201,80 +201,80 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
         _mp: PhantomData,
     };
 
-    bench.run(TimingMethod::System)
+    bench.run(TimingMethod::Device)
 }
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    // println!("Simple Unit Min");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
-    //         tile_size: TileSizeSelection::MinTileSize,
-    //     })),
-    // );
+    println!("Simple Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
 
-    let mut algos = BTreeMap::new();
+    println!("Simple Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
+    );
 
-    for t in [(1, 4, 4)] {
-        for p in [
-            (16, 1, 1),
-            (16, 2, 2),
-            (16, 2, 4),
-            (32, 2, 4),
-            (16, 2, 8),
-            (16, 4, 4),
-            (8, 8, 8),
-        ] {
-            for s in [(4, 4), (8, 8)] {
-                let plane_dim = client.properties().hardware.plane_size_min;
-                let tiling = TilingScheme::builder()
-                    .with_tile_size(t.into())
-                    .with_partition_size(p.into())
-                    .with_stage_size(StageSize {
-                        m: s.0,
-                        n: s.1,
-                        k: 1,
-                    })
-                    .build()
-                    .unwrap();
-                let hypercube = HypercubeSelection::builder(&tiling)
-                    .global_order(cubecl_matmul::components::batch::GlobalOrderSelection::Default)
-                    .cube_count_plan(
-                        cubecl_matmul::components::batch::CubeCountPlanSelection::Flattened,
-                    )
-                    .build();
-                let selection = MatmulSelection::builder(tiling, plane_dim)
-                    .plane_dim(plane_dim)
-                    .partition_buffering(PartitionBuffering::Single)
-                    .hypercube_config(hypercube)
-                    .loading_precompute_strategy(
-                        cubecl_matmul::kernels::matmul::LoadingPrecomputeStrategy::Never,
-                    )
-                    .build();
-                let duration = run_one::<R, MP>(
-                    Default::default(),
-                    matmul::Strategy::SimpleUnit(Selection::Forced(selection.clone())),
-                );
+    // let mut algos = BTreeMap::new();
 
-                if let Ok(duration) = duration {
-                    let computed = BenchmarkComputations::new(&duration);
-                    println!("{selection:?}");
-                    println!("{duration}");
-                    algos.insert(computed.median, (duration, selection));
-                }
-            }
-        }
-    }
+    // for t in [(1, 4, 4)] {
+    //     for p in [(16, 2, 4)] {
+    //         for s in [(8, 8)] {
+    //             let plane_dim = client.properties().hardware.plane_size_min;
+    //             let tiling = TilingScheme::builder()
+    //                 .with_tile_size(t.into())
+    //                 .with_partition_size(p.into())
+    //                 .with_stage_size(StageSize {
+    //                     m: s.0,
+    //                     n: s.1,
+    //                     k: 1,
+    //                 })
+    //                 .build()
+    //                 .unwrap();
+    //             let hypercube = HypercubeSelection::builder(&tiling)
+    //                 .global_order(cubecl_matmul::components::batch::GlobalOrderSelection::Default)
+    //                 .cube_count_plan(
+    //                     cubecl_matmul::components::batch::CubeCountPlanSelection::Flattened,
+    //                 )
+    //                 .build();
+    //             let selection = MatmulSelection::builder(tiling, plane_dim)
+    //                 .plane_dim(plane_dim)
+    //                 .partition_buffering(PartitionBuffering::Single)
+    //                 .hypercube_config(hypercube)
+    //                 .loading_precompute_strategy(
+    //                     cubecl_matmul::kernels::matmul::LoadingPrecomputeStrategy::Never,
+    //                 )
+    //                 .build();
+    //             let duration = run_one::<R, MP>(
+    //                 Default::default(),
+    //                 matmul::Strategy::SimpleUnit(Selection::Forced(selection.clone())),
+    //             );
 
-    for (median, (duration, selection)) in algos.iter().rev() {
-        println!("==== {median:?} ====");
-        println!("Selection: {selection:?}");
-        println!("Times: {duration}");
-        println!("====================");
-    }
+    //             if let Ok(duration) = duration {
+    //                 let computed = BenchmarkComputations::new(&duration);
+    //                 println!("{selection:?}");
+    //                 println!("{duration}");
+    //                 algos.insert(computed.median, (duration, selection));
+    //             }
+    //         }
+    //     }
+    // }
+
+    // for (median, (duration, selection)) in algos.iter().rev() {
+    //     println!("==== {median:?} ====");
+    //     println!("Selection: {selection:?}");
+    //     println!("Times: {duration}");
+    //     println!("====================");
+    // }
 
     // println!("Double Unit Min");
     // run::<R, MP>(

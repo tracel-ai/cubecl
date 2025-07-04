@@ -3,15 +3,18 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use super::{MatmulSelection, TileSizeSelection, base, unit_matmul_selection};
 use std::marker::PhantomData;
 
-use crate::components::{
-    MatmulProblem,
-    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    global::{
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
-        single_stage::simple::SimpleMatmulFamily,
+use crate::{
+    components::{
+        MatmulProblem,
+        batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
+        global::{
+            load::{SyncFullLoadingStrategy, sync_full_cyclic},
+            single_stage::simple::SimpleMatmulFamily,
+        },
+        stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
+        tile::register::RegisterMatmul,
     },
-    stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
-    tile::register::RegisterMatmul,
+    kernels::matmul::{PartitionScaling, StageScaling},
 };
 
 #[derive(Default, Clone, Debug)]
@@ -48,10 +51,23 @@ where
         _elem_acc: Elem,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        let selected =
-            unit_matmul_selection::<R>(client, problem, plane_dim, false, args.tile_size);
-        println!("{selected:?}");
-        selected
+        unit_matmul_selection::<R>(
+            client,
+            problem,
+            plane_dim,
+            false,
+            super::UnitMatmulSelectionOptions {
+                tile: args.tile_size,
+                stage: match args.tile_size {
+                    TileSizeSelection::MinTileSize => StageScaling::Enabled(2),
+                    TileSizeSelection::MaxTileSize => StageScaling::Disabled,
+                },
+                partition: match args.tile_size {
+                    TileSizeSelection::MinTileSize => PartitionScaling::Disabled,
+                    TileSizeSelection::MaxTileSize => PartitionScaling::Enabled,
+                },
+            },
+        )
     }
 
     fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
