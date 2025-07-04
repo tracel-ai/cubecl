@@ -268,4 +268,8 @@ fn main() {
     {
         run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
+    #[cfg(feature = "metal")]
+    {
+        run_benches::<cubecl::metal::MetalRuntime, half::f16>();
+    }
 }
