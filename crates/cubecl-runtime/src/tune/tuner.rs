@@ -227,9 +227,11 @@ impl<K: AutotuneKey> Tuner<K> {
             #[cfg(std_io)]
             let checksum = tunables.compute_checksum();
 
+            let key_cloned = key.clone();
+
             let fut_result = async move {
                 Self::generate_tune_message(
-                    key,
+                    key_cloned,
                     &client,
                     plan,
                     autotunables,
