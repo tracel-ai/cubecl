@@ -280,7 +280,7 @@ impl<K: AutotuneKey> Tuner<K> {
         mut results: Vec<Result<AutotuneOutcome, AutotuneError>>,
         #[cfg(std_io)] checksum: String,
     ) -> AutotuneMessage<K> {
-        Self::execute_tune_plan(&client, &mut plan, autotunables, &test_inputs, &mut results).await;
+        Self::execute_tune_plan(client, &mut plan, autotunables, &test_inputs, &mut results).await;
 
         // Finds the fastest operation (by the median time).
         results.sort_by(|a, b| {
@@ -322,7 +322,7 @@ impl<K: AutotuneKey> Tuner<K> {
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: &In,
-        results: &mut Vec<Result<AutotuneOutcome, AutotuneError>>,
+        results: &mut [Result<AutotuneOutcome, AutotuneError>],
     ) {
         loop {
             let mut num_autotuned = 0;
