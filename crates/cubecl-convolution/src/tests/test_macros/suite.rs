@@ -7,6 +7,7 @@ use crate::{
 use cubecl_core::Runtime;
 use cubecl_matmul::components::global::args::ConcreteOutputFactory;
 use cubecl_matmul::components::global::args::MatmulArgs;
+use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
 use cubecl_matmul::kernels::matmul::MatmulSelection;
 
@@ -83,7 +84,9 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         .build()
         .unwrap();
 
-    let selection = MatmulSelection::builder(tiling_scheme, plane_dim).build();
+    let selection = MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(PartitionBuffering::Single)
+        .build();
 
     test_convolution_algorithm::<A, Args, P, R>(client, problem, selection);
 }

@@ -1,5 +1,5 @@
-use alloc::{borrow::Cow, boxed::Box, rc::Rc, vec::Vec};
-use core::{any::TypeId, cell::RefCell};
+use alloc::{borrow::Cow, boxed::Box, rc::Rc, string::ToString, vec::Vec};
+use core::{any::TypeId, cell::RefCell, fmt::Display};
 use hashbrown::{HashMap, HashSet};
 
 use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, SourceLoc, TypeHash};
@@ -352,5 +352,24 @@ impl Scope {
                 .borrow_mut()
                 .insert(variable, name.into());
         }
+    }
+}
+
+impl Display for Scope {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "{{")?;
+        for instruction in self.instructions.iter() {
+            let instruction_str = instruction.to_string();
+            if !instruction_str.is_empty() {
+                writeln!(
+                    f,
+                    "{}{}",
+                    "    ".repeat(self.depth as usize + 1),
+                    instruction_str,
+                )?;
+            }
+        }
+        write!(f, "{}}}", "    ".repeat(self.depth as usize))?;
+        Ok(())
     }
 }

@@ -140,7 +140,10 @@ fn check_op(
         return None;
     }
     for rhs_idx in indices.iter().skip(i + 1) {
-        if op.operation == ops.borrow()[*rhs_idx].operation {
+        // Type needs to be checked because versioned variable can have the same expression, but different output
+        if op.operation == ops.borrow()[*rhs_idx].operation
+            && out.item == ops.borrow()[*rhs_idx].out().item
+        {
             ops.borrow_mut()[*rhs_idx].operation = Operation::Copy(out);
             changes.inc();
         }
