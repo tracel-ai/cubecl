@@ -3,7 +3,7 @@ use rand::{Rng, distr::Alphanumeric};
 
 use cubecl_runtime::{
     server::{Binding, Bindings, CubeCount},
-    tune::{AsFunctionTunable, TunableSet},
+    tune::{AsFunctionTunable, Tunable, TunableSet},
 };
 
 use crate::{
@@ -32,14 +32,14 @@ pub fn addition_set(
         move |_input: &Vec<Binding>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
         clone_bindings,
     )
-    .with_tunable(OneKernelAutotuneOperation::new(
+    .with(Tunable::new(OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseAddition),
         client.clone(),
-    ))
-    .with_tunable(OneKernelAutotuneOperation::new(
+    )))
+    .with(Tunable::new(OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
-    ))
+    )))
 }
 
 pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
@@ -47,14 +47,14 @@ pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestS
         move |_input: &Vec<Binding>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
         clone_bindings,
     )
-    .with_tunable(OneKernelAutotuneOperation::new(
+    .with(Tunable::new(OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseMultiplicationSlowWrong),
         client.clone(),
-    ))
-    .with_tunable(OneKernelAutotuneOperation::new(
+    )))
+    .with(Tunable::new(OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseMultiplication),
         client.clone(),
-    ))
+    )))
 }
 
 pub fn cache_test_set(
@@ -81,8 +81,12 @@ pub fn cache_test_set(
         move |_input: &Vec<Binding>| format!("{}-{}", "cache_test", log_shape_input_key(&shapes)),
         clone_bindings,
     )
-    .with_tunable(tunable(client.clone(), CacheTestFastOn3, bindings.clone()).ok())
-    .with_tunable(tunable(client.clone(), CacheTestSlowOn3, bindings.clone()).ok());
+    .with(Tunable::new(
+        tunable(client.clone(), CacheTestFastOn3, bindings.clone()).ok(),
+    ))
+    .with(Tunable::new(
+        tunable(client.clone(), CacheTestSlowOn3, bindings.clone()).ok(),
+    ));
     if generate_random_checksum {
         set = set.with_custom_checksum(|_| {
             let rand_string: String = rand::rng()
