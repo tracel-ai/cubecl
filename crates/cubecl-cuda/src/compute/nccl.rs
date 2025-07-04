@@ -34,7 +34,7 @@ impl NcclDevice {
     ) -> Self {
         NcclDevice::Linked { id, group, size }
     }
-    
+
     pub fn new_linkedremote(
         id: cudarc::nccl::sys::ncclUniqueId,
         group: usize,
@@ -48,21 +48,21 @@ impl NcclDevice {
             size,
         }
     }
-    
+
     pub fn id(&self) -> cudarc::nccl::sys::ncclUniqueId {
         match &self {
             NcclDevice::Linked { id, .. } => *id,
             NcclDevice::LinkedRemote { id, .. } => *id,
         }
     }
-    
+
     pub fn size(&self) -> ::core::ffi::c_int {
         match &self {
             NcclDevice::Linked { size, .. } => *size,
             NcclDevice::LinkedRemote { size, .. } => *size,
         }
     }
-    
+
     pub fn group(&self) -> usize {
         match &self {
             NcclDevice::Linked { group, .. } => *group,
@@ -88,7 +88,10 @@ impl CudaDevice {
 
             for index in 0..count {
                 let nccl = NcclDevice::new_linked(id, 0, count as ::core::ffi::c_int);
-                let cuda = CudaDevice { index, nccl: Some(nccl) };
+                let cuda = CudaDevice {
+                    index,
+                    nccl: Some(nccl),
+                };
                 devices.push(cuda);
             }
         }
@@ -189,4 +192,3 @@ pub fn distribute_gpus(split: Vec<f64>, size: usize) -> Vec<usize> {
 
     result
 }
-

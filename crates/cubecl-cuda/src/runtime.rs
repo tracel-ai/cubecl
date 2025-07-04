@@ -209,12 +209,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let server = CudaServer::new(mem_alignment, cuda_ctx);
 
     #[cfg(not(feature = "nccl"))]
-    { 
-        ComputeClient::new(
-            MutexComputeChannel::new(server), 
-            device_props, 
-            ()
-        ) 
+    {
+        ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
     }
 
     #[cfg(feature = "nccl")]
@@ -249,7 +245,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0 as u16, device.index as u32)
+        DeviceId::new(0, device.index as u32)
     }
 
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {

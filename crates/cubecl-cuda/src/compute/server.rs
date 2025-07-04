@@ -43,11 +43,10 @@ use std::{ffi::CString, mem::MaybeUninit};
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
 
-
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    mem_alignment: usize,    
+    mem_alignment: usize,
 }
 
 #[derive(Debug)]
