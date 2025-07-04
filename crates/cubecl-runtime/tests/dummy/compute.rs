@@ -18,8 +18,6 @@ pub type DummyChannel = MutexComputeChannel<DummyServer>;
 pub type DummyClient = ComputeClient<DummyServer, DummyChannel>;
 
 static RUNTIME: ComputeRuntime<DummyDevice, DummyServer, DummyChannel> = ComputeRuntime::new();
-pub static TUNER_DEVICE_ID: &str = "dummy-device";
-pub static TUNER_PREFIX: &str = "dummy-tests";
 
 pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServer>> {
     let storage = BytesStorage::default();
@@ -53,6 +51,6 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     )
 }
 
-pub fn client(device: &DummyDevice) -> DummyClient {
+pub fn test_client(device: &DummyDevice) -> DummyClient {
     RUNTIME.client(device, init_client)
 }

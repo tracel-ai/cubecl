@@ -87,13 +87,13 @@ where
         operations: &TunableSet<AK, In, Out>,
         inputs: &In,
     ) {
-        // let mut checks_outputs = Vec::new();
-        // for i in 0..operations.len() {
-        //     let op = operations.fastest(i);
-        //     let result = op.execute(inputs.clone());
-        //     checks_outputs.push(result);
-        // }
-        // super::check_autotune_outputs(checks_outputs);
+        let mut checks_outputs = Vec::new();
+        for i in 0..operations.len() {
+            let op = operations.fastest(i);
+            let result = op.execute(inputs.clone());
+            checks_outputs.push(result);
+        }
+        super::check_autotune_outputs(checks_outputs);
     }
 
     /// Execute the best operation in the provided [tunable set](TunableSet)
@@ -161,7 +161,7 @@ where
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
-                self.checks(operations, &inputs);
+                self.checks(&operations, &inputs);
 
                 return operations
                     .fastest(fastest_index)
@@ -239,7 +239,7 @@ where
         };
 
         #[cfg(feature = "autotune-checks")]
-        self.checks(operations, &inputs);
+        self.checks(&operations, &inputs);
 
         operations
             .fastest(fastest)

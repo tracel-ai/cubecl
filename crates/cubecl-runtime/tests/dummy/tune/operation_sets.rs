@@ -1,18 +1,11 @@
-#[cfg(std_io)]
-use rand::{Rng, distr::Alphanumeric};
-
 use cubecl_runtime::{
-    server::{Binding, Bindings, CubeCount},
-    tune::{AsFunctionTunable, Tunable, TunableSet},
+    server::Binding,
+    tune::{Tunable, TunableSet},
 };
 
-use crate::{
-    DummyKernel,
-    dummy::{
-        CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
-        DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong, KernelTask,
-        OneKernelAutotuneOperation,
-    },
+use crate::dummy::{
+    DummyClient, DummyElementwiseAddition, DummyElementwiseMultiplication,
+    DummyElementwiseMultiplicationSlowWrong, KernelTask, OneKernelAutotuneOperation,
 };
 
 use super::DummyElementwiseAdditionSlowWrong;
@@ -55,49 +48,6 @@ pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestS
         KernelTask::new(DummyElementwiseMultiplication),
         client.clone(),
     )))
-}
-
-pub fn cache_test_set(
-    client: DummyClient,
-    shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding>,
-    generate_random_checksum: bool,
-) -> TestSet {
-    fn tunable(
-        client: DummyClient,
-        kernel: impl DummyKernel,
-        bindings: Vec<Binding>,
-    ) -> impl Fn(Vec<Binding>) {
-        let kernel = KernelTask::new(kernel);
-        move |_| {
-            client.execute(
-                kernel.clone(),
-                CubeCount::Static(1, 1, 1),
-                Bindings::new().with_buffers(bindings.clone()),
-            );
-        }
-    }
-    let mut set = TestSet::new(
-        move |_input: &Vec<Binding>| format!("{}-{}", "cache_test", log_shape_input_key(&shapes)),
-        clone_bindings,
-    )
-    .with(Tunable::new(
-        tunable(client.clone(), CacheTestFastOn3, bindings.clone()).ok(),
-    ))
-    .with(Tunable::new(
-        tunable(client.clone(), CacheTestSlowOn3, bindings.clone()).ok(),
-    ));
-    if generate_random_checksum {
-        set = set.with_custom_checksum(|_| {
-            let rand_string: String = rand::rng()
-                .sample_iter(&Alphanumeric)
-                .take(16)
-                .map(char::from)
-                .collect();
-            rand_string
-        });
-    }
-    set
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {

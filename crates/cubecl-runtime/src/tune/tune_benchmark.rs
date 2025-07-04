@@ -39,11 +39,6 @@ impl<
     Out: AutotuneOutput,
 > TuneBenchmark<S, C, In, Out>
 {
-    #[cfg(feature = "autotune-checks")]
-    pub(crate) fn output_for_checks(&self) -> Result<Out, AutotuneError> {
-        self.operation.clone().execute(self.inputs.clone())
-    }
-
     /// Benchmark how long this operation takes for a number of samples.
     ///
     /// Returns at least one duration, otherwise an error is returned.

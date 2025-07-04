@@ -26,7 +26,6 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
 /// Groups operations of the same type for autotune
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Tunable<K, Inputs, Output>>,
-    should_autotune: Vec<ShouldAutotuneFn<K>>,
     key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
     input_gen: Arc<dyn InputGenerator<K, Inputs>>,
     #[allow(clippy::type_complexity)]
@@ -35,8 +34,6 @@ pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
 
 unsafe impl<K: AutotuneKey, In: Send, Out> Send for TunableSet<K, In, Out> {}
 unsafe impl<K: AutotuneKey, In: Send, Out> Sync for TunableSet<K, In, Out> {}
-
-type ShouldAutotuneFn<K> = Option<Arc<dyn Fn(&K) -> bool>>;
 
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
@@ -56,7 +53,6 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     ) -> Self {
         Self {
             tunables: Default::default(),
-            should_autotune: Default::default(),
             input_gen: Arc::new(input_gen.into_input_gen()),
             key_gen: Arc::new(key_gen.into_key_gen()),
             checksum_override: None,
@@ -87,8 +83,8 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
             .collect()
     }
 
-    /// Returns a vector of all candidates that should run during autotuning.
-    pub fn plan(&self, key: &K) -> TunePlan {
+    /// Returns the [autotune plan](TunePlan) for the given set.
+    pub(crate) fn plan(&self, key: &K) -> TunePlan {
         TunePlan::new(key, &self.tunables)
     }
 

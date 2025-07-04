@@ -1,3 +1,4 @@
+use super::AutotuneError;
 #[cfg(std_io)]
 use super::AutotuneOutcome;
 #[cfg(std_io)]
@@ -42,7 +43,7 @@ pub(crate) struct PersistentCacheKey<K> {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
-    results: Vec<Result<AutotuneOutcome, String>>,
+    results: Vec<Result<AutotuneOutcome, AutotuneError>>,
 }
 
 /// Use to find and reuse the best kernel for some input
@@ -174,7 +175,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         key: K,
         checksum: String,
         fastest_index: usize,
-        results: Vec<Result<AutotuneOutcome, String>>,
+        results: Vec<Result<AutotuneOutcome, AutotuneError>>,
     ) {
         if let Err(err) = self.persistent_cache.insert(
             PersistentCacheKey { key, checksum },
