@@ -1,8 +1,9 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
+use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
-    LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
+    LoadSpecializationConfig, SpecializationTensorConfig, StageSize, TilingScheme,
 };
 use cubecl_matmul::kernels::matmul::double_buffering::DoubleBufferingArgs;
 use cubecl_matmul::kernels::matmul::double_unit::DoubleUnitSelectionArgs;
@@ -15,9 +16,10 @@ use cubecl_matmul::kernels::matmul::{
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
 use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use cubecl::benchmark::{Benchmark, TimingMethod};
+use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
 use cubecl::future;
 use cubecl_runtime::config::GlobalConfig;
 use cubecl_std::tensor::TensorHandle;
@@ -137,14 +139,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
         for tr in [false] {
             for (b, m, n, k) in [
                 // (1, 8192, 8192, 8192),
-                (1, 6144, 6144, 6144),
-                (1, 5000, 5000, 5000),
-                (2, 4096, 4096, 4096),
-                (5, 512, 512, 512),
-                (5, 256, 512, 512),
-                (5, 256, 512, 1024),
-                (5, 1024, 256, 1024),
-                (10, 256, 256, 256),
+                (32, 256, 256, 256),
                 // OuterProduct
                 // (1, 4 * 4096, 4 * 4096, 1),
                 //  // InnerProduct
@@ -180,6 +175,31 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     }
 }
 
+#[allow(dead_code)]
+fn run_one<R: Runtime, MP: MatmulPrecision>(
+    device: R::Device,
+    strategy: matmul::Strategy,
+) -> BenchmarkDurations {
+    let client = R::client(&device);
+    let (b, m, n, k) = (32, 256, 256, 256);
+    let (tl, tr) = (false, false);
+
+    let bench = MatmulBench::<R, MP> {
+        b,
+        m,
+        k,
+        n,
+        tl,
+        tr,
+        client: client.clone(),
+        device: device.clone(),
+        strategy: strategy.clone(),
+        _mp: PhantomData,
+    };
+
+    bench.run(TimingMethod::System)
+}
+
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
@@ -191,28 +211,72 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             tile_size: TileSizeSelection::MinTileSize,
         })),
     );
-    println!("Simple Unit Max");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MaxTileSize,
-        })),
-    );
 
-    println!("Double Unit Min");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MinTileSize,
-        })),
-    );
-    println!("Double Unit Max");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MaxTileSize,
-        })),
-    );
+    let mut selections = BTreeMap::new();
+    let mut computeds = Vec::new();
+
+    for t in [(4, 4, 4)] {
+        for p in [(1, 1, 4), (2, 2, 2), (1, 2, 2), (1, 2, 4)] {
+            for s in [(8, 1), (4, 1), (4, 2)] {
+                for plane_dim in [32, 16, 8] {
+                    let tiling = TilingScheme::builder()
+                        .with_tile_size(t.into())
+                        .with_partition_size(p.into())
+                        .with_stage_size(StageSize {
+                            m: s.0,
+                            n: s.1,
+                            k: 1,
+                        })
+                        .build()
+                        .unwrap();
+                    let hypercube = HypercubeSelection::builder(&tiling)
+                        .global_order(
+                            cubecl_matmul::components::batch::GlobalOrderSelection::Default,
+                        )
+                        .cube_count_plan(
+                            cubecl_matmul::components::batch::CubeCountPlanSelection::Flattened,
+                        )
+                        .build();
+                    let selection = MatmulSelection::builder(tiling, plane_dim)
+                        .plane_dim(plane_dim)
+                        .partition_buffering(PartitionBuffering::Single)
+                        .hypercube_config(hypercube)
+                        .loading_precompute_strategy(
+                            cubecl_matmul::kernels::matmul::LoadingPrecomputeStrategy::Never,
+                        )
+                        .build();
+                    let duration = run_one::<R, MP>(
+                        Default::default(),
+                        matmul::Strategy::SimpleUnit(Selection::Forced(selection.clone())),
+                    );
+                    let computed = BenchmarkComputations::new(&duration);
+                    println!("{selection:?}");
+                    println!("{duration:?}");
+                    selections.insert(computed.median, selection);
+                    computeds.push(computed);
+                }
+            }
+        }
+    }
+
+    for (median, selection) in selections.iter().rev() {
+        println!("{median:?} -> {selection:?}");
+    }
+
+    // println!("Double Unit Min");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+    //         tile_size: TileSizeSelection::MinTileSize,
+    //     })),
+    // );
+    // println!("Double Unit Max");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+    //         tile_size: TileSizeSelection::MaxTileSize,
+    //     })),
+    // );
 
     // println!("Simple");
     // run::<R, MP>(
