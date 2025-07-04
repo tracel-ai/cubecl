@@ -48,7 +48,10 @@ where
         _elem_acc: Elem,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection::<R>(client, problem, plane_dim, false, args.tile_size)
+        let selected =
+            unit_matmul_selection::<R>(client, problem, plane_dim, false, args.tile_size);
+        println!("{selected:?}");
+        selected
     }
 
     fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
