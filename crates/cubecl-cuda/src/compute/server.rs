@@ -43,17 +43,17 @@ use std::{ffi::CString, mem::MaybeUninit};
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
 
+
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    mem_alignment: usize,
+    mem_alignment: usize,    
 }
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    comm: Option<cudarc::nccl::sys::ncclComm_t>,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
@@ -186,7 +186,10 @@ impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = CudaStorage;
     type Feature = Feature;
+    #[cfg(not(feature = "nccl"))]
     type Info = ();
+    #[cfg(feature = "nccl")]
+    type Info = crate::device::CudaDevice;
 
     fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
         Box::pin(self.read_async(bindings))
@@ -576,40 +579,6 @@ impl CudaContext {
                 }
             },
             stream,
-            comm: None,
-            arch,
-            timestamps: TimestampProfiler::default(),
-            compilation_options,
-        }
-    }    
-
-    pub fn new_with_comm(
-        memory_management: MemoryManagement<CudaStorage>,
-        compilation_options: CompilationOptions,
-        stream: cudarc::driver::sys::CUstream,
-        comm: cudarc::nccl::sys::ncclComm_t,
-        context: *mut CUctx_st,
-        arch: CudaArchitecture,
-    ) -> Self {
-        Self {
-            context,
-            memory_management,
-            module_names: HashMap::new(),
-            #[cfg(feature = "compilation-cache")]
-            ptx_cache: {
-                let config = cubecl_runtime::config::GlobalConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
-                    Some(Cache::new(
-                        "ptx",
-                        CacheOption::default().name("cuda").root(root),
-                    ))
-                } else {
-                    None
-                }
-            },
-            stream,
-            comm: Some(comm),
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,

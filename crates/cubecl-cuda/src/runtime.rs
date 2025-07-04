@@ -47,7 +47,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
-    let device_ptr = cudarc::driver::result::device::get(device.id() as i32).unwrap();
+    let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
     let arch_major;
     let arch_version = unsafe {
         arch_major = cudarc::driver::result::device::get_attribute(
@@ -85,6 +85,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cudarc::driver::result::stream::StreamKind::NonBlocking,
     )
     .unwrap();
+
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
@@ -206,7 +207,24 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(mem_alignment, cuda_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+
+    #[cfg(not(feature = "nccl"))]
+    { 
+        ComputeClient::new(
+            MutexComputeChannel::new(server), 
+            device_props, 
+            ()
+        ) 
+    }
+
+    #[cfg(feature = "nccl")]
+    {
+        ComputeClient::new(
+            MutexComputeChannel::new(server),
+            device_props,
+            device.clone(),
+        )
+    }
 }
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {
@@ -231,9 +249,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn device_id(device: &Self::Device) -> DeviceId {
-        let device_info = device.info();
-
-        DeviceId::new(device_info.group as u16, device_info.id as u32)
+        DeviceId::new(0 as u16, device.index as u32)
     }
 
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {

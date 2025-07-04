@@ -23,6 +23,8 @@ default = [
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 ptx-wmma = []
 
+nccl = ["cudarc/nccl", "once_cell"]
+
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
 matmul_tests_tma = ["cubecl-matmul/matmul_tests_tma"]
@@ -89,13 +91,13 @@ cudarc = { version = "0.16.3", features = [
   "driver",
   "cuda-version-from-build-system",
   "dynamic-loading",
-  "nccl",
 ], default-features = false }
 
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
+once_cell = { version = "1.21.3", optional = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
