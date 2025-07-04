@@ -40,7 +40,6 @@ pub enum MatmulGlobalScale {
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct MatmulAutotuneAnalysis {
     pub scale_global: MatmulGlobalScale,
-    pub may_use_tensor_cores: bool,
     pub kind: MatmulKind,
 }
 
@@ -58,8 +57,7 @@ impl MatmulGlobalScale {
 
 /// Whether it's a good idea to try and run double-buffered matmul.
 pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> bool {
-    key.analysis.may_use_tensor_cores
-        && matches!(key.analysis.kind, MatmulKind::General)
+    matches!(key.analysis.kind, MatmulKind::General)
         && match key.analysis.scale_global {
             MatmulGlobalScale::Large => true,
             MatmulGlobalScale::Medium => true,
@@ -72,7 +70,7 @@ impl MatmulAutotuneKey {
     /// used for the calculation.
     #[allow(clippy::too_many_arguments)]
     pub fn generate<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server, R::Channel>,
         lhs_shape: &[usize],
         rhs_shape: &[usize],
         lhs_strides: &[usize],
@@ -107,15 +105,6 @@ impl MatmulAutotuneKey {
         );
         let analysis = MatmulAutotuneAnalysis {
             scale_global: MatmulGlobalScale::from_size(m, n, k),
-            may_use_tensor_cores: match client
-                .properties()
-                .hardware
-                .min_tensor_cores_dim
-                .map(|tc| tc as usize)
-            {
-                Some(tc) => m > tc && n > tc && k > tc,
-                None => false,
-            },
             kind,
         };
 

@@ -3,7 +3,11 @@ use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
 use alloc::sync::Arc;
-use core::{any::Any, fmt::Display, hash::Hash};
+use core::{
+    any::{Any, TypeId},
+    fmt::Display,
+    hash::Hash,
+};
 use hashbrown::HashMap;
 
 #[cfg(not(feature = "std"))]
@@ -14,7 +18,7 @@ use alloc::string::ToString;
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: spin::RwLock<Option<HashMap<ID, Tuner<AK>>>>,
     name: &'static str,
-    set: spin::RwLock<Option<Arc<dyn Any + Send + Sync>>>,
+    sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
 unsafe impl<AK: AutotuneKey, ID> Sync for LocalTuner<AK, ID> {}
@@ -42,7 +46,7 @@ where
         Self {
             state: spin::RwLock::new(None),
             name,
-            set: spin::RwLock::new(None),
+            sets: spin::RwLock::new(None),
         }
     }
 
@@ -53,24 +57,28 @@ where
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
     {
-        let set = self.set.read();
+        let sets = self.sets.read();
+        let type_id = TypeId::of::<F>();
 
         static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
 
-        if let Some(set) = set.as_ref() {
-            return set.clone().downcast().expect(DOWNCAST_ERROR);
+        if let Some(sets) = sets.as_ref() {
+            if let Some(set) = sets.get(&type_id) {
+                return set.clone().downcast().expect(DOWNCAST_ERROR);
+            }
         };
-        core::mem::drop(set);
+        core::mem::drop(sets);
 
-        let mut set = self.set.write();
-
-        if let Some(set) = set.as_ref() {
-            return set.clone().downcast().expect(DOWNCAST_ERROR);
-        };
-
+        let mut sets = self.sets.write();
         let content = Arc::new(init_set());
 
-        *set = Some(content.clone());
+        if let Some(sets) = sets.as_mut() {
+            sets.insert(type_id, content.clone());
+        } else {
+            let mut map = HashMap::<TypeId, Arc<dyn Any + Send + Sync>>::new();
+            map.insert(type_id, content.clone());
+            *sets = Some(map);
+        };
 
         content
     }
