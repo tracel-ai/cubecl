@@ -71,8 +71,6 @@ impl MetalServer {
         logger: Arc<ServerLogger>,
         kernel_id: &KernelId,
     ) -> MetalCompiledKernel {
-        let _is_atomic = kernel_id.stable_format().contains("atomic");
-
         let mut jit_kernel =
             kernel.compile(&mut Default::default(), &self.compilation_options, mode);
         let cube_dim = jit_kernel.cube_dim;
