@@ -1,30 +1,27 @@
 // Usage example:
 /*
-pub async fn example_usage() -> Result<(), String> {
+pub async fn example_usage() {
     // Get your CUDA clients
-    let clients: Vec<Client> = get_cuda_clients(); // Your function to get clients
-    let client_refs: Vec<&Client> = clients.iter().collect();
+    let clients: Vec<&Client> = get_cuda_clients();
 
     // Create some data handles
     let handle1 = clients[0].create(&[1.0f32, 2.0, 3.0, 4.0]);
     let handle2 = clients[0].create(&[5.0f32, 6.0, 7.0, 8.0]);
 
     // Initialize NCCL operations
-    let nccl_op = NcclOp::init(client_refs);
+    let nccl_op = NcclOp::init(clients);
 
-    // Execute operations
-    nccl_op.all_reduce(0, handle1).await?;
-    nccl_op.broadcast(0, handle2, 0).await?;
-    nccl_op.send(0, handle1, 1).await?;
-    nccl_op.recv(0, handle2, 0).await?;
+    // Execute operations first ist a usize which is a group
+    nccl_op.all_reduce(0, handle1, None).await;
+    nccl_op.broadcast(0, handle2, 0).await;
+    nccl_op.send(0, handle1, 1).await;
+    nccl_op.recv(0, handle2, 0).await;
 
     // Barrier synchronization
-    nccl_op.barrier(0).await?;
+    nccl_op.barrier(0).await;
 
     // Cleanup when done
     nccl_op.uninit().await;
-
-    Ok(())
 }
 */
 
