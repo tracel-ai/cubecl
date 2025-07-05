@@ -87,8 +87,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     .unwrap();
 
     #[cfg(feature = "nccl")]
-    crate::nccl::device::register_stream(device.clone(), stream);
-
+    crate::nccl::device::register_stream(device, stream);
 
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
@@ -212,7 +211,19 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(mem_alignment, cuda_ctx);
 
+    #[cfg(not(feature = "nccl"))]
+    {
         ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    }
+
+    #[cfg(feature = "nccl")]
+    {
+        ComputeClient::new(
+            MutexComputeChannel::new(server),
+            device_props,
+            device.clone(),
+        )
+    }
 }
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {

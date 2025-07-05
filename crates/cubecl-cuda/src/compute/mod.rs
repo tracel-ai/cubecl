@@ -1,6 +1,6 @@
+pub(crate) mod fence;
 mod server;
 mod storage;
-pub(crate) mod fence;
 
 pub use server::*;
 pub use storage::*;

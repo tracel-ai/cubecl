@@ -1,11 +1,9 @@
 use crate::CudaDevice;
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::Numeric;
+use cudarc::driver::sys::CUstream;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use cudarc::driver::sys::CUstream;
-
-
 
 /// This comes with the CudaDevice. Its added to each device. size is the byte size of the used
 /// type and count is the gpu count.
@@ -14,14 +12,14 @@ pub enum NcclDevice {
     Linked {
         id: cudarc::nccl::sys::ncclUniqueId,
         group: usize,
-        count: ::core::ffi::c_int,
+        count: usize,
         size: usize,
     },
     LinkedRemote {
         id: cudarc::nccl::sys::ncclUniqueId,
         group: usize,
         host: String,
-        count: ::core::ffi::c_int,
+        count: usize,
         size: usize,
     },
 }
@@ -43,17 +41,22 @@ impl NcclDevice {
     fn new_linked<N: CubeElement + Numeric>(
         id: cudarc::nccl::sys::ncclUniqueId,
         group: usize,
-        count: ::core::ffi::c_int,
+        count: usize,
     ) -> Self {
         let size = size_of::<N>();
-        NcclDevice::Linked { id, group, count, size }
+        NcclDevice::Linked {
+            id,
+            group,
+            count,
+            size,
+        }
     }
 
-    fn new_linkedremote<N: CubeElement + Numeric> (
+    fn new_linkedremote<N: CubeElement + Numeric>(
         id: cudarc::nccl::sys::ncclUniqueId,
         group: usize,
         host: String,
-        count: ::core::ffi::c_int,
+        count: usize,
     ) -> Self {
         let size = size_of::<N>();
         NcclDevice::LinkedRemote {
@@ -72,7 +75,7 @@ impl NcclDevice {
         }
     }
 
-    pub fn count(&self) -> ::core::ffi::c_int {
+    pub fn count(&self) -> usize {
         match &self {
             NcclDevice::Linked { count, .. } => *count,
             NcclDevice::LinkedRemote { count, .. } => *count,
@@ -104,11 +107,8 @@ impl CudaDevice {
             let id = cudarc::nccl::result::get_uniqueid().unwrap();
 
             for index in 0..count {
-                let nccl = NcclDevice::new_linked::<N>(id, 0, count as ::core::ffi::c_int);
-                let cuda = CudaDevice {
-                    index,
-                    nccl: nccl,
-                };
+                let nccl = NcclDevice::new_linked::<N>(id, 0, count);
+                let cuda = CudaDevice { index, nccl };
                 devices.push(cuda);
             }
         }
@@ -129,8 +129,7 @@ impl CudaDevice {
                 let id = cudarc::nccl::result::get_uniqueid().unwrap();
 
                 for _ in 0..group_size {
-                    let nccl =
-                        NcclDevice::new_linked::<N>(id, group_id, group_size as ::core::ffi::c_int);
+                    let nccl = NcclDevice::new_linked::<N>(id, group_id, group_size);
                     let cuda = CudaDevice {
                         index: device_index,
                         nccl: nccl,
@@ -144,10 +143,12 @@ impl CudaDevice {
         devices
     }
 
-
     /// Each f64 builds a group in proportion to the sum of the split vector.
     /// Each String in hosts will be cloned to every device in a specific group.
-    pub fn linkedremote_groups<N: CubeElement + Numeric>(split: Vec<f64>, hosts: Vec<String>) -> Vec<Self> {
+    pub fn linkedremote_groups<N: CubeElement + Numeric>(
+        split: Vec<f64>,
+        hosts: Vec<String>,
+    ) -> Vec<Self> {
         let total_count = cudarc::driver::safe::CudaContext::device_count().unwrap() as usize;
         let group_sizes = distribute_gpus(split, total_count);
 
@@ -163,12 +164,8 @@ impl CudaDevice {
                     .unwrap_or_else(|| format!("host_{}", group_id));
 
                 for _ in 0..group_size {
-                    let nccl = NcclDevice::new_linkedremote::<N>(
-                        id,
-                        group_id,
-                        host.clone(),
-                        group_size as ::core::ffi::c_int,
-                    );
+                    let nccl =
+                        NcclDevice::new_linkedremote::<N>(id, group_id, host.clone(), group_size);
                     let cuda = CudaDevice {
                         index: device_index,
                         nccl: nccl,
@@ -217,18 +214,12 @@ thread_local! {
     static CUDA_STREAM_CACHE: RefCell<HashMap<CudaDevice, CUstream>> = RefCell::new(HashMap::new());
 }
 
-// Bei Client-Erstellung (im selben Thread)
-pub fn register_stream(device: CudaDevice, stream: CUstream) {
+pub fn register_stream(device: &CudaDevice, stream: CUstream) {
     CUDA_STREAM_CACHE.with(|cache| {
-        cache.borrow_mut().insert(device, stream);
+        cache.borrow_mut().insert(device.clone(), stream);
     });
 }
 
-// In NCCL-Funktionen (im selben Thread)
-pub fn current_stream(device: CudaDevice) -> Option<CUstream> {
-    CUDA_STREAM_CACHE.with(|cache| {
-        cache.borrow().get(&device).copied()
-    })
+pub fn get_stream(device: &CudaDevice) -> Option<CUstream> {
+    CUDA_STREAM_CACHE.with(|cache| cache.borrow().get(device).copied())
 }
-
-
