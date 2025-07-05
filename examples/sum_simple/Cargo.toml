@@ -1,6 +1,6 @@
 [package]
 authors = []
-name = "gelu"
+name = "sum_simple"
 publish = false
 edition.workspace = true
 license.workspace = true
