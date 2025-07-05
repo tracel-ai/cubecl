@@ -8,7 +8,7 @@ use cubecl::{
 };
 use cubecl_convolution as convolution;
 use cubecl_convolution::{ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm};
-use cubecl_matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul};
+use cubecl_matmul::components::{MatmulPrecision, tile::accelerated::AcceleratedMatmul};
 use cubecl_std::tensor::TensorHandle;
 
 use cubecl_random::random_uniform;
@@ -21,6 +21,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         TensorHandle<R, MP::EI>,
         TensorHandle<R, MP::EI>,
     );
+    type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
@@ -93,7 +94,9 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
     }
 
     fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args))
+        self.client
+            .profile(|| self.execute(args), "conv2d-bench")
+            .unwrap()
     }
 }
 
@@ -183,4 +186,11 @@ fn main() {
     {
         run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
+
+    #[cfg(feature = "metal")]
+    {
+        run_benches::<cubecl::metal::MetalRuntime, f32>();
+        run_benches::<cubecl::metal::MetalRuntime, half::f16>();
+    }
+
 }

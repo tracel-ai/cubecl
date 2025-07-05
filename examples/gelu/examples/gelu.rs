@@ -3,4 +3,6 @@ fn main() {
     gelu::launch::<cubecl::cuda::CudaRuntime>(&Default::default());
     #[cfg(feature = "wgpu")]
     gelu::launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+    #[cfg(feature = "metal")]
+    gelu::launch::<cubecl::metal::MetalRuntime>(&Default::default());
 }
