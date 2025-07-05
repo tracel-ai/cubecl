@@ -185,10 +185,7 @@ impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = CudaStorage;
     type Feature = Feature;
-    #[cfg(not(feature = "nccl"))]
     type Info = ();
-    #[cfg(feature = "nccl")]
-    type Info = crate::device::CudaDevice;
 
     fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
         Box::pin(self.read_async(bindings))

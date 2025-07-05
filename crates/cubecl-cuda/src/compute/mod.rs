@@ -1,9 +1,5 @@
 mod server;
 mod storage;
-
-#[cfg(feature = "nccl")]
-pub mod nccl;
-
 pub(crate) mod fence;
 
 pub use server::*;
