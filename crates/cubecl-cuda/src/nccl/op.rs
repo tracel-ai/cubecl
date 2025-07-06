@@ -13,7 +13,6 @@ pub async fn example_usage() {
 
     // Execute operations first element represents a group
     nccl_op.all_reduce(0, handle1, None).await;
-    nccl_op.broadcast(0, handle2, 0).await;
     nccl_op.send(0, handle1, 1).await;
     nccl_op.recv(0, handle2, 0).await;
 
