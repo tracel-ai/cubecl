@@ -5,8 +5,8 @@ pub async fn example_usage() {
     let clients: Vec<&Client> = get_cuda_clients();
 
     // Create some data handles
-    let handle1 = clients[0].create(&[1.0f32, 2.0, 3.0, 4.0]);
-    let handle2 = clients[0].create(&[5.0f32, 6.0, 7.0, 8.0]);
+    let handle1 = clients[0].create(&[14, 51, 111, 103]);
+    let handle2 = clients[0].create(&[14, 51, 111, 103]);
 
     // Initialize NCCL operations
     let nccl_op = NcclOp::init(clients);
