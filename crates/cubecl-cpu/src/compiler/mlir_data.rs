@@ -82,7 +82,7 @@ impl MlirData {
     pub fn push_builtin(&mut self) {
         for arg in self.builtin.dims.iter_mut() {
             self.args_second_indirection
-                .push(arg as *mut u64 as *mut ());
+                .push(arg as *mut u32 as *mut ());
         }
     }
 }

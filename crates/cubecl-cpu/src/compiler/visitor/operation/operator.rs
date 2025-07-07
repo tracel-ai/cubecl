@@ -1,5 +1,8 @@
 use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator};
-use tracel_llvm::melior::dialect::{arith, memref, ods::vector};
+use tracel_llvm::melior::{
+    dialect::{arith, memref, ods::vector},
+    ir::attribute::DenseI64ArrayAttribute,
+};
 
 use crate::compiler::visitor::prelude::*;
 
@@ -40,9 +43,19 @@ impl<'a> Visitor<'a> {
         index_value: Value<'a, 'a>,
         out: Variable,
     ) -> Value<'a, 'a> {
-        let memref = self.get_memory(index.list);
         let vector_type = index.list.item.to_type(self.context);
-        let value = if out.item.is_vectorized() {
+        let value = if !self.is_memory(index.list) {
+            let to_extract = self.get_variable(index.list);
+            let zero = DenseI64ArrayAttribute::new(self.context, &[0]).into();
+            self.append_operation_with_result(vector::extract(
+                self.context,
+                to_extract,
+                &[index_value],
+                zero,
+                self.location,
+            ))
+        } else if out.item.is_vectorized() {
+            let memref = self.get_memory(index.list);
             self.append_operation_with_result(vector::load(
                 self.context,
                 vector_type,
@@ -51,6 +64,7 @@ impl<'a> Visitor<'a> {
                 self.location,
             ))
         } else {
+            let memref = self.get_memory(index.list);
             self.append_operation_with_result(memref::load(memref, &[index_value], self.location))
         };
         value
