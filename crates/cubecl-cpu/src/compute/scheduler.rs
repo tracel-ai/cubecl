@@ -1,7 +1,10 @@
-use cubecl_core::{CubeDim, ExecutionMode, compute::CubeTask, server::Bindings};
+use cubecl_core::{ExecutionMode, compute::CubeTask, server::Bindings};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
-use crate::{CpuCompiler, compiler::MlirCompilerOptions};
+use crate::{
+    CpuCompiler,
+    compiler::{MlirCompilerOptions, mlir_data::MlirData},
+};
 
 use super::{compute_task::ComputeTask, worker::Worker};
 
@@ -37,7 +40,7 @@ impl Scheduler {
         kind: ExecutionMode,
         memory_management: &mut MemoryManagement<BytesStorage>,
     ) {
-        let CubeDim { x, y, z } = kernel
+        let cube_dim = kernel
             .compile(
                 &mut Default::default(),
                 &MlirCompilerOptions::default(),
@@ -45,12 +48,12 @@ impl Scheduler {
             )
             .cube_dim;
 
-        let mut cube_dims = Vec::with_capacity((x * y * z) as usize);
+        let mut unit_pos_vec = Vec::with_capacity((cube_dim.x * cube_dim.y * cube_dim.z) as usize);
 
-        for cube_dim_x in 0..x {
-            for cube_dim_y in 0..y {
-                for cube_dim_z in 0..z {
-                    cube_dims.push([cube_dim_x, cube_dim_y, cube_dim_z]);
+        for unit_pos_x in 0..cube_dim.x {
+            for unit_pos_y in 0..cube_dim.y {
+                for unit_pos_z in 0..cube_dim.z {
+                    unit_pos_vec.push([unit_pos_x, unit_pos_y, unit_pos_z]);
                 }
             }
         }
@@ -70,27 +73,29 @@ impl Scheduler {
 
         let scalars: Vec<_> = scalars.into_iter().map(|(_, b)| b).collect();
 
-        for (slice, worker) in cube_dims
-            .chunks(cube_dims.len().div_ceil(self.workers.len()))
+        let mut mlir_data = MlirData::new(handles, scalars);
+        mlir_data.builtin.set_cube_dim(cube_dim);
+        mlir_data.builtin.set_cube_count(cube_count);
+
+        let kernel = kernel.compile(
+            &mut Default::default(),
+            &MlirCompilerOptions::default(),
+            kind,
+        );
+        let mlir_engine = kernel.repr.unwrap();
+
+        for (slice, worker) in unit_pos_vec
+            .chunks(unit_pos_vec.len().div_ceil(self.workers.len()))
             .zip(self.workers.iter_mut())
         {
-            let kernel = kernel.compile(
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-            );
-            let mlir_engine = kernel.repr.unwrap();
+            let mlir_engine = mlir_engine.clone();
+            let mlir_data = mlir_data.clone();
             let vec_unit_pos = slice.to_vec();
-
-            let handles = handles.clone();
-            let scalars = scalars.clone();
 
             let compute_task = ComputeTask {
                 mlir_engine,
-                handles,
-                scalars,
+                mlir_data,
                 vec_unit_pos,
-                cube_count,
                 kind,
             };
             worker.send_task(compute_task);

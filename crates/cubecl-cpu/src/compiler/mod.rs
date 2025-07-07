@@ -1,6 +1,7 @@
 pub mod builtin;
 pub(super) mod external_function;
 pub(super) mod memref;
+pub mod mlir_data;
 pub mod mlir_engine;
 pub mod module;
 pub mod passes;
