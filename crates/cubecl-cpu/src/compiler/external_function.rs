@@ -10,8 +10,8 @@ use tracel_llvm::melior::{
 
 pub fn register_external_function(execution_engine: &ExecutionEngine) {
     unsafe {
-        execution_engine.register_symbol("printf", libc::printf as *mut fn(isize) as *mut ());
-        execution_engine.register_symbol("_mlir_printf", libc::printf as *mut fn(isize) as *mut ()); // This is only there to fool the execution engine to generate .so for inspection even if symbol resolution will probably not work.
+        execution_engine.register_symbol("printf", libc::printf as *mut ());
+        execution_engine.register_symbol("_mlir_printf", libc::printf as *mut ()); // This is only there to fool the execution engine to generate .so for inspection even if symbol resolution will probably not work.
     }
 }
 
