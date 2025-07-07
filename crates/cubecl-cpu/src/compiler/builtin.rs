@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Builtin {
     pub dims: [u64; 9],
     //[
@@ -40,5 +40,8 @@ impl Builtin {
         self.dims[6] = unit_pos[0] as u64;
         self.dims[7] = unit_pos[1] as u64;
         self.dims[8] = unit_pos[2] as u64;
+    }
+    pub const fn len(&self) -> usize {
+        self.dims.len()
     }
 }

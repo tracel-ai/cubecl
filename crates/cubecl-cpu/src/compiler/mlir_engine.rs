@@ -1,27 +1,24 @@
-use super::builtin::Builtin;
+use crate::compiler::mlir_data::MlirData;
+
 use super::external_function::register_external_function;
-use super::memref::LineMemRef;
 use cubecl_opt::Optimizer;
 
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use super::module::Module;
-use cubecl_core::{prelude::KernelDefinition, server::ScalarBinding};
+use cubecl_core::prelude::KernelDefinition;
 use tracel_llvm::melior::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
     utility::{register_all_dialects, register_all_llvm_translations, register_all_passes},
 };
 
-const MAX_BUFFER_SIZE: usize = 256;
-
+#[derive(Clone)]
 pub struct MlirEngine {
-    args_zero_indirection: Vec<LineMemRef>,
-    args_first_indirection: Vec<*mut ()>,
-    args_second_indirection: Vec<*mut ()>,
-    pub builtin: Builtin,
-    scalars: Vec<ScalarBinding>,
-    execution_engine: ExecutionEngine,
+    execution_engine: Arc<ExecutionEngine>,
 }
 
 unsafe impl Send for MlirEngine {}
@@ -57,21 +54,9 @@ impl MlirEngine {
         module.run_pass();
 
         let execution_engine = module.into_execution_engine();
-        let args_zero_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
-        let args_first_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
-        let args_second_indirection = Vec::with_capacity(MAX_BUFFER_SIZE);
-        let scalars = Vec::with_capacity(MAX_BUFFER_SIZE);
-        let mut builtin = Builtin::default();
-        builtin.set_cube_dim(kernel.cube_dim);
         register_external_function(&execution_engine);
-        Self {
-            execution_engine,
-            args_zero_indirection,
-            args_first_indirection,
-            args_second_indirection,
-            scalars,
-            builtin,
-        }
+        let execution_engine = Arc::new(execution_engine);
+        Self { execution_engine }
     }
 
     pub fn dump_object(&self, path: &str) {
@@ -79,35 +64,12 @@ impl MlirEngine {
     }
 
     /// # Safety
-    /// This function will make the program segfault if args is reallocated.
-    pub unsafe fn push_buffer(&mut self, pointer: &mut [u8]) {
-        let first_box = LineMemRef::new(pointer);
-        self.args_zero_indirection.push(first_box);
-        let undirected = self.args_zero_indirection.last_mut().unwrap() as *mut LineMemRef;
-        self.args_first_indirection.push(undirected as *mut ());
-        let undirected = self.args_first_indirection.last_mut().unwrap() as *mut *mut ();
-        self.args_second_indirection.push(undirected as *mut ());
-    }
-
-    pub fn push_scalar(&mut self, scalar: ScalarBinding) {
-        self.scalars.push(scalar);
-        let data = self.scalars.last_mut().unwrap().data.as_mut_ptr() as *mut u8;
-        self.args_second_indirection.push(data as *mut ());
-    }
-
-    pub fn push_builtin(&mut self) {
-        for arg in self.builtin.dims.iter_mut() {
-            self.args_second_indirection
-                .push(arg as *mut u64 as *mut ());
-        }
-    }
-
-    /// # Safety
-    /// MLIR kernel needs valid reference and will SEGFAULT if bad pointer are sent.
-    pub unsafe fn run_kernel(&mut self) {
+    /// MLIR kernel needs valid reference to memory and will segfault if bad pointer are sent.
+    #[inline(always)]
+    pub unsafe fn run_kernel(&mut self, mlir_data: &mut MlirData) {
         unsafe {
             self.execution_engine
-                .invoke_packed("kernel", &mut self.args_second_indirection)
+                .invoke_packed("kernel", &mut mlir_data.args_second_indirection)
                 .unwrap()
         }
     }
