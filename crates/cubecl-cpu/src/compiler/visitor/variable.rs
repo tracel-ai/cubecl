@@ -118,6 +118,14 @@ impl<'a> Visitor<'a> {
             ),
         }
     }
+    pub fn is_memory(&self, variable: Variable) -> bool {
+        matches!(
+            variable.kind,
+            VariableKind::GlobalInputArray(_)
+                | VariableKind::GlobalOutputArray(_)
+                | VariableKind::LocalMut { .. }
+        )
+    }
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::LocalConst { id } => *self

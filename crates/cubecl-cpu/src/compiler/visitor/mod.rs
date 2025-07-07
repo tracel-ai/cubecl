@@ -244,10 +244,10 @@ impl<'a> Visitor<'a> {
             block_input.push((scalar, location));
         }
 
+        let integer_type: Type<'_> = IntegerType::new(context, 32).into();
         for _ in 0..9 {
-            let index = Type::index(context);
-            inputs.push(index);
-            block_input.push((index, location));
+            inputs.push(integer_type);
+            block_input.push((integer_type, location));
         }
 
         let func_type = TypeAttribute::new(FunctionType::new(context, &inputs, &[]).into());
@@ -303,10 +303,11 @@ impl<'a> Visitor<'a> {
         global_scalars: Vec<Value<'a, 'a>>,
     ) {
         let basic_block_id = opt.entry();
+        let integer_type: Type<'_> = IntegerType::new(context, 32).into();
         let c0: Value<'_, '_> = block
             .append_operation(arith::constant(
                 context,
-                IntegerAttribute::new(Type::index(context), 0).into(),
+                IntegerAttribute::new(integer_type, 0).into(),
                 location,
             ))
             .result(0)
@@ -316,7 +317,7 @@ impl<'a> Visitor<'a> {
         let c1: Value<'_, '_> = block
             .append_operation(arith::constant(
                 context,
-                IntegerAttribute::new(Type::index(context), 1).into(),
+                IntegerAttribute::new(integer_type, 1).into(),
                 location,
             ))
             .result(0)
@@ -419,7 +420,7 @@ impl<'a> Visitor<'a> {
             c1,
             {
                 let region = Region::new();
-                let block = Block::new(&[(Type::index(context), location)]);
+                let block = Block::new(&[(integer_type, location)]);
                 let cube_pos_x = block.argument(0).unwrap().into();
 
                 let absolute_pos_x_tmp = block
@@ -439,7 +440,7 @@ impl<'a> Visitor<'a> {
                     c1,
                     {
                         let region = Region::new();
-                        let block = Block::new(&[(Type::index(context), location)]);
+                        let block = Block::new(&[(integer_type, location)]);
                         let cube_pos_y = block.argument(0).unwrap().into();
 
                         let absolute_pos_y_tmp = block
@@ -467,7 +468,7 @@ impl<'a> Visitor<'a> {
                             c1,
                             {
                                 let region = Region::new();
-                                let block = Block::new(&[(Type::index(context), location)]);
+                                let block = Block::new(&[(integer_type, location)]);
 
                                 let cube_pos_z = block.argument(0).unwrap().into();
 
