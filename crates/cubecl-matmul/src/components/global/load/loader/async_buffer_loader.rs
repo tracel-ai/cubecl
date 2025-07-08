@@ -1,10 +1,10 @@
-use super::BufferId;
+use super::StageIdent;
 use crate::components::global::base::GlobalConfig;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{CopyMechanism, Quantization};
-use crate::components::stage::BufferStageToTileReader;
+use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
 use crate::components::{InputIdent, MatmulPrecision};
@@ -97,9 +97,9 @@ impl<
 
     pub fn reader(
         this: &Self,
-        #[comptime] buffer_id: BufferId,
-    ) -> BufferStageToTileReader<MP::ES, L::TilingLayout> {
-        BufferStageToTileReader::new(this.stage_memory, buffer_id, this.input_ident)
+        #[comptime] buffer_id: StageIdent,
+    ) -> PartialStageToTileReader<MP::ES, L::TilingLayout> {
+        PartialStageToTileReader::new(this.stage_memory, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
@@ -109,19 +109,19 @@ impl<
     pub fn fill_stage(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] buffer_id: BufferId,
+        #[comptime] buffer_id: StageIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(job) => match buffer_id {
-                BufferId::A => job.0,
-                BufferId::B => job.1,
+                StageIdent::A => job.0,
+                StageIdent::B => job.1,
             },
             CubeOption::None => match buffer_id {
-                BufferId::A => {
+                StageIdent::A => {
                     L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(0u32, this.input_ident, config)
                 }
-                BufferId::B => {
+                StageIdent::B => {
                     L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(1u32, this.input_ident, config)
                 }
             },
@@ -142,10 +142,10 @@ impl<
 
     pub fn clear_stage(
         this: &mut Self,
-        #[comptime] buffer_id: BufferId,
+        #[comptime] buffer_id: StageIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         this.stage_memory
-            .clear_buffer::<DoubleBufferingGlobalConfig<S>>(buffer_id, this.input_ident, config)
+            .clear_stage::<DoubleBufferingGlobalConfig<S>>(buffer_id, this.input_ident, config)
     }
 }

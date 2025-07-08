@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::load::BufferId;
+use crate::components::global::load::StageIdent;
 use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
 use crate::components::{InputIdent, TilingScheme};
@@ -17,7 +17,7 @@ pub enum EventLoadingMode {
 #[derive(CubeType)]
 pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
-    buffer_id: BufferId,
+    buffer_id: StageIdent,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
@@ -57,7 +57,7 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
     pub fn new(
-        #[comptime] buffer_id: BufferId,
+        #[comptime] buffer_id: StageIdent,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
@@ -245,14 +245,14 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     type Job: Job;
 
-    fn create_job(this: &Self, #[comptime] buffer_id: BufferId, #[comptime] config: G)
+    fn create_job(this: &Self, #[comptime] buffer_id: StageIdent, #[comptime] config: G)
     -> Self::Job;
 
     fn execute_task(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
 
     fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
 
-    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G);
+    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: StageIdent, #[comptime] config: G);
 }
 
 #[cube]

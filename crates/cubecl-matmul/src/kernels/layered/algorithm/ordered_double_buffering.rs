@@ -8,7 +8,7 @@ use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalParti
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
-    BufferReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
+    PartialReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
 use crate::components::{MatmulProblem, MatmulSelection};
@@ -32,7 +32,7 @@ where
 {
     type SelectionArgs = OrderedSelectionArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, BufferReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,

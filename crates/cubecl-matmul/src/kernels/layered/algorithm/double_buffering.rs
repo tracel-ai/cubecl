@@ -7,7 +7,7 @@ use cubecl_core::ir::Elem;
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
-    BufferReaderFamily, ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder,
+    PartialReaderFamily, ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::{MatmulProblem, tile};
 use crate::components::{MatmulSelection, global};
@@ -38,7 +38,7 @@ where
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
@@ -78,7 +78,7 @@ where
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
@@ -119,7 +119,7 @@ where
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily, BufferReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,

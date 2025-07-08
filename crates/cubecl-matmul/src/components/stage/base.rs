@@ -16,25 +16,9 @@ use std::{fmt::Debug, hash::Hash};
 
 use super::{StageEventListener, TilingLayout};
 
-#[cube]
-pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn read_tile<S: StageConfig>(
-        this: &Self,
-        row: u32,
-        col: u32,
-        #[comptime] config: S,
-    ) -> Tile<ES>;
-}
-
-pub trait ReaderFamily: Send + Sync + 'static {
-    type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
-}
-
+/// A family of [StageMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait StageMatmulFamily: Send + Sync + 'static {
-    type LhsReader: ReaderFamily;
-    type RhsReader: ReaderFamily;
-    type Config: StageConfig;
-
+    /// The specific [TileMatmul] implementation associated with this family.
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
             Config = Self::Config,
@@ -42,6 +26,18 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
         >;
 
+    /// Reader family for Lhs
+    type LhsReader: ReaderFamily;
+    /// Reader family for Rhs
+    type RhsReader: ReaderFamily;
+
+    /// The configuration type associated with this matmul family.
+    type Config: StageConfig;
+
+    /// Constructs the configuration based on the matmul problem, selection, line sizes,
+    /// number of stages, maximum of tasks per plane, and whether the algorithm is an ordered variant
+    ///
+    /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
@@ -52,6 +48,9 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError>;
 
+    /// Filters out line sizes that are incompatible with this matmul family.
+    ///
+    /// By default, returns the input unchanged.
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
@@ -192,4 +191,20 @@ pub enum PartitionBuffering {
     Single,
     #[default]
     Double,
+}
+
+#[cube]
+/// Read the tile at (row, col) from stage memory
+pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
+    fn read_tile<S: StageConfig>(
+        this: &Self,
+        row: u32,
+        col: u32,
+        #[comptime] config: S,
+    ) -> Tile<ES>;
+}
+
+/// Reader family for any precision
+pub trait ReaderFamily: Send + Sync + 'static {
+    type Reader<ES: Numeric, T: TilingLayout>: StageToTileReader<ES>;
 }

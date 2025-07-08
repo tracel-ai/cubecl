@@ -7,7 +7,7 @@ use crate::components::global::multi_stage::double_buffering::{
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
-use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
+use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
@@ -23,7 +23,7 @@ pub struct DoubleBufferingMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = BufferReaderFamily, RhsReader = BufferReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = PartialReaderFamily, RhsReader = PartialReaderFamily>,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
