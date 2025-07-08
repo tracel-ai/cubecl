@@ -687,7 +687,7 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
 
         let lhs_rank = lhs.shape.len();
         let mut lhs_shape = vec![
-            problem.batches.0[0],
+            problem.lhs_batches[0],
             lhs.shape[lhs_rank - 2],
             lhs.shape[lhs_rank - 1],
         ];
@@ -699,7 +699,7 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
 
         let rhs_rank = rhs.shape.len();
         let mut rhs_shape = vec![
-            problem.batches.1[0],
+            problem.rhs_batches[0],
             rhs.shape[rhs_rank - 2],
             rhs.shape[rhs_rank - 1],
         ];

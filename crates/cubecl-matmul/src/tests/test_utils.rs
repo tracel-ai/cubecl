@@ -437,7 +437,8 @@ where
     let k = problem.k;
     let num_batches = problem.num_batches();
 
-    let (b_lhs, b_rhs) = problem.batches.clone();
+    let b_lhs = problem.lhs_batches.clone();
+    let b_rhs = problem.rhs_batches.clone();
     assert!(
         b_lhs.len() == b_rhs.len(),
         "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
@@ -495,7 +496,9 @@ where
     let k = problem.k;
     let num_batches = problem.num_batches();
 
-    let (b_lhs, b_rhs) = problem.batches.clone();
+    let b_lhs = problem.lhs_batches.clone();
+    let b_rhs = problem.rhs_batches.clone();
+
     assert!(
         b_lhs.len() == b_rhs.len(),
         "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."

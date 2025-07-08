@@ -8,18 +8,18 @@ pub struct MatmulProblem {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    pub batches: (Vec<usize>, Vec<usize>),
+    pub lhs_batches: Vec<usize>,
+    pub rhs_batches: Vec<usize>,
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
 }
 
 impl MatmulProblem {
     pub(crate) fn batch_dims(&self) -> Vec<usize> {
-        self.batches
-            .0
+        self.lhs_batches
             .iter()
             .rev()
-            .zip(self.batches.1.iter().rev())
+            .zip(self.rhs_batches.iter().rev())
             .map(|(&dim_lhs, &dim_rhs)| std::cmp::max(dim_lhs, dim_rhs))
             .collect()
     }
@@ -34,15 +34,13 @@ impl MatmulProblem {
     pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
         match ident {
             Ident::Lhs => self
-                .batches
-                .0
+                .lhs_batches
                 .iter()
                 .cloned()
                 .chain(vec![self.m, self.k])
                 .collect(),
             Ident::Rhs => self
-                .batches
-                .1
+                .rhs_batches
                 .iter()
                 .cloned()
                 .chain(vec![self.k, self.n])

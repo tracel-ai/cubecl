@@ -195,10 +195,8 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         m: m as usize,
         n: n as usize,
         k: k as usize,
-        batches: (
-            lhs.shape[..lhs.shape.len() - 2].to_vec(),
-            rhs.shape[..rhs.shape.len() - 2].to_vec(),
-        ),
+        lhs_batches: lhs.shape[..lhs.shape.len() - 2].to_vec(),
+        rhs_batches: rhs.shape[..rhs.shape.len() - 2].to_vec(),
         lhs_layout,
         rhs_layout,
     };
@@ -299,7 +297,8 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         m: m as usize,
         n: n as usize,
         k: k as usize,
-        batches: ([batch_lhs].to_vec(), [batch_rhs].to_vec()),
+        lhs_batches: [batch_lhs].to_vec(),
+        rhs_batches: [batch_rhs].to_vec(),
         lhs_layout,
         rhs_layout,
     };

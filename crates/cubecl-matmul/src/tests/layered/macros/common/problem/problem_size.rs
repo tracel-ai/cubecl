@@ -14,7 +14,8 @@ macro_rules! testgen_matmul_problem_size {
                     m: 256,
                     n: 256,
                     k: 256,
-                    batches: (vec![2], vec![2]),
+                    lhs_batches: vec![2],
+                    rhs_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -33,7 +34,8 @@ macro_rules! testgen_matmul_problem_size {
                     m: 100,
                     n: 100,
                     k: 100,
-                    batches: (vec![2], vec![2]),
+                    lhs_batches: vec![2],
+                    rhs_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -52,7 +54,8 @@ macro_rules! testgen_matmul_problem_size {
                     m: 23,
                     n: 1,
                     k: 17,
-                    batches: (vec![2], vec![2]),
+                    lhs_batches: vec![2],
+                    rhs_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
