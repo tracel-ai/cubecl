@@ -16,21 +16,21 @@ macro_rules! testgen_matmul_simple {
 
             #[test]
             pub fn test_small() {
-                cubecl_matmul::tests::simple::test_small::<TestRuntime, FloatT>(
+                cubecl_matmul::tests::naive::tests::test_small::<TestRuntime, FloatT>(
                     &Default::default(),
                 )
             }
 
             #[test]
             pub fn test_simple_matmul_large() {
-                cubecl_matmul::tests::simple::test_large::<TestRuntime, FloatT>(
+                cubecl_matmul::tests::naive::tests::test_large::<TestRuntime, FloatT>(
                     &Default::default(),
                 )
             }
 
             #[test]
             pub fn test_with_check_bounds() {
-                cubecl_matmul::tests::simple::test_with_check_bounds::<
+                cubecl_matmul::tests::naive::tests::test_with_check_bounds::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
@@ -38,7 +38,7 @@ macro_rules! testgen_matmul_simple {
 
             #[test]
             pub fn test_with_batches() {
-                cubecl_matmul::tests::simple::test_with_batches::<
+                cubecl_matmul::tests::naive::tests::test_with_batches::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())

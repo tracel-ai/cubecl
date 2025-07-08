@@ -13,12 +13,7 @@ macro_rules! testgen_matmul_advanced {
             pub fn get_selection_builder() -> MatmulSelectionBuilder {
                 let tiling_scheme = $tiling_scheme_builder.build().unwrap();
                 let client = TestRuntime::client(&Default::default());
-                let plane_dim = match client.properties().hardware.defined_plane_size() {
-                    Some(val) => val,
-                    None => {
-                        panic!("Can't run test without a fixed plane size.");
-                    }
-                };
+                let plane_dim = client.properties().hardware.plane_size_max;
                 MatmulSelection::builder(tiling_scheme, plane_dim)
             }
         }

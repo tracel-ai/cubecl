@@ -2,10 +2,14 @@ use std::fmt::Display;
 
 use cubecl_core::{CubeElement, Runtime, prelude::Float};
 
-use crate::kernels::naive;
+use crate::{
+    kernels::naive,
+    tests::{
+        naive::utils::MatmulTestCase,
+        test_utils::{Sample, assert_equals_approx},
+    },
+};
 use cubecl_std::tensor::TensorHandle;
-
-use super::test_utils::{MatmulTestCase, Sample, assert_equals_approx};
 
 pub fn test_small<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {

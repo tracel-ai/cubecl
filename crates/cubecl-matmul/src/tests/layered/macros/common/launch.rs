@@ -2,7 +2,7 @@
 macro_rules! testgen_matmul_launch {
     (PlaneAccelerated, $algorithm: ty, $precision: ty, $selection: expr, $problem: expr) => {
         use super::*;
-        use $crate::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
+        use $crate::tests::layered::matmul_test_launcher::test_matmul_algorithm;
 
         #[test]
         pub fn test() {
@@ -15,7 +15,7 @@ macro_rules! testgen_matmul_launch {
 
     (Unit, $algorithm: ty, $precision: ty, $selection: expr, $problem: expr) => {
         use super::*;
-        use $crate::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
+        use $crate::tests::layered::matmul_test_launcher::test_matmul_algorithm;
 
         #[test]
         pub fn test() {
@@ -28,7 +28,7 @@ macro_rules! testgen_matmul_launch {
 
     (Tma, $algorithm: ty, $precision: ty, $selection: expr, $problem: expr) => {
         use super::*;
-        use $crate::tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm;
+        use $crate::tests::layered::tma_test_launcher::test_tma_matmul_algorithm;
 
         #[test]
         pub fn test() {
