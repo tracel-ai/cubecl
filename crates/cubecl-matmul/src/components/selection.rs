@@ -2,14 +2,13 @@ use crate::components::{
     TilingScheme,
     batch::HypercubeSelection,
     global::{LoadSpecializationConfig, load::LoaderMode},
-    stage::{PartitionBuffering, StageVectorization},
+    stage::PartitionBuffering,
 };
 
 #[derive(Debug, Clone)]
 pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
-    pub stage_vectorization: StageVectorization,
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
@@ -32,7 +31,6 @@ pub struct MatmulSelectionBuilder {
     plane_dim: Option<u32>,
     pub tiling_scheme: Option<TilingScheme>,
     hypercube_selection: Option<HypercubeSelection>,
-    stage_vectorization: StageVectorization,
     quantized: bool,
     partition_buffering: PartitionBuffering,
     loading_precompute_strategy: LoadingPrecomputeStrategy,
@@ -46,7 +44,6 @@ impl MatmulSelectionBuilder {
             plane_dim: None,
             tiling_scheme: None,
             hypercube_selection: None,
-            stage_vectorization: StageVectorization::default(),
             quantized: false,
             partition_buffering: PartitionBuffering::default(),
             loading_precompute_strategy: LoadingPrecomputeStrategy::default(),
@@ -67,11 +64,6 @@ impl MatmulSelectionBuilder {
 
     pub fn hypercube_config(mut self, hypercube_config: HypercubeSelection) -> Self {
         self.hypercube_selection = Some(hypercube_config);
-        self
-    }
-
-    pub fn stage_vectorization(mut self, stage_vectorization: StageVectorization) -> Self {
-        self.stage_vectorization = stage_vectorization;
         self
     }
 
@@ -111,7 +103,6 @@ impl MatmulSelectionBuilder {
             plane_dim: self.plane_dim.unwrap(),
             tiling_scheme: self.tiling_scheme.unwrap(),
             hypercube_selection: self.hypercube_selection.unwrap(),
-            stage_vectorization: self.stage_vectorization,
             quantized: self.quantized,
             partition_buffering: self.partition_buffering,
             loading_precompute_strategy: self.loading_precompute_strategy,

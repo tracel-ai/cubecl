@@ -4,14 +4,14 @@ use cubecl_core::{self as cubecl};
 use crate::components::error::MatmulSetupError;
 use crate::components::{
     AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
-    TileSize, resource::ComputeResources, stage::StageVectorization, tile::tile_data::Tile,
+    TileSize, resource::ComputeResources, tile::tile_data::Tile,
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use std::{fmt::Debug, hash::Hash};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Input to the Tile Matmul setup
 pub struct TileSetupInput {
-    pub vectorization: StageVectorization,
     pub tile_size: TileSize,
 }
 
@@ -71,7 +71,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
     /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     /// Create the container for RHS data
     ///
@@ -82,7 +82,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of RHS with data
-    fn fill_rhs(slice: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Allocate the container to receive the execution output.
     ///

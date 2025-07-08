@@ -1,6 +1,6 @@
+use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{Elem, FloatKind};
-use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -23,7 +23,6 @@ pub struct RegisterConfig {
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
-    pub stage_dynamic_line_size: bool,
     lhs_global_line_size: u32,
     rhs_global_line_size: u32,
     out_global_line_size: u32,
@@ -73,7 +72,6 @@ impl RegisterConfig {
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
-        stage_dynamic_line_size: bool,
         lhs_global_line_size: u32,
         rhs_global_line_size: u32,
         out_global_line_size: u32,
@@ -85,7 +83,6 @@ impl RegisterConfig {
             plane_dim,
             lhs_layout,
             rhs_layout,
-            stage_dynamic_line_size,
             lhs_global_line_size,
             rhs_global_line_size,
             out_global_line_size,
@@ -156,16 +153,6 @@ impl RegisterConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        if self.stage_dynamic_line_size
-            && !client
-                .properties()
-                .feature_enabled(Feature::DynamicLineSize)
-        {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::DynamicLineSizeUnavailable,
-            ));
-        }
-
         let es = MP::ES::as_elem_native().expect("to be a native type");
         let ea = MP::EA::as_elem_native().expect("to be a native type");
 

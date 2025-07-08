@@ -20,11 +20,3 @@ impl From<(u32, u32)> for NumStages {
         }
     }
 }
-
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct StageVectorization {
-    /// A line size of zero means use the same vectorization as global memory.
-    pub stage_line_size: u8,
-    /// Still unsupported.
-    pub stage_elem_padding: u8,
-}
