@@ -238,7 +238,7 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
-    if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
+    if <A::TileMatmul as TileMatmulFamily>::requires_accelerator()
         && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
         && tf32::is_supported(client)
     {

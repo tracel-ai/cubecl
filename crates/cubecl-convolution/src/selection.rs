@@ -85,7 +85,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let stage_k = if problem.k >= 4096 { 4 } else { 2 };
 
     let tile_size = find_instruction_size(
-        if TMM::requires_tensor_cores() {
+        if TMM::requires_accelerator() {
             Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
         } else {
             None

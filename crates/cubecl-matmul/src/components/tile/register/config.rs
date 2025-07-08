@@ -7,17 +7,22 @@ use crate::components::tile::TileConfig;
 use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
 use cubecl_core::frontend::CubePrimitive;
 
+/// Execution mode for the RegisterMatmul
 pub enum ProductType {
-    /// Needs lhs to be row major and rhs to be col major
-    /// If not the case, tile will be transposed
+    /// Computes the Tile Matmul as m*n inner products of length k.
+    ///
+    /// Needs Lhs to be row major and Rhs to be col major
+    /// If not the case, tile will be transposed during fill
     Inner,
-    /// Needs lhs to be col major and rhs to be row major
-    /// If not the case, tile will be transposed
+    /// Computes the Stage Matmul as the sum of k outer products of size m*n.
+    ///
+    /// Needs Lhs to be col major and Rhs to be row major
+    /// If not the case, tile will be transposed during fill
     Outer,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for Register instruction
+/// Configuration for Register Matmul
 pub struct RegisterConfig {
     tiling_scheme: TilingScheme,
     plane_dim: u32,

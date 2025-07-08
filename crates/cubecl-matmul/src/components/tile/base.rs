@@ -9,19 +9,23 @@ use crate::components::{
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use std::{fmt::Debug, hash::Hash};
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Input to the Tile Matmul setup
-pub struct TileSetupInput {
-    pub tile_size: TileSize,
-}
-
+/// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait TileMatmulFamily: Send + Sync + 'static {
+    /// The specific [TileMatmul] implementation associated with this family.
     type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
+
+    /// The configuration type associated with this matmul family.
     type Config: TileConfig;
 
-    fn requires_tensor_cores() -> bool;
+    /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
+    fn requires_accelerator() -> bool;
+
+    /// Returns the compute resources required to run this tile matmul.
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
+    /// Constructs the configuration based on the matmul problem, selection, and line sizes.
+    ///
+    /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
@@ -29,6 +33,9 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
         line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
+    /// Filters out line sizes that are incompatible with this matmul family.
+    ///
+    /// By default, returns the input unchanged.
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
@@ -46,15 +53,16 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
 ///  - Enough units are present to perform the whole computation
 #[cube]
 pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
+    /// The configuration type associated with this Matmul.
     type Config: TileConfig;
-    /// Contains LHS data that can be split across the units
+    /// Contains Lhs data for computation
     type Lhs: CubeType;
-    /// Contains RHS data that can be split across the units
+    /// Contains Rhs data for computation
     type Rhs: CubeType;
-    /// Contains output data that can be split across the units
+    /// Contains and accumulates results of the Tile Matmul execution
     type Accumulator: CubeType;
 
-    /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
+    /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     fn execute(
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
@@ -62,7 +70,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    /// Create the container for LHS data
+    /// Create the container for Lhs
     ///
     /// # Safety
     ///
@@ -70,18 +78,18 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Make sure to call [fill_lhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
-    /// Fill the container of LHS with data
+    /// Fill the container of Lhs with tile data
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
-    /// Create the container for RHS data
+    /// Create the container for Rhs
     ///
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to call [fill_rhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
+    /// Make sure to call [fill_rhs](TileMatmul::fill_rhs) prior to [execute](TileMatmul::execute).
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
-    /// Fill the container of RHS with data
+    /// Fill the container of Rhs with tile data
     fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Allocate the container to receive the execution output.
@@ -112,9 +120,9 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 }
 
-/// Configuration for the Tile matmul (TMM) level
+/// Configuration for the Tile Matmul level
 pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {
-    /// Returns the size of the plane dimension
+    /// Returns the number of units in a plane
     fn plane_dim(&self) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
@@ -123,8 +131,9 @@ pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync
     /// Returns the line size for the given ident
     fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
+    /// Returns the line size for the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
-    /// Returns the shape of the tiles in the three axes m, k and n.
+    /// Returns the (m,n,k) shape of the tiles
     fn tile_size(&self) -> &TileSize;
 }

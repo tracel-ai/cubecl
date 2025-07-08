@@ -15,7 +15,7 @@ impl TileMatmulFamily for RegisterMatmul {
     type Matmul<MP: MatmulPrecision> = RegisterMatmul;
     type Config = RegisterConfig;
 
-    fn requires_tensor_cores() -> bool {
+    fn requires_accelerator() -> bool {
         false
     }
 

@@ -8,7 +8,7 @@ use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingSc
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for Accelerated instruction
+/// Configuration for Accelerated Matmul
 pub struct AcceleratedConfig {
     tiling_scheme: TilingScheme,
     plane_dim: u32,

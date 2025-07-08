@@ -12,7 +12,7 @@ impl TileMatmulFamily for AcceleratedMatmul {
     type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
     type Config = AcceleratedConfig;
 
-    fn requires_tensor_cores() -> bool {
+    fn requires_accelerator() -> bool {
         true
     }
 

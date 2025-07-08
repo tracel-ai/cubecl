@@ -5,14 +5,16 @@ use crate::components::{Ident, MatmulPrecision, MatrixLayout};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-/// Uses one unit to perform a small matmul entirely using its registers
+/// Uses one unit to perform a small matmul directly in registers
 pub struct RegisterMatmul;
 
-// Doesn't impact performance in any meaninful way, but increases kernel size too much (often ~6X).
+/// Doesn't impact performance much, but may increase kernel size too much when true (often ~6X).
+///
+/// TODO: make it configurable
 static UNROLL: bool = false;
 
 #[derive(CubeType)]
-/// Contains the accumulated result, within a row major array of size rows x cols
+/// Contains the accumulated result in a row-major array of size rows x cols
 pub struct TileAccumulator<EA: Numeric> {
     data: Array<EA>,
     #[cube(comptime)]
