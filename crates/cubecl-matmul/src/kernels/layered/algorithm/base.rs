@@ -4,10 +4,9 @@ use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulProblem};
 use crate::kernels::MatmulSetupError;
+use crate::kernels::layered::selector::MatmulSelection;
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
-
-use super::MatmulSelection;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum MultiRowStrategy {

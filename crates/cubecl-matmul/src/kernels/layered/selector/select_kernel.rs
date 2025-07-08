@@ -1,7 +1,7 @@
 use crate::components::batch::BatchConfig;
 use crate::components::{InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg};
-use crate::kernels::matmul::base::Selection;
-use crate::kernels::matmul::{Algorithm, launch_with_config};
+use crate::kernels::layered::base::Selection;
+use crate::kernels::layered::{Algorithm, launch_with_config};
 use crate::{
     components::{
         InputArg, MatmulProblem, MatmulSpec, OutputArg,

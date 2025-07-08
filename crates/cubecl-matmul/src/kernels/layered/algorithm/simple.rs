@@ -1,22 +1,27 @@
-use super::{MatmulSelection, base, plane_matmul_selection};
 use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem};
 use std::marker::PhantomData;
 
-use crate::components::{
-    MatmulProblem, TilingScheme,
-    batch::{
-        CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
-        PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
+use crate::{
+    components::{
+        MatmulProblem, TilingScheme,
+        batch::{
+            CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
+            PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
+        },
+        global::{
+            load::{SyncFullLoadingStrategy, sync_full_cyclic},
+            single_stage::simple::SimpleMatmulFamily,
+        },
+        stage::{
+            ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
+            RowMajorTilingOrder,
+        },
+        tile::TileMatmulFamily,
     },
-    global::{
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
-        single_stage::simple::SimpleMatmulFamily,
+    kernels::layered::{
+        Algorithm, MultiRowStrategy,
+        selector::{MatmulSelection, PlaneMatmulSelectionOptions, plane_matmul_selection},
     },
-    stage::{
-        ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
-        RowMajorTilingOrder,
-    },
-    tile::TileMatmulFamily,
 };
 
 #[derive(Default, Debug, Clone)]
@@ -35,7 +40,7 @@ pub struct SimpleAlgorithm<
     pub _rl: PhantomData<RL>,
 }
 
-impl<TMM, LL, RL> base::Algorithm for SimpleAlgorithm<TMM, LL, RL>
+impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
     TMM: TileMatmulFamily,
     LL: SyncFullLoadingStrategy,
@@ -124,9 +129,9 @@ where
                     plane_dim,
                     elem_stage,
                     elem_acc,
-                    super::PlaneMatmulSelectionOptions {
+                    PlaneMatmulSelectionOptions {
                         partition_buffering: Some(PartitionBuffering::Single),
-                        multi_row_strategy: base::MultiRowStrategy::Always(2),
+                        multi_row_strategy: MultiRowStrategy::Always(2),
                         partition_k: Some(2),
                         ..Default::default()
                     },
@@ -139,7 +144,7 @@ where
                 plane_dim,
                 elem_stage,
                 elem_acc,
-                super::PlaneMatmulSelectionOptions {
+                PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     ..Default::default()
                 },

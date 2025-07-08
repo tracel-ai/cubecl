@@ -12,7 +12,7 @@ use crate::components::{
     OutputRuntimeArg,
 };
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 
 pub struct PartitionedBatchMatmulFamily<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> {

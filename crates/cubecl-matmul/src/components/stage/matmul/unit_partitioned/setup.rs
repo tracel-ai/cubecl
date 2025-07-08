@@ -12,7 +12,7 @@ use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::MatmulSelection;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;

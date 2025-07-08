@@ -11,7 +11,7 @@ use crate::{
         },
         stage::{self},
     },
-    kernels::{MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    kernels::{MatmulSetupError, layered::LoadingPrecomputeStrategy},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

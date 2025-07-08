@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::kernels::layered::MatmulSelection;
 use half::f16;
 
 use crate::ConvGemmConfig;

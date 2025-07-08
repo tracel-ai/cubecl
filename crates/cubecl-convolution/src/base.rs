@@ -6,7 +6,7 @@ use cubecl_matmul::{
         MatmulSpec, MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, layered::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmod,

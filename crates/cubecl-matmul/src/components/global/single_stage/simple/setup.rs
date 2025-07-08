@@ -7,7 +7,7 @@ use crate::{
         },
         stage::StageConfig,
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, layered::MatmulSelection},
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

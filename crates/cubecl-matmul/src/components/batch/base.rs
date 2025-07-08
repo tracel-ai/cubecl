@@ -6,7 +6,7 @@ use crate::{
         config::MatmulConfig,
         global::{self, GlobalConfig as _, Quantization},
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, layered::MatmulSelection},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

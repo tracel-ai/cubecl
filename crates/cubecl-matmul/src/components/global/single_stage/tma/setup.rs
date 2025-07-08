@@ -7,7 +7,7 @@ use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::MatmulSelection;
 use std::marker::PhantomData;
 
 use cubecl_core::Runtime;

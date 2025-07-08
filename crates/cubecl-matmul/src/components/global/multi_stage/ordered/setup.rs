@@ -7,7 +7,7 @@ use crate::components::stage::StageConfig;
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 

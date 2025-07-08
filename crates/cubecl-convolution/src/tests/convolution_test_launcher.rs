@@ -2,7 +2,7 @@ use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::AvailableLineSizes;
 use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::kernels::layered::MatmulSelection;
 
 use crate::ConvGemmConfig;
 use crate::algorithm::Algorithm;

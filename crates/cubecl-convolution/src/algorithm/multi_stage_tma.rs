@@ -19,7 +19,7 @@ use cubecl_matmul::{
         stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
-    kernels::matmul::MatmulSelection,
+    kernels::layered::MatmulSelection,
 };
 
 use cubecl_std::tensor::TensorHandle;

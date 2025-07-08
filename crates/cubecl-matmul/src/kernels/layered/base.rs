@@ -4,6 +4,7 @@ use crate::components::{
     MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
+use crate::kernels::layered::selector::{MatmulSelection, launch_kernel_concrete};
 use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*, try_tensor_line_size_parallel};
@@ -12,7 +13,7 @@ use cubecl_std::tensor::{
     MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
 };
 
-use super::{Algorithm, MatmulSelection, launch_kernel_concrete};
+use super::Algorithm;
 
 #[derive(Debug, Clone)]
 pub enum Selection<S> {

@@ -8,7 +8,7 @@ use cubecl_matmul::components::{
     MatmulLineSizes,
     global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
 };
-use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::kernels::layered::MatmulSelection;
 
 use super::base::ConvolutionProblem;
 

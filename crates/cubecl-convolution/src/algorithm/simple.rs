@@ -18,7 +18,7 @@ use cubecl_matmul::components::{
     stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,
 };
-use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::kernels::layered::MatmulSelection;
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous};
 

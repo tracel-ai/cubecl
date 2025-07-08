@@ -5,7 +5,7 @@ use crate::{
         global::load::LoaderMode,
         stage::{PartitionBuffering, StageVectorization},
     },
-    kernels::matmul::LoadingPrecomputeStrategy,
+    kernels::layered::LoadingPrecomputeStrategy,
 };
 
 #[derive(Debug, Clone)]

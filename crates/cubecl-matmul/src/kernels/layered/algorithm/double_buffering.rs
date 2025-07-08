@@ -11,10 +11,11 @@ use crate::components::stage::{
     BufferReaderFamily, ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::{MatmulProblem, tile};
-
-use super::{
-    MatmulSelection, MultiRowStrategy, PlaneMatmulSelectionOptions, base, plane_matmul_selection,
+use crate::kernels::layered::algorithm::base;
+use crate::kernels::layered::selector::{
+    MatmulSelection, PlaneMatmulSelectionOptions, plane_matmul_selection,
 };
+use crate::kernels::layered::{Algorithm, MultiRowStrategy};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
@@ -73,7 +74,7 @@ where
     }
 }
 
-impl<TMM> base::Algorithm for TilewiseDoubleBufferingAlgorithm<TMM>
+impl<TMM> Algorithm for TilewiseDoubleBufferingAlgorithm<TMM>
 where
     TMM: tile::TileMatmulFamily,
 {

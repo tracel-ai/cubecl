@@ -9,7 +9,7 @@ use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::MatmulSelection;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 pub struct SimpleBarrierMatmulFamily<

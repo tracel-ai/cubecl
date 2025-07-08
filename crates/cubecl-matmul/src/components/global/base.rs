@@ -12,7 +12,7 @@ use crate::{
         },
         stage::{self, StageConfig},
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, layered::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption,

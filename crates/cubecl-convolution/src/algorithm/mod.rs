@@ -7,7 +7,7 @@ use cubecl_matmul::{
     },
     kernels::{
         MatmulSetupError,
-        matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
+        layered::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
     },
 };
 

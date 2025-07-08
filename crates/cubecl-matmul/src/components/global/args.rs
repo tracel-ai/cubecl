@@ -10,7 +10,7 @@ use cubecl_std::{
 use super::Quantization;
 use crate::{
     components::{self, MatmulLineSizes, MatmulPrecision, MatmulProblem},
-    kernels::matmul::MatmulSelection,
+    kernels::layered::MatmulSelection,
 };
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and

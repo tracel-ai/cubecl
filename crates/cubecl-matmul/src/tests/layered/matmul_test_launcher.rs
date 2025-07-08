@@ -6,7 +6,7 @@ use crate::components::MatrixLayout;
 use crate::components::batch::{BatchConfig, BatchMatmulFamily};
 use crate::components::global::args::TensorInputsLaunch;
 use crate::components::{AvailableLineSizes, Ident};
-use crate::kernels::matmul::{Algorithm, MatmulSelection};
+use crate::kernels::layered::{Algorithm, MatmulSelection};
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 

@@ -30,7 +30,7 @@ use cubecl_matmul::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, layered::MatmulSelection},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

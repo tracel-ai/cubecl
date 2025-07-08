@@ -5,7 +5,7 @@ use super::base::ConvolutionProblem;
 use cubecl_matmul::components::TilingScheme;
 use cubecl_matmul::{
     components::tile::TileMatmulFamily,
-    kernels::matmul::{
+    kernels::layered::{
         MatmulSelection, NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_size,
     },
 };

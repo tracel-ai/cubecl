@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_plane_accelerated_algorithm {
     () => {
-        use $crate::kernels::matmul::{
+        use $crate::kernels::layered::{
             simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm,
             double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm},

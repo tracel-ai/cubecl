@@ -11,7 +11,7 @@ use crate::components::{
     TilingScheme,
 };
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
-use crate::kernels::matmul::MultiRowStrategy;
+use crate::kernels::layered::MultiRowStrategy;
 
 use super::MatmulSelection;
 

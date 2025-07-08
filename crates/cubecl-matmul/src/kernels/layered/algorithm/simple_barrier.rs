@@ -1,14 +1,21 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
-use super::{MatmulSelection, base, plane_matmul_selection};
 use std::marker::PhantomData;
 
-use crate::components::{
-    MatmulProblem,
-    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    global::{load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily},
-    stage::{FullReaderFamily, PlaneMatmulFamily},
-    tile,
+use crate::{
+    components::{
+        MatmulProblem,
+        batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
+        global::{
+            load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
+        },
+        stage::{FullReaderFamily, PlaneMatmulFamily},
+        tile,
+    },
+    kernels::layered::{
+        Algorithm,
+        selector::{MatmulSelection, plane_matmul_selection},
+    },
 };
 
 pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
@@ -16,7 +23,7 @@ pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
     pub _l: PhantomData<L>,
 }
 
-impl<TMM, L> base::Algorithm for SimpleBarrierAlgorithm<TMM, L>
+impl<TMM, L> Algorithm for SimpleBarrierAlgorithm<TMM, L>
 where
     TMM: tile::TileMatmulFamily,
     L: AsyncFullLoadingStrategy,

@@ -8,7 +8,7 @@ use crate::{
         MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
         stage::StageVectorization, tile::tile_data::Tile,
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    kernels::{MatmulSetupError, layered::MatmulSelection},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

@@ -12,10 +12,10 @@ use crate::components::stage::{
     BufferReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
-
-use super::{
-    MatmulSelection, MultiRowStrategy, PlaneMatmulSelectionOptions, base, plane_matmul_selection,
+use crate::kernels::layered::selector::{
+    MatmulSelection, PlaneMatmulSelectionOptions, plane_matmul_selection,
 };
+use crate::kernels::layered::{Algorithm, MultiRowStrategy};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
@@ -28,7 +28,7 @@ pub struct OrderedSelectionArgs {
     pub rows_per_plane: Option<u32>,
 }
 
-impl<TMM> base::Algorithm for OrderedDoubleBufferingAlgorithm<TMM>
+impl<TMM> Algorithm for OrderedDoubleBufferingAlgorithm<TMM>
 where
     TMM: tile::TileMatmulFamily,
 {

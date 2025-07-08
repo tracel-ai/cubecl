@@ -1,5 +1,4 @@
 mod base;
-mod selector;
 
 pub mod double_buffering;
 pub mod double_unit;
@@ -11,4 +10,3 @@ pub mod simple_unit;
 
 pub use base::Algorithm;
 pub use base::{LoadingPrecomputeStrategy, MultiRowStrategy};
-pub use selector::*;

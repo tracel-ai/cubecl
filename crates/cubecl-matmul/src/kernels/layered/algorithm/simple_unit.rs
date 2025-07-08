@@ -1,17 +1,22 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
-use super::{MatmulSelection, TileSizeSelection, base, unit_matmul_selection};
 use std::marker::PhantomData;
 
-use crate::components::{
-    MatmulProblem,
-    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    global::{
-        load::{SyncFullLoadingStrategy, sync_full_cyclic},
-        single_stage::simple::SimpleMatmulFamily,
+use crate::{
+    components::{
+        MatmulProblem,
+        batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
+        global::{
+            load::{SyncFullLoadingStrategy, sync_full_cyclic},
+            single_stage::simple::SimpleMatmulFamily,
+        },
+        stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
+        tile::register::RegisterMatmul,
     },
-    stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
-    tile::register::RegisterMatmul,
+    kernels::layered::{
+        Algorithm,
+        selector::{MatmulSelection, TileSizeSelection, unit_matmul_selection},
+    },
 };
 
 #[derive(Default, Clone, Debug)]
@@ -27,7 +32,7 @@ pub struct SimpleUnitAlgorithm<
     pub _rl: PhantomData<RL>,
 }
 
-impl<LL, RL> base::Algorithm for SimpleUnitAlgorithm<LL, RL>
+impl<LL, RL> Algorithm for SimpleUnitAlgorithm<LL, RL>
 where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,

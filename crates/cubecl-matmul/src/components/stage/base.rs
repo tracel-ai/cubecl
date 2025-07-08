@@ -13,7 +13,7 @@ use crate::components::{
     tile::TileConfig,
 };
 use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::MatmulSelection;
 
 use super::{StageEventListener, TilingLayout};
 

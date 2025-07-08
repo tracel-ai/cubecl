@@ -10,10 +10,11 @@ use crate::{
         stage::{FullReaderFamily, PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
-    kernels::matmul::Algorithm,
+    kernels::layered::{
+        Algorithm,
+        selector::{MatmulSelection, plane_matmul_selection},
+    },
 };
-
-use super::{MatmulSelection, plane_matmul_selection};
 
 pub struct SimpleTmaAlgorithm<TMM> {
     pub _tmm: PhantomData<TMM>,

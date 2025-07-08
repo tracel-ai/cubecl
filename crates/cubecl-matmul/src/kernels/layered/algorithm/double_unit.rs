@@ -10,10 +10,11 @@ use crate::{
         stage::{BufferReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
         tile::register::RegisterMatmul,
     },
-    kernels::matmul::Algorithm,
+    kernels::layered::{
+        Algorithm,
+        selector::{MatmulSelection, TileSizeSelection, unit_matmul_selection},
+    },
 };
-
-use super::{MatmulSelection, TileSizeSelection, unit_matmul_selection};
 
 #[derive(Default, Clone, Debug)]
 pub struct DoubleUnitSelectionArgs {

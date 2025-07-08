@@ -5,7 +5,7 @@ mod specialized;
 #[macro_export]
 macro_rules! testgen_matmul_advanced {
     ($kind: ident, $algorithm: ty, $precision: ty, $tiling_scheme_builder: expr) => {
-        use $crate::kernels::matmul::{MatmulSelection, MatmulSelectionBuilder};
+        use $crate::kernels::layered::{MatmulSelection, MatmulSelectionBuilder};
 
         mod _advanced {
             use super::*;

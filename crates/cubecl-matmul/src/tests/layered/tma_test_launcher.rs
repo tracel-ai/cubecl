@@ -11,8 +11,8 @@ use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
-use crate::kernels::matmul::Algorithm;
-use crate::kernels::matmul::MatmulSelection;
+use crate::kernels::layered::Algorithm;
+use crate::kernels::layered::MatmulSelection;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 
