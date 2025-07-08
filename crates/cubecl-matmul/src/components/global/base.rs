@@ -2,21 +2,22 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::MatmulLineSizes;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
 use crate::{
     components::{
         AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
         TilingScheme,
-        config::MatmulConfig,
         global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
         stage::{self, StageConfig},
     },
-    kernels::{MatmulSetupError, layered::MatmulSelection},
+    kernels::layered::MatmulSelection,
 };
 use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
+use std::{fmt::Debug, hash::Hash};
 
 use super::{GlobalWriter, Quantization, load::LoaderMode};
 
@@ -122,7 +123,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
-pub trait GlobalConfig: MatmulConfig {
+pub trait GlobalConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
     /// Underlying Stage matmul config
     type StageConfig: stage::StageConfig;
 

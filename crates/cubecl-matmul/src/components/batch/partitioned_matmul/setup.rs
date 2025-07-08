@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulLineSizes;
 use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
@@ -11,7 +10,7 @@ use crate::components::{
     Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
     OutputRuntimeArg,
 };
-use crate::kernels::MatmulSetupError;
+use crate::components::{MatmulLineSizes, MatmulSetupError};
 use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 

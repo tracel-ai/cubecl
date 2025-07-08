@@ -1,11 +1,9 @@
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{PlaneRoleConfig, RoleRuleConfig},
-        stage::{NumStages, PartitionBuffering, StageConfig},
-        tile::TileConfig,
-    },
-    kernels::MatmulSetupError,
+use crate::components::{
+    Ident, InputIdent, MatrixLayout, TilingScheme,
+    error::MatmulSetupError,
+    global::{PlaneRoleConfig, RoleRuleConfig},
+    stage::{NumStages, PartitionBuffering, StageConfig},
+    tile::TileConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -88,8 +86,6 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         !execution_is_sync && self.ordered
     }
 }
-
-impl<T: TileConfig> MatmulConfig for UnitPartitionedStageConfig<T> {}
 
 impl<T: TileConfig> UnitPartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]

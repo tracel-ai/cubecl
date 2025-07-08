@@ -1,14 +1,13 @@
 use crate::components::batch::BatchConfig;
-use crate::components::{InputRuntimeArg, MatmulLineSizes, MatmulPrecision, OutputRuntimeArg};
+use crate::components::{
+    InputArg, MatmulProblem, MatmulSpec, OutputArg,
+    global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+};
+use crate::components::{
+    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSetupError, OutputRuntimeArg,
+};
 use crate::kernels::layered::base::Selection;
 use crate::kernels::layered::{Algorithm, launch_with_config};
-use crate::{
-    components::{
-        InputArg, MatmulProblem, MatmulSpec, OutputArg,
-        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
-    },
-    kernels::MatmulSetupError,
-};
 use cubecl_core::frontend::CubePrimitive;
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};

@@ -92,15 +92,10 @@ pub mod config {
     use std::ops::Deref;
 
     use crate::{ConvGemmConfig, base::Dimensionality};
-    use cubecl_matmul::{
-        components::{
-            InputIdent, MatmulConfig, MatmulLineSizes, MatrixLayout, TilingScheme,
-            global::{
-                GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
-                multi_stage::EventLoadingMode,
-            },
-        },
-        kernels::MatmulSetupError,
+    use cubecl_matmul::components::{
+        global::{
+            load::LoaderMode, multi_stage::EventLoadingMode, GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides
+        }, InputIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme
     };
 
     use super::*;
@@ -221,8 +216,6 @@ pub mod config {
             }
         }
     }
-
-    impl<M: GlobalConfig> MatmulConfig for ConvolutionConfig<M> {}
 
     impl<M: GlobalConfig> ConvolutionConfig<M> {
         #[allow(clippy::too_many_arguments)]

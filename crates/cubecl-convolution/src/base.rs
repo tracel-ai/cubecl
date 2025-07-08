@@ -3,10 +3,10 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
         AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSpec, MatrixLayout, OutputRuntimeArg,
+        MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, GlobalWriter},
     },
-    kernels::{MatmulSetupError, layered::MatmulSelection},
+    kernels::layered::MatmulSelection,
 };
 use cubecl_std::{
     CubeOption, FastDivmod,

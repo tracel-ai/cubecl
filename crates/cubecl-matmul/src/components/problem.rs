@@ -1,21 +1,31 @@
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Ident, MatmulProblemSize, MatrixLayout};
+use super::{Ident, MatmulProblemSize};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
 pub struct MatmulProblem {
+    /// Number of rows in the output matrix
     pub m: usize,
+    /// Number of columns in the output matrix
     pub n: usize,
+    /// Reduction dimension
     pub k: usize,
+    /// Batch shape for Lhs tensor
     pub lhs_batches: Vec<usize>,
+    /// Batch shape for Rhs tensor
     pub rhs_batches: Vec<usize>,
+    /// Memory layout of the Lhs matrix.
     pub lhs_layout: MatrixLayout,
+    /// Memory layout of the Rhs matrix.
     pub rhs_layout: MatrixLayout,
 }
 
 impl MatmulProblem {
-    pub(crate) fn batch_dims(&self) -> Vec<usize> {
+    /// Returns the batch dimensions of the output
+    fn output_batch_dims(&self) -> Vec<usize> {
         self.lhs_batches
             .iter()
             .rev()
@@ -24,9 +34,9 @@ impl MatmulProblem {
             .collect()
     }
 
-    /// Returns the total number of batches
+    /// Returns the total number of batches of the output
     pub(crate) fn num_batches(&self) -> usize {
-        self.batch_dims().iter().product()
+        self.output_batch_dims().iter().product()
     }
 
     /// Returns the shape of the identified tensor, inferred by the problem definition
@@ -46,7 +56,7 @@ impl MatmulProblem {
                 .chain(vec![self.k, self.n])
                 .collect(),
             Ident::Out => self
-                .batch_dims()
+                .output_batch_dims()
                 .iter()
                 .cloned()
                 .chain(vec![self.m, self.n])
@@ -55,8 +65,8 @@ impl MatmulProblem {
     }
 }
 
-/// Interpretation of matrix multiplication based on input shapes.
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+/// Interpretation of matrix multiplication based on input shapes.
 pub enum MatmulKind {
     /// (M, K) @ (K, N) → (M, N), with M, K, N > 1
     General,
@@ -132,5 +142,22 @@ impl From<MatmulProblem> for MatmulKind {
 impl From<&MatmulProblem> for MatmulKind {
     fn from(problem: &MatmulProblem) -> Self {
         MatmulProblemSize::new(problem.m as u32, problem.n as u32, problem.k as u32).into()
+    }
+}
+
+#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+/// Layout of a 2D structure such as a tensor, shared memory or slice,
+/// used within any matmul kernel level
+pub enum MatrixLayout {
+    RowMajor,
+    ColMajor,
+}
+
+#[cube]
+/// Maps the matmul MatrixLayout to cmma's MatrixLayout, for use in Cmma API.
+pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
+    match layout {
+        MatrixLayout::RowMajor => cmma::MatrixLayout::RowMajor,
+        MatrixLayout::ColMajor => cmma::MatrixLayout::ColMajor,
     }
 }

@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use crate::components::error::MatmulSetupError;
 use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
@@ -7,7 +8,6 @@ use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
 };
-use crate::kernels::MatmulSetupError;
 use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 

@@ -2,6 +2,7 @@ use crate::components::ComputeResources;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
@@ -11,7 +12,6 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::kernels::MatmulSetupError;
 use crate::kernels::layered::MatmulSelection;
 use core::marker::PhantomData;
 use cubecl::prelude::*;

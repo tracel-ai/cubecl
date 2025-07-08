@@ -3,10 +3,10 @@ use crate::{
         AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
         MatmulSpec, OutputRuntimeArg, TilingScheme,
         batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
-        config::MatmulConfig,
+        error::MatmulSetupError,
         global::{self, GlobalConfig as _, Quantization},
     },
-    kernels::{MatmulSetupError, layered::MatmulSelection},
+    kernels::layered::MatmulSelection,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -14,6 +14,7 @@ use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
+use std::{fmt::Debug, hash::Hash};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync {
@@ -80,7 +81,9 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the [batch matmul](BatchMatmul) level.
-pub trait BatchConfig: MatmulConfig {
+pub trait BatchConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
     /// Underlying Global matmul config
     type GlobalConfig: global::GlobalConfig;
 

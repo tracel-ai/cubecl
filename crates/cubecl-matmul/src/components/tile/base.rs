@@ -2,14 +2,16 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::MatmulLineSizes;
+use crate::components::error::MatmulSetupError;
 use crate::{
     components::{
         AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem,
-        MatrixLayout, TileSize, config::MatmulConfig, resource::ComputeResources,
-        stage::StageVectorization, tile::tile_data::Tile,
+        MatrixLayout, TileSize, resource::ComputeResources, stage::StageVectorization,
+        tile::tile_data::Tile,
     },
-    kernels::{MatmulSetupError, layered::MatmulSelection},
+    kernels::layered::MatmulSelection,
 };
+use std::{fmt::Debug, hash::Hash};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TileSetupInput {
@@ -115,7 +117,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Tile matmul (TMM) level
-pub trait TileConfig: MatmulConfig {
+pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 

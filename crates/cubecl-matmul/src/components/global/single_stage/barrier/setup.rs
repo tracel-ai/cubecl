@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
-use crate::kernels::MatmulSetupError;
 use crate::kernels::layered::MatmulSelection;
 use cubecl_core::{Runtime, client::ComputeClient};
 

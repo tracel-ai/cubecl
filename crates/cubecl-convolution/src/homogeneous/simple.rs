@@ -12,7 +12,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::{
     components::{
         AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
-        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
+        MatmulPrecision, MatmulSetupError, MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
@@ -23,7 +23,7 @@ use cubecl_matmul::{
             StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulSetupError, layered::MatmulSelection},
+    kernels::layered::MatmulSelection,
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

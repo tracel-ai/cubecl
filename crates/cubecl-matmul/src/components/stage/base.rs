@@ -2,18 +2,18 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
+use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
 use crate::components::{AvailableLineSizes, MatmulLineSizes};
 use crate::components::{
     Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    config::MatmulConfig,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
-use crate::kernels::MatmulSetupError;
 use crate::kernels::layered::MatmulSelection;
+use std::{fmt::Debug, hash::Hash};
 
 use super::{StageEventListener, TilingLayout};
 
@@ -155,7 +155,9 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Stage matmul (SMM) level
-pub trait StageConfig: MatmulConfig {
+pub trait StageConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
     /// Underlying Tile matmul config
     type TileConfig: TileConfig;
 

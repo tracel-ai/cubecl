@@ -2,10 +2,9 @@ use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{Feature, Runtime};
 
-use crate::components::config::MatmulConfig;
+use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
 use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
-use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use cubecl_core::frontend::CubePrimitive;
 
 pub enum ProductType {
@@ -65,8 +64,6 @@ impl TileConfig for RegisterConfig {
         &self.tiling_scheme.tile_size
     }
 }
-
-impl MatmulConfig for RegisterConfig {}
 
 impl RegisterConfig {
     #[allow(clippy::too_many_arguments)]

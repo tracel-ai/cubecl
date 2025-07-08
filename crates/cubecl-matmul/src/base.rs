@@ -3,7 +3,7 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::tile::accelerated::AcceleratedMatmul,
+    components::{MatmulSetupError, tile::accelerated::AcceleratedMatmul},
     kernels::layered::{
         Selection,
         double_buffering::DoubleBufferingArgs,
@@ -24,7 +24,6 @@ use super::{
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
     },
     kernels::{
-        MatmulSetupError,
         layered::{
             self,
             double_buffering::{
@@ -263,7 +262,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 &Default::default(),
             ) {
                 match err {
-                    super::kernels::MatmulSetupError::Unavailable(_) => {
+                    MatmulSetupError::Unavailable(_) => {
                         layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(
                             client,
                             lhs,

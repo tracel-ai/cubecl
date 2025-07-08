@@ -2,7 +2,8 @@ use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
+        Ident, InputIdent, MatmulPrecision, MatrixLayout,
+        error::MatmulSetupError,
         global::{
             self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
             load::{LoaderMode, LoadingValidation},
@@ -11,7 +12,7 @@ use crate::{
         },
         stage,
     },
-    kernels::{MatmulSetupError, layered::LoadingPrecomputeStrategy},
+    kernels::layered::LoadingPrecomputeStrategy,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -103,8 +104,6 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
         CubeDim::new_2d(self.plane_dim(), self.num_planes)
     }
 }
-
-impl<S: stage::StageConfig> MatmulConfig for SimpleConfig<S> {}
 
 impl<S: stage::StageConfig> SimpleConfig<S> {
     #[allow(clippy::too_many_arguments)]

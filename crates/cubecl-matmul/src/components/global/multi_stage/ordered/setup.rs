@@ -1,4 +1,5 @@
 use crate::components::MatmulLineSizes;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
 use crate::components::global::load::{SyncBufferLoadingStrategy, SyncFullLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
@@ -6,7 +7,6 @@ use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
-use crate::kernels::MatmulSetupError;
 use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

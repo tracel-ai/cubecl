@@ -2,11 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::InputIdent;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
 use crate::components::global::specialization::config::{
     LoadSpecializationConfig, SpecializedLoadingSides,
 };
-use crate::kernels::MatmulSetupError;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlaneRoles {

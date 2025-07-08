@@ -20,7 +20,7 @@ use cubecl_core::{
 use cubecl_matmul::{
     components::{
         AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulLineSizes, MatmulPrecision,
-        MatmulSpec, OutputRuntimeArg,
+        MatmulSetupError, MatmulSpec, OutputRuntimeArg,
         global::{
             AccumulatorLoader, GlobalConfig,
             load::{NoLoadingValidation, arrive_tma},
@@ -30,7 +30,7 @@ use cubecl_matmul::{
             FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
         },
     },
-    kernels::{MatmulSetupError, layered::MatmulSelection},
+    kernels::layered::MatmulSelection,
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,
