@@ -1,18 +1,15 @@
 use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatrixLayout,
-        error::{MatmulAvailabilityError, MatmulSetupError},
-        global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage,
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatrixLayout,
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    global::{
+        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::layered::LoadingPrecomputeStrategy,
+    stage,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

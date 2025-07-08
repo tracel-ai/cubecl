@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
+use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
@@ -9,7 +10,6 @@ use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmu
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
-use crate::kernels::layered::MatmulSelection;
 use cubecl_core::{Runtime, client::ComputeClient};
 
 pub struct SimpleBarrierMatmulFamily<

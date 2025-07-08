@@ -1,10 +1,11 @@
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::{
     AvailableLineSizes, InputRuntimeArg, MatmulAvailabilityError, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
+    MatmulProblem, MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
+    ReplaceES,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
-use crate::kernels::layered::selector::{MatmulSelection, launch_kernel_concrete};
+use crate::kernels::layered::selector::launch_kernel_concrete;
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*, try_tensor_line_size_parallel};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};

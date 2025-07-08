@@ -1,16 +1,12 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::MatmulLineSizes;
 use crate::components::error::MatmulSetupError;
-use crate::{
-    components::{
-        AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem,
-        MatrixLayout, TileSize, resource::ComputeResources, stage::StageVectorization,
-        tile::tile_data::Tile,
-    },
-    kernels::layered::MatmulSelection,
+use crate::components::{
+    AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+    TileSize, resource::ComputeResources, stage::StageVectorization, tile::tile_data::Tile,
 };
+use crate::components::{MatmulLineSizes, MatmulSelection};
 use std::{fmt::Debug, hash::Hash};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

@@ -6,13 +6,12 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, MatmulLineSizes};
+use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection};
 use crate::components::{
     Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
-use crate::kernels::layered::MatmulSelection;
 use std::{fmt::Debug, hash::Hash};
 
 use super::{StageEventListener, TilingLayout};

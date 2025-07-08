@@ -2,19 +2,16 @@ use std::any::TypeId;
 
 use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulPrecision, MatrixLayout,
-        error::{MatmulAvailabilityError, MatmulSetupError},
-        global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage,
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatmulPrecision, MatrixLayout,
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    global::{
+        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::layered::LoadingPrecomputeStrategy,
+    stage,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

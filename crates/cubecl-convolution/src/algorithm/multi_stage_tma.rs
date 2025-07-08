@@ -12,14 +12,11 @@ use crate::{
     selection::convolution_matmul_selection,
 };
 
-use cubecl_matmul::{
-    components::{
-        InputIdent,
-        global::args::TensorMapArgs,
-        stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
-        tile::TileMatmulFamily,
-    },
-    kernels::layered::MatmulSelection,
+use cubecl_matmul::components::{
+    InputIdent, MatmulSelection,
+    global::args::TensorMapArgs,
+    stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
+    tile::TileMatmulFamily,
 };
 
 use cubecl_std::tensor::TensorHandle;

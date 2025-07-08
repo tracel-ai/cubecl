@@ -8,8 +8,9 @@ use cubecl_core::Runtime;
 use cubecl_matmul::components::global::args::ConcreteOutputFactory;
 use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::stage::PartitionBuffering;
-use cubecl_matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
-use cubecl_matmul::kernels::layered::MatmulSelection;
+use cubecl_matmul::components::{
+    MatmulSelection, MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionSize {

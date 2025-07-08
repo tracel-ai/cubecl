@@ -4,7 +4,6 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::Elem;
 
-use crate::components::MatmulProblem;
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
@@ -12,9 +11,8 @@ use crate::components::stage::{
     BufferReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::tile;
-use crate::kernels::layered::selector::{
-    MatmulSelection, PlaneMatmulSelectionOptions, plane_matmul_selection,
-};
+use crate::components::{MatmulProblem, MatmulSelection};
+use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 use crate::kernels::layered::{Algorithm, MultiRowStrategy};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM> {

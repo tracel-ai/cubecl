@@ -4,16 +4,13 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use crate::{
     components::{
-        MatmulProblem,
+        MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::single_stage::tma::SimpleTmaMatmulFamily,
         stage::{FullReaderFamily, PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
-    kernels::layered::{
-        Algorithm,
-        selector::{MatmulSelection, plane_matmul_selection},
-    },
+    kernels::layered::{Algorithm, selector::plane_matmul_selection},
 };
 
 pub struct SimpleTmaAlgorithm<TMM> {

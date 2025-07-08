@@ -2,13 +2,14 @@ use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::kernels::layered::MatmulSelection;
 use half::f16;
 
 use crate::ConvGemmConfig;
 use crate::base::ConvolutionLaunch;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
-use cubecl_matmul::components::{self, AvailableLineSizes, InputIdent, MatmulPrecision};
+use cubecl_matmul::components::{
+    self, AvailableLineSizes, InputIdent, MatmulPrecision, MatmulSelection,
+};
 
 use super::{
     ConvLaunchError,

@@ -8,10 +8,8 @@ use crate::components::batch::{
 use crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 use crate::components::stage::PartitionBuffering;
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
-use crate::components::{PartitionSize, StageSize, TileSize, TilingScheme};
+use crate::components::{MatmulSelection, PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::kernels::layered::MultiRowStrategy;
-
-use super::MatmulSelection;
 
 pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;

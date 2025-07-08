@@ -3,9 +3,9 @@ use crate::components::global::GlobalMatmulFamily;
 use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
-    AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSetupError,
+    AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSelection,
+    MatmulSetupError,
 };
-use crate::kernels::layered::selector::MatmulSelection;
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 

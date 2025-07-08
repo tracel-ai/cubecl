@@ -1,12 +1,10 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::{
-    MatmulKind, MatmulProblem, MatrixLayout, TilingScheme,
+    MatmulKind, MatmulProblem, MatmulSelection, MatrixLayout, TilingScheme,
     batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::PartitionBuffering,
 };
-
-use super::MatmulSelection;
 
 #[derive(Default, Clone, Copy, Debug)]
 pub enum TileSizeSelection {

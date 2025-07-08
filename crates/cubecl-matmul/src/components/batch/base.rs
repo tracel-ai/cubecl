@@ -1,12 +1,9 @@
-use crate::{
-    components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
-        error::MatmulSetupError,
-        global::{self, GlobalConfig as _, Quantization},
-    },
-    kernels::layered::MatmulSelection,
+use crate::components::{
+    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSpec, OutputRuntimeArg, TilingScheme,
+    batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
+    error::MatmulSetupError,
+    global::{self, GlobalConfig as _, Quantization},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

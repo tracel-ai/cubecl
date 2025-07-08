@@ -6,13 +6,13 @@ use cubecl_core::prelude::*;
 use crate::components::AvailableLineSizes;
 use crate::components::Ident;
 use crate::components::MatmulProblem;
+use crate::components::MatmulSelection;
 use crate::components::MatrixLayout;
 use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
 use crate::kernels::layered::Algorithm;
-use crate::kernels::layered::MatmulSelection;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 

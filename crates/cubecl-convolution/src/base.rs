@@ -1,12 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::{
-    components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
-        global::{AccumulatorLoader, GlobalWriter},
-    },
-    kernels::layered::MatmulSelection,
+use cubecl_matmul::components::{
+    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
+    global::{AccumulatorLoader, GlobalWriter},
 };
 use cubecl_std::{
     CubeOption, FastDivmod,

@@ -2,12 +2,10 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 use cubecl_matmul::components::stage::PartitionBuffering;
 
 use super::base::ConvolutionProblem;
-use cubecl_matmul::components::TilingScheme;
+use cubecl_matmul::components::{MatmulSelection, TilingScheme};
 use cubecl_matmul::{
     components::tile::TileMatmulFamily,
-    kernels::layered::{
-        MatmulSelection, NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_size,
-    },
+    kernels::layered::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_size},
 };
 
 /// A heuristic to find the number of tiles in the stage.

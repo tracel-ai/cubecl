@@ -8,10 +8,7 @@ use cubecl_std::{
 };
 
 use super::Quantization;
-use crate::{
-    components::{self, MatmulLineSizes, MatmulPrecision, MatmulProblem},
-    kernels::layered::MatmulSelection,
-};
+use crate::components::{self, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSelection};
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).

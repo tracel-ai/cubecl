@@ -1,18 +1,15 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::MatmulLineSizes;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
-use crate::{
-    components::{
-        AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
-        TilingScheme,
-        global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
-        stage::{self, StageConfig},
-    },
-    kernels::layered::MatmulSelection,
+use crate::components::{
+    AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
+    TilingScheme,
+    global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
+    stage::{self, StageConfig},
 };
+use crate::components::{MatmulLineSizes, MatmulSelection};
 use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},

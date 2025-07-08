@@ -7,11 +7,10 @@ use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatm
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSelection,
+    MatmulSpec, OutputRuntimeArg,
 };
 use crate::components::{MatmulLineSizes, MatmulSetupError};
-use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 
 pub struct PartitionedBatchMatmulFamily<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> {

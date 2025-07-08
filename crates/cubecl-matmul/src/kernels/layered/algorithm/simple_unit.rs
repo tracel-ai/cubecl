@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulProblem,
+        MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::{SyncFullLoadingStrategy, sync_full_cyclic},
@@ -15,7 +15,7 @@ use crate::{
     },
     kernels::layered::{
         Algorithm,
-        selector::{MatmulSelection, TileSizeSelection, unit_matmul_selection},
+        selector::{TileSizeSelection, unit_matmul_selection},
     },
 };
 

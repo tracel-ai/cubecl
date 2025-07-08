@@ -1,14 +1,11 @@
-use crate::{
-    components::{
-        MatmulLineSizes, MatmulPrecision,
-        error::MatmulSetupError,
-        global::{
-            load::SyncFullLoadingStrategy,
-            single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
-        },
-        stage::StageConfig,
+use crate::components::{
+    MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    error::MatmulSetupError,
+    global::{
+        load::SyncFullLoadingStrategy,
+        single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
-    kernels::layered::MatmulSelection,
+    stage::StageConfig,
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

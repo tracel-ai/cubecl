@@ -3,8 +3,9 @@ use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
-use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem};
-use crate::kernels::layered::MatmulSelection;
+use crate::components::{
+    InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSelection,
+};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for AcceleratedMatmul {

@@ -7,8 +7,8 @@ use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection,
 };
-use crate::kernels::layered::MatmulSelection;
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {

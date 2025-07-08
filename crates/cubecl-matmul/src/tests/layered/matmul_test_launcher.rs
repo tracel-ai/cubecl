@@ -1,12 +1,12 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server};
 
-use crate::components::MatmulProblem;
 use crate::components::MatrixLayout;
 use crate::components::batch::{BatchConfig, BatchMatmulFamily};
 use crate::components::global::args::TensorInputsLaunch;
 use crate::components::{AvailableLineSizes, Ident};
-use crate::kernels::layered::{Algorithm, MatmulSelection};
+use crate::components::{MatmulProblem, MatmulSelection};
+use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 

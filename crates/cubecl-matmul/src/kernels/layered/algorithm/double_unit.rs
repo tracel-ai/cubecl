@@ -2,7 +2,7 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
 
 use crate::{
     components::{
-        MatmulProblem,
+        MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::sync_buffer_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
@@ -12,7 +12,7 @@ use crate::{
     },
     kernels::layered::{
         Algorithm,
-        selector::{MatmulSelection, TileSizeSelection, unit_matmul_selection},
+        selector::{TileSizeSelection, unit_matmul_selection},
     },
 };
 

@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulProblem,
+        MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
@@ -12,10 +12,7 @@ use crate::{
         stage::{FullReaderFamily, PlaneMatmulFamily},
         tile,
     },
-    kernels::layered::{
-        Algorithm,
-        selector::{MatmulSelection, plane_matmul_selection},
-    },
+    kernels::layered::{Algorithm, selector::plane_matmul_selection},
 };
 
 pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {

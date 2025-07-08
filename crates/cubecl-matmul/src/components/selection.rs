@@ -1,11 +1,8 @@
-use crate::{
-    components::{
-        TilingScheme,
-        batch::HypercubeSelection,
-        global::{LoadSpecializationConfig, load::LoaderMode},
-        stage::{PartitionBuffering, StageVectorization},
-    },
-    kernels::layered::LoadingPrecomputeStrategy,
+use crate::components::{
+    TilingScheme,
+    batch::HypercubeSelection,
+    global::{LoadSpecializationConfig, load::LoaderMode},
+    stage::{PartitionBuffering, StageVectorization},
 };
 
 #[derive(Debug, Clone)]
@@ -120,6 +117,35 @@ impl MatmulSelectionBuilder {
             loading_precompute_strategy: self.loading_precompute_strategy,
             loader_mode: self.loader_mode,
             load_specialization_config: self.load_specialization_config,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum MultiRowStrategy {
+    /// Always one row per plane
+    #[default]
+    Never,
+    /// Always multiple rows per plane
+    Always(u32),
+    /// Uses multiple rows if the `m` dimension of the matmul implies at least the minimum number of stages along `m`
+    Adaptive { minimum_stage_count: u32 },
+}
+
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum LoadingPrecomputeStrategy {
+    /// Don't precompute anything in loading jobs
+    #[default]
+    Never,
+    /// Precompute values that are shared across tasks
+    Always,
+}
+
+impl From<LoadingPrecomputeStrategy> for bool {
+    fn from(strategy: LoadingPrecomputeStrategy) -> Self {
+        match strategy {
+            LoadingPrecomputeStrategy::Always => true,
+            LoadingPrecomputeStrategy::Never => false,
         }
     }
 }
