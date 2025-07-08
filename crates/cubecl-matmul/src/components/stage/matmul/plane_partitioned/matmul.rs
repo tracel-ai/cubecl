@@ -10,6 +10,7 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[allow(type_alias_bounds)]
+/// [PartitionedStageMatmul] partitioned across units
 pub type PlaneMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
     MP,
     TMM,
@@ -19,6 +20,7 @@ pub type PlaneMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
     PlanePartitionedStageConfig<TMM::Config>,
 >;
 
+/// Defines how to partition across planes
 pub struct PlanePartitioner {}
 
 #[cube]

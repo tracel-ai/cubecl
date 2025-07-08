@@ -71,6 +71,11 @@ impl TileConfig for RegisterConfig {
 
 impl RegisterConfig {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for register matmul
+    ///
+    /// May return an error if:
+    /// - Line sizes do not divide tile sizes in the lined axis
+    /// - Types are unavailable
     pub fn new<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         tiling_scheme: TilingScheme,

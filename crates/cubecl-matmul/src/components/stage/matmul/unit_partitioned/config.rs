@@ -7,7 +7,7 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the single buffer matmul
+/// Configuration for the unit partitioned stage matmul
 pub struct UnitPartitionedStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
@@ -89,6 +89,12 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
 
 impl<T: TileConfig> UnitPartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for unit partitioned stage matmul
+    ///
+    /// May return an error if:
+    /// - the number of computing units is different from the number of partitions
+    /// - double buffering is enabled but there is only one tile in n
+    /// - shared memory limit will be busted
     pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,

@@ -60,8 +60,8 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
 /// Provides matrix multiplication operations at the stage level.
 ///
 /// At the stage level,
-///  - Inputs are staged into an intermediate memory called stage (typically a shared memory).
-///  - All planes within a Cube can collaborate to solve the problem
+///  - Inputs are assumed to be already staged into a shared memory.
+///  - All main flow planes within a Cube are used to solve the problem
 ///  - Dimensions M, N and K are fixed to an integer, and the
 ///    matrix multiplication works only for size (M, K) · (K, N) = (M, N).
 ///    These integers are multiples of the underlying Tile matmul,
@@ -70,30 +70,31 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
 /// Assumptions:
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
-///  - Enough planes are launched to perform the whole computation
+///  - Enough planes/units are launched to perform the whole computation
 pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
+    /// The configuration type associated with this Matmul.
     type Config: StageConfig;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
-    /// The same Accumulator will be added to across multiple executions of the stage matmul.
+    /// The same Accumulator will be added to across multiple executions of the Stage Matmul.
     type Accumulator: CubeType;
 
+    /// How to read shared memory for Lhs
     type LhsReader: CubeType;
+    /// How to read shared memory for Rhs
     type RhsReader: CubeType;
 
+    /// Lhs input of the underlying Tile Matmul
     type LhsTile: CubeType;
+    /// Rhs input of the underlying Tile Matmul
     type RhsTile: CubeType;
 
+    /// How to write to global memory after computation
     type Writer: GlobalWriter<MP::EO>;
 
-    /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
+    /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     ///
     /// Equivalent to execute_with_listener with SEL:=NoEvent
-    ///
-    /// # Quantization
-    ///
-    /// If scaling is provided, the matmul will be performed in a quantized version.
-    /// This assumes that [read_accumulator] is called with some `quantization` provided.
     fn execute(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
@@ -103,7 +104,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    /// Executes the matrix multiplication of LHS and RHS, with the addition of injected
+    /// Executes the matrix multiplication of Lhs and Rhs, with the addition of injected
     /// [event listener](StageEventListener).
     fn execute_with_listener<SEL: StageEventListener<Self::Config>>(
         lhs: &Self::LhsReader,
@@ -115,6 +116,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         listener: SEL,
     );
 
+    /// Inits inputs of the underlying Tile Matmul
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Create an instance of the accumulator, without data
@@ -130,6 +132,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
+    /// Inits the writer at the given offsets
     fn init_writer(
         tensor: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
@@ -159,30 +162,44 @@ pub trait StageConfig:
     /// Underlying Tile matmul config
     type TileConfig: TileConfig;
 
-    /// Convert itself to the underlying tile matmul config
+    /// Converts itself to the underlying Tile Matmul config
     fn tile_config(self) -> Self::TileConfig;
 
     /// Returns the line size for the given ident
     fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+
+    /// Returns the line size for the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
-    /// Returns the size of the plane dimension
+    /// Returns how many units are in a plane
     fn plane_dim(&self) -> u32;
 
+    /// Returns whether we must perform partition buffering
     fn partition_buffering(&self) -> PartitionBuffering;
 
+    /// Returns the number of stages for the given input
     fn num_stages(&self, ident: InputIdent) -> u32;
 
+    /// Returns the tiling scheme
     fn tiling_scheme(&self) -> TilingScheme;
 
+    /// Indicates the specialization roles for the planes
     fn plane_role_config(&self) -> PlaneRoleConfig;
+
+    /// How to identify the role of the plane depending on its index
     fn role_rule_config(&self) -> RoleRuleConfig;
+
+    /// Number of planes participating in the main computation flow
     fn num_main_flow_planes(&self) -> u32;
+
+    /// Whether the Matmul is quantized
     fn quantized(&self) -> bool;
 
+    /// Whether we must sync planes after execution because the execution
+    /// is not sync by itself (depends on the runtime/compiler)
     fn must_sync_plane_after_execution(&self) -> bool;
 }
 

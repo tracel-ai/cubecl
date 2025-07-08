@@ -7,6 +7,7 @@ pub use plane_partitioned::PlaneMatmulFamily;
 pub use unit_partitioned::UnitMatmulFamily;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Number of stages in one shared memory, i.e. buffers for double buffering
 pub struct NumStages {
     lhs: u32,
     rhs: u32,

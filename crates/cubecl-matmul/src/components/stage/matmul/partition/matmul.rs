@@ -11,6 +11,8 @@ use crate::components::tile;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+/// Matmul for a whole partition, a region of the Stage Matmul
+/// executed by a single compute primitive (unit or plane)
 pub struct PartitionMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
@@ -31,6 +33,8 @@ where
     S: StageConfig<TileConfig = TMM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
+    /// Execute all Tile Matmuls inside the partition
+    /// Can be with single or double buffering
     pub fn execute_with_listener<SEL: StageEventListener<S>>(
         start_m: u32,
         start_n: u32,
@@ -68,6 +72,12 @@ where
         }
     }
 
+    /// Initialize Lhs and Rhs inputs
+    ///
+    /// # Safety
+    ///
+    /// This may point towards uninitialized memory.
+    /// Make sure to fill inputs before execution.
     pub fn init_tile_inputs(#[comptime] config: S) -> (Sequence<TMM::Lhs>, RhsTile<TMM::Rhs>) {
         let tile_config = config.tile_config();
         let mut lhs = Sequence::new();
@@ -88,14 +98,22 @@ where
         (lhs, rhs)
     }
 
+    /// Initialize accumulators
+    ///     
+    /// # Safety
+    ///
+    /// This may point towards uninitialized memory.
+    /// Make sure to call zero_accumulator or fill_accumulator prior to execute_with_listener.
     pub fn init_accumulator(#[comptime] config: S) -> Accumulators<MP, TMM, S> {
         Accumulators::<MP, TMM, S>::new(config)
     }
 
+    /// Fill accumulators with zeroes
     pub fn zero_accumulator(acc: &mut Accumulators<MP, TMM, S>, #[comptime] config: S) {
         acc.zero(config);
     }
 
+    /// Fill accumulators through an AccumulatorLoader
     pub fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
         acc: &mut Accumulators<MP, TMM, S>,
@@ -104,7 +122,9 @@ where
         acc.fill::<L>(loader, config);
     }
 
-    /// Execute stage matmul with a single buffer for rhs.
+    /// Execute partition matmul with a single buffer for rhs.
+    ///
+    /// This function can call functions at various events through the listener.
     #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener<S>>(
         start_m: u32,
@@ -215,6 +235,9 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Execute partition matmul with a double buffering for rhs.
+    ///
+    /// This function can call functions at various events through the listener.
     fn execute_double_buffer<SEL: StageEventListener<S>>(
         start_m: u32,
         start_n: u32,

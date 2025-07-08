@@ -17,6 +17,7 @@ use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+/// Unit Matmul family for any precision
 pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
 }
