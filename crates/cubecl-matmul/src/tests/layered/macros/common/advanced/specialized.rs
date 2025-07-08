@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_specialized {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection_builder: expr) => {
-        use $crate::components::{LoadSpecializationConfig, SpecializationTensorConfig};
+        use $crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 
         #[cfg(not(feature = "matmul_tests_specialized"))]
         $crate::testgen_matmul_hypercube!(

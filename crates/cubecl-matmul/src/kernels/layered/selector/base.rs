@@ -1,8 +1,8 @@
 use crate::{
     components::{
-        LoadSpecializationConfig, TilingScheme,
+        TilingScheme,
         batch::HypercubeSelection,
-        global::load::LoaderMode,
+        global::{LoadSpecializationConfig, load::LoaderMode},
         stage::{PartitionBuffering, StageVectorization},
     },
     kernels::layered::LoadingPrecomputeStrategy,

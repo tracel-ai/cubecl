@@ -1,8 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::{GlobalConfig, MaxLoaders};
-use crate::components::{InputIdent, LoadSpecializationConfig, SpecializationTensorConfig};
+use crate::components::InputIdent;
+use crate::components::global::MaxLoaders;
+use crate::components::global::specialization::config::{
+    LoadSpecializationConfig, SpecializedLoadingSides,
+};
 use crate::kernels::MatmulSetupError;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -14,89 +17,6 @@ pub struct PlaneRoles {
 impl PlaneRoles {
     pub fn total_count(&self) -> u32 {
         self.main_flow + self.load_only
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum LoadingSides {
-    // Load both Lhs and Rhs
-    Both,
-    // Load Lhs only
-    Lhs,
-    // Load Rhs only
-    Rhs,
-    // Don't perform loading
-    None,
-}
-
-impl LoadingSides {
-    pub fn includes_lhs(&self) -> bool {
-        self.includes(InputIdent::Lhs)
-    }
-
-    pub fn includes_rhs(&self) -> bool {
-        self.includes(InputIdent::Rhs)
-    }
-
-    pub fn includes(&self, ident: InputIdent) -> bool {
-        matches!(
-            (self, ident),
-            (LoadingSides::Both, _)
-                | (LoadingSides::Lhs, InputIdent::Lhs)
-                | (LoadingSides::Rhs, InputIdent::Rhs)
-        )
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SpecializedLoadingSides {
-    pub main_flow: LoadingSides,
-    pub load_only: LoadingSides,
-}
-
-impl SpecializedLoadingSides {
-    pub fn num_loading_planes(
-        &self,
-        specialized: bool,
-        ident: InputIdent,
-        plane_roles: PlaneRoles,
-    ) -> u32 {
-        if specialized {
-            let mut num_loading_planes = 0;
-            if self.main_flow.includes(ident) {
-                num_loading_planes += plane_roles.main_flow;
-            }
-            if self.load_only.includes(ident) {
-                num_loading_planes += plane_roles.load_only;
-            }
-            num_loading_planes
-        } else {
-            plane_roles.main_flow
-        }
-    }
-}
-
-impl From<LoadSpecializationConfig> for SpecializedLoadingSides {
-    fn from(lsc: LoadSpecializationConfig) -> Self {
-        use SpecializationTensorConfig::*;
-        match (lsc.lhs, lsc.rhs) {
-            (MainFlowOnly, MainFlowOnly) => SpecializedLoadingSides {
-                main_flow: LoadingSides::Both,
-                load_only: LoadingSides::None,
-            },
-            (MainFlowOnly, LoadFlowOnly) => SpecializedLoadingSides {
-                main_flow: LoadingSides::Lhs,
-                load_only: LoadingSides::Rhs,
-            },
-            (LoadFlowOnly, MainFlowOnly) => SpecializedLoadingSides {
-                main_flow: LoadingSides::Rhs,
-                load_only: LoadingSides::Lhs,
-            },
-            (LoadFlowOnly, LoadFlowOnly) => SpecializedLoadingSides {
-                main_flow: LoadingSides::None,
-                load_only: LoadingSides::Both,
-            },
-        }
     }
 }
 
@@ -228,46 +148,6 @@ impl RoleRule {
                 } else {
                     UNIT_POS_Y
                 }
-            }
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum SpecializerKind {
-    Specialized {
-        main_flow_loading_side: LoadingSides,
-        load_only_loading_side: LoadingSides,
-        role_rule_config: RoleRuleConfig,
-    },
-    NotSpecialized,
-}
-
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Specializer {
-    #[cube(comptime)]
-    pub kind: SpecializerKind,
-}
-
-#[cube]
-impl Specializer {
-    pub fn new<G: GlobalConfig>(#[comptime] config: G) -> Specializer {
-        let plane_role_config = config.plane_role_config();
-        let loading_sides = config.specialized_loading_sides();
-
-        if config.plane_role_config().has_specialization() {
-            Specializer {
-                kind: comptime! {
-                    SpecializerKind::Specialized {
-                        main_flow_loading_side: loading_sides.main_flow,
-                        load_only_loading_side: loading_sides.load_only,
-                        role_rule_config: plane_role_config.rule
-                    }
-                },
-            }
-        } else {
-            Specializer {
-                kind: comptime! {SpecializerKind::NotSpecialized},
             }
         }
     }

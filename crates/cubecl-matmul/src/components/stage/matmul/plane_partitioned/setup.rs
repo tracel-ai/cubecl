@@ -52,9 +52,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
                 )));
             };
 
-        let compute_planes = compute_resources
-            .as_plane_resources(tile_config.plane_dim())?
-            .get_count();
+        let compute_planes = compute_resources.num_planes(tile_config.plane_dim())?;
 
         let plane_role_config = PlaneRoleConfig::new(
             selection.load_specialization_config,

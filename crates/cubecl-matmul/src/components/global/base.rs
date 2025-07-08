@@ -2,14 +2,13 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::MatmulLineSizes;
+use crate::components::global::RoleRuleConfig;
 use crate::{
     components::{
         AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
         TilingScheme,
         config::MatmulConfig,
-        global::{
-            PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
-        },
+        global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
         stage::{self, StageConfig},
     },
     kernels::{MatmulSetupError, layered::MatmulSelection},

@@ -5,12 +5,10 @@ use cubecl_runtime::DeviceProperties;
 use crate::components::batch::{
     CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation,
 };
+use crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 use crate::components::stage::PartitionBuffering;
-use crate::components::{
-    LoadSpecializationConfig, PartitionSize, SpecializationTensorConfig, StageSize, TileSize,
-    TilingScheme,
-};
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
+use crate::components::{PartitionSize, StageSize, TileSize, TilingScheme};
 use crate::kernels::layered::MultiRowStrategy;
 
 use super::MatmulSelection;

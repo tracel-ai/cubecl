@@ -1,7 +1,7 @@
 use cubecl_matmul::{
     components::{
-        AvailableLineSizes, InputIdent, LoadSpecializationConfig, MatmulLineSizes, MatmulPrecision,
-        global::{args::MatmulArgs, load::LoaderMode},
+        AvailableLineSizes, InputIdent, MatmulLineSizes, MatmulPrecision,
+        global::{LoadSpecializationConfig, args::MatmulArgs, load::LoaderMode},
         stage::{NumStages, PartitionBuffering, StageMatmulFamily},
         tile::TileMatmulFamily,
     },
