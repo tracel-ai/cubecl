@@ -49,7 +49,6 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
     /// Create a new config for partitioned batch matmul
-
     pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {
         Self {
             global_config,
@@ -57,11 +56,8 @@ impl<G: GlobalConfig> PartitionedBatchConfig<G> {
         }
     }
 
-    ///
     /// May return an error if:
-    /// - a loader are invalid
-    /// - CubeDim is too big
-    /// - Barriers are not available
+    /// - hypercube config is invalid
     pub fn validate(self, problem: &MatmulProblem) -> Result<Self, MatmulSetupError> {
         self.hypercube_config.validate(problem)?;
         Ok(self)
