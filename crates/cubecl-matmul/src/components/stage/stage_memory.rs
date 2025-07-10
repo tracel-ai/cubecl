@@ -129,7 +129,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     /// Zero out the shared memory for only one stage
     pub fn clear_stage<G: GlobalConfig>(
         &mut self,
-        #[comptime] buffer_id: StageIdent,
+        #[comptime] stage_ident: StageIdent,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -158,17 +158,17 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
             let smem_position = match (ident, matrix_layout) {
                 (InputIdent::Lhs, MatrixLayout::ColMajor)
                 | (InputIdent::Rhs, MatrixLayout::RowMajor) => {
-                    buffer_id.to_index() * buffer_length + unit_position
+                    stage_ident.to_index() * buffer_length + unit_position
                 }
                 (InputIdent::Lhs, MatrixLayout::RowMajor) => {
                     let buffer_width = tiling_scheme.elements_in_tile_col(ident) / line_size;
-                    buffer_id.to_index() * buffer_width
+                    stage_ident.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width
                 }
                 (InputIdent::Rhs, MatrixLayout::ColMajor) => {
                     let buffer_height = tiling_scheme.elements_in_tile_row(ident) / line_size;
-                    buffer_id.to_index() * buffer_height
+                    stage_ident.to_index() * buffer_height
                         + unit_position
                         + (unit_position / buffer_height) * buffer_height
                 }

@@ -2,9 +2,9 @@ use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
-use crate::components::global::load::StageIdent;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
+use crate::components::global::load::StageIdent;
 use crate::components::global::load::TaskCounter;
 use crate::components::global::multi_stage::Job;
 use crate::components::global::multi_stage::JobExecutor;
@@ -120,7 +120,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
 
     fn create_job(
         this: &Self,
-        #[comptime] _buffer_id: StageIdent,
+        #[comptime] _stage_ident: StageIdent,
         #[comptime] config: G,
     ) -> Self::Job {
         let loading = match this.loading_job {
@@ -178,10 +178,14 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         });
     }
 
-    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: StageIdent, #[comptime] config: G) {
+    fn execute_whole_job(
+        this: &mut Self,
+        #[comptime] stage_ident: StageIdent,
+        #[comptime] config: G,
+    ) {
         Self::execute_all_remaining_tasks(
             this,
-            &mut Self::create_job(this, buffer_id, config),
+            &mut Self::create_job(this, stage_ident, config),
             config,
         );
     }

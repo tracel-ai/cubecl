@@ -97,9 +97,9 @@ impl<
 
     pub fn reader(
         this: &Self,
-        #[comptime] buffer_id: StageIdent,
+        #[comptime] stage_ident: StageIdent,
     ) -> PartialStageToTileReader<MP::ES, L::TilingLayout> {
-        PartialStageToTileReader::new(this.stage_memory, buffer_id, this.input_ident)
+        PartialStageToTileReader::new(this.stage_memory, stage_ident, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
@@ -109,15 +109,15 @@ impl<
     pub fn fill_stage(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] buffer_id: StageIdent,
+        #[comptime] stage_ident: StageIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         let mut loading_job = match this.loading_job {
-            CubeOption::Some(job) => match buffer_id {
+            CubeOption::Some(job) => match stage_ident {
                 StageIdent::A => job.0,
                 StageIdent::B => job.1,
             },
-            CubeOption::None => match buffer_id {
+            CubeOption::None => match stage_ident {
                 StageIdent::A => {
                     L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(0u32, this.input_ident, config)
                 }
@@ -142,10 +142,10 @@ impl<
 
     pub fn clear_stage(
         this: &mut Self,
-        #[comptime] buffer_id: StageIdent,
+        #[comptime] stage_ident: StageIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         this.stage_memory
-            .clear_stage::<DoubleBufferingGlobalConfig<S>>(buffer_id, this.input_ident, config)
+            .clear_stage::<DoubleBufferingGlobalConfig<S>>(stage_ident, this.input_ident, config)
     }
 }

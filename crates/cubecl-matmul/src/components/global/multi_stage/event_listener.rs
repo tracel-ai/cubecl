@@ -17,7 +17,7 @@ pub enum EventLoadingMode {
 #[derive(CubeType)]
 pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
-    buffer_id: StageIdent,
+    stage_ident: StageIdent,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
@@ -57,14 +57,14 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
     pub fn new(
-        #[comptime] buffer_id: StageIdent,
+        #[comptime] stage_ident: StageIdent,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
         #[comptime] event_loading_side: LoadingSides,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
-            buffer_id,
+            stage_ident,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
             config,
@@ -169,13 +169,19 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
         if comptime!(self.event_loading_side.includes_lhs()) {
-            self.state_lhs
-                .push(L::create_job(&self.loader_lhs, self.buffer_id, self.config));
+            self.state_lhs.push(L::create_job(
+                &self.loader_lhs,
+                self.stage_ident,
+                self.config,
+            ));
         }
 
         if comptime!(self.event_loading_side.includes_rhs()) {
-            self.state_rhs
-                .push(R::create_job(&self.loader_rhs, self.buffer_id, self.config));
+            self.state_rhs.push(R::create_job(
+                &self.loader_rhs,
+                self.stage_ident,
+                self.config,
+            ));
         }
     }
 
@@ -245,14 +251,21 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     type Job: Job;
 
-    fn create_job(this: &Self, #[comptime] buffer_id: StageIdent, #[comptime] config: G)
-    -> Self::Job;
+    fn create_job(
+        this: &Self,
+        #[comptime] stage_ident: StageIdent,
+        #[comptime] config: G,
+    ) -> Self::Job;
 
     fn execute_task(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
 
     fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
 
-    fn execute_whole_job(this: &mut Self, #[comptime] buffer_id: StageIdent, #[comptime] config: G);
+    fn execute_whole_job(
+        this: &mut Self,
+        #[comptime] stage_ident: StageIdent,
+        #[comptime] config: G,
+    );
 }
 
 #[cube]
