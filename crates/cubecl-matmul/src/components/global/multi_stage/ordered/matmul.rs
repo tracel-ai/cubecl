@@ -1,5 +1,6 @@
 use crate::components::global::load::{
-    StageIdent, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader, SyncFullLoadingStrategy,
+    StageIdent, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
+    SyncFullLoadingStrategy,
 };
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
@@ -7,8 +8,8 @@ use crate::components::global::multi_stage::double_buffer_execution::{
 use crate::components::global::multi_stage::ordered::LL;
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
-use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::FullStageToTileReader;
+use crate::components::stage::PartialStageToTileReader;
 use crate::components::{InputIdent, MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
