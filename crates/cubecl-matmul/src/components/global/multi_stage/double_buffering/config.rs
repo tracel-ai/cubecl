@@ -106,7 +106,7 @@ impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
     /// Create a new config for double buffering global matmul
     ///
     /// May return an error if:
-    /// - a loader are invalid
+    /// - a loader is invalid
     /// - CubeDim is too big
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
         _client: &ComputeClient<R::Server, R::Channel>,

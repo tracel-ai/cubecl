@@ -107,7 +107,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     /// Create a new config for simple barrier global matmul
     ///
     /// May return an error if:
-    /// - a loader are invalid
+    /// - a loader is invalid
     /// - CubeDim is too big
     /// - Barriers are not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(

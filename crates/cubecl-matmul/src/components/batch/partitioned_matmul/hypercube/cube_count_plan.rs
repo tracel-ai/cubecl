@@ -33,7 +33,7 @@ pub enum CubeCountPlanSelection {
 /// Informations necessary in the computation of the CubeCount.
 /// Because this struct depends on the problem size, it is simplified into
 /// [CubeCountPlanConfig] to be injected as comptime in the kernel.
-/// ///
+/// 
 /// Refer to [CubeCountPlanSelection] for more details
 pub enum CubeCountPlan {
     FromProblem {

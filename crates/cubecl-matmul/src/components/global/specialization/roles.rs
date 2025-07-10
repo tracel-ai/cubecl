@@ -54,11 +54,11 @@ pub struct Threshold {
 pub enum RoleRule {
     /// All planes are in the main flow, this is equivalent of having no specialization
     MainFlowOnly,
-    /// Load-only planes: [0, Threshold[
-    /// Main flow planes: [Threshold, total[
+    /// Load-only planes: [0, Threshold)
+    /// Main flow planes: [Threshold, total)
     LoadOnlyFirst(Threshold),
-    /// Main flow planes: [0, Threshold[
-    /// Load-only planes: [Threshold, total[
+    /// Main flow planes: [0, Threshold)
+    /// Load-only planes: [Threshold, total)
     LoadOnlyLast(Threshold),
 }
 

@@ -112,7 +112,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     /// Create a new config for double buffering global matmul
     ///
     /// May return an error if:
-    /// - a loader are invalid
+    /// - a loader is invalid
     /// - CubeDim is too big
     /// - There is more than one stage partition in n
     /// - Lhs is not loaded exclusively by main flow planes

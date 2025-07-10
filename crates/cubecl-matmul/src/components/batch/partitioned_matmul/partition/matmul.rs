@@ -175,7 +175,7 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
-/// x and y offsets are absolute rows and columns
+/// m and n offsets are absolute rows and columns
 pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     lhs: VirtualTensor<MP::EI>,
     rhs: VirtualTensor<MP::EI>,

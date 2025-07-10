@@ -109,7 +109,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     /// Create a new config for tma global matmul
     ///
     /// May return an error if:
-    /// - a loader are invalid
+    /// - a loader is invalid
     /// - CubeDim is too big
     /// - TMA is not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
