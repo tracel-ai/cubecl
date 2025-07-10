@@ -7,6 +7,7 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for partitioned batch matmul
 pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
     hypercube_config: HypercubeConfig,
@@ -47,6 +48,7 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
 }
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
+    /// Create a new config for partitioned batch matmul
     pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {
         Self {
             global_config,
@@ -54,6 +56,8 @@ impl<G: GlobalConfig> PartitionedBatchConfig<G> {
         }
     }
 
+    /// May return an error if:
+    /// - hypercube config is invalid
     pub fn validate(self, problem: &MatmulProblem) -> Result<Self, MatmulSetupError> {
         self.hypercube_config.validate(problem)?;
         Ok(self)

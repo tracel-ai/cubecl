@@ -7,6 +7,8 @@ use crate::components::batch::partitioned_matmul::hypercube::sm_allocation::SmAl
 use crate::components::batch::{HypercubeConfig, HypercubeSelection};
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Front-facing configuration when crafting a MatmulSelection
+/// Allows choosing a strategy before knowing actual values
 pub enum CubeCountPlanSelection {
     #[default]
     /// X: num cubes in m, Y: num cubes in n, Z: num cubes in batch
@@ -28,24 +30,11 @@ pub enum CubeCountPlanSelection {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum CubeCountPlanConfig {
-    FromProblem,
-
-    Sm {
-        cubes_first: bool,
-        num_sms: u32,
-        sm_usage: SmAllocation,
-        can_yield_extra_cubes: bool,
-    },
-
-    Flattened,
-
-    Spread {
-        can_yield_extra_cubes: bool,
-    },
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Informations necessary in the computation of the CubeCount.
+/// Because this struct depends on the problem size, it is simplified into
+/// [CubeCountPlanConfig] to be injected as comptime in the kernel.
+///
+/// Refer to [CubeCountPlanSelection] for more details
 pub enum CubeCountPlan {
     FromProblem {
         m_cubes: u32,
@@ -78,6 +67,7 @@ pub enum CubeCountPlan {
 }
 
 impl CubeCountPlan {
+    /// Whether the CubeCount will have more cubes than strictly necessary.
     pub fn can_yield_extra_cubes(&self) -> bool {
         match self {
             CubeCountPlan::FromProblem { .. } | CubeCountPlan::Flattened { .. } => false,
@@ -101,8 +91,31 @@ impl CubeCountPlan {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Config derived from CubeCountPlan to be used comptime in kernels
+///
+/// Refer to [CubeCountPlanSelection] for more details
+pub enum CubeCountPlanConfig {
+    FromProblem,
+
+    Sm {
+        cubes_first: bool,
+        num_sms: u32,
+        sm_usage: SmAllocation,
+        can_yield_extra_cubes: bool,
+    },
+
+    Flattened,
+
+    Spread {
+        can_yield_extra_cubes: bool,
+    },
+}
+
 #[derive(CubeType, CubeLaunch)]
 /// CubeCountPlan stripped of non-essential runtime information
+///
+/// This enum is given as runtime input to the matmul
 pub enum CubeCountInput {
     FromProblem,
     SmFirst {
@@ -127,7 +140,7 @@ pub enum CubeCountInput {
 }
 
 impl CubeCountPlan {
-    // Will check if the cube count plan wanted is possible, otherwise will fallback to spread
+    // Will check if the wanted cube count plan is possible, otherwise will fallback to spread
     pub fn from_selection(
         selection: &HypercubeSelection,
         problem: &MatmulProblem,
@@ -198,9 +211,9 @@ impl CubeCountPlan {
         })
     }
 
-    /// Assumes the config is valid
-    ///
     /// Because we don't want to store the CubeCountPlan values in config, we have to recompute it
+    ///
+    /// Assumes the hypercube config is valid
     pub fn from_config(
         config: &HypercubeConfig,
         problem: &MatmulProblem,
@@ -253,6 +266,7 @@ impl CubeCountPlan {
 }
 
 impl CubeCountPlanConfig {
+    /// Whether the CubeCount will have more cubes than strictly necessary.
     pub fn can_yield_extra_cubes(&self) -> bool {
         match self {
             CubeCountPlanConfig::FromProblem | CubeCountPlanConfig::Flattened => false,
@@ -288,6 +302,8 @@ impl CubeCountPlanConfig {
     }
 }
 
+/// Heuristic algorithm to factor the total number of cubes into (x, y, z) dimensions
+/// such that no dimension surpasses its maximum.
 pub(crate) fn spread_cube_count_plan(
     m_cubes: u32,
     n_cubes: u32,
@@ -369,6 +385,7 @@ impl CubeCountPlan {
         }
     }
 
+    /// Make a CubeCountInput from CubeCountPlan
     pub fn as_args<'a, R: Runtime>(&self) -> CubeCountInputArgs<'a, R> {
         match self {
             CubeCountPlan::FromProblem { .. } => CubeCountInputArgs::FromProblem,
@@ -412,7 +429,8 @@ impl CubeCountPlan {
 
 #[cube]
 impl CubeCountInput {
-    pub fn max_cube_pos(&self) -> u32 {
+    /// Returns the number of valid cubes
+    pub fn num_valid_cubes(&self) -> u32 {
         match self {
             CubeCountInput::FromProblem | CubeCountInput::Flattened { .. } => {
                 panic!("Shouldn't need to be called because the cube count should always be exact")

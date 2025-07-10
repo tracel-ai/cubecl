@@ -1,3 +1,5 @@
+//! Contains specialization config and runtime behaviours
+
 mod config;
 mod roles;
 mod specializer;

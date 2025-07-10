@@ -12,7 +12,6 @@ use cubecl_std::{
 
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
-/// Similar to the concept of tensor slice, but specialized for matmul constraints
 pub struct PartitionRanges {
     row: PartitionRangeDim,
     col: PartitionRangeDim,
@@ -29,7 +28,7 @@ pub struct PartitionRangeDim {
 }
 
 #[cube]
-/// Iterates on several global matmul across a partition
+/// Iterates on several global matmul across a global partition
 pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         lhs: VirtualTensor<MP::EI>,
@@ -53,6 +52,7 @@ pub struct ColMajorGlobalPartitionMatmul {}
 
 #[cube]
 impl PartitionRanges {
+    /// Create a new [PartitionRanges]
     pub fn new(
         row: PartitionRangeDim,
         col: PartitionRangeDim,
@@ -64,6 +64,7 @@ impl PartitionRanges {
 
 #[cube]
 impl PartitionRangeDim {
+    /// Create a new [PartitionRangeDim]
     pub fn new(
         cube_pos: u32,
         #[comptime] stage_dim: u32,
@@ -107,7 +108,7 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                 for c in 0..num_steps_col {
                     let col_offset = ranges.col.start + c * ranges.col.step;
 
-                    gmm_execute::<MP, GMM>(
+                    execute_global_matmul::<MP, GMM>(
                         lhs,
                         rhs,
                         out,
@@ -154,7 +155,7 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
                 for r in 0..num_steps_row {
                     let row_offset = ranges.row.start + r * ranges.row.step;
 
-                    gmm_execute::<MP, GMM>(
+                    execute_global_matmul::<MP, GMM>(
                         lhs,
                         rhs,
                         out,
@@ -174,13 +175,13 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
-/// x and y offsets are absolute rows and columns
-pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+/// m and n offsets are absolute rows and columns
+pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     lhs: VirtualTensor<MP::EI>,
     rhs: VirtualTensor<MP::EI>,
     out: VirtualTensor<MP::EO, ReadWrite>,
-    x_offset: u32,
-    y_offset: u32,
+    m_offset: u32,
+    n_offset: u32,
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
@@ -201,7 +202,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     GMM::execute(
         GMM::init_lhs_loader(
             lhs,
-            x_offset,
+            m_offset,
             k_range.0,
             nth_batch,
             batch_lhs,
@@ -211,13 +212,13 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         GMM::init_rhs_loader(
             rhs,
             k_range.0,
-            y_offset,
+            n_offset,
             nth_batch,
             batch_rhs,
             quantization,
             config,
         ),
-        GMM::init_writer(out, x_offset, y_offset, nth_batch, batch_out),
+        GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out),
         acc,
         k_range,
         config,

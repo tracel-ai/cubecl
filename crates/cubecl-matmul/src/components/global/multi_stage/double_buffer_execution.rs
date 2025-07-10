@@ -11,6 +11,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
+/// Load the first stage for both Lhs and Rhs
+///
+/// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn load_first<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
@@ -21,7 +24,7 @@ pub fn load_first<
     lhs_loader: &mut LJ,
     rhs_loader: &mut RJ,
     specializer: &Specializer,
-    #[comptime] buffer_to_load: StageIdent,
+    #[comptime] stage_to_load: StageIdent,
     #[comptime] config: G,
 ) {
     match comptime!(specializer.kind) {
@@ -33,28 +36,31 @@ pub fn load_first<
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_only() {
                 if main_flow_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
+                    LJ::execute_whole_job(lhs_loader, stage_to_load, config);
                 }
                 if main_flow_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+                    RJ::execute_whole_job(rhs_loader, stage_to_load, config);
                 }
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
+                    LJ::execute_whole_job(lhs_loader, stage_to_load, config);
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+                    RJ::execute_whole_job(rhs_loader, stage_to_load, config);
                 }
             }
         }
         SpecializerKind::NotSpecialized => {
-            LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
-            RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+            LJ::execute_whole_job(lhs_loader, stage_to_load, config);
+            RJ::execute_whole_job(rhs_loader, stage_to_load, config);
         }
     };
 }
 
 #[cube]
+/// Execute on the current stage while loading the next stage
+///
+/// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn execute_current_and_load_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
@@ -70,7 +76,7 @@ pub fn execute_current_and_load_next<
     lhs_loader: &mut LJ,
     rhs_loader: &mut RJ,
     specializer: &Specializer,
-    #[comptime] buffer_to_load: StageIdent,
+    #[comptime] stage_to_load: StageIdent,
     #[comptime] config: G,
 ) {
     match comptime!(specializer.kind) {
@@ -89,7 +95,7 @@ pub fn execute_current_and_load_next<
                     acc,
                     config.stage_config(),
                     DoubleBufferingEventListener::new(
-                        buffer_to_load,
+                        stage_to_load,
                         lhs_loader,
                         rhs_loader,
                         config,
@@ -98,10 +104,10 @@ pub fn execute_current_and_load_next<
                 );
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_loader, buffer_to_load, config);
+                    LJ::execute_whole_job(lhs_loader, stage_to_load, config);
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_loader, buffer_to_load, config);
+                    RJ::execute_whole_job(rhs_loader, stage_to_load, config);
                 }
             }
         }
@@ -114,7 +120,7 @@ pub fn execute_current_and_load_next<
                 acc,
                 config.stage_config(),
                 DoubleBufferingEventListener::new(
-                    buffer_to_load,
+                    stage_to_load,
                     lhs_loader,
                     rhs_loader,
                     config,
@@ -126,6 +132,9 @@ pub fn execute_current_and_load_next<
 }
 
 #[cube]
+/// Execute on the last stage, then write results
+///
+/// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn execute_last_and_write_results<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,

@@ -1,6 +1,6 @@
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaders;
-use crate::components::global::load::{SyncBufferLoadingStrategy, SyncFullLoadingStrategy};
+use crate::components::global::MaxLoaderPlanes;
+use crate::components::global::load::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
@@ -12,9 +12,10 @@ use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
 
+/// Ordered double buffering matmul family for any precision
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _rhs_loading: PhantomData<RL>,
@@ -23,7 +24,7 @@ pub struct OrderedDoubleBufferingMatmulFamily<
 impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = PartialReaderFamily>,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,
@@ -42,7 +43,11 @@ where
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                MaxLoaders::new::<LL, RL>(&selection.tiling_scheme, line_sizes, selection.plane_dim)
+                MaxLoaderPlanes::new::<LL, RL>(
+                    &selection.tiling_scheme,
+                    line_sizes,
+                    selection.plane_dim,
+                )
             });
 
         let stage_config = SMM::setup::<MP, R>(

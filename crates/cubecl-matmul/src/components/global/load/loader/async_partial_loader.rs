@@ -1,8 +1,8 @@
 use super::StageIdent;
 use crate::components::global::base::GlobalConfig;
+use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{CopyMechanism, Quantization};
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::TilingLayout;
@@ -16,8 +16,8 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
-/// A strategy for asynchronously loading a buffer (partial stage), either eagerly or as a deferred job.
-pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+/// A strategy for asynchronously loading a stage of stage memory
+pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
@@ -36,11 +36,15 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 }
 
 #[derive(CubeType)]
+/// Loads a stage from stage memory using asynchronous data movement operations.
+///
+/// A complete load is referred to as a `Job`, which is divided into `Tasks`—
+/// each Task represents a single data transfer for a specific unit
 pub struct AsyncBufferLoader<
     MP: MatmulPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism<MP::ES>,
-    L: AsyncBufferLoadingStrategy,
+    L: AsyncPartialLoadingStrategy,
 > {
     tensor_reader: TensorReader<MP::EI>,
     stage_memory: StageMemory<MP::ES, L::TilingLayout>,
@@ -56,9 +60,10 @@ impl<
     MP: MatmulPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism<MP::ES>,
-    L: AsyncBufferLoadingStrategy,
+    L: AsyncPartialLoadingStrategy,
 > AsyncBufferLoader<MP, S, CM, L>
 {
+    /// Create a new AsyncPartialLoader
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
@@ -95,6 +100,7 @@ impl<
         }
     }
 
+    /// Give a reader to the loaded stage memory.
     pub fn reader(
         this: &Self,
         #[comptime] stage_ident: StageIdent,
@@ -102,10 +108,12 @@ impl<
         PartialStageToTileReader::new(this.stage_memory, stage_ident, this.input_ident)
     }
 
+    /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_reader.update_view(k_offset, this.input_ident);
     }
 
+    /// Accomplish the entire job of filling the stage memory
     pub fn fill_stage(
         this: &mut Self,
         mechanism: &CM,
@@ -140,6 +148,7 @@ impl<
         }
     }
 
+    /// Zero out the stage memory
     pub fn clear_stage(
         this: &mut Self,
         #[comptime] stage_ident: StageIdent,

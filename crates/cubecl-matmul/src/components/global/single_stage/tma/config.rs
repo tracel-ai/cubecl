@@ -106,6 +106,12 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
 
 impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for tma global matmul
+    ///
+    /// May return an error if:
+    /// - a loader is invalid
+    /// - CubeDim is too big
+    /// - TMA is not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,

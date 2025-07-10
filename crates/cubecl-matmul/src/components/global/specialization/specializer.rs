@@ -6,6 +6,7 @@ use crate::components::global::specialization::config::LoadingSides;
 use crate::components::global::specialization::roles::RoleRuleConfig;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Comptime information of specializer
 pub enum SpecializerKind {
     Specialized {
         main_flow_loading_side: LoadingSides,
@@ -16,6 +17,7 @@ pub enum SpecializerKind {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Specialization information in cube functions
 pub struct Specializer {
     #[cube(comptime)]
     pub kind: SpecializerKind,

@@ -9,12 +9,15 @@ use crate::components::{
 };
 
 #[derive(Debug, Clone)]
+/// Determines how to launch the hypercube, i.e. anything
+/// relevant to CubeCount and where a Cube at a cube position should work
 pub struct HypercubeSelection {
     pub cube_span: CubeSpan,
     pub global_order: GlobalOrder,
     pub cube_count_plan_selection: CubeCountPlanSelection,
 }
 
+/// Builder for creating a [HypercubeSelection]
 pub struct HypercubeSelectionBuilder<'a> {
     tiling_scheme: &'a TilingScheme,
     global_order: GlobalOrderSelection,
@@ -22,6 +25,9 @@ pub struct HypercubeSelectionBuilder<'a> {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Determines how to launch the hypercube, i.e. anything
+/// relevant to CubeCount and where a Cube at a cube position should work
+/// Similar to [HyperCubeSelection] but injected in kernel as comptime struct
 pub struct HypercubeConfig {
     pub cube_span: CubeSpan,
     pub global_order: GlobalOrder,
@@ -37,6 +43,7 @@ pub struct CubeSpan {
 }
 
 impl HypercubeSelection {
+    /// Create a builder for HypercubeSelection
     pub fn builder<'a>(tiling_scheme: &'a TilingScheme) -> HypercubeSelectionBuilder<'a> {
         HypercubeSelectionBuilder::new(tiling_scheme)
     }
@@ -58,6 +65,8 @@ impl HypercubeSelection {
 }
 
 impl HypercubeConfig {
+    /// Returns an error if:
+    /// - The global order is swizzle but its assumptions are not met
     pub fn validate(&self, problem: &MatmulProblem) -> Result<(), MatmulSetupError> {
         let m_cubes = (problem.m as u32).div_ceil(self.cube_span.m);
         let n_cubes = (problem.n as u32).div_ceil(self.cube_span.n);
@@ -93,16 +102,19 @@ impl<'a> HypercubeSelectionBuilder<'a> {
         }
     }
 
+    /// Set the [GlobalOrderSelection]
     pub fn global_order(mut self, global_order: GlobalOrderSelection) -> Self {
         self.global_order = global_order;
         self
     }
 
+    /// Set the [CubeCountPlanSelection]
     pub fn cube_count_plan(mut self, cube_count_plan_config: CubeCountPlanSelection) -> Self {
         self.cube_count_plan_config = Some(cube_count_plan_config);
         self
     }
 
+    /// Build the HypercubeSelection
     pub fn build(self) -> HypercubeSelection {
         let cube_span = CubeSpan {
             m: self.tiling_scheme.elements_in_global_partition_m(),
@@ -122,6 +134,7 @@ impl<'a> HypercubeSelectionBuilder<'a> {
 }
 
 impl HypercubeConfig {
+    /// Make a CubeCountPlan from the problem, constrained to not exceed the maximal cube count
     pub fn cube_count_plan(
         &self,
         problem: &MatmulProblem,

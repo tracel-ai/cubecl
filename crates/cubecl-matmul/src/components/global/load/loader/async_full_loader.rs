@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::components::global::Quantization;
+use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
-use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
@@ -34,7 +34,11 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 }
 
 #[derive(CubeType)]
-pub struct AsyncLoader<
+/// Loads the entire stage memory using asynchronous data movement operations.
+///
+/// A complete load is referred to as a `Job`, which is divided into `Tasks`—
+/// each Task represents a single data transfer for a specific unit
+pub struct AsyncFullLoader<
     MP: MatmulPrecision,
     CM: CopyMechanism<MP::ES>,
     S: stage::StageConfig,
@@ -57,8 +61,9 @@ impl<
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
-> AsyncLoader<MP, CM, S, L, G>
+> AsyncFullLoader<MP, CM, S, L, G>
 {
+    /// Create a new AsyncFullLoader
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
@@ -108,7 +113,7 @@ impl<
             }
         }
 
-        AsyncLoader::<MP, CM, S, L, G> {
+        AsyncFullLoader::<MP, CM, S, L, G> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -117,6 +122,7 @@ impl<
         }
     }
 
+    /// Accomplish the entire job of filling the stage memory
     pub fn fill_stage(this: &mut Self, mechanism: &CM, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
@@ -136,14 +142,17 @@ impl<
         }
     }
 
+    /// Zero out the stage memory
     pub fn clear_stage(this: &mut Self, #[comptime] config: G) {
         this.stage_memory.clear_all::<G>(this.ident, config)
     }
 
+    /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
         FullStageToTileReader::new(this.stage_memory, this.ident)
     }
 
+    /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_reader.update_view(k_offset, this.ident);
     }

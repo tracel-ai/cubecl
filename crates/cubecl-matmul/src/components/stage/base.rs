@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaders;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
 use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection};
@@ -44,7 +44,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
-        max_loaders: Option<MaxLoaders>,
+        max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError>;
 
@@ -183,7 +183,7 @@ pub trait StageConfig:
     /// Returns the number of stages for the given input
     fn num_stages(&self, ident: InputIdent) -> u32;
 
-    /// Returns the tiling scheme
+    /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme;
 
     /// Indicates the specialization roles for the planes

@@ -19,6 +19,7 @@ use crate::components::{
     stage::{self, FullReaderFamily},
 };
 
+/// Simple TMA matmul family for any precision
 pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
 }

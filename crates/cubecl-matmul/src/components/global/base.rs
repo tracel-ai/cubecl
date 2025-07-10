@@ -20,9 +20,15 @@ use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
+    /// The specific [GlobalMatmul] implementation associated with this family.
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+
+    /// The configuration type associated with this matmul family.
     type Config: GlobalConfig;
 
+    /// Constructs the configuration based on the matmul problem, selection, and line sizes.
+    ///
+    /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
@@ -30,6 +36,9 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
         matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
+    /// Filters out line sizes that are incompatible with this matmul family.
+    ///
+    /// By default, returns the input unchanged.
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
@@ -41,7 +50,7 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
 /// At the global level,
 ///  - Inputs are views over global memory, meaning access is given to
 ///    only parts of the global memory inputs at once.
-///  - All planes within a Cube can collaborate to solve the problem
+///  - All planes within a Cube are used to solve the problem
 ///  - Dimensions M and N are fixed to an integer, but K is arbitrary large.
 ///    The matrix multiplication works only for size (M, _) · (_, N) = (M, N).
 ///    M and N should match the underlying Stage matmul's M and N.
@@ -63,11 +72,11 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
-    /// LHS and RHS loaders, over the range given for K, and stores with
+    /// Lhs and Rhs loaders, over the range given for K, and stores with
     /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
-    /// K is the K dimension of LHS and RHS.
+    /// K is the K dimension of Lhs and Rhs.
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
@@ -102,13 +111,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    /// Fill the accumulator with zeros
-    ///
-    /// TODO: The global matmul is responsible to zero the accumulator not the batch.
-    ///
-    /// this is unused.
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
-
     /// Initialize the writer at row m and column n
     fn init_writer(
         out: VirtualTensor<MP::EO, ReadWrite>,
@@ -132,6 +134,7 @@ pub trait GlobalConfig:
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
+    /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme {
         self.stage_config().tiling_scheme()
     }
@@ -139,9 +142,16 @@ pub trait GlobalConfig:
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
+    /// Returns the number of planes participating in loading `ident`
     fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32;
+
+    /// Indicates the specialization roles for the planes
     fn plane_role_config(&self) -> PlaneRoleConfig;
+
+    /// Indicates plane roles are associated to loading which tensor input
     fn specialized_loading_sides(&self) -> SpecializedLoadingSides;
+
+    /// How to identify the role of the plane depending on its index
     fn role_rule_config(&self) -> RoleRuleConfig {
         self.plane_role_config().rule
     }
@@ -158,19 +168,25 @@ pub trait GlobalConfig:
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
 
+    /// Whether to put common computations for loading tasks once before loop
     fn precompute_job(&self) -> bool;
 
+    /// The number of stages in stage memory
     fn num_stages(&self, ident: InputIdent) -> u32;
 
     /// Whether to check loader is balanced in comptime or runtime.
+    ///
     /// Not supported by all loading strategies
     fn loader_mode(&self) -> LoaderMode;
 
+    /// Whether event loading is constrained to be ordered
     fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
 
+    /// Whether the matmul is quantized
     fn quantized(&self) -> bool {
         self.stage_config().quantized()
     }
 
+    /// The [CubeDim] arising from the [TilingScheme]
     fn cube_dim(&self) -> CubeDim;
 }

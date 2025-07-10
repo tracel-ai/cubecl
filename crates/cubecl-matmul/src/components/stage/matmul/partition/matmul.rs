@@ -211,7 +211,7 @@ where
                     );
                     SEL::on_event(
                         &mut listener,
-                        comptime![StageEvent::TmmCompleted {
+                        comptime![StageEvent::TileMatmulCompleted {
                             current: execute_counter,
                             total: execute_total
                         }],
@@ -343,7 +343,7 @@ where
                     );
                     SEL::on_event(
                         &mut listener,
-                        comptime!(StageEvent::TmmCompleted {
+                        comptime!(StageEvent::TileMatmulCompleted {
                             current: execute_counter,
                             total: execute_total
                         }),
@@ -378,7 +378,7 @@ where
                 );
                 SEL::on_event(
                     &mut listener,
-                    comptime!(StageEvent::TmmCompleted {
+                    comptime!(StageEvent::TileMatmulCompleted {
                         current: execute_counter,
                         total: execute_total
                     }),

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
+use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::tensor_view::TensorReader;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{Ident, InputIdent, InvalidConfigError};
@@ -14,14 +14,14 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use super::{LoaderMode, LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes.
+/// Loads the content of all tiles in the stage using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct LoadingStrategy<T: TilingOrder> {
+pub struct SyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     _phantom: PhantomData<T>,
 }
 
-impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
+impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
@@ -41,7 +41,7 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     }
 }
 
-impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: InputIdent,
@@ -54,9 +54,9 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
+impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = SyncFullCyclicJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
@@ -78,7 +78,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
             + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        Job {
+        SyncFullCyclicJob {
             unit_position_base,
             num_tasks_per_unit,
             tile_num_elements,
@@ -93,7 +93,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct SyncFullCyclicJob {
     unit_position_base: u32,
 
     #[cube(comptime)]
@@ -115,7 +115,9 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>>
+    for SyncFullCyclicJob
+{
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
@@ -157,7 +159,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
 #[cube]
 pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
-    job: &Job,
+    job: &SyncFullCyclicJob,
     unit_position: u32,
     tensor_reader: &TensorReader<MP::EI>,
     stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,

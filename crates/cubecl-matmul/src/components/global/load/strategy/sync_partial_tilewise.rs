@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
 use crate::components::stage::TilingOrderEnum;
@@ -8,7 +8,7 @@ use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
 };
 use crate::components::{
-    global::{GlobalConfig, tensor_view::TensorReader},
+    global::{GlobalConfig, global_memory::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
@@ -21,16 +21,16 @@ use super::{LoadingJob, LoadingValidation};
 /// Each tile is guaranteed to be loaded entirely by the same plane.
 /// Each plane can load multiple tiles, provided the number of planes evenly divides the number of tiles.
 /// In this case, a plane loads contiguous tiles following the `TilingOrder`,
-/// until it would otherwise write to the opposite buffer. At that point, it continues on the next
-/// row or column of the same buffer, skipping over the memory region of the other buffer.
+/// until it would otherwise write to the opposite stage. At that point, it continues on the next
+/// row or column of the same stage, skipping over the memory region of the other stage.
 ///
 /// Only supports RowMajorTilingOrder for Lhs and ColMajorTilingOrder for Rhs
-pub struct LoadingStrategy<T: TilingOrder> {
+pub struct SyncPartialTilewiseLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: InputIdent,
@@ -41,7 +41,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
     }
 }
 
-impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
+impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
@@ -69,7 +69,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             InputIdent::Lhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
                     return Err(FormattedConfigError::new(move || {
-                        "Sync buffer tilewise on Lhs is only supported with RowMajor tiling order"
+                        "Sync partial tilewise on Lhs is only supported with RowMajor tiling order"
                             .to_string()
                     }));
                 }
@@ -77,7 +77,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             InputIdent::Rhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
                     return Err(FormattedConfigError::new(move || {
-                        "Sync buffer tilewise on Rhs is only supported with ColMajor tiling order"
+                        "Sync partial tilewise on Rhs is only supported with ColMajor tiling order"
                             .to_string()
                     }));
                 }
@@ -89,15 +89,15 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
+impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = SyncPartialTilewiseJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] buffer_index: u32,
+        #[comptime] stage_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job {
+    ) -> SyncPartialTilewiseJob {
         let line_size = config.global_line_size(input_ident);
         let num_planes = config.num_loading_planes(input_ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
@@ -115,16 +115,16 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
             InputIdent::Rhs => config.tiling_scheme().tiles_in_stage_row(input_ident),
         });
         let row_col_stride = num_stages * stage_width;
-        let buffer_offset = stage_width * buffer_index;
+        let stage_offset = stage_width * stage_index;
 
         let starting_tile_within_stage = RoleRule::new(config.role_rule_config())
             .load_index(input_ident, config.specialized_loading_sides())
             * num_tiles_per_plane;
         let row_col_index = starting_tile_within_stage / stage_width;
         let inner_offset = starting_tile_within_stage % stage_width;
-        let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + buffer_offset;
+        let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + stage_offset;
 
-        Job {
+        SyncPartialTilewiseJob {
             num_tiles_to_skip,
             row_col_stride,
             stage_width,
@@ -138,7 +138,7 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct SyncPartialTilewiseJob {
     num_tiles_to_skip: u32,
 
     #[cube(comptime)]
@@ -158,7 +158,9 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>>
+    for SyncPartialTilewiseJob
+{
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
@@ -201,7 +203,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
 
-        Job::load_and_store_line::<MP, TO, G>(
+        SyncPartialTilewiseJob::load_and_store_line::<MP, TO, G>(
             this,
             tile,
             line_index_within_tile,
@@ -219,7 +221,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 }
 
 #[cube]
-impl Job {
+impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
     fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,

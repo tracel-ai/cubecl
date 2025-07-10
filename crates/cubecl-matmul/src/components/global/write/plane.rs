@@ -1,6 +1,6 @@
 use crate::components::Ident;
 use crate::components::global::GlobalConfig;
-use crate::components::global::tensor_view::TensorWriter;
+use crate::components::global::global_memory::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::div_ceil;
@@ -9,8 +9,10 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use super::GlobalWriter;
 
 #[derive(CubeType)]
+/// Writes tiles from out shared memory to output global memory
+/// using a plane for each tile
 pub struct PlaneWriter<EG: Numeric> {
-    pub tensor_view: TensorWriter<EG>,
+    pub tensor_writer: TensorWriter<EG>,
 }
 
 #[cube]
@@ -22,7 +24,7 @@ impl<EG: Numeric> PlaneWriter<EG> {
         batch_offset: u32,
     ) -> Self {
         PlaneWriter::<EG> {
-            tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
+            tensor_writer: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
         }
     }
 }
@@ -51,12 +53,12 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
                 let value = out_smem_slice[unit_write / output_line_size];
-                this.tensor_view
+                this.tensor_writer
                     .write_coalesced::<G>(tile_row, tile_col, unit_write, value, config);
             } else {
                 if unit_write < tile_size {
                     let value = out_smem_slice[unit_write / output_line_size];
-                    this.tensor_view
+                    this.tensor_writer
                         .write_coalesced::<G>(tile_row, tile_col, unit_write, value, config);
                 }
             }

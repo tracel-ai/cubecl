@@ -17,7 +17,9 @@ use super::Algorithm;
 
 #[derive(Debug, Clone)]
 pub enum Selection<S> {
+    /// Use a predefined MatmulSelection
     Forced(MatmulSelection),
+    /// Allows to give limited MatmulSelection information, and the rest is inferred from it
     Inferred(S),
 }
 
@@ -334,7 +336,7 @@ pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     cube_count: CubeCount,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
-    cube_count_args: CubeCountInputArgs<'a, R>,
+    cube_count_input: CubeCountInputArgs<'a, R>,
     config: <A::BatchMatmul as BatchMatmulFamily>::Config,
 ) -> Result<(), MatmulSetupError> {
     unsafe {
@@ -344,7 +346,7 @@ pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
             cube_count,
             input,
             output,
-            cube_count_args,
+            cube_count_input,
             config,
         );
     };
