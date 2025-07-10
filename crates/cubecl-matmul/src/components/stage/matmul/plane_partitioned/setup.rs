@@ -4,7 +4,7 @@ use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaders;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
 use crate::components::stage::ReaderFamily;
@@ -37,7 +37,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
-        max_loaders: Option<MaxLoaders>,
+        max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config = TMM::setup::<MP, R>(client, problem, selection, line_sizes)?;

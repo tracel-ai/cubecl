@@ -1,7 +1,7 @@
 use crate::{
     components::{
         InputIdent,
-        global::{MaxLoaders, specialization::roles::PlaneRoles},
+        global::{MaxLoaderPlanes, specialization::roles::PlaneRoles},
     },
     gcd,
 };
@@ -49,14 +49,13 @@ impl SpecializationTensorConfig {
 }
 
 impl LoadSpecializationConfig {
-    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: MaxLoaders) -> PlaneRoles {
-        PlaneRoles {
-            main_flow,
-            load_only: self.find_num_load_only(main_flow, loader_tasks),
-        }
-    }
-
-    fn find_num_load_only(&self, main_flow: u32, loader_tasks: MaxLoaders) -> u32 {
+    /// Computes how many planes of each role there should be,
+    /// using the number of planes needed for main execution, and how
+    /// many planes each loader can handle
+    ///
+    /// The strategy is to find a balanced divisor for loader planes that stays as
+    /// close as possible to the main execution plane count.
+    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: MaxLoaderPlanes) -> PlaneRoles {
         use SpecializationTensorConfig::*;
 
         let ideal_load_only = match (self.lhs, self.rhs) {
@@ -67,10 +66,16 @@ impl LoadSpecializationConfig {
         };
 
         // Don't stray too far from main_flow
-        best_divisor_close_to_reference(ideal_load_only, main_flow)
+        let load_only = best_divisor_close_to_reference(ideal_load_only, main_flow);
+
+        PlaneRoles {
+            main_flow,
+            load_only,
+        }
     }
 }
 
+/// Returns the divisor of `dividible_value` closest to `reference`, preferring larger on ties.
 fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 {
     let mut best = 1;
     let mut best_dist = reference.abs_diff(1);
@@ -89,6 +94,7 @@ fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Specifies which input(s) a plane role participates in loading.
 pub enum LoadingSides {
     /// Load both Lhs and Rhs
     Both,
@@ -101,14 +107,17 @@ pub enum LoadingSides {
 }
 
 impl LoadingSides {
+    /// Returns `true` if Lhs is included.
     pub fn includes_lhs(&self) -> bool {
         self.includes(InputIdent::Lhs)
     }
 
+    /// Returns `true` if Rhs is included.
     pub fn includes_rhs(&self) -> bool {
         self.includes(InputIdent::Rhs)
     }
 
+    /// Returns `true` if the given input is included.
     pub fn includes(&self, ident: InputIdent) -> bool {
         matches!(
             (self, ident),
@@ -120,12 +129,14 @@ impl LoadingSides {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Aggregates loading sides for both main flow and load only roles
 pub struct SpecializedLoadingSides {
     pub main_flow: LoadingSides,
     pub load_only: LoadingSides,
 }
 
 impl SpecializedLoadingSides {
+    /// Returns the number of planes participating in the loading of `ident`
     pub fn num_loading_planes(
         &self,
         specialized: bool,

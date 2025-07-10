@@ -6,8 +6,8 @@ use crate::components::global::GlobalConfig;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
 use crate::components::global::ZeroAccumulatorLoader;
-use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::load::AsyncFullLoader;
+use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
@@ -18,9 +18,8 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-/// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
-/// - All planes load data to the stage
-/// - All planes are used in the stage matmul computation
+/// Performs matrix multiplication at the global level
+/// Similar to simple matmul but using asynchronous loading
 pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
@@ -158,9 +157,5 @@ where
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         SMM::init_accumulator(config.stage_config())
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.stage_config());
     }
 }

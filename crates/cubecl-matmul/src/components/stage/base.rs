@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaders;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
 use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection};
@@ -44,7 +44,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
-        max_loaders: Option<MaxLoaders>,
+        max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError>;
 

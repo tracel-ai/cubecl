@@ -12,6 +12,7 @@ use crate::components::stage::StageConfig;
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use cubecl_core::{Runtime, client::ComputeClient};
 
+/// Simple Barrier matmul family for any precision
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
     LL: AsyncFullLoadingStrategy,

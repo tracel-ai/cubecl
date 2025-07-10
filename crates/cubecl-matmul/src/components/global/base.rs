@@ -41,7 +41,7 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
 /// At the global level,
 ///  - Inputs are views over global memory, meaning access is given to
 ///    only parts of the global memory inputs at once.
-///  - All planes within a Cube can collaborate to solve the problem
+///  - All planes within a Cube are used to solve the problem
 ///  - Dimensions M and N are fixed to an integer, but K is arbitrary large.
 ///    The matrix multiplication works only for size (M, _) · (_, N) = (M, N).
 ///    M and N should match the underlying Stage matmul's M and N.
@@ -63,11 +63,11 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
-    /// LHS and RHS loaders, over the range given for K, and stores with
+    /// Lhs and Rhs loaders, over the range given for K, and stores with
     /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
-    /// K is the K dimension of LHS and RHS.
+    /// K is the K dimension of Lhs and Rhs.
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
@@ -101,13 +101,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-
-    /// Fill the accumulator with zeros
-    ///
-    /// TODO: The global matmul is responsible to zero the accumulator not the batch.
-    ///
-    /// this is unused.
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Initialize the writer at row m and column n
     fn init_writer(

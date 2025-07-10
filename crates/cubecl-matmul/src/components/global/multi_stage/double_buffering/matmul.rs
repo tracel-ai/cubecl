@@ -202,8 +202,4 @@ where
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         SMM::init_accumulator(config.stage_config())
     }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.stage_config());
-    }
 }

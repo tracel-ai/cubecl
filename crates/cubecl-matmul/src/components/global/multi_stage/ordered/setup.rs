@@ -1,5 +1,5 @@
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaders;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::load::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
 use crate::components::stage::FullReaderFamily;
@@ -43,7 +43,7 @@ where
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                MaxLoaders::new::<LL, RL>(&selection.tiling_scheme, line_sizes, selection.plane_dim)
+                MaxLoaderPlanes::new::<LL, RL>(&selection.tiling_scheme, line_sizes, selection.plane_dim)
             });
 
         let stage_config = SMM::setup::<MP, R>(

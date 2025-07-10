@@ -16,6 +16,7 @@ use crate::components::{
     stage::{self, FullReaderFamily},
 };
 
+/// Simple matmul family for any precision
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
     LL: SyncFullLoadingStrategy,

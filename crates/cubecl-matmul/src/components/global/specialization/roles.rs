@@ -3,30 +3,36 @@ use cubecl_core::prelude::*;
 
 use crate::components::InputIdent;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaders;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::specialization::config::{
     LoadSpecializationConfig, SpecializedLoadingSides,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Represents how many planes are used for main matmul computation and for loading-only tasks.
 pub struct PlaneRoles {
+    /// Number of planes participating in main matmul and (possibly) loading.
     pub main_flow: u32,
+    /// Number of planes dedicated solely to loading.
     pub load_only: u32,
 }
 
 impl PlaneRoles {
+    /// Return the total number of planes
     pub fn total_count(&self) -> u32 {
         self.main_flow + self.load_only
     }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Contains the number of plane in each role and the rule to distinguish planes based on their plane id
 pub struct PlaneRoleConfig {
     pub plane_roles: PlaneRoles,
     pub rule: RoleRuleConfig,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Comptime version of [RoleRule]
 pub enum RoleRuleConfig {
     MainFlowOnly,
     LoadOnlyFirst { load_only: u32 },
@@ -34,24 +40,33 @@ pub enum RoleRuleConfig {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Threshold of plane id at which the roles change
+///
+/// Note: this struct is only necessary because Cube enums cannot hold
+/// a comptime value directly
 pub struct Threshold {
     #[cube(comptime)]
     threshold: u32,
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Rule to distinguish a plane's role based on its plane id
 pub enum RoleRule {
+    /// All planes are in the main flow, this is equivalent of having no specialization
     MainFlowOnly,
-    // Load-only planes are first, then come main flow
+    /// Load-only planes: [0, Threshold[
+    /// Main flow planes: [Threshold, total[
     LoadOnlyFirst(Threshold),
-    // Main flow planes are first, then come load-only
+    /// Main flow planes: [0, Threshold[
+    /// Load-only planes: [Threshold, total[
     LoadOnlyLast(Threshold),
 }
 
 impl PlaneRoleConfig {
+    /// Make a new PlaneRoleConfig
     pub fn new(
         load_specialization_config: LoadSpecializationConfig,
-        loader_tasks: Option<MaxLoaders>,
+        loader_tasks: Option<MaxLoaderPlanes>,
         num_main_flow_planes: u32,
     ) -> Result<PlaneRoleConfig, MatmulSetupError> {
         let plane_roles = match loader_tasks {
@@ -74,10 +89,6 @@ impl PlaneRoleConfig {
             }
         };
 
-        Ok(Self::from_plane_roles(plane_roles))
-    }
-
-    pub fn from_plane_roles(plane_roles: PlaneRoles) -> Self {
         // TODO make possible to select LoadOnlyLast
         let rule = match plane_roles.load_only {
             0 => RoleRuleConfig::MainFlowOnly,
@@ -86,13 +97,15 @@ impl PlaneRoleConfig {
             },
         };
 
-        Self { plane_roles, rule }
+        Ok(Self { plane_roles, rule })
     }
 
+    /// Returns the number of planes participating in main flow
     pub fn main_flow_count(&self) -> u32 {
         self.plane_roles.main_flow
     }
 
+    /// Whether the plane role config implies specialization
     pub fn has_specialization(&self) -> bool {
         self.plane_roles.load_only > 0
     }
@@ -100,6 +113,7 @@ impl PlaneRoleConfig {
 
 #[cube]
 impl RoleRule {
+    /// Make a cube role rule from comptime config
     pub fn new(#[comptime] comptime_rule: RoleRuleConfig) -> RoleRule {
         match comptime!(comptime_rule) {
             RoleRuleConfig::MainFlowOnly => RoleRule::new_MainFlowOnly(),
@@ -112,6 +126,7 @@ impl RoleRule {
         }
     }
 
+    /// Whether the current plane is a load-only plane
     pub fn is_load_only(self) -> bool {
         match self {
             RoleRule::MainFlowOnly => false,
@@ -120,6 +135,8 @@ impl RoleRule {
         }
     }
 
+    /// The index of the current plane among planes that perform compute,
+    /// ignoring load-only planes
     pub fn compute_index(self) -> u32 {
         match self {
             RoleRule::MainFlowOnly => UNIT_POS_Y,
@@ -128,6 +145,8 @@ impl RoleRule {
         }
     }
 
+    /// The index of the current plane among planes that perform loading,
+    /// ignoring any plane that does not participate for this `ident`.
     pub fn load_index(
         self,
         #[comptime] ident: InputIdent,
