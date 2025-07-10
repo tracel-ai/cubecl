@@ -9,35 +9,6 @@ use crate::components::{
 use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 
-#[derive(Debug, Clone, Copy, Default)]
-pub enum MultiRowStrategy {
-    /// Always one row per plane
-    #[default]
-    Never,
-    /// Always multiple rows per plane
-    Always(u32),
-    /// Uses multiple rows if the `m` dimension of the matmul implies at least the minimum number of stages along `m`
-    Adaptive { minimum_stage_count: u32 },
-}
-
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum LoadingPrecomputeStrategy {
-    /// Don't precompute anything in loading jobs
-    #[default]
-    Never,
-    /// Precompute values that are shared across tasks
-    Always,
-}
-
-impl From<LoadingPrecomputeStrategy> for bool {
-    fn from(strategy: LoadingPrecomputeStrategy) -> Self {
-        match strategy {
-            LoadingPrecomputeStrategy::Always => true,
-            LoadingPrecomputeStrategy::Never => false,
-        }
-    }
-}
-
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
     type SelectionArgs: Default + Clone;

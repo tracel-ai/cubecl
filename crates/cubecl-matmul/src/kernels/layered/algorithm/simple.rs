@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulProblem, MatmulSelection, TilingScheme,
+        MatmulProblem, MatmulSelection, MultiRowStrategy, TilingScheme,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -19,7 +19,7 @@ use crate::{
         tile::TileMatmulFamily,
     },
     kernels::layered::{
-        Algorithm, MultiRowStrategy,
+        Algorithm,
         selector::{PlaneMatmulSelectionOptions, plane_matmul_selection},
     },
 };

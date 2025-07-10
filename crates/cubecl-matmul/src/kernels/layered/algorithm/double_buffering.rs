@@ -7,13 +7,13 @@ use cubecl_core::ir::Elem;
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::{sync_buffer_cyclic, sync_buffer_tilewise};
 use crate::components::stage::{
-    PartialReaderFamily, ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder,
+    ColMajorTilingOrder, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
-use crate::components::{MatmulProblem, tile};
+use crate::components::{MatmulProblem, MultiRowStrategy, tile};
 use crate::components::{MatmulSelection, global};
+use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
-use crate::kernels::layered::{Algorithm, MultiRowStrategy};
 
 pub struct CyclicDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
@@ -38,7 +38,8 @@ where
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
+    type StageMatmul =
+        PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
@@ -78,7 +79,8 @@ where
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
+    type StageMatmul =
+        PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
@@ -119,7 +121,8 @@ where
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
+    type StageMatmul =
+        PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         sync_buffer_tilewise::LoadingStrategy<RowMajorTilingOrder>,

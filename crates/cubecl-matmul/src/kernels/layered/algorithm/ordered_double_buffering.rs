@@ -8,12 +8,12 @@ use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalParti
 use crate::components::global::load::sync_buffer_cyclic;
 use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
-    PartialReaderFamily, FullReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
+    FullReaderFamily, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
-use crate::components::tile;
 use crate::components::{MatmulProblem, MatmulSelection};
+use crate::components::{MultiRowStrategy, tile};
+use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
-use crate::kernels::layered::{Algorithm, MultiRowStrategy};
 
 pub struct OrderedDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
