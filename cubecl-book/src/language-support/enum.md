@@ -9,7 +9,7 @@ To use an enum in a CubeCL kernel, simply derive the required traits on the enum
 - `CubeType` enables the enum to be used as a CubeCL type in a kernel.
 - `CubeLaunch` allows the enum to be used as a kernel argument or return type.
 
-Enums can also have data associated with their variants, as long as all fields implement the required CubeCL traits:
+Enums can also have data associated with their variants, as long as all fields implement the required CubeCL traits, here's an example that is available in cubecl-std:
 
 ```rust,ignore
 # use cubecl::prelude::*;
