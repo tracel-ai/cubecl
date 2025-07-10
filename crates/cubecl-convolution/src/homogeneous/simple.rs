@@ -51,8 +51,11 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
-    type RhsLoader =
-        SyncFullLoader<MP, Self::Config, sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<
+        MP,
+        Self::Config,
+        sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
+    >;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Writer = SMM::Writer;

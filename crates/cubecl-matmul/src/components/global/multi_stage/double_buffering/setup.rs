@@ -42,7 +42,11 @@ where
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                MaxLoaderPlanes::new::<LL, RL>(&selection.tiling_scheme, line_sizes, selection.plane_dim)
+                MaxLoaderPlanes::new::<LL, RL>(
+                    &selection.tiling_scheme,
+                    line_sizes,
+                    selection.plane_dim,
+                )
             });
 
         let stage_config = SMM::setup::<MP, R>(

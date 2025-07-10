@@ -14,7 +14,7 @@ use cubecl_matmul::kernels::layered::{
 };
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
-use cubecl_matmul::{SyncPartialLoadingStrategy, SyncLoadingStrategy};
+use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
 use std::time::Duration;
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
