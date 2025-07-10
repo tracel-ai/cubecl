@@ -13,19 +13,20 @@ pub struct Scheduler {
     workers: Vec<Worker>,
 }
 
-impl Scheduler {
-    pub fn new() -> Scheduler {
+impl Default for Scheduler {
+    fn default() -> Self {
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
             .get();
-        let threads = (0..available_parallelism)
-            .into_iter()
-            .map(|_| Worker::new())
+        let workers = (0..available_parallelism)
+            .map(|_| Worker::default())
             .collect();
 
-        Scheduler { workers: threads }
+        Scheduler { workers }
     }
+}
 
+impl Scheduler {
     pub fn sync(&mut self) {
         for worker in self.workers.iter_mut() {
             worker.sync();
@@ -71,7 +72,7 @@ impl Scheduler {
             })
             .collect();
 
-        let scalars: Vec<_> = scalars.into_iter().map(|(_, b)| b).collect();
+        let scalars: Vec<_> = scalars.into_values().collect();
 
         let mut mlir_data = MlirData::new(handles, scalars);
         mlir_data.builtin.set_cube_dim(cube_dim);

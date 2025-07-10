@@ -11,6 +11,9 @@ struct SharedMlirData {
     scalars: Vec<ScalarBinding>,
 }
 
+unsafe impl Send for SharedMlirData {}
+unsafe impl Sync for SharedMlirData {}
+
 pub struct MlirData {
     shared_mlir_data: Arc<SharedMlirData>,
     pub args_second_indirection: Vec<*mut ()>,
