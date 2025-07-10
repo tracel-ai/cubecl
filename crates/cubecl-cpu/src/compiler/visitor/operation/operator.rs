@@ -89,7 +89,7 @@ impl<'a> Visitor<'a> {
         } else {
             memref::store(value, memref, &[index_assign_value], self.location)
         };
-        self.block().append_operation(operation);
+        self.block.append_operation(operation);
     }
 
     fn visit_cast(&mut self, to_cast: Variable, out: Variable) {

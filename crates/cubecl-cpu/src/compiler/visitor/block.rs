@@ -39,7 +39,7 @@ impl<'a> Visitor<'a> {
         let this_block = self
             .current_region
             .insert_block_before(self.last_block, block);
-        self.current_block = this_block;
+        self.block = this_block;
 
         self.blocks.insert(block_id, this_block);
         for (_, instruction) in basic_block.ops.borrow().iter() {

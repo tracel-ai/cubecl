@@ -61,7 +61,7 @@ impl<'a> Visitor<'a> {
                 } else {
                     memref::store(value, memref, &[zero], self.location)
                 };
-                self.block().append_operation(operation);
+                self.block.append_operation(operation);
             }
             _ => todo!("This variable is not implemented {:?}", variable),
         };

@@ -33,7 +33,7 @@ use prelude::*;
 use super::external_function::add_external_function_to_module;
 
 pub struct Visitor<'a> {
-    pub current_block: BlockRef<'a, 'a>,
+    pub block: BlockRef<'a, 'a>,
     pub last_block: BlockRef<'a, 'a>,
     pub module: &'a Module<'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
@@ -103,7 +103,7 @@ impl<'a> Visitor<'a> {
         let blocks_args = HashMap::new();
         let str_counter = 0;
         Self {
-            current_block,
+            block: current_block,
             last_block,
             module,
             blocks,
@@ -135,10 +135,6 @@ impl<'a> Visitor<'a> {
             absolute_pos_z,
             absolute_pos,
         }
-    }
-
-    pub fn block(&self) -> BlockRef<'a, 'a> {
-        self.current_block
     }
 
     pub fn get_block_args(
@@ -191,7 +187,7 @@ impl<'a> Visitor<'a> {
         &self,
         operation: impl Into<Operation<'a>>,
     ) -> Value<'a, 'a> {
-        self.block()
+        self.block
             .append_operation(operation)
             .result(0)
             .unwrap()
