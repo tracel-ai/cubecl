@@ -20,9 +20,15 @@ use super::{GlobalWriter, Quantization, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
+    /// The specific [GlobalMatmul] implementation associated with this family.
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+
+    /// The configuration type associated with this matmul family.
     type Config: GlobalConfig;
 
+    /// Constructs the configuration based on the matmul problem, selection, and line sizes.
+    ///
+    /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
@@ -30,6 +36,9 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
         matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
+    /// Filters out line sizes that are incompatible with this matmul family.
+    ///
+    /// By default, returns the input unchanged.
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }

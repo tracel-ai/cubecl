@@ -104,7 +104,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
 
 impl<S: stage::StageConfig> SimpleConfig<S> {
     #[allow(clippy::too_many_arguments)]
-    /// Create a new config for double buffering global matmul
+    /// Create a new config for simple global matmul
     ///
     /// May return an error if:
     /// - a loader are invalid
