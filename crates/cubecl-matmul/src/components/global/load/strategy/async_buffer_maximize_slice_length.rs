@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncBufferLoadingStrategy,
-        tensor_view::{TensorReader, Window},
+        global_memory::{TensorReader, Window},
     },
     stage::{StageConfig, StageMemory, StridedTilingLayout},
 };

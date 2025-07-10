@@ -4,7 +4,7 @@ use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy,
-        tensor_view::TensorReader,
+        global_memory::TensorReader,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };

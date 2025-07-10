@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder, TilingOrderEnum};
 use crate::components::{Ident, InputIdent, MatmulPrecision, MatrixLayout, global::Quantization};
 use crate::components::{
-    global::{GlobalConfig, tensor_view::MappedTensorReader},
+    global::{GlobalConfig, global_memory::MappedTensorReader},
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder},
 };
 

@@ -1,6 +1,6 @@
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::tensor_view::TensorReader;
+use crate::components::global::global_memory::TensorReader;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{Ident, InputIdent, InvalidConfigError};

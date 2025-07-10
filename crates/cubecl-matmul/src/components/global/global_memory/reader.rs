@@ -1,9 +1,9 @@
-use crate::components::{Ident, MatrixLayout};
+use crate::components::MatrixLayout;
 use crate::components::{InputIdent, global};
 use cubecl_core as cubecl;
 use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
@@ -20,37 +20,8 @@ pub struct TensorReader<EI: Numeric> {
     pub batch_offset: u32,
 }
 
-#[derive(CubeType)]
-/// A view of a tensor that starts reading data from a specified offset.
-/// Uses a [`TensorMap`] to actually execute the load.
-pub struct MappedTensorReader<EG: Numeric> {
-    pub tensor: TensorMap<EG>,
-    pub tile_x: u32,
-    pub tile_y: u32,
-    pub batch: u32,
-}
-
-#[derive(CubeType)]
-/// A view of a tensor that starts reading data from a specified offset.
-/// Ensures safe access by preventing out-of-bounds errors.
-/// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorWriter<EO: Numeric> {
-    pub tensor: VirtualTensor<EO, ReadWrite>,
-    pub x_offset: u32,
-    pub y_offset: u32,
-    pub stride_x: u32,
-    pub stride_y: u32,
-    pub shape_x: u32,
-    pub shape_y: u32,
-    pub batch_offset: u32,
-}
-
 unsafe impl<EG: Numeric> Sync for TensorReader<EG> {}
 unsafe impl<EG: Numeric> Send for TensorReader<EG> {}
-unsafe impl<EG: Numeric> Sync for MappedTensorReader<EG> {}
-unsafe impl<EG: Numeric> Send for MappedTensorReader<EG> {}
-unsafe impl<EG: Numeric> Sync for TensorWriter<EG> {}
-unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 
 #[derive(CubeType)]
 /// Contiguous slice wrapper for memcpy_async loading
@@ -59,31 +30,6 @@ pub struct Window<EG: Numeric> {
     pub slice: Slice<Line<EG>>,
     /// Number of lines
     pub size: u32,
-}
-
-#[cube]
-impl<EG: Numeric> MappedTensorReader<EG> {
-    /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(tensor: TensorMap<EG>, tile_x: u32, tile_y: u32, batch: u32) -> Self {
-        MappedTensorReader::<EG> {
-            tensor,
-            tile_x,
-            tile_y,
-            batch,
-        }
-    }
-
-    /// Advance the view along the k dimension by a specified offset, `k_offset`.
-    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
-        match ident.as_input_ident() {
-            InputIdent::Lhs => {
-                self.tile_y += k_offset;
-            }
-            InputIdent::Rhs => {
-                self.tile_x += k_offset;
-            }
-        }
-    }
 }
 
 #[cube]
@@ -356,83 +302,6 @@ impl<EG: Numeric> TensorReader<EG> {
             ),
             (false, false) => self.tensor.read(read_pos),
         }
-    }
-}
-
-#[cube]
-impl<EG: Numeric> TensorWriter<EG> {
-    /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(
-        tensor: VirtualTensor<EG, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self {
-        let rank = tensor.rank();
-        let stride_x = tensor.stride(rank - 2);
-        let stride_y = tensor.stride(rank - 1);
-        let shape_x = tensor.shape(rank - 2);
-        let shape_y = tensor.shape(rank - 1);
-
-        TensorWriter::<EG> {
-            tensor,
-            x_offset,
-            y_offset,
-            stride_x,
-            stride_y,
-            shape_x,
-            shape_y,
-            batch_offset,
-        }
-    }
-
-    /// Writes data into the tensor view at the specified coordinates (tile_x, tile_y).
-    ///
-    /// Each unit writes one line in a coalesced manner for improved efficiency, assuming row-major layout.
-    pub fn write_coalesced<G: global::GlobalConfig>(
-        &mut self,
-        tile_x: u32,
-        tile_y: u32,
-        unit_id: u32,
-        value: Line<EG>,
-        #[comptime] config: G,
-    ) {
-        let tile_size_m = config.tiling_scheme().elements_in_tile_m();
-        let tile_size_n = config.tiling_scheme().elements_in_tile_n();
-
-        let view_x = tile_x * tile_size_m + unit_id / tile_size_n + self.x_offset;
-        let view_y = tile_y * tile_size_n + unit_id % tile_size_n + self.y_offset;
-
-        let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
-            / config.global_line_size(Ident::Out);
-
-        match comptime!((
-            config.check_row_bounds(Ident::Out),
-            config.check_col_bounds(Ident::Out)
-        )) {
-            (true, true) => {
-                if view_x < self.shape_x && view_y < self.shape_y {
-                    self.write(write_position, Line::cast_from(value));
-                }
-            }
-            (true, false) => {
-                if view_x < self.shape_x {
-                    self.write(write_position, Line::cast_from(value));
-                }
-            }
-            (false, true) => {
-                if view_y < self.shape_y {
-                    self.write(write_position, Line::cast_from(value));
-                }
-            }
-            (false, false) => {
-                self.write(write_position, Line::cast_from(value));
-            }
-        }
-    }
-
-    fn write(&mut self, position: u32, value: Line<EG>) {
-        self.tensor.write(position, value)
     }
 }
 

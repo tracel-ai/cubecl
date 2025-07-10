@@ -9,7 +9,7 @@ use crate::components::global::load::TaskCounter;
 use crate::components::global::multi_stage::Job;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::tensor_view::TensorReader;
+use crate::components::global::global_memory::TensorReader;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;

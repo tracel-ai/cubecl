@@ -7,7 +7,7 @@ use crate::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
 };
 use crate::components::{
-    global::{GlobalConfig, tensor_view::TensorReader},
+    global::{GlobalConfig, global_memory::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
