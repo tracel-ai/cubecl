@@ -245,7 +245,7 @@ impl<'a> Visitor<'a> {
                     arith::mului_extended(lhs, rhs, self.location)
                 };
                 let result = self
-                    .block()
+                    .block
                     .append_operation(operation)
                     .result(1)
                     .unwrap()

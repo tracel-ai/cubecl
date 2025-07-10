@@ -50,7 +50,7 @@ impl<'a> Visitor<'a> {
                     &[integer_type],
                     self.location,
                 );
-                self.block().append_operation(call);
+                self.block.append_operation(call);
             }
             // These operation are not needed in MLIR
             Operation::NonSemantic(_) => {}
