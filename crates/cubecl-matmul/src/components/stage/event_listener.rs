@@ -14,7 +14,7 @@ pub enum StageEvent {
     /// After X RHS loads are completed
     RhsLoaded { current: u32, total: u32 },
     /// After X tile matmul operations are completed
-    TmmCompleted { current: u32, total: u32 },
+    TileMatmulCompleted { current: u32, total: u32 },
     /// After the last step
     Finish,
 }

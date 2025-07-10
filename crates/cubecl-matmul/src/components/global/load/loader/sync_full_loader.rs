@@ -7,7 +7,7 @@ use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::load::StageIdent;
 use crate::components::global::load::TaskCounter;
-use crate::components::global::multi_stage::Job;
+use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::FullStageToTileReader;
@@ -217,7 +217,7 @@ pub struct SyncFullLoaderJobIterator<MP: MatmulPrecision, L: SyncFullLoadingStra
 }
 
 #[cube]
-impl<MP: MatmulPrecision, L: SyncFullLoadingStrategy> Job for SyncFullLoaderJobIterator<MP, L> {
+impl<MP: MatmulPrecision, L: SyncFullLoadingStrategy> JobIterator for SyncFullLoaderJobIterator<MP, L> {
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter
     }

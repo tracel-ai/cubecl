@@ -13,7 +13,7 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the pipelined global matmul
+/// Configuration for the ordered double buffering global matmul
 pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub stage_config: S,
     num_planes: u32,
@@ -109,6 +109,13 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
 
 impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for double buffering global matmul
+    ///
+    /// May return an error if:
+    /// - a loader are invalid
+    /// - CubeDim is too big
+    /// - There is more than one stage partition in n
+    /// - Lhs is not loaded exclusively by main flow planes
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
         _client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,

@@ -11,6 +11,7 @@ use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
+/// Double buffering matmul family for any precision
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
     LL: SyncPartialLoadingStrategy,

@@ -132,6 +132,7 @@ pub trait GlobalConfig:
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
+    /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme {
         self.stage_config().tiling_scheme()
     }
@@ -139,9 +140,16 @@ pub trait GlobalConfig:
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
+    /// Returns the number of planes participating in loading `ident`
     fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32;
+
+    /// Indicates the specialization roles for the planes
     fn plane_role_config(&self) -> PlaneRoleConfig;
+
+    /// Indicates plane roles are associated to loading which tensor input
     fn specialized_loading_sides(&self) -> SpecializedLoadingSides;
+
+    /// How to identify the role of the plane depending on its index
     fn role_rule_config(&self) -> RoleRuleConfig {
         self.plane_role_config().rule
     }
@@ -158,19 +166,25 @@ pub trait GlobalConfig:
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
 
+    /// Whether to put common computations for loading tasks once before loop
     fn precompute_job(&self) -> bool;
 
+    /// The number of stages in stage memory
     fn num_stages(&self, ident: InputIdent) -> u32;
 
     /// Whether to check loader is balanced in comptime or runtime.
+    ///
     /// Not supported by all loading strategies
     fn loader_mode(&self) -> LoaderMode;
 
+    /// Whether event loading is constrained to be ordered
     fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
 
+    /// Whether the matmul is quantized
     fn quantized(&self) -> bool {
         self.stage_config().quantized()
     }
 
+    /// The [CubeDim] arising from the [TilingScheme]
     fn cube_dim(&self) -> CubeDim;
 }

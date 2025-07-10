@@ -11,6 +11,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
+/// Load the first stage for both Lhs and Rhs
+///
+/// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn load_first<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
@@ -55,6 +58,9 @@ pub fn load_first<
 }
 
 #[cube]
+/// Execute on the current stage while loading the next stage
+///
+/// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn execute_current_and_load_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
@@ -126,6 +132,9 @@ pub fn execute_current_and_load_next<
 }
 
 #[cube]
+/// Execute on the last stage, then write results
+///
+/// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn execute_last_and_write_results<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,

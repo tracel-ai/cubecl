@@ -9,7 +9,7 @@ use crate::components::global::Quantization;
 use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
-use crate::components::global::multi_stage::Job;
+use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::PartialStageToTileReader;
@@ -240,7 +240,7 @@ pub struct SyncPartialLoaderJobIterator<MP: MatmulPrecision, L: SyncPartialLoadi
 }
 
 #[cube]
-impl<MP: MatmulPrecision, L: SyncPartialLoadingStrategy> Job
+impl<MP: MatmulPrecision, L: SyncPartialLoadingStrategy> JobIterator
     for SyncPartialLoaderJobIterator<MP, L>
 {
     fn current(this: &Self) -> comptime_type!(u32) {

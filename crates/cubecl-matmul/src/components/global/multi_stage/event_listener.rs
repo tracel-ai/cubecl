@@ -7,6 +7,7 @@ use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener}
 use crate::components::{InputIdent, TilingScheme};
 
 #[derive(Copy, Clone)]
+/// For a tensor, whether it is constrained to be loaded respecting order
 pub enum EventLoadingMode {
     // Load without constraints
     Relaxed,
@@ -15,6 +16,11 @@ pub enum EventLoadingMode {
 }
 
 #[derive(CubeType)]
+/// Injects Lhs and Rhs loading tasks during stage matmul execution, as part of double buffering.
+///
+/// This comptime struct implements `on_event`, which is called from within the stage matmul.
+/// It responds to that event by launching loads using the provided job executors,
+/// allowing data for the next tile to be loaded while the current tile is being computed.
 pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
     stage_ident: StageIdent,
@@ -29,6 +35,7 @@ pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>
 }
 
 #[derive(Clone)]
+/// Analysis of [StageEvent] that reports when the corresponding input should execute a task.
 struct IdentEventAnalysis {
     /// The event count to execute the next task.
     counter: u32,
@@ -56,6 +63,7 @@ impl CubeDebug for EventAnalysis {}
 impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
+    /// Create a new DoubleBufferingEventListener
     pub fn new(
         #[comptime] stage_ident: StageIdent,
         loader_lhs: &Lhs,
@@ -79,6 +87,18 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G::StageConfig>
     for DoubleBufferingEventListener<L, R, G>
 {
+    /// Responds to stage-level events by injecting Lhs/Rhs loading tasks during execution.
+    ///
+    /// This method is called from the stage matmul kernel, allowing asynchronous data loads
+    /// to be scheduled while the current tile is being computed. It handles three types of events:
+    ///
+    /// - `Begin`: Initializes internal job state.
+    /// - `TileMatmulCompleted`: Called after each Tile Matmul; decides whether to load the next Lhs/Rhs tile
+    ///   based on cycle position and execution schedule.
+    /// - `Finish`: Finalizes all remaining tasks, ensuring full completion
+    ///
+    /// Note: if the global matmul is ordered and the underlying Tile Matmul is not
+    /// plane-synchronized (which is the case on some platforms), we need to synchronize the plane manually.
     fn on_event(
         this: &mut Self,
         #[comptime] event: StageEvent,
@@ -88,7 +108,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
             this.init();
         }
 
-        if let StageEvent::TmmCompleted { current, total } = event {
+        if let StageEvent::TileMatmulCompleted { current, total } = event {
             let analysis = this.analyse(current, total);
 
             if comptime![analysis.lhs.should_execute(current)] {
@@ -248,19 +268,29 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 }
 
 #[cube]
+/// Something that can execute a job, i.e. a loader
 pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
-    type JobIterator: Job;
+    /// The job to execute
+    type JobIterator: JobIterator;
 
+    /// Create the job to execute
     fn create_job_iterator(
         this: &Self,
         #[comptime] stage_ident: StageIdent,
         #[comptime] config: G,
     ) -> Self::JobIterator;
 
+    /// Execute the next task
     fn execute_task(this: &mut Self, job: &mut Self::JobIterator, #[comptime] config: G);
 
-    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::JobIterator, #[comptime] config: G);
+    /// Execute all tasks that remain at once
+    fn execute_all_remaining_tasks(
+        this: &mut Self,
+        job: &mut Self::JobIterator,
+        #[comptime] config: G,
+    );
 
+    /// Create a job and execute all its tasks at once
     fn execute_whole_job(
         this: &mut Self,
         #[comptime] stage_ident: StageIdent,
@@ -269,8 +299,12 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
 }
 
 #[cube]
-pub trait Job: CubeType {
+/// An iterator over a sequence of tasks
+pub trait JobIterator: CubeType {
+    /// Get the index of the current task
     fn current(this: &Self) -> comptime_type!(u32);
+
+    /// Get the number of tasks
     fn num_tasks(this: &Self) -> comptime_type!(u32);
 }
 

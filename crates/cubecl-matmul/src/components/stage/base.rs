@@ -183,7 +183,7 @@ pub trait StageConfig:
     /// Returns the number of stages for the given input
     fn num_stages(&self, ident: InputIdent) -> u32;
 
-    /// Returns the tiling scheme
+    /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme;
 
     /// Indicates the specialization roles for the planes
