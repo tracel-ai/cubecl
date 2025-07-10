@@ -15,6 +15,7 @@ use crate::{
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
 };
 
+/// Plane accelerated single stage matmul with async barrier loading
 pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
     pub _tmm: PhantomData<TMM>,
     pub _l: PhantomData<L>,

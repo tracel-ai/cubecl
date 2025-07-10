@@ -1,9 +1,6 @@
-use crate::{
-    components::{
-        InputIdent,
-        global::{MaxLoaderPlanes, specialization::roles::PlaneRoles},
-    },
-    gcd,
+use crate::components::{
+    InputIdent,
+    global::{MaxLoaderPlanes, specialization::roles::PlaneRoles},
 };
 
 /// Configuration for how each input tensor (Lhs and Rhs) is loaded,
@@ -180,4 +177,13 @@ impl From<LoadSpecializationConfig> for SpecializedLoadingSides {
             },
         }
     }
+}
+
+pub(crate) fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        let r = a % b;
+        a = b;
+        b = r;
+    }
+    a
 }

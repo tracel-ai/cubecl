@@ -9,7 +9,7 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
-            load::{SyncFullLoadingStrategy, sync_full_cyclic},
+            load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
@@ -24,20 +24,21 @@ use crate::{
     },
 };
 
-#[derive(Default, Debug, Clone)]
-pub struct SimpleArgs {
-    // Uses an optimized multi rows strategy.
-    pub multi_rows: bool,
-}
-
+/// Plane accelerated single stage matmul with configurable loaders (default to cyclic)
 pub struct SimpleAlgorithm<
     TMM,
-    LL = sync_full_cyclic::SyncFullCyclicLoading<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LL = SyncFullCyclicLoading<ColMajorTilingOrder>,
+    RL = SyncFullCyclicLoading<RowMajorTilingOrder>,
 > {
     pub _tmm: PhantomData<TMM>,
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct SimpleArgs {
+    // Uses an optimized multi rows strategy.
+    pub multi_rows: bool,
 }
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>

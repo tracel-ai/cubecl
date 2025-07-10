@@ -7,7 +7,7 @@ use crate::{
         MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::{SyncFullLoadingStrategy, sync_full_cyclic},
+            load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
@@ -19,17 +19,18 @@ use crate::{
     },
 };
 
-#[derive(Default, Clone, Debug)]
-pub struct SimpleUnitSelectionArgs {
-    pub tile_size: TileSizeSelection,
-}
-
+/// Unit single stage matmul with configurable loaders (default to cyclic)
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic::SyncFullCyclicLoading<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LL = SyncFullCyclicLoading<ColMajorTilingOrder>,
+    RL = SyncFullCyclicLoading<RowMajorTilingOrder>,
 > {
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct SimpleUnitSelectionArgs {
+    pub tile_size: TileSizeSelection,
 }
 
 impl<LL, RL> Algorithm for SimpleUnitAlgorithm<LL, RL>

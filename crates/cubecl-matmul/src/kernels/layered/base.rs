@@ -17,7 +17,9 @@ use super::Algorithm;
 
 #[derive(Debug, Clone)]
 pub enum Selection<S> {
+    /// Use a predefined MatmulSelection
     Forced(MatmulSelection),
+    /// Allows to give limited MatmulSelection information, and the rest is inferred from it
     Inferred(S),
 }
 

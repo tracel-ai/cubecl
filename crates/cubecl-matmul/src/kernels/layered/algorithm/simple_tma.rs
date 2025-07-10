@@ -13,6 +13,7 @@ use crate::{
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
 };
 
+/// Plane accelerated single stage matmul with tma loading
 pub struct SimpleTmaAlgorithm<TMM> {
     pub _tmm: PhantomData<TMM>,
 }

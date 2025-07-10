@@ -4,25 +4,30 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::Elem;
 
+use crate::components::MatmulSelection;
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
-use crate::components::global::load::{sync_partial_cyclic, sync_partial_tilewise};
+use crate::components::global::load::sync_partial_cyclic::SyncPartialCyclicLoading;
+use crate::components::global::load::sync_partial_tilewise::SyncPartialTilewiseLoading;
+use crate::components::global::multi_stage::double_buffering::DoubleBufferingMatmulFamily;
 use crate::components::stage::{
     ColMajorTilingOrder, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
-use crate::components::{MatmulSelection, global};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
+/// Plane accelerated double buffered matmul with cyclic loaders
 pub struct CyclicDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
+/// Plane accelerated double buffered matmul with tilewise loaders
 pub struct TilewiseDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
+/// Plane accelerated double buffered matmul with tilewise loader on Lhs and cyclic on Rhs
 pub struct HybridDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
@@ -40,10 +45,10 @@ where
     type TileMatmul = TMM;
     type StageMatmul =
         PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
-    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+    type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
-        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -81,11 +86,11 @@ where
     type TileMatmul = TMM;
     type StageMatmul =
         PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
-    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+    type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
-        sync_partial_tilewise::SyncPartialTilewiseLoading<RowMajorTilingOrder>,
-        sync_partial_tilewise::SyncPartialTilewiseLoading<ColMajorTilingOrder>,
+        SyncPartialTilewiseLoading<RowMajorTilingOrder>,
+        SyncPartialTilewiseLoading<ColMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -123,10 +128,10 @@ where
     type TileMatmul = TMM;
     type StageMatmul =
         PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
-    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+    type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_tilewise::SyncPartialTilewiseLoading<RowMajorTilingOrder>,
-        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        SyncPartialTilewiseLoading<RowMajorTilingOrder>,
+        SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

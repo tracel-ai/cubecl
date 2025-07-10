@@ -5,7 +5,8 @@ use crate::{
         MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::sync_partial_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+            load::sync_partial_cyclic::SyncPartialCyclicLoading,
+            multi_stage::double_buffering::DoubleBufferingMatmulFamily,
         },
         stage::{PartialReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
         tile::register::RegisterMatmul,
@@ -16,12 +17,13 @@ use crate::{
     },
 };
 
+/// Unit double buffered matmul with cyclic loaders
+pub struct DoubleUnitAlgorithm {}
+
 #[derive(Default, Clone, Debug)]
 pub struct DoubleUnitSelectionArgs {
     pub tile_size: TileSizeSelection,
 }
-
-pub struct DoubleUnitAlgorithm {}
 
 impl Algorithm for DoubleUnitAlgorithm {
     type SelectionArgs = DoubleUnitSelectionArgs;
@@ -29,8 +31,8 @@ impl Algorithm for DoubleUnitAlgorithm {
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, PartialReaderFamily>;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
-        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
