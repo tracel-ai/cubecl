@@ -9,7 +9,7 @@ use cubecl_std::CubeOption;
 #[cube]
 /// A loading job represents a group of loading tasks.
 /// Each task is the smallest unit of loading work:
-/// one thread at one iteration, operating at a specific point within a read view.
+/// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {

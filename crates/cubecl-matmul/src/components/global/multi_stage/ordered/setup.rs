@@ -1,6 +1,6 @@
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
-use crate::components::global::load::{SyncBufferLoadingStrategy, SyncFullLoadingStrategy};
+use crate::components::global::load::{SyncPartialLoadingStrategy, SyncFullLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
@@ -14,7 +14,7 @@ use super::OrderedDoubleBufferingGlobalConfig;
 
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _rhs_loading: PhantomData<RL>,
@@ -23,7 +23,7 @@ pub struct OrderedDoubleBufferingMatmulFamily<
 impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = PartialReaderFamily>,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,

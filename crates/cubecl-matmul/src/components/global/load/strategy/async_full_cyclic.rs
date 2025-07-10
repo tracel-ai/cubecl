@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy,
-        global_memory::TensorReader,
+        CopyMechanism, GlobalConfig, RoleRule, global_memory::TensorReader,
+        load::AsyncFullLoadingStrategy,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -14,7 +14,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use super::{AsyncLoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes,
+/// Loads the content of all tiles in the stage memory using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
@@ -126,7 +126,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         );
         let nth_slice = slice_index % this.num_slices_per_tile;
 
-        // TODO make branching comptime conditional (using balanced_workload)
+        // TODO make branching comptime conditional (using Loader Mode)
         if slice_index < this.num_slices {
             let window = tensor_reader.load_window_in_tile::<G>(
                 (tile_x, tile_y),

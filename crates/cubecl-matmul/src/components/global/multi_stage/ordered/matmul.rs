@@ -1,6 +1,6 @@
 use crate::components::global::load::{
-    StageIdent, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader,
-    SyncFullLoadingStrategy,
+    StageIdent, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
+    SyncPartialLoadingStrategy,
 };
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
@@ -27,7 +27,7 @@ use super::OrderedDoubleBufferingGlobalConfig;
 pub struct OrderedDoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -47,11 +47,11 @@ where
             >,
             RhsReader = PartialStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 {
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
+    type RhsLoader = SyncPartialLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -64,10 +64,10 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let buffer_step = config.tiling_scheme().elements_in_stage_k();
-        let loop_step = buffer_step * 2;
+        let stage_step = config.tiling_scheme().elements_in_stage_k();
+        let loop_step = stage_step * 2;
         let range = k_range.1 - k_range.0;
-        let needed_stage_matmuls = div_ceil(range, buffer_step);
+        let needed_stage_matmuls = div_ceil(range, stage_step);
 
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
@@ -91,7 +91,7 @@ where
             config,
         );
 
-        Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+        Self::LhsLoader::advance_view(&mut lhs_loader, stage_step);
 
         sync_cube();
 
@@ -109,7 +109,7 @@ where
                 config,
             );
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, stage_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_cube();
@@ -127,7 +127,7 @@ where
                 config,
             );
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, stage_step);
 
             sync_cube();
         }
@@ -188,7 +188,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        SyncBufferLoader::<MP, Self::Config, RL>::new(
+        SyncPartialLoader::<MP, Self::Config, RL>::new(
             rhs,
             x_offset,
             y_offset,

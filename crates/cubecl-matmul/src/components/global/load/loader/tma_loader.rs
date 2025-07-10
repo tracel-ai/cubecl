@@ -11,10 +11,15 @@ use crate::components::{
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder},
 };
 
+/// TMA uses contiguous tiling, but with a special tiling order
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
+/// TMA uses standard full stage to tile reader
 pub type TmaReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaTiling>;
 
 #[derive(CubeType, Clone, Copy)]
+/// A special tiling order where:
+/// - If the matrix data layout is row-major, the tiling order is col-major
+/// - If the matrix data layout is col-major, the tiling order is row-major
 pub struct TmaTilingOrder;
 
 #[cube]
@@ -78,6 +83,7 @@ impl TilingOrder for TmaTilingOrder {
 }
 
 #[derive(CubeType)]
+/// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
 pub struct TmaLoader<MP: MatmulPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
     pub stage: StageMemory<MP::ES, TmaTiling>,
@@ -89,6 +95,7 @@ pub struct TmaLoader<MP: MatmulPrecision, G: GlobalConfig> {
 
 #[cube]
 impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
+    /// Create a TmaLoader
     pub fn new(
         tensor: TensorMap<MP::EI>,
         x: u32,
@@ -120,6 +127,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
         }
     }
 
+    /// Fill the full stage memory
     pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: G) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident.as_ident());
@@ -158,10 +166,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
         }
     }
 
+    /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> TmaReader<MP> {
         TmaReader::<MP>::new(this.stage, this.ident)
     }
 
+    /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view
             .update_view(k_offset, comptime!(this.ident.as_ident()));
@@ -169,6 +179,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
 }
 
 #[cube]
+/// Barrier for TMA
 pub fn arrive_tma<E: CubePrimitive>(barrier: &Barrier<E>, #[comptime] num_elems: u32) {
     if UNIT_POS == 0 {
         barrier.arrive_tx(1, num_elems * E::elem_size());

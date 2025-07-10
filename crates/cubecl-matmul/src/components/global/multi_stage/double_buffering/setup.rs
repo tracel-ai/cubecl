@@ -1,6 +1,6 @@
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
-use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::double_buffering::{
     DoubleBufferingGlobalConfig, DoubleBufferingMatmul,
 };
@@ -13,8 +13,8 @@ use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncPartialLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -24,8 +24,8 @@ pub struct DoubleBufferingMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = PartialReaderFamily, RhsReader = PartialReaderFamily>,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncPartialLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;

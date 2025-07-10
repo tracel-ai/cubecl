@@ -6,12 +6,12 @@ use crate::components::InputIdent;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
+use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::multi_stage::Job;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::global_memory::TensorReader;
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
@@ -21,8 +21,8 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
-/// A strategy for synchronously loading a buffer (partial stage), either eagerly or as a deferred job.
-pub trait SyncBufferLoadingStrategy:
+/// A strategy for synchronously loading partial stage memory
+pub trait SyncPartialLoadingStrategy:
     'static + Send + Sync + Clone + LoadingValidation + LoadMaxRoundPlaneCount
 {
     /// The layout describing how data is tiled across the stage.
@@ -33,14 +33,18 @@ pub trait SyncBufferLoadingStrategy:
 
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] buffer_index: u32,
+        #[comptime] stage_index: u32,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP>;
 }
 
 #[derive(Clone, CubeType)]
-pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
+/// Loads a stage from stage memory using synchronous data movement operations.
+///
+/// A complete load is referred to as a `Job`, which is divided into `Tasks`—
+/// each Task represents a single data transfer for a specific unit
+pub struct SyncPartialLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> {
     tensor_reader: TensorReader<MP::EI>,
     stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
@@ -52,9 +56,10 @@ pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferL
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<MP, G, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
+    SyncPartialLoader<MP, G, L>
 {
+    /// Create a new SyncPartialLoader
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
@@ -76,7 +81,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             false => CubeOption::new_None(),
         };
 
-        SyncBufferLoader::<MP, G, L> {
+        SyncPartialLoader::<MP, G, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -86,6 +91,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         }
     }
 
+    /// Give a reader to the loaded stage memory.
     pub fn reader(
         this: &Self,
         #[comptime] stage_ident: StageIdent,
@@ -93,10 +99,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         PartialStageToTileReader::new(this.stage_memory, stage_ident, this.input_ident)
     }
 
+    /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_reader.update_view(k_offset, this.input_ident);
     }
 
+    /// Accomplish the entire job of filling the stage memory
     pub fn fill_stage(this: &mut Self, #[comptime] stage_ident: StageIdent, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(job) => match stage_ident {
@@ -130,17 +138,17 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExecutor<G>
-    for SyncBufferLoader<MP, G, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExecutor<G>
+    for SyncPartialLoader<MP, G, L>
 {
-    type Job = SyncBufferLoaderJob<MP, L>;
+    type JobIterator = SyncPartialLoaderJobIterator<MP, L>;
 
-    fn create_job(
+    fn create_job_iterator(
         this: &Self,
         #[comptime] stage_ident: StageIdent,
         #[comptime] config: G,
-    ) -> Self::Job {
-        let loading = match this.loading_job {
+    ) -> Self::JobIterator {
+        let job = match this.loading_job {
             CubeOption::Some(job) => match stage_ident {
                 StageIdent::A => job.0,
                 StageIdent::B => job.1,
@@ -151,20 +159,24 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
             },
         };
 
-        let num_tasks = L::Job::task_count(&loading);
+        let num_tasks = L::Job::task_count(&job);
 
-        SyncBufferLoaderJob::<MP, L> {
-            loading,
+        SyncPartialLoaderJobIterator::<MP, L> {
+            job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
         }
     }
 
-    fn execute_task(this: &mut Self, job: &mut SyncBufferLoaderJob<MP, L>, #[comptime] config: G) {
-        let task_id = job.current.read().counter;
+    fn execute_task(
+        this: &mut Self,
+        job_iterator: &mut SyncPartialLoaderJobIterator<MP, L>,
+        #[comptime] config: G,
+    ) {
+        let task_id = job_iterator.current.read().counter;
 
         L::Job::<MP>::execute_task::<G>(
-            &mut job.loading,
+            &mut job_iterator.job,
             task_id,
             &this.tensor_reader,
             &mut this.stage_memory,
@@ -172,21 +184,25 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
             config,
         );
 
-        job.current.store(TaskCounter {
+        job_iterator.current.store(TaskCounter {
             counter: comptime!(task_id + 1u32),
         });
     }
 
-    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G) {
-        let task_counter = job.current.read().counter;
+    fn execute_all_remaining_tasks(
+        this: &mut Self,
+        job_iterator: &mut Self::JobIterator,
+        #[comptime] config: G,
+    ) {
+        let task_counter = job_iterator.current.read().counter;
 
         let mut task_id = comptime![task_counter];
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in task_counter..job.num_tasks {
+        for _ in task_counter..job_iterator.num_tasks {
             L::Job::<MP>::execute_task::<G>(
-                &mut job.loading,
+                &mut job_iterator.job,
                 task_id,
                 &this.tensor_reader,
                 &mut this.stage_memory,
@@ -196,8 +212,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
             comptime![task_id += 1];
         }
 
-        job.current.store(TaskCounter {
-            counter: comptime!(job.num_tasks),
+        job_iterator.current.store(TaskCounter {
+            counter: comptime!(job_iterator.num_tasks),
         });
     }
 
@@ -208,22 +224,25 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> JobExec
     ) {
         Self::execute_all_remaining_tasks(
             this,
-            &mut Self::create_job(this, stage_ident, config),
+            &mut Self::create_job_iterator(this, stage_ident, config),
             config,
         );
     }
 }
 
 #[derive(CubeType)]
-pub struct SyncBufferLoaderJob<MP: MatmulPrecision, L: SyncBufferLoadingStrategy> {
-    loading: L::Job<MP>,
+/// Accomplish the entire job of filling the stage
+pub struct SyncPartialLoaderJobIterator<MP: MatmulPrecision, L: SyncPartialLoadingStrategy> {
+    job: L::Job<MP>,
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, L: SyncBufferLoadingStrategy> Job for SyncBufferLoaderJob<MP, L> {
+impl<MP: MatmulPrecision, L: SyncPartialLoadingStrategy> Job
+    for SyncPartialLoaderJobIterator<MP, L>
+{
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter
     }

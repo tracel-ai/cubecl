@@ -22,8 +22,8 @@ pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>
     loader_rhs: Rhs,
     #[cube(comptime)]
     config: G,
-    state_lhs: Sequence<Lhs::Job>,
-    state_rhs: Sequence<Rhs::Job>,
+    state_lhs: Sequence<Lhs::JobIterator>,
+    state_rhs: Sequence<Rhs::JobIterator>,
     #[cube(comptime)]
     event_loading_side: LoadingSides,
 }
@@ -124,16 +124,16 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
 
             if comptime!(lhs_len > 0) {
                 let lhs_job = this.state_lhs.index_mut(0);
-                let num_tasks = L::Job::num_tasks(lhs_job);
-                let num_task_executed = L::Job::current(lhs_job);
+                let num_tasks = L::JobIterator::num_tasks(lhs_job);
+                let num_task_executed = L::JobIterator::current(lhs_job);
                 comptime!(lhs_num_tasks += num_tasks);
                 comptime!(lhs_num_task_executed += num_task_executed);
             }
 
             if comptime!(rhs_len > 0) {
                 let rhs_job = this.state_rhs.index_mut(0);
-                let num_tasks = R::Job::num_tasks(rhs_job);
-                let num_task_executed = R::Job::current(rhs_job);
+                let num_tasks = R::JobIterator::num_tasks(rhs_job);
+                let num_task_executed = R::JobIterator::current(rhs_job);
                 comptime!(rhs_num_tasks += num_tasks);
                 comptime!(rhs_num_task_executed += num_task_executed);
             }
@@ -169,7 +169,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
 impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
     fn init(&mut self) {
         if comptime!(self.event_loading_side.includes_lhs()) {
-            self.state_lhs.push(L::create_job(
+            self.state_lhs.push(L::create_job_iterator(
                 &self.loader_lhs,
                 self.stage_ident,
                 self.config,
@@ -177,7 +177,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
         }
 
         if comptime!(self.event_loading_side.includes_rhs()) {
-            self.state_rhs.push(R::create_job(
+            self.state_rhs.push(R::create_job_iterator(
                 &self.loader_rhs,
                 self.stage_ident,
                 self.config,
@@ -200,16 +200,16 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 
         if comptime!(lhs_len > 0) {
             let lhs_job = self.state_lhs.index(0);
-            let num_tasks = L::Job::num_tasks(lhs_job);
-            let current = L::Job::current(lhs_job);
+            let num_tasks = L::JobIterator::num_tasks(lhs_job);
+            let current = L::JobIterator::current(lhs_job);
             comptime!(lhs_num_tasks += num_tasks);
             comptime!(lhs_num_task_executed += current);
         }
 
         if comptime!(rhs_len > 0) {
             let rhs_job = self.state_rhs.index(0);
-            let num_tasks = R::Job::num_tasks(rhs_job);
-            let current = R::Job::current(rhs_job);
+            let num_tasks = R::JobIterator::num_tasks(rhs_job);
+            let current = R::JobIterator::current(rhs_job);
             comptime!(rhs_num_tasks += num_tasks);
             comptime!(rhs_num_task_executed += current);
         }
@@ -249,17 +249,17 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 
 #[cube]
 pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
-    type Job: Job;
+    type JobIterator: Job;
 
-    fn create_job(
+    fn create_job_iterator(
         this: &Self,
         #[comptime] stage_ident: StageIdent,
         #[comptime] config: G,
-    ) -> Self::Job;
+    ) -> Self::JobIterator;
 
-    fn execute_task(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
+    fn execute_task(this: &mut Self, job: &mut Self::JobIterator, #[comptime] config: G);
 
-    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::Job, #[comptime] config: G);
+    fn execute_all_remaining_tasks(this: &mut Self, job: &mut Self::JobIterator, #[comptime] config: G);
 
     fn execute_whole_job(
         this: &mut Self,

@@ -5,7 +5,7 @@ use crate::{
         MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::sync_buffer_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+            load::sync_partial_cyclic, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
         },
         stage::{PartialReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
         tile::register::RegisterMatmul,
@@ -29,8 +29,8 @@ impl Algorithm for DoubleUnitAlgorithm {
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, PartialReaderFamily>;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

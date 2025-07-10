@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncBufferLoadingStrategy;
+use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
 use crate::components::stage::TilingOrderEnum;
@@ -21,8 +21,8 @@ use super::{LoadingJob, LoadingValidation};
 /// Each tile is guaranteed to be loaded entirely by the same plane.
 /// Each plane can load multiple tiles, provided the number of planes evenly divides the number of tiles.
 /// In this case, a plane loads contiguous tiles following the `TilingOrder`,
-/// until it would otherwise write to the opposite buffer. At that point, it continues on the next
-/// row or column of the same buffer, skipping over the memory region of the other buffer.
+/// until it would otherwise write to the opposite stage. At that point, it continues on the next
+/// row or column of the same stage, skipping over the memory region of the other stage.
 ///
 /// Only supports RowMajorTilingOrder for Lhs and ColMajorTilingOrder for Rhs
 pub struct LoadingStrategy<T: TilingOrder> {
@@ -69,7 +69,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             InputIdent::Lhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
                     return Err(FormattedConfigError::new(move || {
-                        "Sync buffer tilewise on Lhs is only supported with RowMajor tiling order"
+                        "Sync partial tilewise on Lhs is only supported with RowMajor tiling order"
                             .to_string()
                     }));
                 }
@@ -77,7 +77,7 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
             InputIdent::Rhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
                     return Err(FormattedConfigError::new(move || {
-                        "Sync buffer tilewise on Rhs is only supported with ColMajor tiling order"
+                        "Sync partial tilewise on Rhs is only supported with ColMajor tiling order"
                             .to_string()
                     }));
                 }
@@ -89,12 +89,12 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
+impl<TO: TilingOrder> SyncPartialLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] buffer_index: u32,
+        #[comptime] stage_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
@@ -115,14 +115,14 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
             InputIdent::Rhs => config.tiling_scheme().tiles_in_stage_row(input_ident),
         });
         let row_col_stride = num_stages * stage_width;
-        let buffer_offset = stage_width * buffer_index;
+        let stage_offset = stage_width * stage_index;
 
         let starting_tile_within_stage = RoleRule::new(config.role_rule_config())
             .load_index(input_ident, config.specialized_loading_sides())
             * num_tiles_per_plane;
         let row_col_index = starting_tile_within_stage / stage_width;
         let inner_offset = starting_tile_within_stage % stage_width;
-        let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + buffer_offset;
+        let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + stage_offset;
 
         Job {
             num_tiles_to_skip,

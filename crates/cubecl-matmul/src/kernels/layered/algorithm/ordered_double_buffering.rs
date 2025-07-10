@@ -5,7 +5,7 @@ use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::Elem;
 
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
-use crate::components::global::load::sync_buffer_cyclic;
+use crate::components::global::load::sync_partial_cyclic;
 use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
     FullReaderFamily, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
@@ -35,7 +35,7 @@ where
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_buffer_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

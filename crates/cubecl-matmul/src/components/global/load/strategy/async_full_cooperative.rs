@@ -13,7 +13,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use super::{AsyncLoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads global memory into the stage without modification,  
+/// Loads global memory into the stage without layout change,  
 /// dividing the stage into the smallest possible contiguous slices.  
 ///
 /// Each `memcpy_async` is called with the same arguments for cooperative behaviour

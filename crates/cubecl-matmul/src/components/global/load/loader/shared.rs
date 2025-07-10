@@ -4,7 +4,9 @@ use cubecl_core::prelude::CubeType;
 #[derive(Copy, Clone, CubeType)]
 /// Identifier for the stage in global double buffering
 pub enum StageIdent {
+    /// First buffer
     A,
+    /// Second buffer
     B,
 }
 

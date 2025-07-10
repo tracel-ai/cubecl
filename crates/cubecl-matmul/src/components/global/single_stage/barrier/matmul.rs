@@ -7,7 +7,7 @@ use crate::components::global::GlobalMatmul;
 use crate::components::global::Quantization;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
-use crate::components::global::load::AsyncLoader;
+use crate::components::global::load::AsyncFullLoader;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
@@ -45,8 +45,8 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = SimpleBarrierConfig<SMM::Config>;
-    type LhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, LL, Self::Config>;
-    type RhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, RL, Self::Config>;
+    type LhsLoader = AsyncFullLoader<MP, Barrier<MP::ES>, SMM::Config, LL, Self::Config>;
+    type RhsLoader = AsyncFullLoader<MP, Barrier<MP::ES>, SMM::Config, RL, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
