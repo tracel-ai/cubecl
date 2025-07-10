@@ -1,6 +1,6 @@
+use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::global_memory::TensorReader;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{Ident, InputIdent, InvalidConfigError};
@@ -12,11 +12,11 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use super::{LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all the tensor view using all planes,
-/// iterating with steps determined by the plane's dimension.
-pub struct LoadingStrategy {}
+/// Loads the content of all the stage using all planes,
+/// keeping the original layout, making each tile strided
+pub struct SyncFullStridedLoading {}
 
-impl LoadingValidation for LoadingStrategy {
+impl LoadingValidation for SyncFullStridedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
 
@@ -34,7 +34,7 @@ impl LoadingValidation for LoadingStrategy {
     }
 }
 
-impl LoadMaxRoundPlaneCount for LoadingStrategy {
+impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: InputIdent,
@@ -47,9 +47,9 @@ impl LoadMaxRoundPlaneCount for LoadingStrategy {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for LoadingStrategy {
+impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = SyncFullStridedJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
@@ -65,7 +65,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
             * config.plane_dim()
             + UNIT_POS_X;
 
-        Job {
+        SyncFullStridedJob {
             unit_position_base,
             num_tasks_per_unit,
             unit_count,
@@ -76,7 +76,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct SyncFullStridedJob {
     unit_position_base: u32,
 
     #[cube(comptime)]
@@ -90,7 +90,7 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
+impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for SyncFullStridedJob {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

@@ -7,12 +7,13 @@ use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 
 #[cube]
-/// A loading job represents a group of loading tasks.
+/// A loading job represents a sequence of loading tasks.
 /// Each task is the smallest unit of loading work:
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+    /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
@@ -22,11 +23,18 @@ pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + C
         #[comptime] config: G,
     );
 
+    /// Get the number of tasks
     fn task_count(this: &Self) -> comptime_type!(u32);
 }
 
 #[cube]
+/// A loading job represents a sequence of loading tasks.
+/// Each task is the smallest unit of loading work:
+/// one unit at one iteration, operating at a specific point within a read view.
+/// The job holds shared information reused across read views and iterations.
+/// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+    /// Execute the `task_id`th loading task
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
@@ -36,13 +44,17 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
         #[comptime] config: G,
     );
 
+    /// Get the number of tasks
     fn task_count(this: &Self) -> comptime_type!(u32);
 }
 
+/// Allows to verify configs are valid for a loader
 pub trait LoadingValidation {
+    /// Verify that configs are valid for a loader, otherwise return an error stating why
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
 
+/// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {

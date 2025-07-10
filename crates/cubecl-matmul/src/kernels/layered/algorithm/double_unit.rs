@@ -29,8 +29,8 @@ impl Algorithm for DoubleUnitAlgorithm {
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, PartialReaderFamily>;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

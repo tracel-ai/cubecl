@@ -20,9 +20,9 @@ use super::{LoadingValidation, sync_full_tilewise};
 ///   However, it will explicitly fail if any plane does not load its entire row.
 /// - In the multi-row case, it too will fail if a plane does not load all its rows.
 ///   Within each plane, the local tiling order is column-major.
-pub struct LoadingStrategy {}
+pub struct SyncFullOrderedLoading {}
 
-impl LoadingValidation for LoadingStrategy {
+impl LoadingValidation for SyncFullOrderedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if ident != Ident::Lhs {
             return Err(FormattedConfigError::new(move || {
@@ -71,7 +71,7 @@ impl LoadingValidation for LoadingStrategy {
     }
 }
 
-impl LoadMaxRoundPlaneCount for LoadingStrategy {
+impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: InputIdent,
@@ -83,9 +83,9 @@ impl LoadMaxRoundPlaneCount for LoadingStrategy {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for LoadingStrategy {
+impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
     type TilingLayout = ContiguousTilingLayout<OrderedTilingOrder>;
-    type Job<MP: MatmulPrecision> = sync_full_tilewise::Job;
+    type Job<MP: MatmulPrecision> = sync_full_tilewise::SyncFullTilewiseJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
@@ -108,7 +108,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
         // Ordered is just a tilewise loader using the ordered tiling order
-        sync_full_tilewise::Job {
+        sync_full_tilewise::SyncFullTilewiseJob {
             num_tiles_to_skip,
             num_lines_to_skip,
             num_lines_per_tile,

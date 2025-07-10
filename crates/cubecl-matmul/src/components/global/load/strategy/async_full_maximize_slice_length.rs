@@ -2,8 +2,8 @@ use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
-        load::AsyncFullLoadingStrategy,
         global_memory::{TensorReader, Window},
+        load::AsyncFullLoadingStrategy,
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -16,23 +16,23 @@ use super::{AsyncLoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct LoadingStrategy {}
+pub struct AsyncFullMaximizeSliceLengthLoading {}
 
-impl LoadingValidation for LoadingStrategy {
+impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for LoadingStrategy {
+impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = AsynFullMaximizeSliceLengthJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job {
+    ) -> AsynFullMaximizeSliceLengthJob {
         let matrix_layout = config.matrix_layout(input_ident);
 
         let num_slices = match matrix_layout {
@@ -43,7 +43,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 
         let num_tasks_per_unit = comptime!(div_ceil(num_slices, unit_count));
 
-        Job {
+        AsynFullMaximizeSliceLengthJob {
             num_tasks_per_unit,
             unit_count,
             num_slices,
@@ -57,7 +57,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct AsynFullMaximizeSliceLengthJob {
     #[cube(comptime)]
     num_tasks_per_unit: u32,
     #[cube(comptime)]
@@ -69,7 +69,9 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
+impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
+    for AsynFullMaximizeSliceLengthJob
+{
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,

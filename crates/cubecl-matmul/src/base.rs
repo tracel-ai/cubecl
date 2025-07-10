@@ -120,8 +120,8 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     MP,
                     SimpleAlgorithm<
                         AcceleratedMatmul,
-                        sync_full_strided::LoadingStrategy,
-                        sync_full_strided::LoadingStrategy,
+                        sync_full_strided::SyncFullStridedLoading,
+                        sync_full_strided::SyncFullStridedLoading,
                     >,
                 >(client, lhs, lhs_scale, rhs, rhs_scale, out, selection)
             }
@@ -130,8 +130,8 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 MP,
                 SimpleAlgorithm<
                     AcceleratedMatmul,
-                    sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>,
-                    sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>,
+                    sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>,
+                    sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>,
                 >,
             >(
                 client,
@@ -147,7 +147,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             AsyncLoadingStrategy::Cooperative => layered::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<AcceleratedMatmul, async_full_cooperative::LoadingStrategy>,
+                SimpleBarrierAlgorithm<AcceleratedMatmul, async_full_cooperative::AsyncFullCooperativeLoading>,
             >(
                 client,
                 lhs,
@@ -162,7 +162,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 MP,
                 SimpleBarrierAlgorithm<
                     AcceleratedMatmul,
-                    async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+                    async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
                 >,
             >(
                 client,
@@ -178,7 +178,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 MP,
                 SimpleBarrierAlgorithm<
                     AcceleratedMatmul,
-                    async_full_maximize_slice_length::LoadingStrategy,
+                    async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                 >,
             >(
                 client,
@@ -194,7 +194,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 MP,
                 SimpleBarrierAlgorithm<
                     AcceleratedMatmul,
-                    async_full_maximize_unit_count::LoadingStrategy,
+                    async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                 >,
             >(
                 client,

@@ -42,8 +42,8 @@ where
         PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
-        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -84,8 +84,8 @@ where
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
-        sync_partial_tilewise::LoadingStrategy<RowMajorTilingOrder>,
-        sync_partial_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+        sync_partial_tilewise::SyncPartialTilewiseLoading<RowMajorTilingOrder>,
+        sync_partial_tilewise::SyncPartialTilewiseLoading<ColMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -125,8 +125,8 @@ where
         PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_tilewise::LoadingStrategy<RowMajorTilingOrder>,
-        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_tilewise::SyncPartialTilewiseLoading<RowMajorTilingOrder>,
+        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

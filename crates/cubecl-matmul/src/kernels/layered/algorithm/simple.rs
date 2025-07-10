@@ -32,8 +32,8 @@ pub struct SimpleArgs {
 
 pub struct SimpleAlgorithm<
     TMM,
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+    LL = sync_full_cyclic::SyncFullCyclicLoading<ColMajorTilingOrder>,
+    RL = sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
 > {
     pub _tmm: PhantomData<TMM>,
     pub _ll: PhantomData<LL>,

@@ -16,12 +16,12 @@ use super::{AsyncLoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage memory using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct LoadingStrategy<T: TilingOrder> {
+pub struct AsyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     _phantom: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
+impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let total_units = config.num_loading_planes(ident) * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
@@ -38,14 +38,14 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
+impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = AsyncFullCyclicJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job {
+    ) -> AsyncFullCyclicJob {
         let total_units = config.plane_dim() * config.num_loading_planes(input_ident);
         let line_size = config.global_line_size(input_ident);
 
@@ -69,7 +69,7 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
             * config.plane_dim()
             + UNIT_POS_X;
 
-        Job {
+        AsyncFullCyclicJob {
             unit_id,
             num_tasks_per_unit,
             total_units,
@@ -87,7 +87,7 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct AsyncFullCyclicJob {
     unit_id: u32,
 
     #[cube(comptime)]
@@ -107,7 +107,9 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
+impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingLayout<TO>>
+    for AsyncFullCyclicJob
+{
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,

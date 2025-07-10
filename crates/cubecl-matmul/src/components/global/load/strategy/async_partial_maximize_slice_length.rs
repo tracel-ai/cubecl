@@ -15,24 +15,24 @@ use super::{AsyncLoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Executes one `memcpy_async` call per contiguous slice.
 /// The goal is to reduce the total number of `memcpy_async` calls, though it may result in idle threads.
-pub struct LoadingStrategy {}
+pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
-impl LoadingValidation for LoadingStrategy {
+impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncPartialLoadingStrategy for LoadingStrategy {
+impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = AsyncPartialMaximizeSliceLengthJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job {
+    ) -> AsyncPartialMaximizeSliceLengthJob {
         let matrix_layout = config.matrix_layout(input_ident);
         let line_size = config.stage_config().stage_line_size(input_ident);
         let num_stages = 2;
@@ -70,7 +70,7 @@ impl AsyncPartialLoadingStrategy for LoadingStrategy {
         let unit_count = config.plane_dim() * config.num_loading_planes(input_ident);
         let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
-        Job {
+        AsyncPartialMaximizeSliceLengthJob {
             num_tasks_per_unit,
             unit_count,
             num_slices_stage_offset,
@@ -87,7 +87,7 @@ impl AsyncPartialLoadingStrategy for LoadingStrategy {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct AsyncPartialMaximizeSliceLengthJob {
     #[cube(comptime)]
     num_tasks_per_unit: u32,
     #[cube(comptime)]
@@ -105,7 +105,9 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
+impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
+    for AsyncPartialMaximizeSliceLengthJob
+{
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,

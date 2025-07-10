@@ -25,12 +25,12 @@ use super::{LoadingJob, LoadingValidation};
 /// each plane loads its own row and a sync can be saved.
 /// In multi-row, number of planes must divide number of rows,
 /// and each plane loads a contiguous chunk of rows (e.g. plane 0 loads rows 0–1, plane 1 loads 2–3, etc.).
-pub struct LoadingStrategy<T: TilingOrder> {
+pub struct SyncFullTilewiseLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: InputIdent,
@@ -41,7 +41,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for LoadingStrategy<TO> {
     }
 }
 
-impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
+impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
@@ -74,9 +74,9 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
+impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = SyncFullTilewiseJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
@@ -98,7 +98,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
             * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
-        Job {
+        SyncFullTilewiseJob {
             num_tiles_to_skip,
             num_lines_to_skip,
             num_lines_per_tile,
@@ -111,7 +111,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct SyncFullTilewiseJob {
     pub num_tiles_to_skip: u32,
     pub num_lines_to_skip: u32,
 
@@ -128,7 +128,9 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>>
+    for SyncFullTilewiseJob
+{
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
@@ -148,7 +150,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config.stage_config(),
         );
 
-        Job::load_and_store_line::<MP, TO, G>(
+        SyncFullTilewiseJob::load_and_store_line::<MP, TO, G>(
             this,
             tile,
             line_index_within_tile,
@@ -166,7 +168,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 }
 
 #[cube]
-impl Job {
+impl SyncFullTilewiseJob {
     #[allow(clippy::too_many_arguments)]
     fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,

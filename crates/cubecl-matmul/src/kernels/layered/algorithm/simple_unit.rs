@@ -25,8 +25,8 @@ pub struct SimpleUnitSelectionArgs {
 }
 
 pub struct SimpleUnitAlgorithm<
-    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
-    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+    LL = sync_full_cyclic::SyncFullCyclicLoading<ColMajorTilingOrder>,
+    RL = sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
 > {
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,

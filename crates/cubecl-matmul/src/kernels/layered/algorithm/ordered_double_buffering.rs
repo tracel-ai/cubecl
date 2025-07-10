@@ -35,7 +35,7 @@ where
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, PartialReaderFamily>;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        sync_partial_cyclic::LoadingStrategy<RowMajorTilingOrder>,
+        sync_partial_cyclic::SyncPartialCyclicLoading<RowMajorTilingOrder>,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
