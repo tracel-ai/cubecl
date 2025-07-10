@@ -13,7 +13,7 @@ use cubecl_opt::{NodeIndex, Optimizer};
 use tracel_llvm::melior::{
     Context,
     dialect::{
-        arith, func,
+        func,
         llvm::{
             self,
             attributes::{Linkage, linkage},
@@ -23,7 +23,7 @@ use tracel_llvm::melior::{
     },
     ir::{
         Attribute, Block, BlockRef, Identifier, Location, Module, Operation, Region, RegionRef,
-        attribute::{IntegerAttribute, StringAttribute, TypeAttribute},
+        attribute::{StringAttribute, TypeAttribute},
         r#type::{FunctionType, IntegerType, MemRefType},
     },
 };
@@ -162,36 +162,28 @@ impl<'a> Visitor<'a> {
             str_to_append.len() as u32,
         );
         self.str_counter += 1;
-        self.module.body().append_operation(
-            llvm_ods::mlir_global(
-                self.context,
-                {
-                    let region = Region::new();
-                    let block = Block::new(&[]);
-                    let constant = block
-                        .append_operation(
-                            llvm_ods::mlir_constant(
-                                self.context,
-                                str_type,
-                                str_value,
-                                self.location,
-                            )
-                            .into(),
-                        )
-                        .result(0)
-                        .unwrap()
-                        .into();
-                    block.append_operation(llvm::r#return(Some(constant), self.location));
-                    region.append_block(block);
-                    region
-                },
-                TypeAttribute::new(str_type),
-                StringAttribute::new(self.context, &key),
-                linkage(self.context, Linkage::Internal),
-                self.location,
-            )
-            .into(),
-        );
+        self.module.body().append_operation(llvm_ods::mlir_global(
+            self.context,
+            {
+                let region = Region::new();
+                let block = Block::new(&[]);
+                let constant = block
+                    .append_op_result(llvm_ods::mlir_constant(
+                        self.context,
+                        str_type,
+                        str_value,
+                        self.location,
+                    ))
+                    .unwrap();
+                block.append_operation(llvm::r#return(Some(constant), self.location));
+                region.append_block(block);
+                region
+            },
+            TypeAttribute::new(str_type),
+            StringAttribute::new(self.context, &key),
+            linkage(self.context, Linkage::Internal),
+            self.location,
+        ));
         key
     }
 
@@ -200,7 +192,7 @@ impl<'a> Visitor<'a> {
         operation: impl Into<Operation<'a>>,
     ) -> Value<'a, 'a> {
         self.block()
-            .append_operation(operation.into())
+            .append_operation(operation)
             .result(0)
             .unwrap()
             .into()
@@ -281,7 +273,8 @@ impl<'a> Visitor<'a> {
                     location,
                     global_buffers,
                     global_scalars,
-                );
+                )
+                .unwrap();
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -301,220 +294,105 @@ impl<'a> Visitor<'a> {
         location: Location<'a>,
         global_buffers: Vec<Value<'a, 'a>>,
         global_scalars: Vec<Value<'a, 'a>>,
-    ) {
+    ) -> Result<(), Error> {
         let basic_block_id = opt.entry();
-        let integer_type: Type<'_> = IntegerType::new(context, 32).into();
-        let c0: Value<'_, '_> = block
-            .append_operation(arith::constant(
-                context,
-                IntegerAttribute::new(integer_type, 0).into(),
-                location,
-            ))
-            .result(0)
-            .unwrap()
-            .into();
-
-        let c1: Value<'_, '_> = block
-            .append_operation(arith::constant(
-                context,
-                IntegerAttribute::new(integer_type, 1).into(),
-                location,
-            ))
-            .result(0)
-            .unwrap()
-            .into();
+        let integer_type = IntegerType::new(context, 32).into();
+        let start = block.const_int_from_type(context, location, 0, integer_type)?;
+        let step = block.const_int_from_type(context, location, 1, integer_type)?;
 
         // TODO refactor this in a macro
         let cube_dim_x = block
-            .argument(global_buffers.len() + global_scalars.len())
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len())?
             .into();
         let cube_dim_y = block
-            .argument(global_buffers.len() + global_scalars.len() + 1)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 1)?
             .into();
         let cube_dim_z = block
-            .argument(global_buffers.len() + global_scalars.len() + 2)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 2)?
             .into();
         let cube_count_x = block
-            .argument(global_buffers.len() + global_scalars.len() + 3)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 3)?
             .into();
         let cube_count_y = block
-            .argument(global_buffers.len() + global_scalars.len() + 4)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 4)?
             .into();
         let cube_count_z = block
-            .argument(global_buffers.len() + global_scalars.len() + 5)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 5)?
             .into();
         let unit_pos_x = block
-            .argument(global_buffers.len() + global_scalars.len() + 6)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 6)?
             .into();
         let unit_pos_y = block
-            .argument(global_buffers.len() + global_scalars.len() + 7)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 7)?
             .into();
         let unit_pos_z = block
-            .argument(global_buffers.len() + global_scalars.len() + 8)
-            .unwrap()
+            .argument(global_buffers.len() + global_scalars.len() + 8)?
             .into();
 
-        let absolute_pos_tmp_0: Value<'a, 'a> = block
-            .append_operation(arith::muli(cube_count_x, cube_dim_x, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let absolute_pos_tmp_0 = block.muli(cube_count_x, cube_dim_x, location)?;
 
-        let absolute_pos_tmp_1: Value<'a, 'a> = block
-            .append_operation(arith::muli(cube_count_y, cube_dim_y, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let absolute_pos_tmp_1 = block.muli(cube_count_y, cube_dim_y, location)?;
 
-        let absolute_pos_tmp_2: Value<'a, 'a> = block
-            .append_operation(arith::muli(
-                absolute_pos_tmp_0,
-                absolute_pos_tmp_1,
-                location,
-            ))
-            .result(0)
-            .unwrap()
-            .into();
+        let absolute_pos_tmp_2 = block.muli(absolute_pos_tmp_0, absolute_pos_tmp_1, location)?;
 
-        let unit_pos_tmp0: Value<'a, 'a> = block
-            .append_operation(arith::muli(cube_dim_y, cube_dim_z, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let unit_pos_tmp0 = block.muli(cube_dim_y, cube_dim_z, location)?;
 
-        let unit_pos_tmp1: Value<'a, 'a> = block
-            .append_operation(arith::muli(unit_pos_tmp0, unit_pos_z, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let unit_pos_tmp1 = block.muli(unit_pos_tmp0, unit_pos_z, location)?;
 
-        let unit_pos_tmp2: Value<'a, 'a> = block
-            .append_operation(arith::muli(cube_dim_y, unit_pos_z, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let unit_pos_tmp2 = block.muli(cube_dim_y, unit_pos_z, location)?;
 
-        let unit_pos_tmp3: Value<'a, 'a> = block
-            .append_operation(arith::muli(unit_pos_tmp1, unit_pos_tmp2, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let unit_pos_tmp3 = block.muli(unit_pos_tmp1, unit_pos_tmp2, location)?;
 
-        let unit_pos: Value<'a, 'a> = block
-            .append_operation(arith::muli(unit_pos_tmp3, unit_pos_x, location))
-            .result(0)
-            .unwrap()
-            .into();
+        let unit_pos = block.muli(unit_pos_tmp3, unit_pos_x, location)?;
 
         block.append_operation(scf::r#for(
-            c0,
+            start,
             cube_count_x,
-            c1,
+            step,
             {
                 let region = Region::new();
                 let block = Block::new(&[(integer_type, location)]);
-                let cube_pos_x = block.argument(0).unwrap().into();
+                let cube_pos_x = block.argument(0)?.into();
 
-                let absolute_pos_x_tmp = block
-                    .append_operation(arith::muli(cube_pos_x, cube_dim_x, location))
-                    .result(0)
-                    .unwrap()
-                    .into();
-                let absolute_pos_x = block
-                    .append_operation(arith::addi(absolute_pos_x_tmp, unit_pos_x, location))
-                    .result(0)
-                    .unwrap()
-                    .into();
+                let absolute_pos_x_tmp = block.muli(cube_pos_x, cube_dim_x, location)?;
+                let absolute_pos_x = block.addi(absolute_pos_x_tmp, unit_pos_x, location)?;
 
                 block.append_operation(scf::r#for(
-                    c0,
+                    start,
                     cube_count_y,
-                    c1,
+                    step,
                     {
                         let region = Region::new();
                         let block = Block::new(&[(integer_type, location)]);
-                        let cube_pos_y = block.argument(0).unwrap().into();
+                        let cube_pos_y = block.argument(0)?.into();
 
-                        let absolute_pos_y_tmp = block
-                            .append_operation(arith::muli(cube_pos_y, cube_dim_y, location))
-                            .result(0)
-                            .unwrap()
-                            .into();
-                        let absolute_pos_y = block
-                            .append_operation(arith::addi(absolute_pos_y_tmp, unit_pos_y, location))
-                            .result(0)
-                            .unwrap()
-                            .into();
-                        let absolute_pos_tmp_3 = block
-                            .append_operation(arith::muli(
-                                absolute_pos_y,
-                                absolute_pos_tmp_0,
-                                location,
-                            ))
-                            .result(0)
-                            .unwrap()
-                            .into();
+                        let absolute_pos_y_tmp = block.muli(cube_pos_y, cube_dim_y, location)?;
+                        let absolute_pos_y =
+                            block.addi(absolute_pos_y_tmp, unit_pos_y, location)?;
+                        let absolute_pos_tmp_3 =
+                            block.muli(absolute_pos_y, absolute_pos_tmp_0, location)?;
                         block.append_operation(scf::r#for(
-                            c0,
+                            start,
                             cube_count_y,
-                            c1,
+                            step,
                             {
                                 let region = Region::new();
                                 let block = Block::new(&[(integer_type, location)]);
 
-                                let cube_pos_z = block.argument(0).unwrap().into();
+                                let cube_pos_z = block.argument(0)?.into();
 
-                                let absolute_pos_z_tmp = block
-                                    .append_operation(arith::muli(cube_pos_z, cube_dim_z, location))
-                                    .result(0)
-                                    .unwrap()
-                                    .into();
-                                let absolute_pos_z = block
-                                    .append_operation(arith::addi(
-                                        absolute_pos_z_tmp,
-                                        unit_pos_z,
-                                        location,
-                                    ))
-                                    .result(0)
-                                    .unwrap()
-                                    .into();
+                                let absolute_pos_z_tmp =
+                                    block.muli(cube_pos_z, cube_dim_z, location)?;
+                                let absolute_pos_z =
+                                    block.addi(absolute_pos_z_tmp, unit_pos_z, location)?;
 
-                                let absolute_pos_tmp_4 = block
-                                    .append_operation(arith::muli(
-                                        absolute_pos_z,
-                                        absolute_pos_tmp_2,
-                                        location,
-                                    ))
-                                    .result(0)
-                                    .unwrap()
-                                    .into();
-                                let absolute_pos_tmp_5 = block
-                                    .append_operation(arith::addi(
-                                        absolute_pos_x,
-                                        absolute_pos_tmp_3,
-                                        location,
-                                    ))
-                                    .result(0)
-                                    .unwrap()
-                                    .into();
+                                let absolute_pos_tmp_4 =
+                                    block.muli(absolute_pos_z, absolute_pos_tmp_2, location)?;
+                                let absolute_pos_tmp_5 =
+                                    block.addi(absolute_pos_x, absolute_pos_tmp_3, location)?;
 
-                                let absolute_pos = block
-                                    .append_operation(arith::addi(
-                                        absolute_pos_tmp_5,
-                                        absolute_pos_tmp_4,
-                                        location,
-                                    ))
-                                    .result(0)
-                                    .unwrap()
-                                    .into();
+                                let absolute_pos =
+                                    block.addi(absolute_pos_tmp_5, absolute_pos_tmp_4, location)?;
 
                                 region.append_block(block);
                                 let current_block = region.first_block().unwrap();
@@ -523,7 +401,7 @@ impl<'a> Visitor<'a> {
                                     Region::new(),
                                     location,
                                 ));
-                                let current_region = ops.region(0).unwrap();
+                                let current_region = ops.region(0)?;
 
                                 let last_block = Block::new(&[]);
                                 last_block.append_operation(scf::r#yield(&[], location));
@@ -576,5 +454,6 @@ impl<'a> Visitor<'a> {
             },
             location,
         ));
+        Ok(())
     }
 }
