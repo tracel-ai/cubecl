@@ -1,3 +1,6 @@
+//! Solves full reductions by loading blocks into shared memory.
+//! Handles memory movement, bound checks, plane specialization.
+
 pub mod args;
 pub mod load;
 pub mod multi_stage;

@@ -1,5 +1,5 @@
 use crate::components::InputIdent;
-use crate::components::global::load::BufferId;
+use crate::components::global::load::StageIdent;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMemory;
@@ -9,14 +9,19 @@ use crate::components::tile::Tile;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+/// Full reader family for any precision
+pub struct FullReaderFamily;
+
 #[derive(CubeType)]
+/// Reads any tile from the stage memory
 pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {
+    /// Stage memory from which to read
     pub stage_memory: StageMemory<ES, T>,
+
     #[cube(comptime)]
+    /// Ident of the stage memory
     pub input_ident: InputIdent,
 }
-
-pub struct FullReaderFamily;
 
 impl ReaderFamily for FullReaderFamily {
     type Reader<ES: Numeric, T: TilingLayout> = FullStageToTileReader<ES, T>;
@@ -24,6 +29,7 @@ impl ReaderFamily for FullReaderFamily {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
+    /// Create a new FullStageToTileReader
     pub fn new(stage_memory: StageMemory<ES, T>, #[comptime] input_ident: InputIdent) -> Self {
         FullStageToTileReader::<ES, T> {
             stage_memory,
@@ -50,38 +56,41 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileRead
     }
 }
 
+/// Partial reader family for any precision
+pub struct PartialReaderFamily;
+
 #[derive(CubeType)]
-pub struct BufferStageToTileReader<ES: Numeric, T: TilingLayout> {
+/// Reads tile from the stage memory for the specified stage ident only
+pub struct PartialStageToTileReader<ES: Numeric, T: TilingLayout> {
     pub stage_memory: StageMemory<ES, T>,
     #[cube(comptime)]
-    pub buffer_id: BufferId,
+    pub stage_ident: StageIdent,
     #[cube(comptime)]
     input_ident: InputIdent,
 }
 
-pub struct BufferReaderFamily;
-
-impl ReaderFamily for BufferReaderFamily {
-    type Reader<I: Numeric, T: TilingLayout> = BufferStageToTileReader<I, T>;
+impl ReaderFamily for PartialReaderFamily {
+    type Reader<I: Numeric, T: TilingLayout> = PartialStageToTileReader<I, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> BufferStageToTileReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> PartialStageToTileReader<ES, T> {
+    /// Create a new PartialStageToTileReader
     pub fn new(
         stage_memory: StageMemory<ES, T>,
-        #[comptime] buffer_id: BufferId,
+        #[comptime] stage_ident: StageIdent,
         #[comptime] input_ident: InputIdent,
-    ) -> BufferStageToTileReader<ES, T> {
-        BufferStageToTileReader::<ES, T> {
+    ) -> PartialStageToTileReader<ES, T> {
+        PartialStageToTileReader::<ES, T> {
             stage_memory,
-            buffer_id,
+            stage_ident,
             input_ident,
         }
     }
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for BufferStageToTileReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for PartialStageToTileReader<ES, T> {
     fn read_tile<S: StageConfig>(
         this: &Self,
         row: u32,
@@ -91,7 +100,7 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for BufferStageToTileRe
         this.stage_memory.get_tile::<S>(
             row,
             col,
-            comptime!(this.buffer_id.to_index()),
+            comptime!(this.stage_ident.to_index()),
             comptime!(this.input_ident.as_ident()),
             config,
         )

@@ -4,6 +4,8 @@ use cubecl_core::prelude::*;
 use crate::components::stage::StageConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Events that occur during the process of loading tiles to
+/// registers and executing inner Tile Matmuls
 pub enum StageEvent {
     /// Before any step
     Begin,
@@ -18,11 +20,13 @@ pub enum StageEvent {
 }
 
 #[cube]
+/// Function that is called at each [StageEvent]
 pub trait StageEventListener<S: StageConfig>: CubeType {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent, #[comptime] config: S);
 }
 
 #[derive(CubeType)]
+/// Use when there is no event listening to do
 pub struct NoEvent {}
 
 #[cube]

@@ -6,9 +6,9 @@ use cubecl_core::{
     prelude::{Float, Numeric},
     server::{self},
 };
+use cubecl_matmul::tests::test_utils::{CastInto, Sample};
 
 use crate::base::ConvolutionProblem;
-use cubecl_matmul::tests::{CastInto, Sample};
 
 pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;

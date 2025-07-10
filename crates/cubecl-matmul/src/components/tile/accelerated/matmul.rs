@@ -5,6 +5,7 @@ use crate::components::{Ident, MatmulPrecision, as_cmma_layout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 
+/// Uses one plane to perform a small matmul using accelerated instructions.
 pub struct AcceleratedMatmul;
 
 #[cube]

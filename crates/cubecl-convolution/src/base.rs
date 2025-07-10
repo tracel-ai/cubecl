@@ -1,12 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::{
-    components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSpec, MatrixLayout, OutputRuntimeArg,
-        global::{AccumulatorLoader, GlobalWriter},
-    },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+use cubecl_matmul::components::{
+    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
+    global::{AccumulatorLoader, GlobalWriter},
 };
 use cubecl_std::{
     CubeOption, FastDivmod,
@@ -150,7 +147,8 @@ impl ConvolutionProblem {
             m: self.m,
             n: self.n,
             k: self.k,
-            batches: (vec![], vec![]),
+            lhs_batches: vec![],
+            rhs_batches: vec![],
             lhs_layout: self.lhs_layout,
             rhs_layout: self.rhs_layout,
         }

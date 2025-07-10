@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulLineSizes;
 use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
@@ -8,11 +7,10 @@ use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatm
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSelection,
+    MatmulSpec, OutputRuntimeArg,
 };
-use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::components::{MatmulLineSizes, MatmulSetupError};
 use cubecl_core::prelude::*;
 
 pub struct PartitionedBatchMatmulFamily<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> {

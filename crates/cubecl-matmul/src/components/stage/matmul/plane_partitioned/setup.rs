@@ -2,6 +2,8 @@ use crate::components::ComputeResources;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
+use crate::components::MatmulSelection;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaders;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
@@ -11,12 +13,11 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+/// Plane Matmul family for any precision
 pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
     _phantom: PhantomData<(TMM, LRF, RRF)>,
 }
@@ -52,9 +53,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
                 )));
             };
 
-        let compute_planes = compute_resources
-            .as_plane_resources(tile_config.plane_dim())?
-            .get_count();
+        let compute_planes = compute_resources.num_planes(tile_config.plane_dim())?;
 
         let plane_role_config = PlaneRoleConfig::new(
             selection.load_specialization_config,

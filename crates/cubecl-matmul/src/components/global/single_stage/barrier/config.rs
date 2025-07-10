@@ -1,17 +1,15 @@
 use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage,
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatrixLayout,
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    global::{
+        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    stage,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -103,8 +101,6 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleBarrierConfig<S> {
         CubeDim::new_2d(self.plane_dim(), self.num_planes)
     }
 }
-
-impl<S: stage::StageConfig> MatmulConfig for SimpleBarrierConfig<S> {}
 
 impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     #[allow(clippy::too_many_arguments)]

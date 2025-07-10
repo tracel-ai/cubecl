@@ -9,7 +9,10 @@ use crate::components::{Ident, InputIdent, MatrixLayout};
 use super::{StageConfig, StageMemory};
 
 #[cube]
+/// Determines the order in which tiles are stored in shared memory,
+/// if [TilingLayout] is contiguous
 pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
+    /// Returns the coordinates (row, col) of the tile
     fn to_row_col<C: StageConfig>(
         nth: u32,
         #[comptime] tile_count_rows: u32,
@@ -18,6 +21,8 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         #[comptime] config: C,
     ) -> (u32, u32);
 
+    /// Given the coordinates (row, col) of the tile,
+    /// returns its index in shared memory
     fn to_nth_tile<C: StageConfig>(
         row: u32,
         col: u32,
@@ -27,13 +32,21 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         #[comptime] config: C,
     ) -> u32;
 
+    /// Return the trait value as enum
     fn to_enum() -> comptime_type!(TilingOrderEnum);
 }
 
+/// Enum for the available traits
 pub enum TilingOrderEnum {
+    /// Tiles of the same row are side by side
     RowMajor,
+    /// Tiles of the column are side by side
     ColMajor,
+    /// Tiles are laid out in column-major order across a fixed number of rows,
+    /// with all tiles from those rows placed contiguously side by side.
     Ordered,
+    /// If the matrix data layout is row-major, the tiling order is col-major
+    /// If the matrix data layout is col-major, the tiling order is row-major
     Tma,
 }
 
@@ -212,25 +225,31 @@ impl TilingOrder for OrderedTilingOrder {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct ContiguousTilingLayout<T: TilingOrder> {
-    tiling_order: PhantomData<T>,
-}
-
-#[derive(Clone, Copy)]
-pub struct StridedTilingLayout {}
-
 #[cube]
+/// Describes how tiles are arranged in shared memory.
 pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
+    /// Returns the tile at shared memory coordinates
     fn get_tile<ES: Numeric, S: StageConfig>(
         stage: &StageMemory<ES, Self>,
-        x: u32,
-        y: u32,
+        row: u32,
+        col: u32,
         #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES>;
 }
+
+#[derive(Clone, Copy)]
+/// Each tile is stored contiguously in shared memory.
+/// Global memory loads may require remapping to match this layout.
+pub struct ContiguousTilingLayout<T: TilingOrder> {
+    tiling_order: PhantomData<T>,
+}
+
+#[derive(Clone, Copy)]
+/// Tiles follow a strided layout that often mirrors global memory layout.
+/// Not all tiles are contiguous in shared memory, but mapping is more direct.
+pub struct StridedTilingLayout {}
 
 #[cube]
 impl<T: TilingOrder> ContiguousTilingLayout<T> {

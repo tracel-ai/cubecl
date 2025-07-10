@@ -9,21 +9,18 @@ use crate::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::{
-    components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
-        MatmulPrecision, MatmulSpec, OutputRuntimeArg,
-        global::{
-            AccumulatorLoader, GlobalConfig,
-            load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
-            single_stage::simple::SimpleConfig,
-        },
-        stage::{
-            ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,
-            StageConfig, StageMatmul, StageMatmulFamily,
-        },
+use cubecl_matmul::components::{
+    AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+    MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg,
+    global::{
+        AccumulatorLoader, GlobalConfig,
+        load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
+        single_stage::simple::SimpleConfig,
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    stage::{
+        ContiguousTilingLayout, FullReaderFamily, FullStageToTileReader, RowMajorTilingOrder,
+        StageConfig, StageMatmul, StageMatmulFamily,
+    },
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

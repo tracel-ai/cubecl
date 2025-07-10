@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::BufferId;
+use crate::components::global::load::StageIdent;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageConfig, TilingLayout};
 use crate::components::tile::Tile;
@@ -12,16 +12,20 @@ use cubecl_core::prelude::*;
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
 pub struct StageMemory<ES: Numeric, T: TilingLayout> {
+    /// Underlying shared memory
     smem: SharedMemory<Line<ES>>,
+
     #[cube(comptime)]
+    /// Number of stages (buffers for global double buffering)
     num_stages: u32,
+
     #[cube(comptime)]
-    tiling_layout: PhantomData<T>,
+    _phantom: PhantomData<T>,
 }
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
-    /// Instantiate a new stage for the given identifier
+    /// Instantiate a new stage memory for the given identifier
     pub fn new<S: StageConfig>(
         #[comptime] num_stages: u32,
         #[comptime] ident: Ident,
@@ -37,7 +41,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         Self::new_with_smem(smem, num_stages)
     }
 
-    /// Instantiate a new stage for the given identifier
+    /// Instantiate a new stage memory for the given identifier, with shared memory alignment
     pub fn new_aligned<S: StageConfig>(
         #[comptime] ident: Ident,
         #[comptime] alignment: u32,
@@ -62,11 +66,11 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         StageMemory::<ES, T> {
             smem,
             num_stages,
-            tiling_layout: PhantomData::<T>,
+            _phantom: PhantomData::<T>,
         }
     }
 
-    /// Get the tile at position (row,col) regardless of matrix layout
+    /// Get the tile at position (row, col)
     pub fn get_tile<S: StageConfig>(
         &self,
         row: u32,
@@ -88,7 +92,12 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         self.smem.to_slice_mut().with_line_size(line_size)
     }
 
-    pub fn clear<G: GlobalConfig>(&mut self, #[comptime] ident: InputIdent, #[comptime] config: G) {
+    /// Zero out the shared memory
+    pub fn clear_all<G: GlobalConfig>(
+        &mut self,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    ) {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
             self.num_stages * config.tiling_scheme().elements_in_stage(ident)
@@ -117,14 +126,15 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         }
     }
 
-    pub fn clear_buffer<G: GlobalConfig>(
+    /// Zero out the shared memory for only one stage
+    pub fn clear_stage<G: GlobalConfig>(
         &mut self,
-        #[comptime] buffer_id: BufferId,
+        #[comptime] stage_ident: StageIdent,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) {
-        // // TODO: this assumes the stage was created with new
-        // // Also assumes two buffers
+        // TODO: this assumes the stage was created with new
+        // Also assumes two buffers
         let tiling_scheme = config.tiling_scheme();
         let line_size = config.stage_config().stage_line_size(ident.as_ident());
         let smem_length = comptime!(
@@ -148,17 +158,17 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
             let smem_position = match (ident, matrix_layout) {
                 (InputIdent::Lhs, MatrixLayout::ColMajor)
                 | (InputIdent::Rhs, MatrixLayout::RowMajor) => {
-                    buffer_id.to_index() * buffer_length + unit_position
+                    stage_ident.to_index() * buffer_length + unit_position
                 }
                 (InputIdent::Lhs, MatrixLayout::RowMajor) => {
                     let buffer_width = tiling_scheme.elements_in_tile_col(ident) / line_size;
-                    buffer_id.to_index() * buffer_width
+                    stage_ident.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width
                 }
                 (InputIdent::Rhs, MatrixLayout::ColMajor) => {
                     let buffer_height = tiling_scheme.elements_in_tile_row(ident) / line_size;
-                    buffer_id.to_index() * buffer_height
+                    stage_ident.to_index() * buffer_height
                         + unit_position
                         + (unit_position / buffer_height) * buffer_height
                 }

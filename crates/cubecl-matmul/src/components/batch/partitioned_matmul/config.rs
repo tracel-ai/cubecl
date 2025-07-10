@@ -1,12 +1,9 @@
 use cubecl_core::CubeDim;
 
-use crate::{
-    components::{
-        Ident, MatmulConfig, MatmulLineSizes, MatmulProblem,
-        batch::{BatchConfig, HypercubeConfig},
-        global::GlobalConfig,
-    },
-    kernels::MatmulSetupError,
+use crate::components::{
+    Ident, MatmulLineSizes, MatmulProblem, MatmulSetupError,
+    batch::{BatchConfig, HypercubeConfig},
+    global::GlobalConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -48,8 +45,6 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
             .can_yield_extra_cubes()
     }
 }
-
-impl<G: GlobalConfig> MatmulConfig for PartitionedBatchConfig<G> {}
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
     pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {

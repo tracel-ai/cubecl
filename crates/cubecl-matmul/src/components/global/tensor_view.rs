@@ -1,6 +1,5 @@
-use crate::components::config::InputIdent;
-use crate::components::global;
 use crate::components::{Ident, MatrixLayout};
+use crate::components::{InputIdent, global};
 use cubecl_core as cubecl;
 use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;

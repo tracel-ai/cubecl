@@ -1,21 +1,21 @@
 use std::fmt::Display;
 
+use crate::components::error::MatmulSetupError;
 use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection,
 };
-use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {
     type Matmul<MP: MatmulPrecision> = RegisterMatmul;
     type Config = RegisterConfig;
 
-    fn requires_tensor_cores() -> bool {
+    fn requires_accelerator() -> bool {
         false
     }
 
@@ -29,34 +29,17 @@ impl TileMatmulFamily for RegisterMatmul {
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_vectorization = selection.stage_vectorization;
-        let (lhs_stage_line_size, rhs_stage_line_size, stage_line_size_update) =
-            if stage_vectorization.stage_line_size == 0 {
-                (
-                    matmul_line_sizes.lhs as u32,
-                    matmul_line_sizes.rhs as u32,
-                    false,
-                )
-            } else {
-                (
-                    stage_vectorization.stage_line_size as u32,
-                    stage_vectorization.stage_line_size as u32,
-                    true,
-                )
-            };
-
         RegisterConfig::new::<MP, R>(
             client,
             selection.tiling_scheme,
             selection.plane_dim,
             problem.lhs_layout,
             problem.rhs_layout,
-            stage_line_size_update,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
             matmul_line_sizes.out as u32,
-            lhs_stage_line_size,
-            rhs_stage_line_size,
+            matmul_line_sizes.lhs as u32,
+            matmul_line_sizes.rhs as u32,
         )
     }
 

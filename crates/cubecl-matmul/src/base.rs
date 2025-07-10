@@ -3,8 +3,8 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::tile::accelerated::AcceleratedMatmul,
-    kernels::matmul::{
+    components::{MatmulSetupError, tile::accelerated::AcceleratedMatmul},
+    kernels::layered::{
         Selection,
         double_buffering::DoubleBufferingArgs,
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
@@ -24,8 +24,7 @@ use super::{
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
     },
     kernels::{
-        MatmulSetupError,
-        matmul::{
+        layered::{
             self,
             double_buffering::{
                 CyclicDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm,
@@ -111,12 +110,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     match strategy {
         Strategy::Simple(loading_strategy, selection) => match loading_strategy {
             SyncLoadingStrategy::Cyclic => {
-                matmul::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
                     client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
             SyncLoadingStrategy::Strided => {
-                matmul::launch_ref::<
+                layered::launch_ref::<
                     R,
                     MP,
                     SimpleAlgorithm<
@@ -126,7 +125,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, lhs_scale, rhs, rhs_scale, out, selection)
             }
-            SyncLoadingStrategy::Tilewise => matmul::launch_ref::<
+            SyncLoadingStrategy::Tilewise => layered::launch_ref::<
                 R,
                 MP,
                 SimpleAlgorithm<
@@ -145,7 +144,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             ),
         },
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
-            AsyncLoadingStrategy::Cooperative => matmul::launch_ref::<
+            AsyncLoadingStrategy::Cooperative => layered::launch_ref::<
                 R,
                 MP,
                 SimpleBarrierAlgorithm<AcceleratedMatmul, async_full_cooperative::LoadingStrategy>,
@@ -158,7 +157,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 out,
                 &Default::default(),
             ),
-            AsyncLoadingStrategy::Cyclic => matmul::launch_ref::<
+            AsyncLoadingStrategy::Cyclic => layered::launch_ref::<
                 R,
                 MP,
                 SimpleBarrierAlgorithm<
@@ -174,7 +173,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 out,
                 &Default::default(),
             ),
-            AsyncLoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
+            AsyncLoadingStrategy::MaximizeSliceLength => layered::launch_ref::<
                 R,
                 MP,
                 SimpleBarrierAlgorithm<
@@ -190,7 +189,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 out,
                 &Default::default(),
             ),
-            AsyncLoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
+            AsyncLoadingStrategy::MaximizeUnitCount => layered::launch_ref::<
                 R,
                 MP,
                 SimpleBarrierAlgorithm<
@@ -207,7 +206,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 &Default::default(),
             ),
             AsyncLoadingStrategy::Tma => {
-                matmul::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<AcceleratedMatmul>>(
+                layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<AcceleratedMatmul>>(
                     client,
                     lhs,
                     lhs_scale,
@@ -221,30 +220,30 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
         },
         Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
             SyncBufferLoadingStrategy::Cyclic => {
-                matmul::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
                     client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
             SyncBufferLoadingStrategy::Tilewise => {
-                matmul::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<AcceleratedMatmul>>(
                     client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
             SyncBufferLoadingStrategy::Hybrid => {
-                matmul::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<AcceleratedMatmul>>(
                     client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
                 )
             }
         },
         Strategy::OrderedDoubleBuffering(selection) => {
-            matmul::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+            layered::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<AcceleratedMatmul>>(
                 client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
             )
         }
-        Strategy::SimpleUnit(selection) => matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+        Strategy::SimpleUnit(selection) => layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
-        Strategy::DoubleUnit(selection) => matmul::launch_ref::<R, MP, DoubleUnitAlgorithm>(
+        Strategy::DoubleUnit(selection) => layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
         Strategy::Naive => {
@@ -253,7 +252,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = matmul::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
+            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
                 client,
                 lhs,
                 lhs_scale,
@@ -263,8 +262,8 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 &Default::default(),
             ) {
                 match err {
-                    super::kernels::MatmulSetupError::Unavailable(_) => {
-                        matmul::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+                    MatmulSetupError::Unavailable(_) => {
+                        layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(
                             client,
                             lhs,
                             lhs_scale,

@@ -1,17 +1,15 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
-        global::{
-            GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage::{self},
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatmulPrecision, MatrixLayout,
+    error::MatmulSetupError,
+    global::{
+        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::{MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    stage::{self},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -102,8 +100,6 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
         self.specialized_loading_sides
     }
 }
-
-impl<S: stage::StageConfig> MatmulConfig for DoubleBufferingGlobalConfig<S> {}
 
 impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]

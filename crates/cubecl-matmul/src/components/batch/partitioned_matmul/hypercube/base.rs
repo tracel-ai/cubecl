@@ -1,14 +1,11 @@
 use cubecl_core::CubeCount;
 
-use crate::{
-    components::{
-        MatmulProblem, TilingScheme,
-        batch::partitioned_matmul::hypercube::{
-            cube_count_plan::{CubeCountPlan, CubeCountPlanConfig, CubeCountPlanSelection},
-            global_order::{GlobalOrder, GlobalOrderSelection},
-        },
+use crate::components::{
+    MatmulProblem, MatmulSetupError, TilingScheme,
+    batch::partitioned_matmul::hypercube::{
+        cube_count_plan::{CubeCountPlan, CubeCountPlanConfig, CubeCountPlanSelection},
+        global_order::{GlobalOrder, GlobalOrderSelection},
     },
-    kernels::MatmulSetupError,
 };
 
 #[derive(Debug, Clone)]

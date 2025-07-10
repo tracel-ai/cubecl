@@ -1,3 +1,6 @@
+// ! Performs tiled matrix multiplication using shared memory.
+// ! Manages unit/plane coordination
+
 mod matmul;
 
 mod base;

@@ -1,12 +1,12 @@
 use crate::components::global;
-use crate::components::global::load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy};
+use crate::components::global::load::{StageIdent, SyncBufferLoader, SyncBufferLoadingStrategy};
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
-use crate::components::stage::BufferStageToTileReader;
+use crate::components::stage::PartialStageToTileReader;
 use crate::components::{InputIdent, MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -35,8 +35,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = BufferStageToTileReader<MP::ES, LL::TilingLayout>,
-            RhsReader = BufferStageToTileReader<MP::ES, RL::TilingLayout>,
+            LhsReader = PartialStageToTileReader<MP::ES, LL::TilingLayout>,
+            RhsReader = PartialStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
@@ -68,10 +68,10 @@ where
         SMM::zero_accumulator(acc, config.stage_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
-        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
-        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
-        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
-        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
+        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, StageIdent::A);
+        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, StageIdent::B);
+        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, StageIdent::A);
+        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, StageIdent::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 
@@ -79,7 +79,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            BufferId::A,
+            StageIdent::A,
             config,
         );
 
@@ -95,7 +95,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                BufferId::B,
+                StageIdent::B,
                 config,
             );
 
@@ -115,7 +115,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                BufferId::A,
+                StageIdent::A,
                 config,
             );
 
@@ -131,7 +131,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            BufferId::B,
+            StageIdent::B,
             config,
         );
 

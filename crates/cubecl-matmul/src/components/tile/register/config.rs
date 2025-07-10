@@ -1,30 +1,33 @@
+use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{Elem, FloatKind};
-use cubecl_core::{Feature, Runtime};
 
-use crate::components::config::MatmulConfig;
+use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
 use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
-use crate::kernels::{MatmulAvailabilityError, MatmulSetupError};
 use cubecl_core::frontend::CubePrimitive;
 
+/// Execution mode for the RegisterMatmul
 pub enum ProductType {
-    /// Needs lhs to be row major and rhs to be col major
-    /// If not the case, tile will be transposed
+    /// Computes the Tile Matmul as m*n inner products of length k.
+    ///
+    /// Needs Lhs to be row major and Rhs to be col major
+    /// If not the case, tile will be transposed during fill
     Inner,
-    /// Needs lhs to be col major and rhs to be row major
-    /// If not the case, tile will be transposed
+    /// Computes the Stage Matmul as the sum of k outer products of size m*n.
+    ///
+    /// Needs Lhs to be col major and Rhs to be row major
+    /// If not the case, tile will be transposed during fill
     Outer,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for Register instruction
+/// Configuration for Register Matmul
 pub struct RegisterConfig {
     tiling_scheme: TilingScheme,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
-    pub stage_dynamic_line_size: bool,
     lhs_global_line_size: u32,
     rhs_global_line_size: u32,
     out_global_line_size: u32,
@@ -66,17 +69,19 @@ impl TileConfig for RegisterConfig {
     }
 }
 
-impl MatmulConfig for RegisterConfig {}
-
 impl RegisterConfig {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for register matmul
+    ///
+    /// May return an error if:
+    /// - Line sizes do not evenly divide tile sizes in the lined axis
+    /// - Types are unavailable
     pub fn new<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         tiling_scheme: TilingScheme,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
-        stage_dynamic_line_size: bool,
         lhs_global_line_size: u32,
         rhs_global_line_size: u32,
         out_global_line_size: u32,
@@ -88,7 +93,6 @@ impl RegisterConfig {
             plane_dim,
             lhs_layout,
             rhs_layout,
-            stage_dynamic_line_size,
             lhs_global_line_size,
             rhs_global_line_size,
             out_global_line_size,
@@ -159,16 +163,6 @@ impl RegisterConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        if self.stage_dynamic_line_size
-            && !client
-                .properties()
-                .feature_enabled(Feature::DynamicLineSize)
-        {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::DynamicLineSizeUnavailable,
-            ));
-        }
-
         let es = MP::ES::as_elem_native().expect("to be a native type");
         let ea = MP::EA::as_elem_native().expect("to be a native type");
 
