@@ -86,7 +86,7 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.35.1"
-tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "b7a423b19dcde89f01f7293216385c565270ba41" }
+tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "faecf1c85c5c6b8dfa86cd2a80249d99bd7fa6c7" }
 libc = "0.2.172"
 dtor = "0.0.6"
 

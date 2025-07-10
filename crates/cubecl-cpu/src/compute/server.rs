@@ -31,7 +31,7 @@ impl CpuServer {
     pub fn new(ctx: CpuContext) -> Self {
         Self {
             logger: ServerLogger::default(),
-            scheduler: Scheduler::new(),
+            scheduler: Scheduler::default(),
             ctx,
         }
     }

@@ -44,7 +44,7 @@ impl<'a> Visitor<'a> {
         out: Variable,
     ) -> Value<'a, 'a> {
         let vector_type = index.list.item.to_type(self.context);
-        let value = if !self.is_memory(index.list) {
+        if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
             let zero = DenseI64ArrayAttribute::new(self.context, &[0]).into();
             self.append_operation_with_result(vector::extract(
@@ -66,8 +66,7 @@ impl<'a> Visitor<'a> {
         } else {
             let memref = self.get_memory(index.list);
             self.append_operation_with_result(memref::load(memref, &[index_value], self.location))
-        };
-        value
+        }
     }
 
     fn visit_index_assign(

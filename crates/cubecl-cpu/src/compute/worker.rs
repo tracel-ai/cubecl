@@ -23,8 +23,8 @@ pub struct Worker {
     tx: mpsc::Sender<ComputeTask>,
 }
 
-impl Worker {
-    pub fn new() -> Self {
+impl Default for Worker {
+    fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         let waiting = Arc::new(AtomicBool::new(true));
         let inner_worker = InnerWorker {
@@ -34,7 +34,9 @@ impl Worker {
         thread::spawn(move || inner_worker.work());
         Self { tx, waiting }
     }
+}
 
+impl Worker {
     pub fn send_task(&mut self, compute_task: ComputeTask) {
         self.waiting.store(false, Ordering::Release);
         self.tx.send(compute_task).unwrap();
