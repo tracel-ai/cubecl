@@ -12,7 +12,7 @@ pub struct TilingScheme {
 }
 
 impl TilingScheme {
-    /// Start a builder for TilingScheme
+    /// Create a builder for TilingScheme
     pub fn builder() -> TilingSchemeBuilder {
         TilingSchemeBuilder::default()
     }

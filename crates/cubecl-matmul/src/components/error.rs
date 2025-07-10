@@ -147,10 +147,10 @@ impl Debug for MatmulAvailabilityError {
     }
 }
 
-/// Error that araises from invalid configurations
+/// Error that arises from invalid configurations
 pub type InvalidConfigError = Box<dyn Display>;
 
-/// Error that araises from invalid configurations
+/// Error that arises from invalid configurations
 pub struct FormattedConfigError {
     func: Box<dyn Fn() -> String>,
 }

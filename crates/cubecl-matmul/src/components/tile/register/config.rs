@@ -74,7 +74,7 @@ impl RegisterConfig {
     /// Create a new config for register matmul
     ///
     /// May return an error if:
-    /// - Line sizes do not divide tile sizes in the lined axis
+    /// - Line sizes do not evenly divide tile sizes in the lined axis
     /// - Types are unavailable
     pub fn new<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

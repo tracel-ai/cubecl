@@ -49,7 +49,6 @@ impl SpecializationTensorConfig {
 }
 
 impl LoadSpecializationConfig {
-    ///
     pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: MaxLoaders) -> PlaneRoles {
         PlaneRoles {
             main_flow,
@@ -91,13 +90,13 @@ fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LoadingSides {
-    // Load both Lhs and Rhs
+    /// Load both Lhs and Rhs
     Both,
-    // Load Lhs only
+    /// Load Lhs only
     Lhs,
-    // Load Rhs only
+    /// Load Rhs only
     Rhs,
-    // Don't perform loading
+    /// Don't perform loading
     None,
 }
 

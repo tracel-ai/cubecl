@@ -94,7 +94,7 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
     /// May return an error if:
     /// - the number of computing units is different from the number of partitions
     /// - double buffering is enabled but there is only one tile in n
-    /// - shared memory limit will be busted
+    /// - the required shared memory exceeds the available limit
     pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,

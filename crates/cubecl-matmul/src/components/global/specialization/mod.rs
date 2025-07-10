@@ -7,5 +7,3 @@ pub use config::{
 };
 pub use roles::{PlaneRoleConfig, RoleRule, RoleRuleConfig};
 pub use specializer::{Specializer, SpecializerKind};
-
-// PlaneRoleConfig, SpecializedLoadingSides,
