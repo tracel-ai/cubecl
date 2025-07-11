@@ -54,7 +54,7 @@
 ///     "#,
 /// ).unwrap();
 /// ```
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_opt::Optimizer;
@@ -87,11 +87,12 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition, opt: &Optimizer) {
+        #[cfg(feature = "mlir-dump")]
+        dump_opt(opt);
         Visitor::visit_kernel(self.context, self.location, kernel, &self.module, opt);
     }
 
     pub(super) fn run_pass(&mut self) {
-        let _ = fs::remove_dir_all("debug");
         let pass_manager = PassManager::new(self.context);
         pass_manager.enable_verifier(true);
         pass_manager.enable_ir_printing(&PassIrPrintingOptions {
@@ -126,5 +127,19 @@ impl<'a> Module<'a> {
 
     pub(super) fn into_execution_engine(self) -> ExecutionEngine {
         ExecutionEngine::new(&self.module, 0, &[], true)
+    }
+}
+
+#[cfg(feature = "mlir-dump")]
+fn dump_opt(opt: &Optimizer) {
+    use std::fs;
+
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
+        fs::write(format!("{dir}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
+        fs::write(
+            format!("{dir}/cubecl-opt.ir.dot"),
+            format!("{}", opt.dot_viz()),
+        )
+        .unwrap();
     }
 }

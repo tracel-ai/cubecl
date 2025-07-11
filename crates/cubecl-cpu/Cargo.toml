@@ -12,6 +12,7 @@ version.workspace = true
 
 [features]
 # compilation-cache = ["cubecl-common/cache"]
+mlir-dump = []
 default = [
     "std",
     "cubecl-runtime/default",
