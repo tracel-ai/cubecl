@@ -1,0 +1,32 @@
+[package]
+authors = ["louisfd <louisfd94@gmail.com>"]
+categories = ["science", "mathematics", "algorithms"]
+description = "CubeCL Attention Kernels Engine"
+edition.workspace = true
+keywords = []
+license.workspace = true
+name = "cubecl-attention"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-attention"
+version.workspace = true
+
+[features]
+default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
+export_tests = ["pretty_assertions"]
+std = ["cubecl-runtime/std", "cubecl-core/std"]
+
+[dependencies]
+bytemuck = { workspace = true }
+cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "0.6.0", default-features = false }
+cubecl-matmul = { path = "../cubecl-matmul", version = "0.6.0", default-features = false }
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", default-features = false }
+cubecl-random = { path = "../cubecl-random", version = "0.6.0", default-features = false }
+half = { workspace = true, features = ["bytemuck"] }
+pretty_assertions = { workspace = true, optional = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+trybuild = "1"
