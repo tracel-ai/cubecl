@@ -395,7 +395,7 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
     }
 
     fn dyn_hash(&self, state: &mut dyn Hasher) {
-        state.write_u64(hashbrown::hash_map::DefaultHashBuilder::new().hash_one(self));
+        state.write_u64(hashbrown::DefaultHashBuilder::default().hash_one(self));
     }
 
     fn as_any(&self) -> &dyn Any {
