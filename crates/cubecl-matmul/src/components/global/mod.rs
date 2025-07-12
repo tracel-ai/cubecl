@@ -1,9 +1,12 @@
+//! Solves full reductions by loading blocks into shared memory.
+//! Handles memory movement, bound checks, plane specialization.
+
 pub mod args;
+pub mod global_memory;
 pub mod load;
 pub mod multi_stage;
 pub mod quantization;
 pub mod single_stage;
-pub mod tensor_view;
 
 mod accumulator_loader;
 mod base;

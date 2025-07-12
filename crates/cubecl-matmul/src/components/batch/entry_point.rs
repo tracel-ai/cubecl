@@ -1,4 +1,4 @@
-use crate::components::batch::CubeCountPlan;
+use crate::components::batch::CubeCountInput;
 use crate::components::batch::base::BatchMatmul;
 use crate::components::{
     Quantized,
@@ -16,6 +16,7 @@ type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 #[cube(launch_unchecked)]
+/// Launches the matmul kernel
 pub(crate) fn matmul<
     Args: MatmulArgs,
     EI: Numeric,
@@ -26,12 +27,12 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
-    cube_count_args: CubeCountPlan,
+    cube_count_args: CubeCountInput,
     #[comptime] config: BMMF::Config,
 ) {
     #[allow(clippy::collapsible_if)]
     if comptime!(config.can_yield_extra_cubes()) {
-        if CUBE_POS >= cube_count_args.max_cube_pos() {
+        if CUBE_POS >= cube_count_args.num_valid_cubes() {
             terminate!()
         }
     }

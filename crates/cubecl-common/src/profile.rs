@@ -1,6 +1,11 @@
 use alloc::boxed::Box;
-use core::{fmt::Display, time::Duration};
-use web_time::Instant;
+use core::fmt::Display;
+
+#[cfg(not(target_os = "none"))]
+pub use web_time::{Duration, Instant};
+
+#[cfg(target_os = "none")]
+pub use embassy_time::{Duration, Instant};
 
 use crate::future::DynFut;
 

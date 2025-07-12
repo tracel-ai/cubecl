@@ -1,9 +1,11 @@
 use cubecl_core::{LineSizeError, Runtime, ir::Elem, tensor_line_size_parallel};
 
-use crate::{components::MatrixLayout, kernels::MatmulSetupError};
+use crate::components::{MatrixLayout, error::MatmulSetupError};
 use std::fmt::Debug;
 
 #[derive(Debug)]
+/// Line size used for each tensor in global memory accesses.
+/// Represents the number of elements processed per SIMD load/store.
 pub struct MatmulLineSizes {
     pub lhs: u8,
     pub rhs: u8,
@@ -11,6 +13,10 @@ pub struct MatmulLineSizes {
 }
 
 #[derive(Clone, Debug)]
+/// Candidate line sizes supported for each tensor.
+///
+/// These lists begin with compiler-supported sizes and are progressively
+/// filtered based on problem shape divisibility and hardware constraints.
 pub struct AvailableLineSizes {
     pub lhs: Vec<u8>,
     pub rhs: Vec<u8>,
@@ -29,6 +35,7 @@ impl AvailableLineSizes {
         }
     }
 
+    /// Filter available line sizes considering tensor shapes and strides for Lhs
     pub fn filter_lhs_with_tensor(
         self,
         strides: &[usize],
@@ -51,6 +58,7 @@ impl AvailableLineSizes {
         self.filter_lhs(move |x| *x == target)
     }
 
+    /// Filter available line sizes considering tensor shapes and strides for Rhs
     pub fn filter_rhs_with_tensor(
         self,
         strides: &[usize],
@@ -73,6 +81,7 @@ impl AvailableLineSizes {
         self.filter_rhs(move |x| *x == target)
     }
 
+    /// Filter available line sizes considering tensor shapes and strides for output
     pub fn filter_out_with_tensor(self, strides: &[usize], shape: &[usize]) -> Self {
         let out_vec: Vec<u8> = self.out.to_vec();
         let rank = strides.len();
@@ -82,6 +91,7 @@ impl AvailableLineSizes {
         self.filter_out(move |x| *x == target)
     }
 
+    /// Filter available line sizes for Lhs
     pub fn filter_lhs<F>(self, pred: F) -> Self
     where
         F: FnMut(&u8) -> bool,
@@ -93,6 +103,7 @@ impl AvailableLineSizes {
         }
     }
 
+    /// Filter available line sizes for Rhs
     pub fn filter_rhs<F>(self, pred: F) -> Self
     where
         F: FnMut(&u8) -> bool,
@@ -104,6 +115,7 @@ impl AvailableLineSizes {
         }
     }
 
+    /// Filter available line sizes for output
     pub fn filter_out<F>(self, pred: F) -> Self
     where
         F: FnMut(&u8) -> bool,
@@ -115,6 +127,7 @@ impl AvailableLineSizes {
         }
     }
 
+    /// Pick the largest remaining line size for each tensor
     pub fn pick_max(self) -> Result<MatmulLineSizes, MatmulSetupError> {
         let pick = |v: Vec<u8>| {
             v.into_iter()

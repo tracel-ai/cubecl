@@ -1,8 +1,8 @@
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::AvailableLineSizes;
+use cubecl_matmul::components::MatmulSelection;
 use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use crate::ConvGemmConfig;
 use crate::algorithm::Algorithm;
@@ -12,7 +12,7 @@ use crate::base::ConvolutionProblem;
 use cubecl_matmul::components::InputIdent;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::tests::test_utils::Sample;
-use cubecl_matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
+use cubecl_matmul::{components::Ident, tests::layered::matmul_test_launcher::TensorRawParts};
 
 use super::test_utils::TestPrecision;
 

@@ -5,7 +5,7 @@ use rspirv::spirv::{StorageClass, Word};
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::{Globals, Variable},
+    variable::Variable,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -145,7 +145,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn load_const_metadata(&mut self, index: u32, out: Option<Word>) -> Word {
-        self.get_or_insert_global(Globals::Metadata(index), |b| {
+        self.insert_global(|b| {
             let int = Item::Scalar(Elem::Int(32, false));
             let int_ty = int.id(b);
             let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(b);

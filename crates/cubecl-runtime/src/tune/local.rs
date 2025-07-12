@@ -2,7 +2,12 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
-use core::{fmt::Display, hash::Hash};
+use alloc::sync::Arc;
+use core::{
+    any::{Any, TypeId},
+    fmt::Display,
+    hash::Hash,
+};
 use hashbrown::HashMap;
 
 #[cfg(not(feature = "std"))]
@@ -13,7 +18,10 @@ use alloc::string::ToString;
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: spin::RwLock<Option<HashMap<ID, Tuner<AK>>>>,
     name: &'static str,
+    sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
+
+unsafe impl<AK: AutotuneKey, ID> Sync for LocalTuner<AK, ID> {}
 
 /// Create a local tuner with the provided name.
 #[macro_export]
@@ -28,13 +36,51 @@ macro_rules! local_tuner {
 
 pub use local_tuner;
 
-impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK, ID> {
+impl<AK, ID> LocalTuner<AK, ID>
+where
+    AK: AutotuneKey + 'static,
+    ID: Hash + PartialEq + Eq + Clone + Display,
+{
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
         Self {
             state: spin::RwLock::new(None),
             name,
+            sets: spin::RwLock::new(None),
         }
+    }
+
+    /// Init the [tunable set](TunableSet)
+    pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
+    where
+        F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
+    {
+        let sets = self.sets.read();
+        let type_id = TypeId::of::<F>();
+
+        static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
+
+        if let Some(sets) = sets.as_ref() {
+            if let Some(set) = sets.get(&type_id) {
+                return set.clone().downcast().expect(DOWNCAST_ERROR);
+            }
+        };
+        core::mem::drop(sets);
+
+        let mut sets = self.sets.write();
+        let content = Arc::new(init_set());
+
+        if let Some(sets) = sets.as_mut() {
+            sets.insert(type_id, content.clone());
+        } else {
+            let mut map = HashMap::<TypeId, Arc<dyn Any + Send + Sync>>::new();
+            map.insert(type_id, content.clone());
+            *sets = Some(map);
+        };
+
+        content
     }
 
     /// Clear the autotune state.
@@ -59,16 +105,18 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
     }
 
     /// Execute the best operation in the provided [tunable set](TunableSet)
-    pub fn execute<S, C, In: Send + Clone + 'static, Out: AutotuneOutput>(
+    pub fn execute<S, C, In, Out>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
-        operations: &TunableSet<AK, In, Out>,
+        operations: Arc<TunableSet<AK, In, Out>>,
         inputs: In,
     ) -> Out
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
     {
         let key = operations.generate_key(&inputs);
 
@@ -77,7 +125,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
                     #[cfg(feature = "autotune-checks")]
-                    self.checks(operations, &inputs);
+                    self.checks(&operations, &inputs);
 
                     let op = operations.fastest(fastest_index);
                     let result = op
@@ -121,7 +169,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
-                self.checks(operations, &inputs);
+                self.checks(&operations, &inputs);
 
                 return operations
                     .fastest(fastest_index)
@@ -148,7 +196,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                         .as_ref()
                         .and_then(|s| s.get(id))
                         .expect("Should be initialized");
-                    tuner.execute_autotune(key.clone(), &inputs, operations, client);
+                    tuner.execute_autotune(key.clone(), &inputs, &operations, client);
                 } else {
                     // We're waiting for results to come in.
                 }
@@ -199,7 +247,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         };
 
         #[cfg(feature = "autotune-checks")]
-        self.checks(operations, &inputs);
+        self.checks(&operations, &inputs);
 
         operations
             .fastest(fastest)

@@ -5,9 +5,9 @@ use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
-use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountPlan};
-use crate::components::global;
+use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountInput};
 use crate::components::global::Quantization;
+use crate::components::global::{self, GlobalMatmul};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
@@ -16,8 +16,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to handle multiple global matmuls.
 ///
-/// The algorithm supports any number of cubes,
-/// looping as needed to process all data.
+/// Each cube performs a number of global matmuls specified by
+/// the global partition size of the tiling scheme
 pub struct PartitionedBatchMatmul<
     MP: MatmulPrecision,
     GMM: global::GlobalMatmul<MP>,
@@ -29,8 +29,8 @@ pub struct PartitionedBatchMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul>
-    BatchMatmul<MP> for PartitionedBatchMatmul<MP, GMM, GPMM>
+impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> BatchMatmul<MP>
+    for PartitionedBatchMatmul<MP, GMM, GPMM>
 {
     type Config = PartitionedBatchConfig<GMM::Config>;
 
@@ -39,7 +39,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, GPMM: GlobalPartitionMa
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         quantization: CubeOption<Quantization<MP>>,
-        cube_count_args: CubeCountPlan,
+        cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
         let lhs_rank = lhs.rank();

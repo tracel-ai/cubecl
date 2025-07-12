@@ -7,8 +7,10 @@ use crate::{
 use cubecl_core::Runtime;
 use cubecl_matmul::components::global::args::ConcreteOutputFactory;
 use cubecl_matmul::components::global::args::MatmulArgs;
-use cubecl_matmul::components::{MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme};
-use cubecl_matmul::kernels::matmul::MatmulSelection;
+use cubecl_matmul::components::stage::PartitionBuffering;
+use cubecl_matmul::components::{
+    MatmulSelection, MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionSize {
@@ -29,13 +31,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
-    let plane_dim = match client.properties().hardware.defined_plane_size() {
-        Some(val) => val,
-        None => {
-            println!("Can't run test without a fixed plane size.");
-            return;
-        }
-    };
+    let plane_dim = client.properties().hardware.plane_size_max;
 
     // TODO: Automate more params
     let batches = 2;
@@ -83,7 +79,9 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         .build()
         .unwrap();
 
-    let selection = MatmulSelection::builder(tiling_scheme, plane_dim).build();
+    let selection = MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(PartitionBuffering::Single)
+        .build();
 
     test_convolution_algorithm::<A, Args, P, R>(client, problem, selection);
 }

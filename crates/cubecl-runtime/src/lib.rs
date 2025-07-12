@@ -46,5 +46,4 @@ pub mod logging;
 pub mod tma;
 
 /// Simple system profiling using timestamps.
-#[cfg(feature = "std")]
 pub mod timestamp_profiler;

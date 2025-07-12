@@ -2,18 +2,16 @@ use std::any::TypeId;
 
 use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
-        global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage,
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatmulPrecision, MatrixLayout,
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    global::{
+        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    stage,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -106,10 +104,14 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for SimpleTmaConfig<S> {}
-
 impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for tma global matmul
+    ///
+    /// May return an error if:
+    /// - a loader is invalid
+    /// - CubeDim is too big
+    /// - TMA is not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,

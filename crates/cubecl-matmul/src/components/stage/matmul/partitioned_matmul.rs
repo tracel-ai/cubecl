@@ -14,9 +14,13 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[cube]
+/// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
+/// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
+    /// Writer used to store accumulators back to global memory.
     type Writer<EO: Numeric>: GlobalWriter<EO>;
 
+    /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
         tensor: VirtualTensor<EO, ReadWrite>,
         x_offset: u32,
@@ -24,11 +28,16 @@ pub trait StagePartitioner: Send + Sync + 'static {
         batch_offset: u32,
     ) -> Self::Writer<EO>;
 
+    /// Returns the position index of the current compute primitive within the stage.
     fn position<S: StageConfig>(#[comptime] config: S) -> u32;
 
+    /// Returns the total number of compute primitives in the stage.
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32);
 }
 
+/// Stage Matmul implementation that splits its stage across partitions, one per compute primitive.
+///
+/// Its results are written in a temporary shared memory to correct the layout before storing to global memory.
 pub struct PartitionedStageMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,

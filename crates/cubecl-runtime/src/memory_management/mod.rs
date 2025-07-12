@@ -12,6 +12,8 @@ pub use memory_manage::*;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use crate::server::CubeCount;
+
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]
 pub enum PoolType {
@@ -107,7 +109,7 @@ pub struct HardwareProperties {
     /// Maximum amount of shared memory, in bytes
     pub max_shared_memory_size: usize,
     /// Maximum `CubeCount` in x, y and z dimensions
-    pub max_cube_count: CubeDim,
+    pub max_cube_count: CubeCount,
     /// Maximum number of total units in a cube
     pub max_units_per_cube: u32,
     /// Maximum `CubeDim` in x, y, and z dimensions
@@ -121,18 +123,4 @@ pub struct HardwareProperties {
     /// For a backend that only supports 16x16x16, the value would be 16.
     /// For a backend that also supports 32x8x16, the value would be 8.
     pub min_tensor_cores_dim: Option<u32>,
-}
-
-impl HardwareProperties {
-    /// Plane size that is defined for the device.
-    pub fn defined_plane_size(&self) -> Option<u32> {
-        if self.plane_size_min == self.plane_size_max {
-            Some(self.plane_size_min)
-        } else if self.plane_size_min == 32 {
-            // Normally 32 is chosen by default when it's the min plane size.
-            Some(self.plane_size_min)
-        } else {
-            None
-        }
-    }
 }

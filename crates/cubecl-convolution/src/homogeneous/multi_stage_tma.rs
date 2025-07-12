@@ -17,20 +17,15 @@ use cubecl_core::{
     self as cubecl,
     prelude::barrier::{Barrier, BarrierLevel},
 };
-use cubecl_matmul::{
-    components::{
-        AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
-        MatmulPrecision, MatmulSpec, OutputRuntimeArg, TilingScheme,
-        global::{
-            AccumulatorLoader, GlobalConfig,
-            load::{NoLoadingValidation, arrive_tma},
-            single_stage::tma::SimpleTmaConfig,
-        },
-        stage::{
-            FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily,
-        },
+use cubecl_matmul::components::{
+    AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+    MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg, TilingScheme,
+    global::{
+        AccumulatorLoader, GlobalConfig,
+        load::{NoLoadingValidation, arrive_tma},
+        single_stage::tma::SimpleTmaConfig,
     },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+    stage::{FullReaderFamily, FullStageToTileReader, StageConfig, StageMatmul, StageMatmulFamily},
 };
 use cubecl_std::{
     CubeOption, FastDivmodArgs,

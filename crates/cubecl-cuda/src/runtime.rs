@@ -5,8 +5,8 @@ use crate::{
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
-    ir::{Elem, FloatKind},
+    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
+    ir::{Elem, FloatKind, IntKind, UIntKind},
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
@@ -122,7 +122,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         let grid_dim_y = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y).unwrap();
         let grid_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z).unwrap();
         let max_cube_count =
-            CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
+            CubeCount::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
         let num_streaming_multiprocessors = Some(
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
@@ -203,6 +203,14 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+
+    // Supported by all architectures
+    device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
+    device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
+    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
 
     device_props.register_feature(Feature::DynamicLineSize);
 

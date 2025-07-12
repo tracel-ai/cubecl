@@ -2,13 +2,14 @@ use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::kernels::matmul::MatmulSelection;
 use half::f16;
 
 use crate::ConvGemmConfig;
 use crate::base::ConvolutionLaunch;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
-use cubecl_matmul::components::{self, AvailableLineSizes, InputIdent, MatmulPrecision};
+use cubecl_matmul::components::{
+    self, AvailableLineSizes, InputIdent, MatmulPrecision, MatmulSelection,
+};
 
 use super::{
     ConvLaunchError,
@@ -101,11 +102,7 @@ where
     let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
     let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
 
-    let plane_dim = client
-        .properties()
-        .hardware
-        .defined_plane_size()
-        .unwrap_or(32);
+    let plane_dim = client.properties().hardware.plane_size_max;
 
     let problem = ConvolutionProblem {
         m: n * out_shape.iter().product::<usize>(),

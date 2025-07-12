@@ -720,12 +720,6 @@ impl<D: Dialect> Clamp<D> {
         let out_item = out.item();
         let num = out_item.vectorization;
 
-        let (min, max) = match out.elem() {
-            Elem::F16 | Elem::BF16 => ("__hmin", "__hmax"),
-            Elem::F16x2 | Elem::BF16x2 => ("__hmin2", "__hmax2"),
-            _ => ("min", "max"),
-        };
-
         let out_fmt = out.fmt_left();
         if num == 1 {
             writeln!(f, "{out_fmt} = ")?;
@@ -735,12 +729,18 @@ impl<D: Dialect> Clamp<D> {
             writeln!(f, "({max_value}, {input}));")
         } else {
             writeln!(f, "{out_fmt} = {out_item}{{")?;
+            let mut item = out.item();
+            item.vectorization = 1;
+
             for i in 0..num {
                 let inputi = input.index(i);
                 let mini = min_value.index(i);
                 let maxi = max_value.index(i);
 
-                writeln!(f, "{max}({mini}, {min}({maxi}, {inputi})),")?;
+                D::compile_instruction_max_function_name(f, item)?;
+                writeln!(f, "({mini}, ")?;
+                D::compile_instruction_min_function_name(f, item)?;
+                writeln!(f, "({maxi}, {inputi})),")?;
             }
 
             f.write_str("};\n")

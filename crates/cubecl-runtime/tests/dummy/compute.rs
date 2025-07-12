@@ -1,15 +1,14 @@
 use super::DummyServer;
 use cubecl_common::CubeDim;
 use cubecl_common::profile::TimingMethod;
+use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::memory_management::{
+    MemoryConfiguration, MemoryDeviceProperties, MemoryManagement,
+};
+use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::BytesStorage;
-use cubecl_runtime::tune::LocalTuner;
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 use cubecl_runtime::{channel::MutexComputeChannel, memory_management::HardwareProperties};
-use cubecl_runtime::{client::ComputeClient, tune::TunableSet};
-use cubecl_runtime::{
-    memory_management::{MemoryConfiguration, MemoryDeviceProperties, MemoryManagement},
-    server::Binding,
-};
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -19,17 +18,6 @@ pub type DummyChannel = MutexComputeChannel<DummyServer>;
 pub type DummyClient = ComputeClient<DummyServer, DummyChannel>;
 
 static RUNTIME: ComputeRuntime<DummyDevice, DummyServer, DummyChannel> = ComputeRuntime::new();
-pub static TUNER_DEVICE_ID: &str = "dummy-device";
-pub static TUNER_PREFIX: &str = "dummy-tests";
-pub static TEST_TUNER: LocalTuner<String, String> = LocalTuner::new(TUNER_PREFIX);
-
-pub fn autotune_execute(
-    client: &ComputeClient<DummyServer, MutexComputeChannel<DummyServer>>,
-    set: &TunableSet<String, Vec<Binding>, ()>,
-    inputs: Vec<Binding>,
-) {
-    TEST_TUNER.execute(&TUNER_DEVICE_ID.to_string(), client, set, inputs)
-}
 
 pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServer>> {
     let storage = BytesStorage::default();
@@ -42,7 +30,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         plane_size_max: 32,
         max_bindings: 32,
         max_shared_memory_size: 48000,
-        max_cube_count: CubeDim::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
+        max_cube_count: CubeCount::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
         max_units_per_cube: 1024,
         max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
         num_streaming_multiprocessors: None,
@@ -63,6 +51,6 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     )
 }
 
-pub fn client(device: &DummyDevice) -> DummyClient {
+pub fn test_client(device: &DummyDevice) -> DummyClient {
     RUNTIME.client(device, init_client)
 }
