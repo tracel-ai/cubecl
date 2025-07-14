@@ -39,5 +39,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Tile Attention level
-pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {}
-
+pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {
+    fn plane_dim(&self) -> u32;
+}

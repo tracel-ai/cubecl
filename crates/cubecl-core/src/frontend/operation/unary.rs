@@ -46,6 +46,12 @@ macro_rules! impl_unary_func {
     }
 }
 
+impl Exp for f32 {
+    fn exp(x: Self) -> Self {
+        x.exp()
+    }
+}
+
 macro_rules! impl_unary_func_fixed_out_vectorization {
     ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
         pub trait $trait_name: CubePrimitive + Sized {
@@ -115,7 +121,7 @@ impl_unary_func!(
     bf16,
     flex32,
     tf32,
-    f32,
+    // f32,
     f64
 );
 impl_unary_func!(

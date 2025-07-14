@@ -39,4 +39,9 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Global Attention level
-pub trait GlobalConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {}
+pub trait GlobalConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
+    fn cube_dim(&self) -> CubeDim;
+    fn plane_dim(&self) -> u32;
+}

@@ -1,23 +1,34 @@
+use std::marker::PhantomData;
+
+use cubecl_core::client::ComputeClient;
+
 use crate::components::{
-    AttentionPrecision,
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError,
     global::{
         GlobalAttentionFamily,
         dummy::{DummyGlobalAttention, config::DummyGlobalConfig},
     },
+    stage::{StageAttentionFamily, StageConfig as _},
 };
 
-pub struct DummyGlobalAttentionFamily {}
-impl GlobalAttentionFamily for DummyGlobalAttentionFamily {
-    type Attention<AP: AttentionPrecision> = DummyGlobalAttention;
+pub struct DummyGlobalAttentionFamily<SA: StageAttentionFamily> {
+    _phantom: PhantomData<SA>,
+}
 
-    type Config = DummyGlobalConfig;
+impl<SA: StageAttentionFamily> GlobalAttentionFamily for DummyGlobalAttentionFamily<SA> {
+    type Attention<AP: AttentionPrecision> = DummyGlobalAttention<AP, SA::Attention<AP>>;
+
+    type Config = DummyGlobalConfig<SA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
-        client: &cubecl_core::prelude::ComputeClient<R::Server, R::Channel>,
-        problem: &crate::components::AttentionProblem,
-        selection: &crate::components::AttentionSelection,
-        line_sizes: &crate::components::AttentionLineSizes,
-    ) -> Result<Self::Config, crate::components::AttentionSetupError> {
-        todo!()
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &AttentionProblem,
+        selection: &AttentionSelection,
+        line_sizes: &AttentionLineSizes,
+    ) -> Result<Self::Config, AttentionSetupError> {
+        let stage_config = SA::setup::<AP, R>(client, problem, selection, line_sizes)?;
+
+        DummyGlobalConfig::new(stage_config, stage_config.num_planes())
     }
 }

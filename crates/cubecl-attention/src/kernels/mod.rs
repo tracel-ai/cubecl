@@ -1,5 +1,5 @@
 /// Very slow attention implementation. Temporary
-pub mod tmp;
+pub mod dummy;
 
 mod algorithm;
 

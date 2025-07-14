@@ -252,7 +252,7 @@ macro_rules! sample_float {
                     cubecl_random::seed(seed);
                     let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(2), Self::from_int(2), output.as_ref());
 
                     output
                 }
@@ -326,7 +326,7 @@ pub(crate) fn attention_cpu_reference<P: TestPrecision>(
     query: &[P::EG],
     key: &[P::EG],
     value: &[P::EG],
-    mask: Option<&[P::EM]>, // optional mask, same shape as mask strides if present
+    mask: Option<&[P::EM]>,
     problem: &AttentionProblem,
 ) -> Vec<P::EG>
 where

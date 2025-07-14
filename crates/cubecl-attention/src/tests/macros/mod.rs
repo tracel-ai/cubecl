@@ -1,23 +1,10 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
-    components::{
-        AttentionProblem, AttentionSelection, batch::dummy::DummyBatchAttentionFamily,
-        global::dummy::DummyGlobalAttentionFamily, stage::dummy::DummyStageAttentionFamily,
-        tile::dummy::DummyTileAttentionFamily,
-    },
-    kernels::Algorithm,
+    components::{AttentionProblem, AttentionSelection, batch::HypercubeSelection},
+    kernels::dummy::DummyAlgorithm,
     tests::attention_test_launcher::test_attention_algorithm,
 };
-
-struct DummyAlgorithm {}
-
-impl Algorithm for DummyAlgorithm {
-    type TileAttention = DummyTileAttentionFamily;
-    type StageAttention = DummyStageAttentionFamily;
-    type GlobalAttention = DummyGlobalAttentionFamily;
-    type BatchAttention = DummyBatchAttentionFamily;
-}
 
 pub fn attention_first_test<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let problem = AttentionProblem {
@@ -29,7 +16,9 @@ pub fn attention_first_test<R: Runtime>(client: ComputeClient<R::Server, R::Chan
         masked: false,
     };
 
-    let selection = AttentionSelection {};
+    let selection = AttentionSelection {
+        hypercube_selection: HypercubeSelection {},
+    };
 
     test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
 }

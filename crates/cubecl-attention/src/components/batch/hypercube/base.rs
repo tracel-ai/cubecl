@@ -3,6 +3,20 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionProblem;
 
+#[derive(Debug, Clone)]
+pub struct HypercubeSelection {}
+
+impl HypercubeSelection {
+    pub fn to_hypercube_config(
+        &self,
+        _problem: &AttentionProblem,
+        _max_cube_count: CubeCount,
+    ) -> HypercubeConfig {
+        HypercubeConfig {}
+    }
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct HypercubeConfig {}
 
 impl HypercubeConfig {

@@ -4,6 +4,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionSpec, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
     batch::{CubeCountInputArgs, HypercubeConfig},
+    global::GlobalConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -58,6 +59,8 @@ pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait BatchConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
+    type GlobalConfig: GlobalConfig;
+
     fn hypercube_config(&self) -> HypercubeConfig;
     fn cube_dim(&self) -> CubeDim;
 }

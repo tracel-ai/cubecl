@@ -109,7 +109,7 @@ impl<EI: Numeric, EM: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> AttentionP
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as AttentionArgs>::Input<EI<MS>, EM<MS>>;
+pub type InputArg<MS> = <Args<MS> as AttentionArgs>::Input<EI<MS>>;
 
 /// Output argument
 pub type OutputArg<MS> = <Args<MS> as AttentionArgs>::Output<EO<MS>>;

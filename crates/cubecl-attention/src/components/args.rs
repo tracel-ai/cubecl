@@ -13,7 +13,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
-        mask: &'a TensorHandleRef<'a, R>,
+        // mask: &'a TensorHandleRef<'a, R>,
         selection: &AttentionSelection,
         problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -32,10 +32,10 @@ pub trait ConcreteOutputFactory: LaunchArg {
 }
 
 #[cube]
-/// Arguments for the matrix multiplication algorithm.
+/// Arguments for the attention algorithm.
 pub trait AttentionArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input<EI: Numeric, EM: Numeric>: LaunchArg + CubeType;
+    type Input<EI: Numeric>: LaunchArg + CubeType;
     /// Type used for the output.
     type Output<EO: Numeric>: LaunchArg + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
@@ -43,37 +43,54 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
     type State<EI: Numeric, EO: Numeric>: CubeType;
 
     /// Init the state.
-    fn init_state<EI: Numeric, EM: Numeric, EO: Numeric>(
-        input: &Self::Input<EI, EM>,
+    fn init_state<EI: Numeric, EO: Numeric>(
+        input: &Self::Input<EI>,
         output: &mut Self::Output<EO>,
     ) -> Self::State<EI, EO>;
 
-    /// Read the line of the lhs tensor using the state at the given coordinate.
-    fn read_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, coordinate: u32)
+    /// Read the line of the query tensor using the state at the given coordinate.
+    fn read_query<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+        coordinate: u32,
+    ) -> Line<EI>;
+    /// Read the line of the key tensor using the state at the given coordinate.
+    fn read_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, coordinate: u32)
     -> Line<EI>;
-    /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, coordinate: u32)
-    -> Line<EI>;
+    /// Read the line of the value tensor using the state at the given coordinate.
+    fn read_value<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+        coordinate: u32,
+    ) -> Line<EI>;
 
-    /// Read the line of the lhs tensor using the state at the given coordinate.
-    fn read_window_lhs<EI: Numeric, EO: Numeric>(
+    /// Read the line of the query tensor using the state at the given coordinate.
+    fn read_window_query<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
         start: u32,
         end: u32,
     ) -> Slice<Line<EI>>;
 
-    /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_window_rhs<EI: Numeric, EO: Numeric>(
+    /// Read the line of the key tensor using the state at the given coordinate.
+    fn read_window_key<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
         start: u32,
         end: u32,
     ) -> Slice<Line<EI>>;
 
-    /// Reinterpret lhs as tensor map
-    fn as_tensor_map_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
+    /// Read the line of the value tensor using the state at the given coordinate.
+    fn read_window_value<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EI>>;
 
-    /// Reinterpret rhs as tensor map
-    fn as_tensor_map_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
+    /// Reinterpret query as tensor map
+    fn as_tensor_map_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
+
+    /// Reinterpret key as tensor map
+    fn as_tensor_map_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
+
+    /// Reinterpret value as tensor map
+    fn as_tensor_map_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
 
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<EI: Numeric, EO: Numeric>(
@@ -82,38 +99,48 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
         value: Line<EO>,
     );
 
-    /// Get the rank of the lhs tensor using the state.
-    fn rank_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
-    /// Get the rank of the rhs tensor using the state.
-    fn rank_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the rank of the query tensor using the state.
+    fn rank_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the rank of the key tensor using the state.
+    fn rank_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the rank of the value tensor using the state.
+    fn rank_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
     /// Get the rank of the out tensor using the state.
     fn rank_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
 
-    /// Get the length of the lhs tensor using the state.
-    fn len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
-    /// Get the length of the rhs tensor using the state.
-    fn len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the length of the query tensor using the state.
+    fn len_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the length of the key tensor using the state.
+    fn len_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the length of the value tensor using the state.
+    fn len_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
     /// Get the length of the out tensor using the state.
     fn len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
 
-    /// Get the buffer length of the lhs tensor using the state.
-    fn buffer_len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
-    /// Get the buffer length of the rhs tensor using the state.
-    fn buffer_len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the buffer length of the query tensor using the state.
+    fn buffer_len_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the buffer length of the key tensor using the state.
+    fn buffer_len_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    /// Get the buffer length of the value tensor using the state.
+    fn buffer_len_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
     /// Get the buffer length of the out tensor using the state.
     fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
 
-    /// Get the shape of the lhs tensor using the state.
-    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
-    /// Get the shape of the rhs tensor using the state.
-    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    /// Get the shape of the query tensor using the state.
+    fn shape_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    /// Get the shape of the key tensor using the state.
+    fn shape_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    /// Get the shape of the value tensor using the state.
+    fn shape_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
     /// Get the shape of the out tensor using the state.
     fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
 
-    /// Get the stride of the lhs tensor using the state.
-    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
-    /// Get the stride of the rhs tensor using the state.
-    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    /// Get the stride of the query tensor using the state.
+    fn stride_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    /// Get the stride of the key tensor using the state.
+    fn stride_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    /// Get the stride of the value tensor using the state.
+    fn stride_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
     /// Get the stride of the out tensor using the state.
     fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
 }
@@ -121,8 +148,9 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
 #[derive(Clone, Copy)]
 /// Identification of the [tensor input](TensorInput).
 pub enum TensorInputIdent {
-    Lhs,
-    Rhs,
+    Query,
+    Key,
+    Value,
 }
 
 /// Tensor input representation.
@@ -308,8 +336,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn read_window(&self, start: u32, end: u32) -> Slice<Line<EI>> {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::read_window_lhs(&(*self.state), start, end),
-                TensorInputIdent::Rhs => MA::read_window_rhs(&(*self.state), start, end),
+                TensorInputIdent::Query => MA::read_window_query(&(*self.state), start, end),
+                TensorInputIdent::Key => MA::read_window_key(&(*self.state), start, end),
+                TensorInputIdent::Value => MA::read_window_value(&(*self.state), start, end),
             }
         }
     }
@@ -318,8 +347,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn read(&self, coordinate: u32) -> Line<EI> {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::read_lhs(&(*self.state), coordinate),
-                TensorInputIdent::Rhs => MA::read_rhs(&(*self.state), coordinate),
+                TensorInputIdent::Query => MA::read_query(&(*self.state), coordinate),
+                TensorInputIdent::Key => MA::read_key(&(*self.state), coordinate),
+                TensorInputIdent::Value => MA::read_value(&(*self.state), coordinate),
             }
         }
     }
@@ -328,8 +358,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn shape(&self, axis: u32) -> u32 {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::shape_lhs(&(*self.state), axis),
-                TensorInputIdent::Rhs => MA::shape_rhs(&(*self.state), axis),
+                TensorInputIdent::Query => MA::shape_query(&(*self.state), axis),
+                TensorInputIdent::Key => MA::shape_key(&(*self.state), axis),
+                TensorInputIdent::Value => MA::shape_value(&(*self.state), axis),
             }
         }
     }
@@ -338,8 +369,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn stride(&self, axis: u32) -> u32 {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::stride_lhs(&(*self.state), axis),
-                TensorInputIdent::Rhs => MA::stride_rhs(&(*self.state), axis),
+                TensorInputIdent::Query => MA::stride_query(&(*self.state), axis),
+                TensorInputIdent::Key => MA::stride_key(&(*self.state), axis),
+                TensorInputIdent::Value => MA::stride_value(&(*self.state), axis),
             }
         }
     }
@@ -348,8 +380,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn rank(&self) -> u32 {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::rank_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::rank_rhs(&(*self.state)),
+                TensorInputIdent::Query => MA::rank_query(&(*self.state)),
+                TensorInputIdent::Key => MA::rank_key(&(*self.state)),
+                TensorInputIdent::Value => MA::rank_value(&(*self.state)),
             }
         }
     }
@@ -359,8 +392,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn len(&self) -> u32 {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::len_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::len_rhs(&(*self.state)),
+                TensorInputIdent::Query => MA::len_query(&(*self.state)),
+                TensorInputIdent::Key => MA::len_key(&(*self.state)),
+                TensorInputIdent::Value => MA::len_value(&(*self.state)),
             }
         }
     }
@@ -369,8 +403,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn buffer_len(&self) -> u32 {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::buffer_len_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::buffer_len_rhs(&(*self.state)),
+                TensorInputIdent::Query => MA::buffer_len_query(&(*self.state)),
+                TensorInputIdent::Key => MA::buffer_len_key(&(*self.state)),
+                TensorInputIdent::Value => MA::buffer_len_value(&(*self.state)),
             }
         }
     }
@@ -379,8 +414,9 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
     pub fn as_tensor_map(&self) -> TensorMap<EI> {
         unsafe {
             match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::as_tensor_map_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::as_tensor_map_rhs(&(*self.state)),
+                TensorInputIdent::Query => MA::as_tensor_map_query(&(*self.state)),
+                TensorInputIdent::Key => MA::as_tensor_map_key(&(*self.state)),
+                TensorInputIdent::Value => MA::as_tensor_map_value(&(*self.state)),
             }
         }
     }
@@ -433,19 +469,18 @@ pub struct TensorArgs;
 
 #[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [AttentionArgs].
-pub struct TensorInputs<EG: Numeric, EM: Numeric> {
+pub struct TensorInputs<EG: Numeric> {
     pub query: Tensor<Line<EG>>,
     pub key: Tensor<Line<EG>>,
     pub value: Tensor<Line<EG>>,
-    pub mask: Tensor<Line<EM>>,
+    // pub mask: CubeOption<Tensor<Line<EM>>>,
 }
 
-impl<EG: Numeric, EM: Numeric> ConcreteInputsFactory for TensorInputs<EG, EM> {
+impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
     fn create<'a, R: Runtime>(
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
-        mask: &'a TensorHandleRef<'a, R>,
         _selection: &AttentionSelection,
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -454,7 +489,7 @@ impl<EG: Numeric, EM: Numeric> ConcreteInputsFactory for TensorInputs<EG, EM> {
             query.as_tensor_arg(line_sizes.query),
             key.as_tensor_arg(line_sizes.key),
             value.as_tensor_arg(line_sizes.value),
-            mask.as_tensor_arg(line_sizes.value),
+            // mask.as_tensor_arg(line_sizes.value),
         )
     }
 }
@@ -470,89 +505,129 @@ impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
     }
 }
 
+#[derive(CubeType)]
+pub struct AttentionState<EI: Numeric, EO: Numeric> {
+    pub query: *const Tensor<Line<EI>>,
+    pub key: *const Tensor<Line<EI>>,
+    pub value: *const Tensor<Line<EI>>,
+    pub output: *mut Tensor<Line<EO>>,
+}
+
 #[cube]
 impl AttentionArgs for TensorArgs {
     type Output<EO: Numeric> = Tensor<Line<EO>>;
-    type Input<EI: Numeric, EM: Numeric> = TensorInputs<EI, EM>;
-    type State<EI: Numeric, EO: Numeric> = (
-        *const Tensor<Line<EI>>,
-        *const Tensor<Line<EI>>,
-        *const Tensor<Line<EI>>,
-        *mut Tensor<Line<EO>>,
-    );
+    type Input<EI: Numeric> = TensorInputs<EI>;
+    type State<EI: Numeric, EO: Numeric> = AttentionState<EI, EO>;
 
-    fn init_state<EI: Numeric, EM: Numeric, EO: Numeric>(
-        input: &Self::Input<EI, EM>,
+    fn init_state<EI: Numeric, EO: Numeric>(
+        input: &Self::Input<EI>,
         output: &mut Self::Output<EO>,
     ) -> Self::State<EI, EO> {
-        (&input.query, &input.key, &input.value, output)
+        AttentionState::<EI, EO> {
+            query: &input.query,
+            key: &input.key,
+            value: &input.value,
+            output,
+        }
     }
 
-    fn read_lhs<EI: Numeric, EO: Numeric>(
+    fn read_query<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
         coordinate: u32,
     ) -> Line<EI> {
-        unsafe { (*state.0)[coordinate] }
+        unsafe { (*state.query)[coordinate] }
     }
 
-    fn read_rhs<EI: Numeric, EO: Numeric>(
+    fn read_key<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
         coordinate: u32,
     ) -> Line<EI> {
-        unsafe { (*state.1)[coordinate] }
+        unsafe { (*state.key)[coordinate] }
     }
 
-    fn read_window_lhs<EI: Numeric, EO: Numeric>(
+    fn read_value<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+        coordinate: u32,
+    ) -> Line<EI> {
+        unsafe { (*state.value)[coordinate] }
+    }
+
+    fn read_window_query<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
         start: u32,
         end: u32,
     ) -> Slice<Line<EI>> {
-        unsafe { (*state.0).slice(start, end) }
+        unsafe { (*state.query).slice(start, end) }
     }
 
-    /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_window_rhs<EI: Numeric, EO: Numeric>(
+    fn read_window_key<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
         start: u32,
         end: u32,
     ) -> Slice<Line<EI>> {
-        unsafe { (*state.1).slice(start, end) }
+        unsafe { (*state.key).slice(start, end) }
     }
 
-    fn as_tensor_map_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> TensorMap<EI> {
+    fn read_window_value<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EI>> {
+        unsafe { (*state.value).slice(start, end) }
+    }
+
+    fn as_tensor_map_query<EI: Numeric, EO: Numeric>(
+        _state: &Self::State<EI, EO>,
+    ) -> TensorMap<EI> {
         comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
         #[allow(unreachable_code)]
         TensorMap::dummy()
     }
 
-    fn as_tensor_map_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> TensorMap<EI> {
+    fn as_tensor_map_key<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> TensorMap<EI> {
         comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
         #[allow(unreachable_code)]
         TensorMap::dummy()
     }
 
-    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
-        unsafe { (*state.0).shape(dim) }
+    fn as_tensor_map_value<EI: Numeric, EO: Numeric>(
+        _state: &Self::State<EI, EO>,
+    ) -> TensorMap<EI> {
+        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
+        #[allow(unreachable_code)]
+        TensorMap::dummy()
     }
 
-    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
-        unsafe { (*state.1).shape(dim) }
+    fn shape_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.query).shape(dim) }
+    }
+
+    fn shape_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.key).shape(dim) }
+    }
+
+    fn shape_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.value).shape(dim) }
     }
 
     fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
-        unsafe { (*state.2).shape(dim) }
+        unsafe { (*state.output).shape(dim) }
     }
 
-    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
-        unsafe { (*state.0).stride(dim) }
+    fn stride_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.query).stride(dim) }
     }
 
-    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
-        unsafe { (*state.1).stride(dim) }
+    fn stride_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.key).stride(dim) }
+    }
+
+    fn stride_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.value).stride(dim) }
     }
 
     fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
-        unsafe { (*state.2).stride(dim) }
+        unsafe { (*state.output).stride(dim) }
     }
 
     fn write_out<EI: Numeric, EO: Numeric>(
@@ -560,43 +635,55 @@ impl AttentionArgs for TensorArgs {
         coordinate: u32,
         value: Line<EO>,
     ) {
-        unsafe { (*state.3)[coordinate] = value }
+        unsafe { (*state.output)[coordinate] = value }
     }
 
-    fn rank_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.0).rank() }
+    fn rank_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.query).rank() }
     }
 
-    fn rank_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.1).rank() }
+    fn rank_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.key).rank() }
+    }
+
+    fn rank_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.value).rank() }
     }
 
     fn rank_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.2).rank() }
+        unsafe { (*state.output).rank() }
     }
 
-    fn len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.0).len() }
+    fn len_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.query).len() }
     }
 
-    fn len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.1).len() }
+    fn len_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.key).len() }
+    }
+
+    fn len_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.value).len() }
     }
 
     fn len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.2).len() }
+        unsafe { (*state.output).len() }
     }
 
-    fn buffer_len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.0).buffer_len() }
+    fn buffer_len_query<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.query).buffer_len() }
     }
 
-    fn buffer_len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.1).buffer_len() }
+    fn buffer_len_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.key).buffer_len() }
+    }
+
+    fn buffer_len_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+        unsafe { (*state.value).buffer_len() }
     }
 
     fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
-        unsafe { (*state.2).buffer_len() }
+        unsafe { (*state.output).buffer_len() }
     }
 }
 

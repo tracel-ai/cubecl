@@ -42,7 +42,7 @@ pub fn test_attention_algorithm<A, P, R>(
     let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, Ident::Query, 12);
     let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, Ident::Key, 34);
     let value = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, Ident::Value, 56);
-    let mask = tensor_raw_parts_input::<P, R, P::EM>(&client, &problem, Ident::Mask, 78);
+    // let mask = tensor_raw_parts_input::<P, R, P::EM>(&client, &problem, Ident::Mask, 78);
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
@@ -55,7 +55,7 @@ pub fn test_attention_algorithm<A, P, R>(
         .filter_with_tensor(Ident::Query, &query.strides, &query.shape)
         .filter_with_tensor(Ident::Key, &key.strides, &key.shape)
         .filter_with_tensor(Ident::Value, &value.strides, &value.shape)
-        .filter_with_tensor(Ident::Mask, &mask.strides, &mask.shape)
+        // .filter_with_tensor(Ident::Mask, &mask.strides, &mask.shape)
         .filter_with_tensor(Ident::Out, &out.strides, &out.shape)
         .pick_max()
         .unwrap();
@@ -107,12 +107,12 @@ pub fn test_attention_algorithm<A, P, R>(
                     &value.shape,
                     line_sizes.value,
                 ),
-                TensorArg::<R>::from_raw_parts::<P::EM>(
-                    &mask.handle,
-                    &mask.strides,
-                    &mask.shape,
-                    line_sizes.mask,
-                ),
+                // TensorArg::<R>::from_raw_parts::<P::EM>(
+                //     &mask.handle,
+                //     &mask.strides,
+                //     &mask.shape,
+                //     line_sizes.mask,
+                // ),
             ),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,

@@ -8,16 +8,16 @@ use crate::components::{
 
 pub struct DummyTileAttentionFamily {}
 impl TileAttentionFamily for DummyTileAttentionFamily {
-    type Attention<AP: AttentionPrecision> = DummyTileAttention;
+    type Attention<AP: AttentionPrecision> = DummyTileAttention<AP>;
 
     type Config = DummyTileConfig;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &cubecl_core::prelude::ComputeClient<R::Server, R::Channel>,
-        problem: &crate::components::AttentionProblem,
-        selection: &crate::components::AttentionSelection,
-        line_sizes: &crate::components::AttentionLineSizes,
+        _problem: &crate::components::AttentionProblem,
+        _selection: &crate::components::AttentionSelection,
+        _line_sizes: &crate::components::AttentionLineSizes,
     ) -> Result<Self::Config, crate::components::AttentionSetupError> {
-        todo!()
+        DummyTileConfig::new(client.properties().hardware.plane_size_max)
     }
 }

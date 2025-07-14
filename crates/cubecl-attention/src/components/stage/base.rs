@@ -39,4 +39,9 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Stage Attention level
-pub trait StageConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {}
+pub trait StageConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
+    fn plane_dim(&self) -> u32;
+    fn num_planes(&self) -> u32;
+}
