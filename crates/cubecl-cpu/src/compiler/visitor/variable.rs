@@ -266,34 +266,6 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn get_builtin(&self, builtin: Builtin) -> Value<'a, 'a> {
-        match builtin {
-            Builtin::AbsolutePos => self.absolute_pos,
-            Builtin::AbsolutePosX => self.absolute_pos_x,
-            Builtin::AbsolutePosY => self.absolute_pos_y,
-            Builtin::AbsolutePosZ => self.absolute_pos_z,
-            Builtin::CubeDimX => self.cube_dim_x,
-            Builtin::CubeDimY => self.cube_dim_y,
-            Builtin::CubeDimZ => self.cube_dim_z,
-            Builtin::CubeCountX => self.cube_count_x,
-            Builtin::CubeCountY => self.cube_count_y,
-            Builtin::CubeCountZ => self.cube_count_z,
-            Builtin::CubePosX => self.cube_pos_x,
-            Builtin::CubePosY => self.cube_pos_y,
-            Builtin::CubePosZ => self.cube_pos_z,
-            Builtin::UnitPos => self.unit_pos,
-            Builtin::UnitPosX => self.unit_pos_x,
-            Builtin::UnitPosY => self.unit_pos_y,
-            Builtin::UnitPosZ => self.unit_pos_z,
-            _ => {
-                let integer_type = Type::index(self.context);
-                let value = IntegerAttribute::new(integer_type, 0).into();
-                self.append_operation_with_result(arith::constant(
-                    self.context,
-                    integer_type,
-                    value,
-                    self.location,
-                ))
-            }
-        }
+        self.args_manager.get_builtin(builtin)
     }
 }
