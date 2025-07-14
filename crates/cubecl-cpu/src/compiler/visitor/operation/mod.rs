@@ -54,6 +54,9 @@ impl<'a> Visitor<'a> {
             }
             // These operation are not needed in MLIR
             Operation::NonSemantic(_) => {}
+            Operation::Synchronization(_synchronization) => {
+                todo!("Synchronization operation are not yet supported");
+            }
             operation => {
                 todo!(
                     "This operation ({}) is not implemented without an out",
@@ -65,11 +68,14 @@ impl<'a> Visitor<'a> {
 
     pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
         match operation {
-            Operation::Operator(operator) => {
-                self.visit_operator_with_out(operator, out);
+            Operation::Atomic(_atomic) => {
+                todo!("Atomic operation are not yet supported");
             }
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);
+            }
+            Operation::Barrier(_barrier) => {
+                todo!("Barrier operation are not yet supported");
             }
             Operation::Bitwise(bitwise) => {
                 self.visit_bitwise(bitwise, out);
@@ -77,14 +83,25 @@ impl<'a> Visitor<'a> {
             Operation::Comparison(comparison) => {
                 self.visit_comparison(comparison, out);
             }
-            Operation::Metadata(metadata) => {
-                self.visit_metadata(metadata, out);
-            }
             Operation::Copy(copy) => {
                 let value = self.get_variable(*copy);
                 self.insert_variable(out, value);
             }
-            _ => todo!("{:?} is not implemented yet.", operation),
+            Operation::Metadata(metadata) => {
+                self.visit_metadata(metadata, out);
+            }
+            Operation::Operator(operator) => {
+                self.visit_operator_with_out(operator, out);
+            }
+            Operation::CoopMma(_) | Operation::Plane(_) | Operation::Tma(_) => {
+                panic!("{} is not supported on CPU.", operation);
+            }
+            Operation::Branch(_) => {
+                unreachable!("Branch operation are removed in SSA form");
+            }
+            Operation::Synchronization(_) | Operation::NonSemantic(_) => {
+                unreachable!("{} doesn't have an out", operation);
+            }
         }
     }
 }
