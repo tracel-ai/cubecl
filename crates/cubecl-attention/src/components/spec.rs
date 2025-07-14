@@ -28,6 +28,8 @@ impl<AP: AttentionPrecision> AttentionSpec for AP {
 pub trait AttentionPrecision: Send + Sync + Copy + 'static {
     /// Element type of each input tensors of the kernel.
     type EI: Numeric;
+    /// Element of mask
+    type EM: Numeric;
     /// Element type for the shared memories used to read inputs.
     type ES: Numeric;
     /// Element type for the shared memories or fragments used to accumulate
@@ -39,6 +41,7 @@ pub trait AttentionPrecision: Send + Sync + Copy + 'static {
 
 impl AttentionPrecision for f16 {
     type EI = f16;
+    type EM = u8;
     type ES = f16;
     #[cfg(target_os = "macos")]
     type EA = f16;
@@ -49,6 +52,7 @@ impl AttentionPrecision for f16 {
 
 impl AttentionPrecision for flex32 {
     type EI = f32;
+    type EM = u8;
     type ES = f16;
     type EA = f32;
     type EO = f32;
@@ -56,6 +60,7 @@ impl AttentionPrecision for flex32 {
 
 impl AttentionPrecision for bf16 {
     type EI = bf16;
+    type EM = u8;
     type ES = bf16;
     #[cfg(target_os = "macos")]
     type EA = bf16;
@@ -66,6 +71,7 @@ impl AttentionPrecision for bf16 {
 
 impl AttentionPrecision for f32 {
     type EI = f32;
+    type EM = u8;
     type ES = f32;
     type EA = f32;
     type EO = f32;
@@ -73,6 +79,7 @@ impl AttentionPrecision for f32 {
 
 impl AttentionPrecision for f64 {
     type EI = f64;
+    type EM = u8;
     type ES = f32;
     type EA = f32;
     type EO = f64;
@@ -85,20 +92,24 @@ pub struct ReplaceES<MP: AttentionPrecision, ES: Numeric> {
 
 impl<MP: AttentionPrecision, ES: Numeric> AttentionPrecision for ReplaceES<MP, ES> {
     type EI = MP::EI;
+    type EM = MP::EM;
     type ES = ES;
     type EA = MP::EA;
     type EO = MP::EO;
 }
 
-impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> AttentionPrecision for (EI, ES, EA, EO) {
+impl<EI: Numeric, EM: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> AttentionPrecision
+    for (EI, EM, ES, EA, EO)
+{
     type EI = EI;
+    type EM = EM;
     type ES = ES;
     type EA = EA;
     type EO = EO;
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as AttentionArgs>::Input<EI<MS>>;
+pub type InputArg<MS> = <Args<MS> as AttentionArgs>::Input<EI<MS>, EM<MS>>;
 
 /// Output argument
 pub type OutputArg<MS> = <Args<MS> as AttentionArgs>::Output<EO<MS>>;
@@ -110,6 +121,7 @@ pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a
 pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
 
 pub type EI<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EI;
+pub type EM<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EM;
 pub type ES<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::ES;
 pub type EA<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EA;
 pub type EO<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EO;

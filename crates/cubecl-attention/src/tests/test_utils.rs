@@ -13,19 +13,14 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{AttentionPrecision, AttentionProblem, Ident},
-    tests::attention_test_launcher::{shape, strides, tensor_size},
+    tests::attention_test_launcher::{strides, tensor_size},
 };
 
-pub struct QuantizationParams<N: Numeric> {
-    pub scaling: Vec<N>, // This is the bit cast of an f32 into the appropriate numbers of N.
-    pub zero_offset: N,
-}
-
 pub trait TestPrecision {
-    type EG: Float + CubeElement + Display + CastInto<Self::ES> + Sample;
+    type EG: Float + CubeElement + Display + CastInto<Self::ES> + Sampleable;
     type ES: Float + Display + CastInto<Self::EA>;
     type EA: Float + Display + CastInto<Self::EG> + Exp;
-    type EM: Numeric + Display + Sample;
+    type EM: Numeric + CubeElement + Display + Sampleable;
     type MP: AttentionPrecision;
 
     #[allow(clippy::too_many_arguments)]
@@ -33,7 +28,7 @@ pub trait TestPrecision {
         query: &[Self::EG],
         key: &[Self::EG],
         value: &[Self::EG],
-        mask: &[Self::EM],
+        mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
@@ -44,8 +39,8 @@ pub trait TestPrecision {
 
 impl<EG, ES> TestPrecision for (EG, ES)
 where
-    EG: Float + CubeElement + Display + CastInto<ES> + Sample + AttentionPrecision,
-    ES: Numeric + Display + CastInto<f32>,
+    EG: Float + CubeElement + Display + CastInto<ES> + Sampleable + AttentionPrecision,
+    ES: Float + Display + CastInto<f32>,
     f32: CastInto<EG>,
 {
     type EG = EG;
@@ -58,7 +53,7 @@ where
         query: &[EG],
         key: &[EG],
         value: &[EG],
-        mask: &[u8],
+        mask: Option<&[u8]>,
         problem: &AttentionProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
@@ -90,7 +85,6 @@ where
 
         let expected = attention_cpu_reference::<Self>(query, key, value, mask, problem)
             .into_iter()
-            .map(|x| x.cast_into())
             .collect::<Vec<EG>>();
 
         if let Err(e) =
@@ -241,7 +235,7 @@ impl CastInto<u8> for i32 {
     }
 }
 
-pub trait Sample: Sized + CubePrimitive {
+pub trait Sampleable: Sized + CubePrimitive {
     fn sample<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
@@ -252,7 +246,7 @@ pub trait Sample: Sized + CubePrimitive {
 macro_rules! sample_float {
     ($($t:ty),*) => {
         $(
-            impl Sample for $t
+            impl Sampleable for $t
             {
                 fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
                     cubecl_random::seed(seed);
@@ -273,7 +267,7 @@ sample_float!(f32);
 sample_float!(f64);
 sample_float!(u8);
 
-impl Sample for flex32 {
+impl Sampleable for flex32 {
     fn sample<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
@@ -293,7 +287,7 @@ impl Sample for flex32 {
     }
 }
 
-impl Sample for tf32 {
+impl Sampleable for tf32 {
     fn sample<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
@@ -313,7 +307,7 @@ impl Sample for tf32 {
     }
 }
 
-impl Sample for bool {
+impl Sampleable for bool {
     fn sample<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],

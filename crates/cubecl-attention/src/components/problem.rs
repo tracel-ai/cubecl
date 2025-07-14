@@ -1,5 +1,3 @@
-use cubecl_matmul::components::MatrixLayout;
-
 #[derive(Clone, Debug)]
 /// Description of an attention problem to solve, regardless of actual data
 pub struct AttentionProblem {
@@ -16,11 +14,4 @@ pub struct AttentionProblem {
 
     /// Whether a mask is applied (shape is always [batch, seq_q, heads, seq_k])
     pub masked: bool,
-
-    /// Memory layout of query
-    pub q_layout: Option<MatrixLayout>,
-    /// Memory layout of key
-    pub k_layout: Option<MatrixLayout>,
-    /// Memory layout of value
-    pub v_layout: Option<MatrixLayout>,
 }

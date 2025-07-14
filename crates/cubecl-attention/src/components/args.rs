@@ -13,6 +13,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
+        mask: &'a TensorHandleRef<'a, R>,
         selection: &AttentionSelection,
         problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -34,7 +35,7 @@ pub trait ConcreteOutputFactory: LaunchArg {
 /// Arguments for the matrix multiplication algorithm.
 pub trait AttentionArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input<EI: Numeric>: LaunchArg + CubeType;
+    type Input<EI: Numeric, EM: Numeric>: LaunchArg + CubeType;
     /// Type used for the output.
     type Output<EO: Numeric>: LaunchArg + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
@@ -42,8 +43,8 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
     type State<EI: Numeric, EO: Numeric>: CubeType;
 
     /// Init the state.
-    fn init_state<EI: Numeric, EO: Numeric>(
-        input: &Self::Input<EI>,
+    fn init_state<EI: Numeric, EM: Numeric, EO: Numeric>(
+        input: &Self::Input<EI, EM>,
         output: &mut Self::Output<EO>,
     ) -> Self::State<EI, EO>;
 
@@ -432,17 +433,19 @@ pub struct TensorArgs;
 
 #[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [AttentionArgs].
-pub struct TensorInputs<EG: Numeric> {
+pub struct TensorInputs<EG: Numeric, EM: Numeric> {
     pub query: Tensor<Line<EG>>,
     pub key: Tensor<Line<EG>>,
     pub value: Tensor<Line<EG>>,
+    pub mask: Tensor<Line<EM>>,
 }
 
-impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
+impl<EG: Numeric, EM: Numeric> ConcreteInputsFactory for TensorInputs<EG, EM> {
     fn create<'a, R: Runtime>(
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
+        mask: &'a TensorHandleRef<'a, R>,
         _selection: &AttentionSelection,
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -451,6 +454,7 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
             query.as_tensor_arg(line_sizes.query),
             key.as_tensor_arg(line_sizes.key),
             value.as_tensor_arg(line_sizes.value),
+            mask.as_tensor_arg(line_sizes.value),
         )
     }
 }
@@ -469,7 +473,7 @@ impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
 #[cube]
 impl AttentionArgs for TensorArgs {
     type Output<EO: Numeric> = Tensor<Line<EO>>;
-    type Input<EI: Numeric> = TensorInputs<EI>;
+    type Input<EI: Numeric, EM: Numeric> = TensorInputs<EI, EM>;
     type State<EI: Numeric, EO: Numeric> = (
         *const Tensor<Line<EI>>,
         *const Tensor<Line<EI>>,
@@ -477,8 +481,8 @@ impl AttentionArgs for TensorArgs {
         *mut Tensor<Line<EO>>,
     );
 
-    fn init_state<EI: Numeric, EO: Numeric>(
-        input: &Self::Input<EI>,
+    fn init_state<EI: Numeric, EM: Numeric, EO: Numeric>(
+        input: &Self::Input<EI, EM>,
         output: &mut Self::Output<EO>,
     ) -> Self::State<EI, EO> {
         (&input.query, &input.key, &input.value, output)

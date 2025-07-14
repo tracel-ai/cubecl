@@ -2,10 +2,12 @@ use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server};
 
 use crate::components::args::TensorInputsLaunch;
+use crate::components::batch::BatchAttentionFamily;
+use crate::components::batch::BatchConfig;
 use crate::components::{AttentionProblem, AttentionSelection};
 use crate::components::{AvailableLineSizes, Ident};
 use crate::kernels::Algorithm;
-use crate::tests::test_utils::Sample;
+use crate::tests::test_utils::Sampleable;
 use crate::tests::test_utils::TestPrecision;
 
 #[derive(Debug)]
@@ -37,23 +39,28 @@ pub fn test_attention_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
+    let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, Ident::Query, 12);
+    let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, Ident::Key, 34);
+    let value = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, Ident::Value, 56);
+    let mask = tensor_raw_parts_input::<P, R, P::EM>(&client, &problem, Ident::Mask, 78);
+    let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
+        &P::EM::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
-        .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
-        .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
-        .filter_out_with_tensor(&out.strides, &out.shape)
+        .filter_with_tensor(Ident::Query, &query.strides, &query.shape)
+        .filter_with_tensor(Ident::Key, &key.strides, &key.shape)
+        .filter_with_tensor(Ident::Value, &value.strides, &value.shape)
+        .filter_with_tensor(Ident::Mask, &mask.strides, &mask.shape)
+        .filter_with_tensor(Ident::Out, &out.strides, &out.shape)
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+    let config = match A::setup::<(P::EG, P::EM, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,
@@ -77,31 +84,35 @@ pub fn test_attention_algorithm<A, P, R>(
     );
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<P::MP, R>(
+        A::BatchAttention::launch_unchecked::<P::MP, R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
             TensorInputsLaunch::new(
                 TensorArg::<R>::from_raw_parts::<P::EG>(
-                    &lhs.handle,
-                    &lhs.strides,
-                    &lhs.shape,
-                    line_sizes.lhs,
+                    &query.handle,
+                    &query.strides,
+                    &query.shape,
+                    line_sizes.query,
                 ),
-                lhs.scale
-                    .as_ref()
-                    .map(|it| TensorArg::<R>::from_raw_parts::<P::EG>(it, &[1], &[1], 1))
-                    .into(),
                 TensorArg::<R>::from_raw_parts::<P::EG>(
-                    &rhs.handle,
-                    &rhs.strides,
-                    &rhs.shape,
-                    line_sizes.rhs,
+                    &key.handle,
+                    &key.strides,
+                    &key.shape,
+                    line_sizes.key,
                 ),
-                rhs.scale
-                    .as_ref()
-                    .map(|it| TensorArg::<R>::from_raw_parts::<P::EG>(it, &[1], &[1], 1))
-                    .into(),
+                TensorArg::<R>::from_raw_parts::<P::EG>(
+                    &value.handle,
+                    &value.strides,
+                    &value.shape,
+                    line_sizes.value,
+                ),
+                TensorArg::<R>::from_raw_parts::<P::EM>(
+                    &mask.handle,
+                    &mask.strides,
+                    &mask.shape,
+                    line_sizes.mask,
+                ),
             ),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,
@@ -115,145 +126,63 @@ pub fn test_attention_algorithm<A, P, R>(
     }
 
     P::assert_result::<R>(
-        &lhs.original_data.unwrap(),
-        lhs.quant_params,
-        &rhs.original_data.unwrap(),
-        rhs.quant_params,
+        &query.original_data.unwrap(),
+        &key.original_data.unwrap(),
+        &value.original_data.unwrap(),
+        None,
         &problem,
         &client,
         out.handle,
-        out.quant_params,
         &out.shape,
         &out.strides,
     );
 }
 
-fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
+fn tensor_raw_parts_input<P: TestPrecision, R: Runtime, T>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &AttentionProblem,
     ident: Ident,
-) -> TensorRawParts<P::EG> {
-    match ident {
-        Ident::Query => {
-            let tensor_shape = shape(problem, Ident::Query);
+    sample_seed: u64,
+) -> TensorRawParts<T>
+where
+    T: Numeric + CubeElement + Sampleable,
+{
+    let tensor_shape = shape(problem, ident);
+    let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
+    let data = client.read_one(handle.handle.binding());
+    let data = T::from_bytes(&data);
+    let original_data = data.to_owned();
+    let data_bytes = T::as_bytes(&original_data);
+    let shape = tensor_shape.as_slice();
+    let elem_size = std::mem::size_of::<T>();
+    let (handle, strides) = client.create_tensor(data_bytes, shape, elem_size);
 
-            let handle = P::EG::sample::<R>(client, &tensor_shape, 123);
-
-            let data = client.read_one(handle.handle.binding());
-            let data = P::EG::from_bytes(&data);
-            let original_data = data.to_owned();
-
-            let data = original_data.clone();
-            let data = P::EG::as_bytes(&data);
-            let shape = tensor_shape.as_slice();
-            let elem_size = size_of::<P::EG>();
-            let (handle, strides) = client.create_tensor(data, shape, elem_size);
-
-            TensorRawParts {
-                handle,
-                shape: tensor_shape.to_vec(),
-                strides,
-                original_data: Some(original_data),
-            }
-        }
-        Ident::Key => {
-            let tensor_shape = shape(problem, Ident::Key);
-
-            let handle = P::EG::sample::<R>(client, &tensor_shape, 456);
-
-            let data = client.read_one(handle.handle.binding());
-            let data = P::EG::from_bytes(&data);
-            let original_data = data.to_owned();
-
-            let data = original_data.clone();
-            let data = P::EG::as_bytes(&data);
-            let shape = tensor_shape.as_slice();
-            let elem_size = size_of::<P::EG>();
-            let (handle, strides) = client.create_tensor(data, shape, elem_size);
-
-            TensorRawParts {
-                handle,
-                shape: tensor_shape.to_vec(),
-                strides,
-                original_data: Some(original_data),
-            }
-        }
-        Ident::Value => {
-            let tensor_shape = shape(problem, Ident::Value);
-
-            let handle = P::EG::sample::<R>(client, &tensor_shape, 789);
-
-            let data = client.read_one(handle.handle.binding());
-            let data = P::EG::from_bytes(&data);
-            let original_data = data.to_owned();
-
-            let data = original_data.clone();
-            let data = P::EG::as_bytes(&data);
-            let shape = tensor_shape.as_slice();
-            let elem_size = size_of::<P::EG>();
-            let (handle, strides) = client.create_tensor(data, shape, elem_size);
-
-            TensorRawParts {
-                handle,
-                shape: tensor_shape.to_vec(),
-                strides,
-                original_data: Some(original_data),
-            }
-        }
-        Ident::Mask => {
-            let tensor_shape = shape(problem, Ident::Mask);
-
-            let handle = P::EM::sample::<R>(client, &tensor_shape, 159);
-
-            let data = client.read_one(handle.handle.binding());
-            let data = P::EM::from_bytes(&data);
-            let original_data = data.to_owned();
-
-            let data = original_data.clone();
-            let data = P::EM::as_bytes(&data);
-            let shape = tensor_shape.as_slice();
-            let elem_size = size_of::<P::EG>();
-            let (handle, strides) = client.create_tensor(data, shape, elem_size);
-
-            TensorRawParts {
-                handle,
-                shape: tensor_shape.to_vec(),
-                strides,
-                original_data: Some(original_data),
-            }
-        }
-        Ident::Out => {
-            let zero = P::EG::from_int(0);
-
-            let data = vec![zero; tensor_size(problem, Ident::Out)];
-
-            let tensor_shape = shape(problem, Ident::Out);
-
-            let data = P::EG::as_bytes(&data);
-            let shape = tensor_shape.as_slice();
-            let elem_size = size_of::<P::EG>();
-            let (handle, strides) = client.create_tensor(data, shape, elem_size);
-
-            TensorRawParts {
-                handle,
-                shape: tensor_shape.to_vec(),
-                strides,
-                original_data: None,
-            }
-        }
+    TensorRawParts {
+        handle,
+        shape: tensor_shape.to_vec(),
+        strides,
+        original_data: Some(original_data),
     }
 }
 
-pub(crate) fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> Vec<E> {
-    let mut result = vec![array[0]; array.len()];
-    for b in 0..batches {
-        for i in 0..rows {
-            for j in 0..cols {
-                result[(b * rows * cols) + j * rows + i] = array[(b * rows * cols) + i * cols + j];
-            }
-        }
+fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    problem: &AttentionProblem,
+) -> TensorRawParts<P::EG> {
+    let zero = P::EG::from_int(0);
+    let data = vec![zero; tensor_size(problem, Ident::Out)];
+    let tensor_shape = shape(problem, Ident::Out);
+    let data_bytes = P::EG::as_bytes(&data);
+    let shape = tensor_shape.as_slice();
+    let elem_size = std::mem::size_of::<P::EG>();
+    let (handle, strides) = client.create_tensor(data_bytes, shape, elem_size);
+
+    TensorRawParts {
+        handle,
+        shape: tensor_shape.to_vec(),
+        strides,
+        original_data: None,
     }
-    result
 }
 
 /// Returns the total number of elements for the identified tensor, inferred by the problem definition
