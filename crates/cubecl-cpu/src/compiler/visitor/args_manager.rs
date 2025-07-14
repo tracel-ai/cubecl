@@ -9,6 +9,8 @@ use tracel_llvm::melior::ir::{
     r#type::{FunctionType, IntegerType, MemRefType},
 };
 
+use crate::compiler::builtin::BuiltinArray;
+
 use super::prelude::*;
 
 // enum MetadataKey {
@@ -92,6 +94,16 @@ impl<'a> ArgsManager<'a> {
 
         for i in self.buffers_len..self.buffers_len + self.scalars_len {
             self.scalars.push(block.argument(i).unwrap().into());
+        }
+
+        for (i, builtin) in BuiltinArray::builtin_order().into_iter().enumerate() {
+            self.set_builtin(
+                builtin,
+                block
+                    .argument(self.buffers_len + self.scalars_len + i)
+                    .unwrap()
+                    .into(),
+            );
         }
 
         block

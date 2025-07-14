@@ -3,7 +3,7 @@ use std::sync::Arc;
 use cubecl_core::server::ScalarBinding;
 use cubecl_runtime::storage::BytesResource;
 
-use crate::compiler::{builtin::Builtin, memref::LineMemRef};
+use crate::compiler::{builtin::BuiltinArray, memref::LineMemRef};
 
 struct SharedMlirData {
     args_zero_indirection: Vec<LineMemRef>,
@@ -17,7 +17,7 @@ unsafe impl Sync for SharedMlirData {}
 pub struct MlirData {
     shared_mlir_data: Arc<SharedMlirData>,
     pub args_second_indirection: Vec<*mut ()>,
-    pub builtin: Builtin,
+    pub builtin: BuiltinArray,
 }
 
 unsafe impl Send for MlirData {}
@@ -34,7 +34,7 @@ impl Clone for MlirData {
 
 impl MlirData {
     pub fn new(handles: Vec<BytesResource>, scalars_binding: Vec<ScalarBinding>) -> Self {
-        let builtin = Builtin::default();
+        let builtin = BuiltinArray::default();
         let max_buffer_size = handles.len() + scalars_binding.len() + builtin.len();
 
         let args_zero_indirection = Vec::with_capacity(max_buffer_size);
