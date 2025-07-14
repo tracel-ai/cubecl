@@ -1,7 +1,7 @@
-use cubecl_core::CubeDim;
+use cubecl_core::{CubeDim, ir::Builtin};
 
 #[derive(Default, Debug, Clone)]
-pub struct Builtin {
+pub struct BuiltinArray {
     pub dims: [u32; 9],
     //[
     //  cube_dim_x
@@ -16,7 +16,20 @@ pub struct Builtin {
     //]
 }
 
-impl Builtin {
+impl BuiltinArray {
+    pub(crate) const fn builtin_order() -> [Builtin; 9] {
+        [
+            Builtin::CubeDimX,
+            Builtin::CubeDimY,
+            Builtin::CubeDimZ,
+            Builtin::CubeCountX,
+            Builtin::CubeCountY,
+            Builtin::CubeCountZ,
+            Builtin::UnitPosX,
+            Builtin::UnitPosY,
+            Builtin::UnitPosZ,
+        ]
+    }
     pub(crate) fn set_cube_dim(&mut self, cube_dim: CubeDim) {
         self.dims[0] = cube_dim.x;
         self.dims[1] = cube_dim.y;

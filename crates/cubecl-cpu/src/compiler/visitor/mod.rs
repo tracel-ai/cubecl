@@ -195,64 +195,43 @@ impl<'a> Visitor<'a> {
         let start = block.const_int_from_type(context, location, 0, integer_type)?;
         let step = block.const_int_from_type(context, location, 1, integer_type)?;
 
-        // TODO refactor this in a macro
-        let cube_dim_x = block
-            .argument(args.buffers.len() + args.scalars.len())?
-            .into();
-        args.set_builtin(Builtin::CubeDimX, cube_dim_x);
-        let cube_dim_y = block
-            .argument(args.buffers.len() + args.scalars.len() + 1)?
-            .into();
-        args.set_builtin(Builtin::CubeDimY, cube_dim_y);
-        let cube_dim_z = block
-            .argument(args.buffers.len() + args.scalars.len() + 2)?
-            .into();
-        args.set_builtin(Builtin::CubeDimZ, cube_dim_z);
-        let cube_count_x = block
-            .argument(args.buffers.len() + args.scalars.len() + 3)?
-            .into();
-        args.set_builtin(Builtin::CubeCountX, cube_count_x);
-        let cube_count_y = block
-            .argument(args.buffers.len() + args.scalars.len() + 4)?
-            .into();
-        args.set_builtin(Builtin::CubeCountY, cube_count_y);
-        let cube_count_z = block
-            .argument(args.buffers.len() + args.scalars.len() + 5)?
-            .into();
-        args.set_builtin(Builtin::CubeCountZ, cube_count_z);
-        let unit_pos_x = block
-            .argument(args.buffers.len() + args.scalars.len() + 6)?
-            .into();
-        args.set_builtin(Builtin::UnitPosX, unit_pos_x);
-        let unit_pos_y = block
-            .argument(args.buffers.len() + args.scalars.len() + 7)?
-            .into();
-        args.set_builtin(Builtin::UnitPosY, unit_pos_y);
-        let unit_pos_z = block
-            .argument(args.buffers.len() + args.scalars.len() + 8)?
-            .into();
-        args.set_builtin(Builtin::UnitPosZ, unit_pos_z);
+        let absolute_pos_tmp_0 = block.muli(
+            args.get_builtin(Builtin::CubeCountX),
+            args.get_builtin(Builtin::CubeDimX),
+            location,
+        )?;
 
-        let absolute_pos_tmp_0 = block.muli(cube_count_x, cube_dim_x, location)?;
-
-        let absolute_pos_tmp_1 = block.muli(cube_count_y, cube_dim_y, location)?;
+        let absolute_pos_tmp_1 = block.muli(
+            args.get_builtin(Builtin::CubeCountY),
+            args.get_builtin(Builtin::CubeDimY),
+            location,
+        )?;
 
         let absolute_pos_tmp_2 = block.muli(absolute_pos_tmp_0, absolute_pos_tmp_1, location)?;
 
-        let unit_pos_tmp0 = block.muli(cube_dim_y, cube_dim_z, location)?;
+        let unit_pos_tmp0 = block.muli(
+            args.get_builtin(Builtin::CubeDimY),
+            args.get_builtin(Builtin::CubeDimZ),
+            location,
+        )?;
 
-        let unit_pos_tmp1 = block.muli(unit_pos_tmp0, unit_pos_z, location)?;
+        let unit_pos_tmp1 =
+            block.muli(unit_pos_tmp0, args.get_builtin(Builtin::UnitPosZ), location)?;
 
-        let unit_pos_tmp2 = block.muli(cube_dim_y, unit_pos_z, location)?;
+        let unit_pos_tmp2 = block.muli(
+            args.get_builtin(Builtin::CubeDimY),
+            args.get_builtin(Builtin::UnitPosZ),
+            location,
+        )?;
 
         let unit_pos_tmp3 = block.muli(unit_pos_tmp1, unit_pos_tmp2, location)?;
 
-        let unit_pos = block.muli(unit_pos_tmp3, unit_pos_x, location)?;
+        let unit_pos = block.muli(unit_pos_tmp3, args.get_builtin(Builtin::UnitPosX), location)?;
         args.set_builtin(Builtin::UnitPos, unit_pos);
 
         block.append_operation(scf::r#for(
             start,
-            cube_count_x,
+            args.get_builtin(Builtin::CubeCountX),
             step,
             {
                 let region = Region::new();
@@ -260,13 +239,18 @@ impl<'a> Visitor<'a> {
                 let cube_pos_x = block.argument(0)?.into();
                 args.set_builtin(Builtin::CubePosX, cube_pos_x);
 
-                let absolute_pos_x_tmp = block.muli(cube_pos_x, cube_dim_x, location)?;
-                let absolute_pos_x = block.addi(absolute_pos_x_tmp, unit_pos_x, location)?;
+                let absolute_pos_x_tmp =
+                    block.muli(cube_pos_x, args.get_builtin(Builtin::CubeDimX), location)?;
+                let absolute_pos_x = block.addi(
+                    absolute_pos_x_tmp,
+                    args.get_builtin(Builtin::UnitPosX),
+                    location,
+                )?;
                 args.set_builtin(Builtin::AbsolutePosX, absolute_pos_x);
 
                 block.append_operation(scf::r#for(
                     start,
-                    cube_count_y,
+                    args.get_builtin(Builtin::CubeCountY),
                     step,
                     {
                         let region = Region::new();
@@ -274,16 +258,23 @@ impl<'a> Visitor<'a> {
                         let cube_pos_y = block.argument(0)?.into();
                         args.set_builtin(Builtin::CubePosY, cube_pos_y);
 
-                        let absolute_pos_y_tmp = block.muli(cube_pos_y, cube_dim_y, location)?;
-                        let absolute_pos_y =
-                            block.addi(absolute_pos_y_tmp, unit_pos_y, location)?;
+                        let absolute_pos_y_tmp = block.muli(
+                            cube_pos_y,
+                            args.get_builtin(Builtin::CubeDimY),
+                            location,
+                        )?;
+                        let absolute_pos_y = block.addi(
+                            absolute_pos_y_tmp,
+                            args.get_builtin(Builtin::UnitPosY),
+                            location,
+                        )?;
                         args.set_builtin(Builtin::AbsolutePosY, absolute_pos_y);
 
                         let absolute_pos_tmp_3 =
                             block.muli(absolute_pos_y, absolute_pos_tmp_0, location)?;
                         block.append_operation(scf::r#for(
                             start,
-                            cube_count_y,
+                            args.get_builtin(Builtin::CubeCountY),
                             step,
                             {
                                 let region = Region::new();
@@ -292,10 +283,16 @@ impl<'a> Visitor<'a> {
                                 let cube_pos_z = block.argument(0)?.into();
                                 args.set_builtin(Builtin::CubePosZ, cube_pos_z);
 
-                                let absolute_pos_z_tmp =
-                                    block.muli(cube_pos_z, cube_dim_z, location)?;
-                                let absolute_pos_z =
-                                    block.addi(absolute_pos_z_tmp, unit_pos_z, location)?;
+                                let absolute_pos_z_tmp = block.muli(
+                                    cube_pos_z,
+                                    args.get_builtin(Builtin::CubeDimZ),
+                                    location,
+                                )?;
+                                let absolute_pos_z = block.addi(
+                                    absolute_pos_z_tmp,
+                                    args.get_builtin(Builtin::UnitPosZ),
+                                    location,
+                                )?;
                                 args.set_builtin(Builtin::AbsolutePosZ, absolute_pos_z);
 
                                 let absolute_pos_tmp_4 =
