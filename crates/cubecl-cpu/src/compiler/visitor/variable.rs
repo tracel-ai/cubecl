@@ -106,7 +106,7 @@ impl<'a> Visitor<'a> {
     pub fn get_memory(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
-                self.global_buffers[id as usize]
+                self.args_manager.buffers[id as usize]
             }
             VariableKind::LocalMut { id } => *self
                 .current_mut_variables
@@ -222,7 +222,7 @@ impl<'a> Visitor<'a> {
                 }
             }
             VariableKind::GlobalScalar(id) => {
-                let var = self.global_scalars[id as usize];
+                let var = self.args_manager.scalars[id as usize];
                 if variable.item.is_vectorized() {
                     let result_type = variable.item.to_type(self.context);
                     self.append_operation_with_result(vector::load(

@@ -1,4 +1,4 @@
-pub(super) mod args;
+pub(super) mod args_manager;
 pub(super) mod block;
 pub(super) mod elem;
 pub(super) mod instruction;
@@ -9,7 +9,7 @@ pub(super) mod variable;
 
 use std::collections::HashMap;
 
-use args::ArgsManager;
+use args_manager::ArgsManager;
 use cubecl_core::{ir::Builtin, prelude::KernelDefinition};
 use cubecl_opt::{NodeIndex, Optimizer};
 use tracel_llvm::melior::{
@@ -26,7 +26,7 @@ use tracel_llvm::melior::{
     ir::{
         Attribute, Block, BlockRef, Identifier, Location, Module, Operation, Region, RegionRef,
         attribute::{StringAttribute, TypeAttribute},
-        r#type::{FunctionType, IntegerType, MemRefType},
+        r#type::IntegerType,
     },
 };
 
@@ -46,8 +46,6 @@ pub struct Visitor<'a> {
     pub current_local_variables: HashMap<u32, Value<'a, 'a>>,
     pub current_version_variables: HashMap<(u32, u16), Value<'a, 'a>>,
     pub current_mut_variables: HashMap<u32, Value<'a, 'a>>,
-    pub global_buffers: Vec<Value<'a, 'a>>,
-    pub global_scalars: Vec<Value<'a, 'a>>,
     pub str_counter: usize,
 
     pub(self) args_manager: ArgsManager<'a>,
@@ -62,8 +60,6 @@ impl<'a> Visitor<'a> {
         current_region: RegionRef<'a, 'a>,
         context: &'a Context,
         location: Location<'a>,
-        global_buffers: Vec<Value<'a, 'a>>,
-        global_scalars: Vec<Value<'a, 'a>>,
         args_manager: ArgsManager<'a>,
     ) -> Self {
         let current_local_variables = HashMap::new();
@@ -85,8 +81,6 @@ impl<'a> Visitor<'a> {
             current_version_variables,
             current_mut_variables,
             str_counter,
-            global_buffers,
-            global_scalars,
             args_manager,
         }
     }
@@ -162,37 +156,9 @@ impl<'a> Visitor<'a> {
             Attribute::unit(context),
         )];
 
-        let mut inputs = Vec::with_capacity(kernel.buffers.len() + 9);
-        let mut block_input = Vec::with_capacity(kernel.buffers.len());
+        let mut args = ArgsManager::new(&kernel.buffers, &kernel.scalars, context, location);
 
-        let mut global_buffers = vec![];
-        let mut global_scalars = vec![];
-
-        for binding in kernel.buffers.iter() {
-            let inner_type = binding.item.elem.to_type(context);
-            let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
-            inputs.push(memref);
-            block_input.push((memref, location));
-        }
-
-        for binding in kernel.scalars.iter() {
-            let inner_type = binding.elem.to_type(context);
-            let scalar = if binding.count > 1 {
-                Type::vector(&[binding.count as u64], inner_type)
-            } else {
-                inner_type
-            };
-            inputs.push(scalar);
-            block_input.push((scalar, location));
-        }
-
-        let integer_type: Type<'_> = IntegerType::new(context, 32).into();
-        for _ in 0..9 {
-            inputs.push(integer_type);
-            block_input.push((integer_type, location));
-        }
-
-        let func_type = TypeAttribute::new(FunctionType::new(context, &inputs, &[]).into());
+        let func_type = TypeAttribute::new(args.get_fn_type(context).into());
 
         add_external_function_to_module(context, module);
         module.body().append_operation(func::func(
@@ -201,30 +167,10 @@ impl<'a> Visitor<'a> {
             func_type,
             {
                 let region = Region::new();
-                let block = Block::new(&block_input);
-                region.append_block(block);
-
+                region.append_block(args.create_top_block());
                 let block = region.first_block().unwrap();
-                let argument_count = kernel.buffers.len();
-                for i in 0..argument_count {
-                    global_buffers.push(block.argument(i).unwrap().into());
-                }
 
-                let scalar = kernel.scalars.len();
-                for i in argument_count..argument_count + scalar {
-                    global_scalars.push(block.argument(i).unwrap().into());
-                }
-
-                Self::insert_builtin_loop(
-                    block,
-                    module,
-                    opt,
-                    context,
-                    location,
-                    global_buffers,
-                    global_scalars,
-                )
-                .unwrap();
+                Self::insert_builtin_loop(block, module, opt, context, location, args).unwrap();
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -236,57 +182,54 @@ impl<'a> Visitor<'a> {
     }
 
     // TODO: cleanup this abomination by refactoring melior to make it at least not as bulky and verbose
-    pub fn insert_builtin_loop(
+    pub(self) fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
         module: &tracel_llvm::melior::ir::Module<'a>,
         opt: &Optimizer,
         context: &'a Context,
         location: Location<'a>,
-        global_buffers: Vec<Value<'a, 'a>>,
-        global_scalars: Vec<Value<'a, 'a>>,
+        mut args: ArgsManager<'a>,
     ) -> Result<(), Error> {
         let basic_block_id = opt.entry();
         let integer_type = IntegerType::new(context, 32).into();
         let start = block.const_int_from_type(context, location, 0, integer_type)?;
         let step = block.const_int_from_type(context, location, 1, integer_type)?;
 
-        let mut args = ArgsManager::default();
-
         // TODO refactor this in a macro
         let cube_dim_x = block
-            .argument(global_buffers.len() + global_scalars.len())?
+            .argument(args.buffers.len() + args.scalars.len())?
             .into();
         args.set_builtin(Builtin::CubeDimX, cube_dim_x);
         let cube_dim_y = block
-            .argument(global_buffers.len() + global_scalars.len() + 1)?
+            .argument(args.buffers.len() + args.scalars.len() + 1)?
             .into();
         args.set_builtin(Builtin::CubeDimY, cube_dim_y);
         let cube_dim_z = block
-            .argument(global_buffers.len() + global_scalars.len() + 2)?
+            .argument(args.buffers.len() + args.scalars.len() + 2)?
             .into();
         args.set_builtin(Builtin::CubeDimZ, cube_dim_z);
         let cube_count_x = block
-            .argument(global_buffers.len() + global_scalars.len() + 3)?
+            .argument(args.buffers.len() + args.scalars.len() + 3)?
             .into();
         args.set_builtin(Builtin::CubeCountX, cube_count_x);
         let cube_count_y = block
-            .argument(global_buffers.len() + global_scalars.len() + 4)?
+            .argument(args.buffers.len() + args.scalars.len() + 4)?
             .into();
         args.set_builtin(Builtin::CubeCountY, cube_count_y);
         let cube_count_z = block
-            .argument(global_buffers.len() + global_scalars.len() + 5)?
+            .argument(args.buffers.len() + args.scalars.len() + 5)?
             .into();
         args.set_builtin(Builtin::CubeCountZ, cube_count_z);
         let unit_pos_x = block
-            .argument(global_buffers.len() + global_scalars.len() + 6)?
+            .argument(args.buffers.len() + args.scalars.len() + 6)?
             .into();
         args.set_builtin(Builtin::UnitPosX, unit_pos_x);
         let unit_pos_y = block
-            .argument(global_buffers.len() + global_scalars.len() + 7)?
+            .argument(args.buffers.len() + args.scalars.len() + 7)?
             .into();
         args.set_builtin(Builtin::UnitPosY, unit_pos_y);
         let unit_pos_z = block
-            .argument(global_buffers.len() + global_scalars.len() + 8)?
+            .argument(args.buffers.len() + args.scalars.len() + 8)?
             .into();
         args.set_builtin(Builtin::UnitPosZ, unit_pos_z);
 
@@ -383,8 +326,6 @@ impl<'a> Visitor<'a> {
                                     current_region,
                                     context,
                                     location,
-                                    global_buffers,
-                                    global_scalars,
                                     args,
                                 );
                                 visitor.visit_basic_block(basic_block_id, opt);
