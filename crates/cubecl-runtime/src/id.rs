@@ -395,7 +395,10 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
     }
 
     fn dyn_hash(&self, state: &mut dyn Hasher) {
-        state.write_u64(hashbrown::hash_map::DefaultHashBuilder::new().hash_one(self));
+        // HashBrown uses foldhash but the default hasher still creates some random state. We need this hash here
+        // to be exactly reproducible.
+        let hash = foldhash::fast::FixedState::with_seed(0).hash_one(self);
+        state.write_u64(hash);
     }
 
     fn as_any(&self) -> &dyn Any {
