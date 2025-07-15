@@ -139,7 +139,10 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     for tl in [false] {
         for tr in [false] {
             for (b, m, n, k) in [
-                (1024, 256, 256, 256),
+                // (1, 8192, 8192, 8192),
+                (1, 6144, 6144, 6144),
+                (1, 4096, 4096, 4096),
+                // (1024, 256, 256, 256),
                 // OuterProduct
                 // (1, 4 * 4096, 4 * 4096, 1),
                 //  // InnerProduct
@@ -155,24 +158,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 //  // General
                 //  (2, 4096, 4096, 4096),
             ] {
-                let bench = MatmulBench::<R, MP> {
-                    b,
-                    m,
-                    k,
-                    n,
-                    tl,
-                    tr,
-                    client: client.clone(),
-                    device: device.clone(),
-                    strategy: strategy.clone(),
-                    _mp: PhantomData,
-                };
-                println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
-                println!("{}", bench.name());
-                match bench.run(TimingMethod::System) {
-                    Ok(val) => println!("{val}"),
-                    Err(err) => println!("{err:?}"),
-                }
+                let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
         }
     }
@@ -182,10 +168,12 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 fn run_one<R: Runtime, MP: MatmulPrecision>(
     device: R::Device,
     strategy: matmul::Strategy,
-) -> Result<BenchmarkDurations, String> {
+    shapes: (usize, usize, usize, usize),
+    transposed: (bool, bool),
+) -> Result<(BenchmarkDurations, f64), String> {
     let client = R::client(&device);
-    let (b, m, n, k) = (1024, 256, 256, 256);
-    let (tl, tr) = (false, false);
+    let (b, m, n, k) = shapes;
+    let (tl, tr) = transposed;
 
     let bench = MatmulBench::<R, MP> {
         b,
@@ -199,18 +187,92 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
         strategy: strategy.clone(),
         _mp: PhantomData,
     };
+    println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
+    println!("{}", bench.name());
 
-    bench.run(TimingMethod::Device)
+    match bench.run(TimingMethod::System) {
+        Ok(val) => {
+            let flops = 2 * b * m * n * k;
+            let computed = BenchmarkComputations::new(&val);
+            let tflops = flops as f64 / (computed.median.as_secs_f64() * 1e12);
+            println!("Times: {val}");
+            println!("TFLOPS: {tflops}");
+            Ok((val, tflops))
+        }
+        Err(err) => {
+            println!("{err:?}");
+            Err(err)
+        }
+    }
 }
 
 #[allow(unused)]
-fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+// This function should be customized to help build a proper selector that reduces the number of
+// possibilities.
+fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
+
+    let mut algos = BTreeMap::<u64, (BenchmarkDurations, MatmulSelection, f64)>::new();
+
+    for t in [(1, 4, 4), (4, 4, 4)] {
+        for p in [(1, 2, 8), (1, 2, 2)] {
+            for s in [(8, 8), (16, 16)] {
+                let plane_dim = client.properties().hardware.plane_size_min;
+                let tiling = TilingScheme::builder()
+                    .with_tile_size(t.into())
+                    .with_partition_size(p.into())
+                    .with_stage_size(StageSize {
+                        m: s.0,
+                        n: s.1,
+                        k: 1,
+                    })
+                    .build()
+                    .unwrap();
+                let hypercube = HypercubeSelection::builder(&tiling)
+                    .global_order(cubecl_matmul::components::batch::GlobalOrderSelection::Default)
+                    .cube_count_plan(
+                        cubecl_matmul::components::batch::CubeCountPlanSelection::Flattened,
+                    )
+                    .build();
+                let selection = MatmulSelection::builder(tiling, plane_dim)
+                    .plane_dim(plane_dim)
+                    .partition_buffering(PartitionBuffering::Double)
+                    .hypercube_config(hypercube)
+                    .loading_precompute_strategy(
+                        cubecl_matmul::kernels::matmul::LoadingPrecomputeStrategy::Always,
+                    )
+                    .build();
+                let result = run_one::<R, MP>(
+                    Default::default(),
+                    matmul::Strategy::DoubleUnit(Selection::Forced(selection.clone())),
+                    (8, 1024, 1024, 1024),
+                    (false, false),
+                );
+
+                if let Ok((duration, tflops)) = result {
+                    let key = tflops * 1000000.0;
+                    algos.insert(key as u64, (duration, selection, tflops));
+                }
+            }
+        }
+    }
+
+    for (_, (duration, selection, tflops)) in algos.iter() {
+        println!("==== TFLOPS: {tflops:?} ====");
+        println!("Selection: {selection:?}");
+        println!("Times: {duration}");
+        println!("====================");
+    }
+}
+
+#[allow(unused)]
+fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
     println!("Simple Unit Min");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
             tile_size: TileSizeSelection::MinTileSize,
         })),
     );
@@ -218,77 +280,30 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     println!("Simple Unit Max");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
             tile_size: TileSizeSelection::MaxTileSize,
         })),
     );
 
-    let mut algos = BTreeMap::new();
+    println!("Double Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
+    println!("Double Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
+    );
+}
 
-    // for t in [(1, 4, 4), (4, 4, 4)] {
-    //     for p in [(1, 2, 8), (1, 2, 2)] {
-    //         for s in [(8, 8), (16, 16)] {
-    //             let plane_dim = client.properties().hardware.plane_size_min;
-    //             let tiling = TilingScheme::builder()
-    //                 .with_tile_size(t.into())
-    //                 .with_partition_size(p.into())
-    //                 .with_stage_size(StageSize {
-    //                     m: s.0,
-    //                     n: s.1,
-    //                     k: 1,
-    //                 })
-    //                 .build()
-    //                 .unwrap();
-    //             let hypercube = HypercubeSelection::builder(&tiling)
-    //                 .global_order(cubecl_matmul::components::batch::GlobalOrderSelection::Default)
-    //                 .cube_count_plan(
-    //                     cubecl_matmul::components::batch::CubeCountPlanSelection::Flattened,
-    //                 )
-    //                 .build();
-    //             let selection = MatmulSelection::builder(tiling, plane_dim)
-    //                 .plane_dim(plane_dim)
-    //                 .partition_buffering(PartitionBuffering::Double)
-    //                 .hypercube_config(hypercube)
-    //                 .loading_precompute_strategy(
-    //                     cubecl_matmul::kernels::matmul::LoadingPrecomputeStrategy::Always,
-    //                 )
-    //                 .build();
-    //             let duration = run_one::<R, MP>(
-    //                 Default::default(),
-    //                 matmul::Strategy::DoubleUnit(Selection::Forced(selection.clone())),
-    //             );
-
-    //             if let Ok(duration) = duration {
-    //                 let computed = BenchmarkComputations::new(&duration);
-    //                 println!("{selection:?}");
-    //                 println!("{duration}");
-    //                 algos.insert(computed.median, (duration, selection));
-    //             }
-    //         }
-    //     }
-    // }
-
-    // for (median, (duration, selection)) in algos.iter().rev() {
-    //     println!("==== {median:?} ====");
-    //     println!("Selection: {selection:?}");
-    //     println!("Times: {duration}");
-    //     println!("====================");
-    // }
-
-    // println!("Double Unit Min");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-    //         tile_size: TileSizeSelection::MinTileSize,
-    //     })),
-    // );
-    // println!("Double Unit Max");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-    //         tile_size: TileSizeSelection::MaxTileSize,
-    //     })),
-    // );
+#[allow(unused)]
+fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
 
     println!("Simple");
     run::<R, MP>(
@@ -325,16 +340,13 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             Selection::Inferred(DoubleBufferingArgs { specialized: true }),
         ),
     );
+}
 
-    println!("Ordered 2");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(8),
-            rows_per_plane: Some(2),
-            partition_k: Some(2),
-        })),
-    );
+#[allow(unused)]
+fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+    // run_grid_search::<R, MP>();
+    // run_algos_unit::<R, MP>();
+    run_algos_wmma::<R, MP>();
 }
 
 fn main() {
@@ -356,8 +368,8 @@ fn main() {
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
-        run_benches::<cubecl::hip::HipRuntime, f32>();
-        // run_benches::<cubecl::hip::HipRuntime, half::f16>();
+        // run_benches::<cubecl::hip::HipRuntime, f32>();
+        run_benches::<cubecl::hip::HipRuntime, half::f16>();
     }
 
     #[cfg(feature = "cuda")]
