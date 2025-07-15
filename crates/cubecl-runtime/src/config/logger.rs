@@ -16,7 +16,7 @@ use std::{
 /// Configuration for logging in CubeCL, parameterized by a log level type.
 ///
 /// Note that you can use multiple loggers at the same time.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(bound = "")]
 pub struct LoggerConfig<L: LogLevel> {
     /// Path to the log file, if file logging is enabled (requires `std` feature).
@@ -47,6 +47,23 @@ pub struct LoggerConfig<L: LogLevel> {
     /// The log level for this logger, determining verbosity.
     #[serde(default)]
     pub level: L,
+}
+
+impl<L: LogLevel> Default for LoggerConfig<L> {
+    fn default() -> Self {
+        Self {
+            #[cfg(std_io)]
+            file: None,
+            append: true,
+            #[cfg(feature = "autotune-checks")]
+            stdout: true,
+            #[cfg(not(feature = "autotune-checks"))]
+            stdout: false,
+            stderr: false,
+            log: None,
+            level: L::default(),
+        }
+    }
 }
 
 /// Log levels using the `log` crate.

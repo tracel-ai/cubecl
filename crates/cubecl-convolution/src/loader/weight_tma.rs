@@ -10,7 +10,7 @@ use cubecl_matmul::components::{
     Ident, InputIdent, MatmulPrecision, global::Quantization, stage::FullStageToTileReader,
 };
 use cubecl_matmul::components::{
-    global::{self, tensor_view::MappedTensorReader},
+    global::{self, global_memory::MappedTensorReader},
     stage::{ContiguousTilingLayout, StageConfig, StageMemory},
 };
 

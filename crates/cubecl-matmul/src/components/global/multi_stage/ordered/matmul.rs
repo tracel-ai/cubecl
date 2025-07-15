@@ -1,5 +1,6 @@
 use crate::components::global::load::{
-    BufferId, SyncBufferLoader, SyncBufferLoadingStrategy, SyncFullLoader, SyncFullLoadingStrategy,
+    StageIdent, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
+    SyncPartialLoadingStrategy,
 };
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
@@ -7,8 +8,8 @@ use crate::components::global::multi_stage::double_buffer_execution::{
 use crate::components::global::multi_stage::ordered::LL;
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
-use crate::components::stage::BufferStageToTileReader;
 use crate::components::stage::FullStageToTileReader;
+use crate::components::stage::PartialStageToTileReader;
 use crate::components::{InputIdent, MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -26,7 +27,7 @@ use super::OrderedDoubleBufferingGlobalConfig;
 pub struct OrderedDoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -44,13 +45,13 @@ where
                 MP::ES,
                 <LL as SyncFullLoadingStrategy>::TilingLayout,
             >,
-            RhsReader = BufferStageToTileReader<MP::ES, RL::TilingLayout>,
+            RhsReader = PartialStageToTileReader<MP::ES, RL::TilingLayout>,
         >,
-    RL: SyncBufferLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 {
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
+    type RhsLoader = SyncPartialLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -63,10 +64,10 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let buffer_step = config.tiling_scheme().elements_in_stage_k();
-        let loop_step = buffer_step * 2;
+        let stage_step = config.tiling_scheme().elements_in_stage_k();
+        let loop_step = stage_step * 2;
         let range = k_range.1 - k_range.0;
-        let needed_stage_matmuls = div_ceil(range, buffer_step);
+        let needed_stage_matmuls = div_ceil(range, stage_step);
 
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
@@ -77,8 +78,8 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
         let lhs_reader = Self::LhsLoader::reader(&lhs_loader);
-        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
-        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
+        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, StageIdent::A);
+        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, StageIdent::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 
@@ -86,11 +87,11 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            BufferId::A,
+            StageIdent::A,
             config,
         );
 
-        Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+        Self::LhsLoader::advance_view(&mut lhs_loader, stage_step);
 
         sync_cube();
 
@@ -104,11 +105,11 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                BufferId::B,
+                StageIdent::B,
                 config,
             );
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, stage_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, loop_step);
 
             sync_cube();
@@ -122,11 +123,11 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                BufferId::A,
+                StageIdent::A,
                 config,
             );
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, stage_step);
 
             sync_cube();
         }
@@ -140,7 +141,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            BufferId::B,
+            StageIdent::B,
             config,
         );
 
@@ -187,7 +188,7 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        SyncBufferLoader::<MP, Self::Config, RL>::new(
+        SyncPartialLoader::<MP, Self::Config, RL>::new(
             rhs,
             x_offset,
             y_offset,
@@ -210,9 +211,5 @@ where
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         SMM::init_accumulator(config.stage_config())
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.stage_config());
     }
 }

@@ -317,39 +317,6 @@ pub enum IndexedVariable {
     Scalar(Variable),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub enum Globals {
-    Id,
-    LocalInvocationId,
-    LocalInvocationIdX,
-    LocalInvocationIdY,
-    LocalInvocationIdZ,
-    LocalInvocationIndex,
-    WorkgroupId,
-    WorkgroupIdX,
-    WorkgroupIdY,
-    WorkgroupIdZ,
-    WorkgroupIndex,
-    GlobalInvocationId,
-    GlobalInvocationIdX,
-    GlobalInvocationIdY,
-    GlobalInvocationIdZ,
-    GlobalInvocationIndex,
-    WorkgroupSize,
-    WorkgroupSizeX,
-    WorkgroupSizeY,
-    WorkgroupSizeZ,
-    NumWorkgroups,
-    NumWorkgroupsTotal,
-    NumWorkgroupsX,
-    NumWorkgroupsY,
-    NumWorkgroupsZ,
-    SubgroupSize,
-    SubgroupInvocationId,
-
-    Metadata(u32),
-}
-
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_variable(&mut self, variable: ir::Variable) -> Variable {
         let item = variable.item;

@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 
 use cubecl_core::tune::AutotuneError;
-
-use cubecl_matmul::kernels::{MatmulAvailabilityError, MatmulSetupError};
+use cubecl_matmul::components::{MatmulAvailabilityError, MatmulSetupError};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ConvLaunchError {

@@ -1,6 +1,6 @@
 use crate::components::Ident;
 use crate::components::global::GlobalConfig;
-use crate::components::global::tensor_view::TensorWriter;
+use crate::components::global::global_memory::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -8,6 +8,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use super::GlobalWriter;
 
 #[derive(CubeType)]
+/// Writes tiles from out shared memory to output global memory
+/// using a unit for each tile
 pub struct UnitWriter<EG: Numeric> {
     pub tensor_view: TensorWriter<EG>,
 }

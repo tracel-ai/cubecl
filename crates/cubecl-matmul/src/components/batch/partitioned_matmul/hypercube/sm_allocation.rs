@@ -5,7 +5,7 @@
 /// - `Overallocate`: Allows extra SMs within a specified fraction (e.g., up to 25% overuse)
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum SmAllocation {
-    /// Balanced: uses GCD to minimize slack.
+    /// Balanced: uses GCD to never exceed total cubes.
     Exact,
 
     /// Uses all SMs, possibly overallocating total cubes.
@@ -19,6 +19,7 @@ pub enum SmAllocation {
 }
 
 impl SmAllocation {
+    /// Returns a pair (`num_sms_used`, `cubes_per_sm`) depending on the strategy
     pub fn allocate(&self, num_sms: u32, total_cubes: u32) -> (u32, u32) {
         match self {
             SmAllocation::Exact => SmAllocation::Ratio {

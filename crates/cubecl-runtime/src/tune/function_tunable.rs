@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use variadics_please::all_tuples;
 
-use super::{AutotuneError, IntoTunable, Tunable};
+use super::{AutotuneError, IntoTuneFn, TuneFn};
 
 /// Tunable implemented as a function or closure
 ///
@@ -17,7 +17,7 @@ pub struct FunctionTunable<F: AsFunctionTunableResult<Marker>, Marker> {
 unsafe impl<F: AsFunctionTunableResult<Marker> + Send, Marker> Send for FunctionTunable<F, Marker> {}
 unsafe impl<F: AsFunctionTunableResult<Marker> + Sync, Marker> Sync for FunctionTunable<F, Marker> {}
 
-impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> Tunable for FunctionTunable<F, Marker> {
+impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> TuneFn for FunctionTunable<F, Marker> {
     type Inputs = F::Inputs;
     type Output = F::Output;
 
@@ -31,7 +31,7 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> Tunable for FunctionTu
 pub struct IsFunction;
 
 impl<F: AsFunctionTunableResult<Marker>, Marker: 'static>
-    IntoTunable<F::Inputs, F::Output, (Marker, IsFunction)> for F
+    IntoTuneFn<F::Inputs, F::Output, (Marker, IsFunction)> for F
 {
     type Tunable = FunctionTunable<F, Marker>;
 
@@ -62,9 +62,7 @@ unsafe impl<F: AsFunctionTunable<Marker> + Sync, Marker> Sync
 {
 }
 
-impl<F: AsFunctionTunable<Marker>, Marker: 'static> Tunable
-    for FunctionTunableResultMap<F, Marker>
-{
+impl<F: AsFunctionTunable<Marker>, Marker: 'static> TuneFn for FunctionTunableResultMap<F, Marker> {
     type Inputs = F::Inputs;
     type Output = F::Output;
 

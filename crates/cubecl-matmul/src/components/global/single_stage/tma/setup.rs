@@ -1,13 +1,13 @@
 use crate::components::AvailableLineSizes;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
+use crate::components::MatmulSelection;
+use crate::components::error::MatmulSetupError;
 use crate::components::global::load::NoLoadingValidation;
 use crate::components::global::load::TmaTiling;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
-use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
 use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
@@ -19,6 +19,7 @@ use crate::components::{
     stage::{self, FullReaderFamily},
 };
 
+/// Simple TMA matmul family for any precision
 pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
 }

@@ -10,6 +10,9 @@ use hashbrown::HashSet;
 
 pub use super::memory_pool::{SliceBinding, handle::*};
 
+// These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
+// saving the 200 bytes.
+#[allow(clippy::large_enum_variant)]
 enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),

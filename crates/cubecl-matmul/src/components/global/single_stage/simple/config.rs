@@ -1,21 +1,19 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatmulPrecision, MatrixLayout,
-        global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage,
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatmulPrecision, MatrixLayout,
+    error::MatmulSetupError,
+    global::{
+        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::{MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    stage,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for single stage matmuls
+/// Configuration for simple matmul
 pub struct SimpleConfig<S: stage::StageConfig> {
     stage_config: S,
     num_planes: u32,
@@ -104,10 +102,14 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for SimpleConfig<S> {}
-
 impl<S: stage::StageConfig> SimpleConfig<S> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for simple global matmul
+    ///
+    /// May return an error if:
+    /// - a loader is invalid
+    /// - CubeDim is too big
+    /// - Barriers are not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
         _client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,

@@ -12,7 +12,7 @@ use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Stor
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::{ConstVal, Globals, Variable},
+    variable::{ConstVal, Variable},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -31,7 +31,6 @@ pub struct LookupTables {
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
     pub scalars: HashMap<(Id, ir::Elem), Word>,
-    pub globals: HashMap<Globals, Word>,
     pub array_types: HashMap<Word, Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<Id, Word>,
@@ -153,33 +152,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn const_u32(&mut self, value: u32) -> Word {
         let ty = Item::Scalar(Elem::Int(32, false));
         let ty_id = ty.id(self);
-        self.get_or_insert_const(ConstVal::Bit32(value), ty, |b| {
-            b.constant_bit32(ty_id, value)
-        })
+        self.constant_bit32(ty_id, value)
     }
 
-    pub fn get_or_insert_const(
-        &mut self,
-        value: ConstVal,
-        item: Item,
-        insert: impl FnOnce(&mut Self) -> Word,
-    ) -> Word {
-        let id = insert(self);
-        self.state.constants.insert((value, item), id);
-        id
-    }
-
-    pub fn get_or_insert_global(
-        &mut self,
-        global: Globals,
-        insert: impl FnOnce(&mut Self) -> Word,
-    ) -> Word {
+    pub fn insert_global(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {
         let current_block = self.selected_block();
         let setup = self.setup_block;
         self.select_block(Some(setup)).unwrap();
         let id = insert(self);
         self.select_block(current_block).unwrap();
-        self.state.globals.insert(global, id);
         id
     }
 

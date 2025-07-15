@@ -1,12 +1,9 @@
-use crate::{
-    components::{
-        AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-        MatmulSpec, OutputRuntimeArg, TilingScheme,
-        batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
-        config::MatmulConfig,
-        global::{self, GlobalConfig as _, Quantization},
-    },
-    kernels::{MatmulSetupError, matmul::MatmulSelection},
+use crate::components::{
+    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSpec, OutputRuntimeArg, TilingScheme,
+    batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
+    error::MatmulSetupError,
+    global::{self, GlobalConfig as _, Quantization},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -14,12 +11,19 @@ use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
+use std::{fmt::Debug, hash::Hash};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync {
+    /// The specific [BatchMatmul] implementation associated with this family.
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
+
+    /// The configuration type associated with this matmul family.
     type Config: BatchConfig;
 
+    /// Constructs the configuration based on the matmul problem, selection, and line sizes.
+    ///
+    /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
@@ -38,10 +42,13 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountInputArgs<'a, R>,
+        cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
     );
 
+    /// Filters out line sizes that are incompatible with this matmul family.
+    ///
+    /// By default, returns the input unchanged.
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
@@ -52,19 +59,19 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
 ///
 /// At the batch level,
 ///  - Inputs are whole tensors in global memory.
-///  - All Cubes can collaborate to solve the problem
+///  - All Cubes are used to solve the problem
 ///  - Dimensions M, N and K can be arbitrary large,
 ///    as well as the number of batches.
 ///
 /// # Assumptions
 /// - Line sizes of the inputs evenly divide the dimension they are aligned with.
-/// - Enough Cubes are launched to perform the whole computation.
 ///
 /// # Safety
 ///
-/// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
-/// It is therefore important to use an underlying global matmul that performs check bounds,
-/// and to not launch more Cubes than necessary.
+/// - It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
+///   It is therefore important to use an underlying global matmul that performs check bounds,
+/// - It is accepted to launch more Cube than necessary, providing a CubeCountInput that states
+///   the max cube position
 pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: BatchConfig;
 
@@ -80,7 +87,9 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the [batch matmul](BatchMatmul) level.
-pub trait BatchConfig: MatmulConfig {
+pub trait BatchConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
     /// Underlying Global matmul config
     type GlobalConfig: global::GlobalConfig;
 
@@ -90,12 +99,20 @@ pub trait BatchConfig: MatmulConfig {
     /// Returns true if the matmul is quantized.
     fn quantized(&self) -> bool;
 
+    /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme {
         self.global_config().tiling_scheme()
     }
 
+    /// Returns the [CubeDim]
     fn cube_dim(&self) -> CubeDim;
+
+    /// Returns the line sizes for Lhs, Rhs and output
     fn line_sizes(&self) -> MatmulLineSizes;
+
+    /// Returns the [HypercubeConfig]
     fn hypercube_config(&self) -> HypercubeConfig;
+
+    /// Whether it may launch more cubes than the minimum required
     fn can_yield_extra_cubes(&self) -> bool;
 }

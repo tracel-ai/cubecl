@@ -7,8 +7,7 @@ use crate::components::tile;
 use super::GlobalConfig;
 
 #[cube]
-/// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
-/// for it.
+/// Loads an accumulator with pre-defined data
 pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sync {
     fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G);
 
@@ -22,8 +21,8 @@ pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sy
     );
 }
 
-/// Accumulator loader that zeros the accumulator
 #[derive(CubeType)]
+/// Accumulator loader that zeros the accumulator
 pub struct ZeroAccumulatorLoader;
 
 #[cube]

@@ -36,6 +36,7 @@ cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features
 cubecl-ir = { path = "../cubecl-ir", version = "0.6.0", default-features = false }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
+foldhash = { workspace = true }
 log = { workspace = true }
 variadics_please = { workspace = true }
 serde = { workspace = true }

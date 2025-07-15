@@ -11,23 +11,25 @@ use super::components::{MatmulKind, MatmulProblemSize};
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
 pub struct MatmulAutotuneKey {
-    definition: MatmulProblemDefinition,
+    pub definition: MatmulProblemDefinition,
     pub analysis: MatmulAutotuneAnalysis,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
-struct MatmulProblemDefinition {
+pub struct MatmulProblemDefinition {
     #[autotune(anchor)]
-    m: usize,
+    pub m: usize,
     #[autotune(anchor)]
-    n: usize,
+    pub n: usize,
     #[autotune(anchor)]
-    k: usize,
-    elem_lhs: Elem,
-    elem_rhs: Elem,
-    elem_out: Elem,
-    matrix_layout_lhs: MatrixBatchLayout,
-    matrix_layout_rhs: MatrixBatchLayout,
+    pub k: usize,
+    pub lhs_pow2_factor: u8,
+    pub rhs_pow2_factor: u8,
+    pub elem_lhs: Elem,
+    pub elem_rhs: Elem,
+    pub elem_out: Elem,
+    pub matrix_layout_lhs: MatrixBatchLayout,
+    pub matrix_layout_rhs: MatrixBatchLayout,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -40,7 +42,6 @@ pub enum MatmulGlobalScale {
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct MatmulAutotuneAnalysis {
     pub scale_global: MatmulGlobalScale,
-    pub may_use_tensor_cores: bool,
     pub kind: MatmulKind,
 }
 
@@ -58,8 +59,7 @@ impl MatmulGlobalScale {
 
 /// Whether it's a good idea to try and run double-buffered matmul.
 pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> bool {
-    key.analysis.may_use_tensor_cores
-        && matches!(key.analysis.kind, MatmulKind::General)
+    matches!(key.analysis.kind, MatmulKind::General)
         && match key.analysis.scale_global {
             MatmulGlobalScale::Large => true,
             MatmulGlobalScale::Medium => true,
@@ -72,7 +72,7 @@ impl MatmulAutotuneKey {
     /// used for the calculation.
     #[allow(clippy::too_many_arguments)]
     pub fn generate<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server, R::Channel>,
         lhs_shape: &[usize],
         rhs_shape: &[usize],
         lhs_strides: &[usize],
@@ -95,10 +95,29 @@ impl MatmulAutotuneKey {
             k: k as u32,
         });
 
+        let lhs_pow2_factor = match matrix_layout_lhs {
+            MatrixBatchLayout::Contiguous => pow2_factor(k),
+            MatrixBatchLayout::MildlyPermuted { transposed, .. } => match transposed {
+                true => pow2_factor(m),
+                false => pow2_factor(k),
+            },
+            MatrixBatchLayout::HighlyPermuted => 0,
+        };
+        let rhs_pow2_factor = match matrix_layout_rhs {
+            MatrixBatchLayout::Contiguous => pow2_factor(n),
+            MatrixBatchLayout::MildlyPermuted { transposed, .. } => match transposed {
+                true => pow2_factor(k),
+                false => pow2_factor(n),
+            },
+            MatrixBatchLayout::HighlyPermuted => 0,
+        };
+
         let definition = MatmulProblemDefinition::new(
             m,
             n,
             k,
+            lhs_pow2_factor,
+            rhs_pow2_factor,
             elem_lhs,
             elem_rhs,
             elem_out,
@@ -107,18 +126,20 @@ impl MatmulAutotuneKey {
         );
         let analysis = MatmulAutotuneAnalysis {
             scale_global: MatmulGlobalScale::from_size(m, n, k),
-            may_use_tensor_cores: match client
-                .properties()
-                .hardware
-                .min_tensor_cores_dim
-                .map(|tc| tc as usize)
-            {
-                Some(tc) => m > tc && n > tc && k > tc,
-                None => false,
-            },
             kind,
         };
 
         Self::new(definition, analysis)
     }
+}
+
+/// Defines the potential vectorization.
+fn pow2_factor(axis: usize) -> u8 {
+    for i in (1..4).rev() {
+        if axis % 2usize.pow(i as u32) == 0 {
+            return i;
+        }
+    }
+
+    0
 }

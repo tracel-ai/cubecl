@@ -8,7 +8,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 #[derive(CubeType)]
-/// Wrapper over a sequence of tile matmul accumulators
+/// Wrapper over a sequence of Tile Matmul accumulators
 /// Enables indexing at 2d coordinates
 pub struct Accumulators<
     MP: MatmulPrecision,
@@ -78,6 +78,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>, S: StageConfig<TileConfig = TMM::
 }
 
 #[derive(CubeType)]
+/// Rhs tiles, can be doubled for partition double buffering
 pub enum RhsTile<Rhs: CubeType> {
     Single(Rhs),
     Double((Rhs, Rhs)),
