@@ -334,6 +334,7 @@ impl StageSelection {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn selection(
     t: (u32, u32, u32),
     p: (u32, u32, u32),
