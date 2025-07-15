@@ -142,7 +142,7 @@ pub trait Benchmark {
     ///
     /// It is important to return the output since otherwise deadcode optimization might optimize
     /// away code that should be benchmarked.
-    fn execute(&self, input: Self::Input) -> Self::Output;
+    fn execute(&self, input: Self::Input) -> Result<Self::Output, String>;
 
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
@@ -179,55 +179,64 @@ pub trait Benchmark {
 
     /// Start measuring the computation duration.
     #[cfg(feature = "std")]
-    fn profile(&self, args: Self::Input) -> ProfileDuration {
+    fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.profile_full(args)
     }
 
     /// Start measuring the computation duration. Use the full duration irregardless of whether
     /// device duration is available or not.
     #[cfg(feature = "std")]
-    fn profile_full(&self, args: Self::Input) -> ProfileDuration {
+    fn profile_full(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.sync();
         let start_time = Instant::now();
-        let out = self.execute(args);
+        let out = self.execute(args)?;
         self.sync();
         core::mem::drop(out);
-        ProfileDuration::new_system_time(start_time, Instant::now())
+        Ok(ProfileDuration::new_system_time(start_time, Instant::now()))
     }
 
     /// Run the benchmark a number of times.
     #[allow(unused_variables)]
-    fn run(&self, timing_method: TimingMethod) -> BenchmarkDurations {
+    fn run(&self, timing_method: TimingMethod) -> Result<BenchmarkDurations, String> {
         #[cfg(not(feature = "std"))]
         panic!("Attempting to run benchmark in a no-std environment");
 
         #[cfg(feature = "std")]
         {
             let execute = |args: &Self::Input| {
-                let profile = match timing_method {
+                let profile: Result<ProfileDuration, String> = match timing_method {
                     TimingMethod::System => self.profile_full(args.clone()),
                     TimingMethod::Device => self.profile(args.clone()),
                 };
-                crate::future::block_on(profile.resolve())
+                let profile = match profile {
+                    Ok(val) => val,
+                    Err(err) => return Err(err),
+                };
+                Ok(crate::future::block_on(profile.resolve()))
             };
             let args = self.prepare();
 
             // Warmup
             for _ in 0..3 {
-                let _duration = execute(&args);
+                let _duration: Result<crate::profile::ProfileTicks, _> = execute(&args);
             }
             std::thread::sleep(Duration::from_secs(1));
 
             // Real execution.
             let mut durations = Vec::with_capacity(self.num_samples());
             for _ in 0..self.num_samples() {
-                durations.push(execute(&args).duration());
+                match execute(&args) {
+                    Ok(val) => durations.push(val.duration()),
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
             }
 
-            BenchmarkDurations {
+            Ok(BenchmarkDurations {
                 timing_method,
                 durations,
-            }
+            })
         }
     }
 }
@@ -269,7 +278,7 @@ impl Display for BenchmarkResult {
 
 #[cfg(feature = "std")]
 /// Runs the given benchmark on the device and prints result and information.
-pub fn run_benchmark<BM>(benchmark: BM) -> BenchmarkResult
+pub fn run_benchmark<BM>(benchmark: BM) -> Result<BenchmarkResult, String>
 where
     BM: Benchmark,
 {
@@ -282,9 +291,9 @@ where
         .output()
         .unwrap();
     let git_hash = String::from_utf8(output.stdout).unwrap().trim().to_string();
-    let durations = benchmark.run(TimingMethod::System);
+    let durations = benchmark.run(TimingMethod::System)?;
 
-    BenchmarkResult {
+    Ok(BenchmarkResult {
         raw: durations.clone(),
         computed: BenchmarkComputations::new(&durations),
         git_hash,
@@ -292,7 +301,7 @@ where
         options: benchmark.options(),
         shapes: benchmark.shapes(),
         timestamp,
-    }
+    })
 }
 
 #[cfg(test)]

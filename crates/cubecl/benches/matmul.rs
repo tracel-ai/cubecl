@@ -1,23 +1,21 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
+use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
-    LoadSpecializationConfig, SpecializationTensorConfig, TilingScheme,
+    LoadingPrecomputeStrategy, MatmulPrecision, MatmulSelection, StageSize, TilingScheme,
 };
 use cubecl_matmul::kernels::layered::double_buffering::DoubleBufferingArgs;
 use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::ordered_double_buffering::OrderedSelectionArgs;
 use cubecl_matmul::kernels::layered::simple::SimpleArgs;
 use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
-use cubecl_matmul::kernels::layered::{
-    MatmulSelection, MultiRowStrategy, Selection, TileSizeSelection, closest_factor_pair,
-};
-use cubecl_matmul::{self as matmul};
-use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
-use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
+use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
+use cubecl_matmul::{self as matmul, SyncLoadingStrategy, SyncPartialLoadingStrategy};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use cubecl::benchmark::{Benchmark, TimingMethod};
+use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
 use cubecl::future;
 use cubecl_runtime::config::GlobalConfig;
 use cubecl_std::tensor::TensorHandle;
@@ -65,7 +63,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         (lhs, None, rhs, None)
     }
 
-    fn execute(&self, (lhs, lhs_scale, rhs, rhs_scale): Self::Input) -> Self::Output {
+    fn execute(
+        &self,
+        (lhs, lhs_scale, rhs, rhs_scale): Self::Input,
+    ) -> Result<Self::Output, String> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
@@ -78,10 +79,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             rhs_scale,
             out,
         ) {
-            Ok(_) => return (),
-            Err(err) => {
-                println!("{err:?}");
-            }
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("{err:?}")),
         }
     }
 
@@ -106,10 +105,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
+    fn profile(&self, args: Self::Input) -> Result<cubecl::benchmark::ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "matmul-bench")
-            .unwrap()
+            .map_err(|err| format!("{err:?}"))
     }
 }
 
@@ -131,57 +130,124 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    // for tl in [true, false] {
-    // for tr in [true, false] {
     for tl in [false] {
         for tr in [false] {
             for (b, m, n, k) in [
-                // (1, 8192, 8192, 8192),
+                (1, 8192, 8192, 8192),
                 (1, 6144, 6144, 6144),
-                (1, 5000, 5000, 5000),
-                (2, 4096, 4096, 4096),
-                (5, 512, 512, 512),
-                (5, 256, 512, 512),
-                (5, 256, 512, 1024),
-                (5, 1024, 256, 1024),
-                (10, 256, 256, 256),
-                // OuterProduct
-                // (1, 4 * 4096, 4 * 4096, 1),
-                //  // InnerProduct
-                //  (2, 1, 8 * 4096, 1),
-                //  // VecScalar
-                //  (2, 8 * 4096, 1, 1),
-                //  // ScalarVec
-                //  (2, 1, 4096, 1),
-                //  // MatVec
-                //  (2, 4096, 1, 4096),
-                //  // VecMat
-                //  (2, 1, 4096, 4096),
-                //  // General
-                //  (2, 4096, 4096, 4096),
+                (1, 4096, 4096, 4096),
+                (1, 2048, 2048, 2048),
+                (1, 1024, 1024, 1024),
+                (1, 512, 512, 512),
             ] {
-                let bench = MatmulBench::<R, MP> {
-                    b,
-                    m,
-                    k,
-                    n,
-                    tl,
-                    tr,
-                    client: client.clone(),
-                    device: device.clone(),
-                    strategy: strategy.clone(),
-                    _mp: PhantomData,
-                };
-                println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
-                println!("{}", bench.name());
-                println!("{}", bench.run(TimingMethod::System));
+                let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
         }
     }
 }
 
+#[allow(dead_code)]
+fn run_one<R: Runtime, MP: MatmulPrecision>(
+    device: R::Device,
+    strategy: matmul::Strategy,
+    shapes: (usize, usize, usize, usize),
+    transposed: (bool, bool),
+) -> Result<(BenchmarkDurations, f64), String> {
+    let client = R::client(&device);
+    let (b, m, n, k) = shapes;
+    let (tl, tr) = transposed;
+
+    let bench = MatmulBench::<R, MP> {
+        b,
+        m,
+        k,
+        n,
+        tl,
+        tr,
+        client: client.clone(),
+        device: device.clone(),
+        strategy: strategy.clone(),
+        _mp: PhantomData,
+    };
+    println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
+    println!("{}", bench.name());
+
+    match bench.run(TimingMethod::System) {
+        Ok(val) => {
+            let flops = 2 * b * m * n * k;
+            let computed = BenchmarkComputations::new(&val);
+            let tflops = flops as f64 / (computed.median.as_secs_f64() * 1e12);
+            println!("TFLOPS: {tflops}");
+            println!("Times: {val}");
+            Ok((val, tflops))
+        }
+        Err(err) => {
+            println!("{err:?}");
+            Err(err)
+        }
+    }
+}
+
 #[allow(unused)]
-fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+// This function should be customized to help build a proper selector that reduces the number of
+// possibilities.
+fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
+
+    let mut algos = BTreeMap::<u64, (BenchmarkDurations, MatmulSelection, f64)>::new();
+
+    for t in [(1, 4, 4), (4, 4, 4)] {
+        for p in [(1, 2, 8), (1, 2, 2), (8, 2, 2), (4, 4, 4)] {
+            for s in [(8, 8), (16, 16)] {
+                let plane_dim = client.properties().hardware.plane_size_min;
+                let tiling = TilingScheme::builder()
+                    .with_tile_size(t.into())
+                    .with_partition_size(p.into())
+                    .with_stage_size(StageSize {
+                        m: s.0,
+                        n: s.1,
+                        k: 1,
+                    })
+                    .build()
+                    .unwrap();
+                let hypercube = HypercubeSelection::builder(&tiling)
+                    .global_order(cubecl_matmul::components::batch::GlobalOrderSelection::Default)
+                    .cube_count_plan(
+                        cubecl_matmul::components::batch::CubeCountPlanSelection::Flattened,
+                    )
+                    .build();
+                let selection = MatmulSelection::builder(tiling, plane_dim)
+                    .plane_dim(plane_dim)
+                    .partition_buffering(PartitionBuffering::Double)
+                    .hypercube_config(hypercube)
+                    .loading_precompute_strategy(LoadingPrecomputeStrategy::Always)
+                    .build();
+                let result = run_one::<R, MP>(
+                    Default::default(),
+                    matmul::Strategy::DoubleUnit(Selection::Forced(selection.clone())),
+                    // (8, 1024, 1024, 1024),
+                    (1, 4096, 4096, 4096),
+                    (false, false),
+                );
+
+                if let Ok((duration, tflops)) = result {
+                    let key = tflops * 1000000.0;
+                    algos.insert(key as u64, (duration, selection, tflops));
+                }
+            }
+        }
+    }
+
+    for (_, (duration, selection, tflops)) in algos.iter() {
+        println!("==== TFLOPS: {tflops:?} ====");
+        println!("Selection: {selection:?}");
+        println!("Times: {duration}");
+        println!("====================");
+    }
+}
+
+#[allow(unused)]
+fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
     println!("Simple Unit Min");
@@ -191,6 +257,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             tile_size: TileSizeSelection::MinTileSize,
         })),
     );
+
     println!("Simple Unit Max");
     run::<R, MP>(
         Default::default(),
@@ -213,52 +280,54 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
             tile_size: TileSizeSelection::MaxTileSize,
         })),
     );
+}
 
-    // println!("Simple");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(
-    //         SyncLoadingStrategy::Cyclic,
-    //         Selection::Inferred(SimpleArgs { multi_rows: false }),
-    //     ),
-    // );
+#[allow(unused)]
+fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
 
-    // println!("Simple multi rows");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(
-    //         SyncLoadingStrategy::Cyclic,
-    //         Selection::Inferred(SimpleArgs { multi_rows: true }),
-    //     ),
-    // );
+    println!("Simple");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: false }),
+        ),
+    );
 
-    // println!("Double Buffering");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(
-    //         SyncBufferLoadingStrategy::Tilewise,
-    //         Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-    //     ),
-    // );
+    println!("Simple multi rows");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(
+            SyncLoadingStrategy::Cyclic,
+            Selection::Inferred(SimpleArgs { multi_rows: true }),
+        ),
+    );
 
-    // println!("Double Buffering Specialized");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleBuffering(
-    //         SyncBufferLoadingStrategy::Tilewise,
-    //         Selection::Inferred(DoubleBufferingArgs { specialized: true }),
-    //     ),
-    // );
+    println!("Double Buffering");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncPartialLoadingStrategy::Tilewise,
+            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+        ),
+    );
 
-    // println!("Ordered 2");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-    //         row_count: Some(8),
-    //         rows_per_plane: Some(2),
-    //         partition_k: Some(2),
-    //     })),
-    // );
+    println!("Double Buffering Specialized");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleBuffering(
+            SyncPartialLoadingStrategy::Tilewise,
+            Selection::Inferred(DoubleBufferingArgs { specialized: true }),
+        ),
+    );
+}
+
+#[allow(unused)]
+fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+    // run_grid_search::<R, MP>();
+    // run_algos_unit::<R, MP>();
+    run_algos_wmma::<R, MP>();
 }
 
 fn main() {
@@ -280,8 +349,8 @@ fn main() {
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
-        run_benches::<cubecl::hip::HipRuntime, f32>();
-        // run_benches::<cubecl::hip::HipRuntime, half::f16>();
+        // run_benches::<cubecl::hip::HipRuntime, f32>();
+        run_benches::<cubecl::hip::HipRuntime, half::f16>();
     }
 
     #[cfg(feature = "cuda")]

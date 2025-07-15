@@ -14,10 +14,14 @@ use crate::{
         tile::register::RegisterMatmul,
     },
     kernels::layered::{
-        Algorithm,
-        selector::{TileSizeSelection, unit_matmul_selection},
+        TileSizeSelection,
+        selector::{
+            PartitionScaling, StageScaling, UnitMatmulSelectionOptions, unit_matmul_selection,
+        },
     },
 };
+
+use super::Algorithm;
 
 /// Unit single stage matmul with configurable loaders (default to cyclic)
 pub struct SimpleUnitAlgorithm<
@@ -54,7 +58,23 @@ where
         _elem_acc: Elem,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection::<R>(client, problem, plane_dim, false, args.tile_size)
+        unit_matmul_selection::<R>(
+            client,
+            problem,
+            plane_dim,
+            false,
+            UnitMatmulSelectionOptions {
+                tile: args.tile_size,
+                stage: match args.tile_size {
+                    TileSizeSelection::MinTileSize => StageScaling::Enabled(2),
+                    TileSizeSelection::MaxTileSize => StageScaling::Disabled,
+                },
+                partition: match args.tile_size {
+                    TileSizeSelection::MinTileSize => PartitionScaling::Disabled,
+                    TileSizeSelection::MaxTileSize => PartitionScaling::Enabled,
+                },
+            },
+        )
     }
 
     fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
