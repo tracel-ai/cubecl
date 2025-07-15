@@ -6,7 +6,7 @@ use cubecl_core as cubecl;
 
 use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 
-use super::MatmulSetupError;
+use crate::components::{MatmulAvailabilityError, MatmulSetupError};
 
 #[cube(launch_unchecked)]
 fn matmul_kernel<N: Numeric>(
@@ -200,7 +200,7 @@ fn simple_cube_count(
 
     if cubes_x > max_cube_count || cubes_y > max_cube_count || num_iter > max_cube_count {
         return Err(MatmulSetupError::Unavailable(
-            super::MatmulAvailabilityError::CubeCountTooBig(result),
+            MatmulAvailabilityError::CubeCountTooBig(result),
         ));
     }
 

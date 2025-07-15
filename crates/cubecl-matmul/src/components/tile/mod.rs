@@ -1,3 +1,6 @@
+//! Matrix multiplication on register- or shared-memory tiles.
+//! Optimized for fixed shapes and low-level compute strategies.
+
 pub mod accelerated;
 pub mod register;
 

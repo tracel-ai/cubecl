@@ -2,9 +2,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
+/// Matrix dimension specifier for matmul operations.
 pub enum MatmulDim {
+    /// Rows of the output matrix.
     M,
+    /// Columns of the output matrix.
     N,
+    /// Reduction dimension.
     K,
 }
 
@@ -122,7 +126,7 @@ impl_from_tuple!(MatmulProblemSize, u32, u16);
 impl_from_tuple!(MatmulProblemSize, u32, usize);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-/// Number of global matmuls for one cube
+/// Number of global matmul blocks computed by a single cube.
 pub struct GlobalPartitionSize {
     pub m: u32,
     pub n: u32,

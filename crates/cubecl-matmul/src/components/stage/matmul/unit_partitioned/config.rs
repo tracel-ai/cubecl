@@ -1,15 +1,13 @@
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout, TilingScheme,
-        global::{PlaneRoleConfig, RoleRuleConfig},
-        stage::{NumStages, PartitionBuffering, StageConfig},
-        tile::TileConfig,
-    },
-    kernels::MatmulSetupError,
+use crate::components::{
+    Ident, InputIdent, MatrixLayout, TilingScheme,
+    error::MatmulSetupError,
+    global::{PlaneRoleConfig, RoleRuleConfig},
+    stage::{NumStages, PartitionBuffering, StageConfig},
+    tile::TileConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the single buffer matmul
+/// Configuration for the unit partitioned stage matmul
 pub struct UnitPartitionedStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
@@ -89,10 +87,14 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
     }
 }
 
-impl<T: TileConfig> MatmulConfig for UnitPartitionedStageConfig<T> {}
-
 impl<T: TileConfig> UnitPartitionedStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for unit partitioned stage matmul
+    ///
+    /// May return an error if:
+    /// - the number of computing units is different from the number of partitions
+    /// - double buffering is enabled but there is only one tile in n
+    /// - the required shared memory exceeds the available limit
     pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,

@@ -1,9 +1,7 @@
-use crate::{
-    components::{
-        InputIdent, MatmulLineSizes, TilingScheme,
-        global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
-    },
-    kernels::MatmulSetupError,
+use crate::components::{
+    InputIdent, MatmulLineSizes, TilingScheme,
+    error::MatmulSetupError,
+    global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
 };
 
 pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
@@ -13,7 +11,7 @@ pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
     {
         let cube_dim = config.cube_dim();
         if cube_dim.num_elems() >= 512 {
-            use crate::kernels::MatmulAvailabilityError;
+            use crate::components::error::MatmulAvailabilityError;
 
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::CubeDimTooBig(cube_dim),
@@ -24,22 +22,20 @@ pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
     Ok(config)
 }
 
-/// Number of tasks per plane.
-///
-/// Example: loading 1024 elements with a line size of 8 gives 128 lines (1024 / 8).
-/// With `plane_dim` set to 32, there are 4 tasks (128 / 32).
-pub struct MaxLoaders {
+/// Maximal number of planes each loader can handle to divide its workload evenly
+pub struct MaxLoaderPlanes {
     pub lhs: u32,
     pub rhs: u32,
 }
 
-impl MaxLoaders {
+impl MaxLoaderPlanes {
+    /// Create a MaxLoaderPlanes
     pub fn new<LL: LoadMaxRoundPlaneCount, RL: LoadMaxRoundPlaneCount>(
         tiling_scheme: &TilingScheme,
         line_sizes: &MatmulLineSizes,
         plane_dim: u32,
     ) -> Self {
-        MaxLoaders {
+        MaxLoaderPlanes {
             lhs: LL::max_round_plane_count(
                 tiling_scheme,
                 InputIdent::Lhs,

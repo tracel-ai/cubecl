@@ -1,14 +1,9 @@
-use cubecl_matmul::{
-    components::{
-        AvailableLineSizes, InputIdent, LoadSpecializationConfig, MatmulLineSizes, MatmulPrecision,
-        global::{args::MatmulArgs, load::LoaderMode},
-        stage::{NumStages, PartitionBuffering, StageMatmulFamily},
-        tile::TileMatmulFamily,
-    },
-    kernels::{
-        MatmulSetupError,
-        matmul::{LoadingPrecomputeStrategy, MatmulSelection, MultiRowStrategy},
-    },
+use cubecl_matmul::components::{
+    AvailableLineSizes, InputIdent, LoadingPrecomputeStrategy, MatmulLineSizes, MatmulPrecision,
+    MatmulSelection, MatmulSetupError, MultiRowStrategy,
+    global::{LoadSpecializationConfig, args::MatmulArgs, load::LoaderMode},
+    stage::{NumStages, PartitionBuffering, StageMatmulFamily},
+    tile::TileMatmulFamily,
 };
 
 use cubecl_std::tensor::TensorHandle;

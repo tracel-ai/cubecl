@@ -1,19 +1,18 @@
 use cubecl_core::prelude::*;
 
-use crate::{
-    components::{
-        InvalidConfigError,
-        global::{MaxLoaders, PlaneRoles},
-    },
-    gcd,
-};
+use crate::components::InvalidConfigError;
 
+/// Number of compute primitives required by some component, specified as either units or planes.
 pub enum ComputeResources {
     Units(u32),
     Planes(u32),
 }
 
 impl ComputeResources {
+    /// Ensures [ComputeResources] is Planes variant, converting
+    /// units using plane_dim, the number of units in a plane.
+    ///
+    /// Will fail if the number of units does not correspond to an exact number of planes
     pub fn as_plane_resources(self, plane_dim: u32) -> Result<Self, InvalidConfigError> {
         match self {
             ComputeResources::Units(units) => {
@@ -29,6 +28,11 @@ impl ComputeResources {
         }
     }
 
+    /// Make a [CubeDim] from specified resources.
+    ///
+    /// Obtained CubeDim is always (plane_dim, number_of_planes, 1)
+    ///
+    /// Will fail if the number of units does not correspond to an exact number of planes
     pub fn to_cube_dim(self, plane_dim: u32) -> Result<CubeDim, InvalidConfigError> {
         match self {
             ComputeResources::Units(_) => {
@@ -38,90 +42,15 @@ impl ComputeResources {
         }
     }
 
-    pub(crate) fn get_count(&self) -> u32 {
-        match self {
-            ComputeResources::Units(count) => *count,
-            ComputeResources::Planes(count) => *count,
+    /// Get the number of planes
+    ///
+    /// Will fail if the number of units does not correspond to an exact number of planes
+    pub(crate) fn num_planes(self, plane_dim: u32) -> Result<u32, InvalidConfigError> {
+        let plane_resources = self.as_plane_resources(plane_dim)?;
+        if let ComputeResources::Planes(num_planes) = plane_resources {
+            Ok(num_planes)
+        } else {
+            unreachable!()
         }
     }
-}
-
-/// Configuration for how each input tensor (LHS and RHS) is loaded,
-/// specifying the plane roles responsible for loading them.
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LoadSpecializationConfig {
-    /// Load strategy for the LHS (left-hand side) tensor.
-    pub lhs: SpecializationTensorConfig,
-    /// Load strategy for the RHS (right-hand side) tensor.
-    pub rhs: SpecializationTensorConfig,
-}
-
-/// Determines which types of planes are responsible for loading a tensor.
-///
-/// TODO: maybe we want a "MainPlusExtra" variant that uses main flow planes and load-only planes
-/// for the same tensor
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum SpecializationTensorConfig {
-    /// The tensor is loaded exclusively by planes that participate in the main computation flow.
-    #[default]
-    MainFlowOnly,
-
-    /// The tensor is loaded exclusively by planes dedicated to loading (load-only planes),
-    /// which do not participate in computation.
-    LoadFlowOnly,
-}
-
-impl LoadSpecializationConfig {
-    pub fn has_specialization(&self) -> bool {
-        self.lhs.has_specialization() || self.rhs.has_specialization()
-    }
-}
-
-impl SpecializationTensorConfig {
-    pub fn has_specialization(&self) -> bool {
-        match self {
-            SpecializationTensorConfig::MainFlowOnly => false,
-            SpecializationTensorConfig::LoadFlowOnly => true,
-        }
-    }
-}
-
-impl LoadSpecializationConfig {
-    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: MaxLoaders) -> PlaneRoles {
-        PlaneRoles {
-            main_flow,
-            load_only: self.find_num_load_only(main_flow, loader_tasks),
-        }
-    }
-
-    fn find_num_load_only(&self, main_flow: u32, loader_tasks: MaxLoaders) -> u32 {
-        use SpecializationTensorConfig::*;
-
-        let ideal_load_only = match (self.lhs, self.rhs) {
-            (MainFlowOnly, MainFlowOnly) => 0,
-            (MainFlowOnly, LoadFlowOnly) => loader_tasks.rhs,
-            (LoadFlowOnly, MainFlowOnly) => loader_tasks.lhs,
-            (LoadFlowOnly, LoadFlowOnly) => gcd(loader_tasks.lhs, loader_tasks.rhs),
-        };
-
-        // Don't stray too far from main_flow
-        best_divisor_close_to_reference(ideal_load_only, main_flow)
-    }
-}
-
-fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 {
-    let mut best = 1;
-    let mut best_dist = reference.abs_diff(1);
-
-    for d in 1..=dividible_value {
-        if dividible_value % d == 0 {
-            let dist = reference.abs_diff(d);
-            if dist < best_dist || (dist == best_dist && d > best) {
-                best = d;
-                best_dist = dist;
-            }
-        }
-    }
-
-    best
 }

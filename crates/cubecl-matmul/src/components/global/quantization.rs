@@ -8,7 +8,6 @@ use crate::components::{InputIdent, MatmulPrecision};
 /// thus we only store the scaling.
 #[derive(CubeType, Clone, Copy)]
 pub struct Quantization<MP: MatmulPrecision> {
-    // I use MP instead of simply ES to be future proof.
     pub scaling_lhs: MP::ES,
     pub scaling_rhs: MP::ES,
 }

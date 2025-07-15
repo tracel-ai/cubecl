@@ -6,6 +6,7 @@ use cubecl_core::{
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
+use cubecl_matmul::components::MatmulSelection;
 
 use crate::{
     base::{ConvolutionProblem, Dimensionality},
@@ -19,7 +20,6 @@ use cubecl_matmul::components::{
     stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,
 };
-use cubecl_matmul::kernels::matmul::MatmulSelection;
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_pitched};
 

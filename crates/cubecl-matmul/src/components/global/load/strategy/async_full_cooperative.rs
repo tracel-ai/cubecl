@@ -2,8 +2,8 @@ use crate::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
+        global_memory::{TensorReader, Window},
         load::AsyncFullLoadingStrategy,
-        tensor_view::{TensorReader, Window},
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -13,27 +13,27 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use super::{AsyncLoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads global memory into the stage without modification,  
+/// Loads global memory into the stage without layout change,  
 /// dividing the stage into the smallest possible contiguous slices.  
 ///
 /// Each `memcpy_async` is called with the same arguments for cooperative behaviour
-pub struct LoadingStrategy {}
+pub struct AsyncFullCooperativeLoading {}
 
-impl LoadingValidation for LoadingStrategy {
+impl LoadingValidation for AsyncFullCooperativeLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for LoadingStrategy {
+impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = Job;
+    type Job<MP: MatmulPrecision> = AsyncFullCooperativeJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job {
+    ) -> AsyncFullCooperativeJob {
         let matrix_layout = config.matrix_layout(input_ident);
 
         let num_slices = match matrix_layout {
@@ -41,7 +41,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
             MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(input_ident),
         };
 
-        Job {
+        AsyncFullCooperativeJob {
             num_slices,
             input_ident,
         }
@@ -53,7 +53,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job {
+pub struct AsyncFullCooperativeJob {
     #[cube(comptime)]
     num_slices: u32,
     #[cube(comptime)]
@@ -61,7 +61,7 @@ pub struct Job {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
+impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for AsyncFullCooperativeJob {
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,

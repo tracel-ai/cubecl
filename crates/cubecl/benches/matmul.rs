@@ -5,17 +5,18 @@ use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
     LoadSpecializationConfig, SpecializationTensorConfig, StageSize, TilingScheme,
 };
-use cubecl_matmul::kernels::matmul::double_buffering::DoubleBufferingArgs;
-use cubecl_matmul::kernels::matmul::double_unit::DoubleUnitSelectionArgs;
-use cubecl_matmul::kernels::matmul::ordered_double_buffering::OrderedSelectionArgs;
-use cubecl_matmul::kernels::matmul::simple::SimpleArgs;
-use cubecl_matmul::kernels::matmul::simple_unit::SimpleUnitSelectionArgs;
-use cubecl_matmul::kernels::matmul::{
+use cubecl_matmul::kernels::layered::double_buffering::DoubleBufferingArgs;
+use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
+use cubecl_matmul::kernels::layered::ordered_double_buffering::OrderedSelectionArgs;
+use cubecl_matmul::kernels::layered::simple::SimpleArgs;
+use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
+use cubecl_matmul::kernels::layered::{
     MatmulSelection, MultiRowStrategy, Selection, TileSizeSelection, closest_factor_pair,
 };
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
 use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
+use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
 use std::collections::BTreeMap;
 use std::time::Duration;
 

@@ -15,9 +15,10 @@ use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
 
-/// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
-/// - All planes load data to the stage
-/// - All planes are used in the stage matmul computation
+/// Performs matrix multiplication at the global level.
+///
+/// Fully loads all stages, synchronizes all planes, performs computation,
+/// synchronizes again, then proceeds to the next set of stages.
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
@@ -142,9 +143,5 @@ where
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         SMM::init_accumulator(config.stage_config())
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::zero_accumulator(acc, config.stage_config());
     }
 }

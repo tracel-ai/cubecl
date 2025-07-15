@@ -6,10 +6,10 @@ use cubecl_common::{future, profile::TimingMethod};
 
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
-    AtomicFeature,
+    AtomicFeature, Feature,
     ir::{Elem, FloatKind},
 };
-use cubecl_core::{CubeCount, CubeDim, Feature, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{

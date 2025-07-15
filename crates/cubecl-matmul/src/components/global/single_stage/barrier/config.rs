@@ -1,21 +1,19 @@
 use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
 
-use crate::{
-    components::{
-        Ident, InputIdent, MatmulConfig, MatrixLayout,
-        global::{
-            self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-            load::{LoaderMode, LoadingValidation},
-            multi_stage::EventLoadingMode,
-            shared::shared_global_config_validation,
-        },
-        stage,
+use crate::components::{
+    Ident, InputIdent, LoadingPrecomputeStrategy, MatrixLayout,
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    global::{
+        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        load::{LoaderMode, LoadingValidation},
+        multi_stage::EventLoadingMode,
+        shared::shared_global_config_validation,
     },
-    kernels::{MatmulAvailabilityError, MatmulSetupError, matmul::LoadingPrecomputeStrategy},
+    stage,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for single stage matmuls
+/// Configuration for single barrier matmul
 pub struct SimpleBarrierConfig<S: stage::StageConfig> {
     stage_config: S,
     num_planes: u32,
@@ -104,10 +102,14 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleBarrierConfig<S> {
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for SimpleBarrierConfig<S> {}
-
 impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new config for simple barrier global matmul
+    ///
+    /// May return an error if:
+    /// - a loader is invalid
+    /// - CubeDim is too big
+    /// - Barriers are not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         stage_config: S,

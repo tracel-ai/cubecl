@@ -16,6 +16,7 @@ type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 #[cube(launch_unchecked)]
+/// Launches the matmul kernel
 pub(crate) fn matmul<
     Args: MatmulArgs,
     EI: Numeric,
@@ -31,7 +32,7 @@ pub(crate) fn matmul<
 ) {
     #[allow(clippy::collapsible_if)]
     if comptime!(config.can_yield_extra_cubes()) {
-        if CUBE_POS >= cube_count_args.max_cube_pos() {
+        if CUBE_POS >= cube_count_args.num_valid_cubes() {
             terminate!()
         }
     }

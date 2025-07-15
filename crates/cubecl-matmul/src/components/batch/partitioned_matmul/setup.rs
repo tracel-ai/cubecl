@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulLineSizes;
 use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
@@ -8,13 +7,13 @@ use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatm
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSelection,
+    MatmulSpec, OutputRuntimeArg,
 };
-use crate::kernels::MatmulSetupError;
-use crate::kernels::matmul::MatmulSelection;
+use crate::components::{MatmulLineSizes, MatmulSetupError};
 use cubecl_core::prelude::*;
 
+/// Simple partitioned batch matmul family for any precision
 pub struct PartitionedBatchMatmulFamily<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> {
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
@@ -49,7 +48,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        cube_count_args: CubeCountInputArgs<'a, R>,
+        cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
     ) {
         unsafe {
@@ -59,7 +58,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
                 cube_dim,
                 input,
                 output,
-                cube_count_args,
+                cube_count_input,
                 config,
             );
         }
