@@ -3,20 +3,15 @@ use cubecl::{Feature, TmaFeature, prelude::*};
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
-    LoadSpecializationConfig, SpecializationTensorConfig, StageSize, TilingScheme,
+    LoadingPrecomputeStrategy, MatmulPrecision, MatmulSelection, StageSize, TilingScheme,
 };
 use cubecl_matmul::kernels::layered::double_buffering::DoubleBufferingArgs;
 use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::ordered_double_buffering::OrderedSelectionArgs;
 use cubecl_matmul::kernels::layered::simple::SimpleArgs;
 use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
-use cubecl_matmul::kernels::layered::{
-    MatmulSelection, MultiRowStrategy, Selection, TileSizeSelection, closest_factor_pair,
-};
-use cubecl_matmul::{self as matmul};
-use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
-use cubecl_matmul::{SyncBufferLoadingStrategy, SyncLoadingStrategy};
-use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
+use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
+use cubecl_matmul::{self as matmul, SyncLoadingStrategy, SyncPartialLoadingStrategy};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -135,29 +130,15 @@ struct MatmulBench<R: Runtime, MP> {
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    // for tl in [true, false] {
-    // for tr in [true, false] {
     for tl in [false] {
         for tr in [false] {
             for (b, m, n, k) in [
-                // (1, 8192, 8192, 8192),
+                (1, 8192, 8192, 8192),
                 (1, 6144, 6144, 6144),
                 (1, 4096, 4096, 4096),
-                // (1024, 256, 256, 256),
-                // OuterProduct
-                // (1, 4 * 4096, 4 * 4096, 1),
-                //  // InnerProduct
-                //  (2, 1, 8 * 4096, 1),
-                //  // VecScalar
-                //  (2, 8 * 4096, 1, 1),
-                //  // ScalarVec
-                //  (2, 1, 4096, 1),
-                //  // MatVec
-                //  (2, 4096, 1, 4096),
-                //  // VecMat
-                //  (2, 1, 4096, 4096),
-                //  // General
-                //  (2, 4096, 4096, 4096),
+                (1, 2048, 2048, 2048),
+                (1, 1024, 1024, 1024),
+                (1, 512, 512, 512),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
@@ -196,8 +177,8 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
             let flops = 2 * b * m * n * k;
             let computed = BenchmarkComputations::new(&val);
             let tflops = flops as f64 / (computed.median.as_secs_f64() * 1e12);
-            println!("Times: {val}");
             println!("TFLOPS: {tflops}");
+            println!("Times: {val}");
             Ok((val, tflops))
         }
         Err(err) => {
@@ -216,7 +197,7 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
     let mut algos = BTreeMap::<u64, (BenchmarkDurations, MatmulSelection, f64)>::new();
 
     for t in [(1, 4, 4), (4, 4, 4)] {
-        for p in [(1, 2, 8), (1, 2, 2)] {
+        for p in [(1, 2, 8), (1, 2, 2), (8, 2, 2), (4, 4, 4)] {
             for s in [(8, 8), (16, 16)] {
                 let plane_dim = client.properties().hardware.plane_size_min;
                 let tiling = TilingScheme::builder()
@@ -239,14 +220,13 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .plane_dim(plane_dim)
                     .partition_buffering(PartitionBuffering::Double)
                     .hypercube_config(hypercube)
-                    .loading_precompute_strategy(
-                        cubecl_matmul::kernels::matmul::LoadingPrecomputeStrategy::Always,
-                    )
+                    .loading_precompute_strategy(LoadingPrecomputeStrategy::Always)
                     .build();
                 let result = run_one::<R, MP>(
                     Default::default(),
                     matmul::Strategy::DoubleUnit(Selection::Forced(selection.clone())),
-                    (8, 1024, 1024, 1024),
+                    // (8, 1024, 1024, 1024),
+                    (1, 4096, 4096, 4096),
                     (false, false),
                 );
 
@@ -273,7 +253,7 @@ fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
     println!("Simple Unit Min");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
             tile_size: TileSizeSelection::MinTileSize,
         })),
     );
@@ -281,7 +261,7 @@ fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
     println!("Simple Unit Max");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
             tile_size: TileSizeSelection::MaxTileSize,
         })),
     );
@@ -328,7 +308,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(
-            SyncBufferLoadingStrategy::Tilewise,
+            SyncPartialLoadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: false }),
         ),
     );
@@ -337,7 +317,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(
-            SyncBufferLoadingStrategy::Tilewise,
+            SyncPartialLoadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: true }),
         ),
     );
