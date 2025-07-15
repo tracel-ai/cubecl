@@ -326,9 +326,9 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            partition_k: 8,
-            row_count: 2,
-            rows_per_plane: 2,
+            partition_k: Some(8),
+            row_count: Some(2),
+            rows_per_plane: Some(2),
         })),
     );
 }
