@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use cubecl::{Feature, TmaFeature, prelude::*};
+use cubecl::prelude::*;
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
@@ -13,7 +13,6 @@ use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
 use cubecl_matmul::{self as matmul, SyncLoadingStrategy, SyncPartialLoadingStrategy};
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
 use cubecl::future;
@@ -126,19 +125,27 @@ struct MatmulBench<R: Runtime, MP> {
     _mp: PhantomData<MP>,
 }
 
+fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
+    let expected = 2 * 6144 * 6144 * 6144;
+    let num_ops = 2 * m * n * k;
+
+    let b = usize::max(expected / num_ops, 1);
+    let b = 2usize.pow((b as f64).log(2.0).floor() as u32);
+
+    (b, m, n, k)
+}
+
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
-    let client = R::client(&device);
-
     for tl in [false] {
         for tr in [false] {
             for (b, m, n, k) in [
-                (1, 8192, 8192, 8192),
-                (1, 6144, 6144, 6144),
-                (1, 4096, 4096, 4096),
-                (1, 2048, 2048, 2048),
-                (1, 1024, 1024, 1024),
-                (1, 512, 512, 512),
+                entry(8192, 8192, 8192),
+                entry(6144, 6144, 6144),
+                entry(4096, 4096, 4096),
+                entry(2048, 2048, 2048),
+                entry(1024, 1024, 1024),
+                entry(512, 512, 512),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
@@ -320,6 +327,16 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
             SyncPartialLoadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: true }),
         ),
+    );
+
+    println!("Double Buffering Ordered");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+            row_count: Some(8),
+            rows_per_plane: Some(2),
+            partition_k: Some(2),
+        })),
     );
 }
 
