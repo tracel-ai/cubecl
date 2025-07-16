@@ -229,10 +229,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
             let key_cloned = key.clone();
 
+            let client_cloned = client.clone();
             let fut_result = async move {
                 Self::generate_tune_message(
                     key_cloned,
-                    &client,
+                    &client_cloned,
                     plan,
                     autotunables,
                     test_inputs,
@@ -256,9 +257,18 @@ impl<K: AutotuneKey> Tuner<K> {
                     // Mark the current tuning as pending.
                     AutotuneMessage::Pending(key)
                 } else {
+                    #[cfg(multi_threading)]
+                    // When multi threading, we want the current profiling to execute in a batch.
+                    let stream_current = client.profile_acquire();
+
                     // On native, it is possible to run the tuning on a thread, which could help startup times,
                     // but it could be strange, as benchmarks would need a "warmup" time until a good kernel is selected.
-                    cubecl_common::future::block_on(fut_result)
+                    let result  = cubecl_common::future::block_on(fut_result);
+
+                    #[cfg(multi_threading)]
+                    client.profile_release(stream_current);
+
+                    result
                 }
             }
         };
@@ -340,6 +350,7 @@ impl<K: AutotuneKey> Tuner<K> {
             for index in tunable_indices {
                 let op = &autotunables[index];
                 let name = op.name().to_string();
+                println!("{name:?}");
                 let tuner = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
                 let profiles = tuner.profile().await.map(|result| (name, index, result));
 

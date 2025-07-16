@@ -412,6 +412,7 @@ where
             0,
         );
 
+        println!("Wait for aquiring.");
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
@@ -429,7 +430,9 @@ where
 
         let token = self.channel.start_profile();
 
+        println!("Start func inner");
         let out = func();
+        println!("Finished func inner");
 
         #[allow(unused_mut)]
         let mut result = self.channel.end_profile(token);
@@ -497,7 +500,7 @@ where
     }
 
     #[cfg(multi_threading)]
-    fn profile_acquire(&self) -> Option<StreamId> {
+    pub(crate) fn profile_acquire(&self) -> Option<StreamId> {
         let stream_id = StreamId::current();
         let mut current = self.state.current_profiling.write();
 
@@ -513,6 +516,7 @@ where
                     std::thread::sleep(core::time::Duration::from_millis(10));
 
                     let mut current = self.state.current_profiling.write();
+                    println!("Waiting {current:?}");
 
                     match current.as_mut() {
                         Some(current_stream_id) => {
@@ -535,7 +539,7 @@ where
     }
 
     #[cfg(multi_threading)]
-    fn profile_release(&self, stream_id: Option<StreamId>) {
+    pub(crate) fn profile_release(&self, stream_id: Option<StreamId>) {
         let stream_id = match stream_id {
             Some(val) => val,
             None => return, // No releasing
