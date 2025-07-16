@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::profile::TimingMethod;
 use hashbrown::HashSet;
 
 use core::time::Duration;
@@ -341,13 +341,13 @@ impl<K: AutotuneKey> Tuner<K> {
                 let op = &autotunables[index];
                 let name = op.name().to_string();
                 let tuner = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
-                let profiles = tuner.profile().map(|bench| (name, index, bench));
+                let profiles = tuner.profile().await.map(|result| (name, index, result));
 
                 match profiles {
                     Ok(result) => {
                         // Wait for the results to come in, and determine the outcome.
-                        let (name, index, profiles) = result;
-                        let result = Self::process_autotune(name, index, profiles).await;
+                        let (name, index, result) = result;
+                        let result = Self::process_autotune(name, index, result).await;
                         match result {
                             Ok(val) => {
                                 results[index] = Ok(val);
@@ -373,15 +373,12 @@ impl<K: AutotuneKey> Tuner<K> {
     async fn process_autotune(
         name: String,
         index: usize,
-        profiles: Vec<ProfileDuration>,
+        result: (Vec<Duration>, TimingMethod),
     ) -> Result<AutotuneOutcome, AutotuneError> {
-        let mut durations = Vec::new();
-        if !profiles.is_empty() {
-            let timing_method = profiles.first().unwrap().timing_method();
-            for profile in profiles {
-                durations.push(profile.resolve().await.duration());
-            }
-            let bench_durations = BenchmarkDurations::from_durations(timing_method, durations);
+        let (durations, timing) = result;
+
+        if !durations.is_empty() {
+            let bench_durations = BenchmarkDurations::from_durations(timing, durations);
 
             Ok(AutotuneOutcome::new(
                 name,
