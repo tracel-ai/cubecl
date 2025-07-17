@@ -204,7 +204,6 @@ impl<K: AutotuneKey> Tuner<K> {
     ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
         let current = StreamId::current();
-        println!("({current}) Tuning {key}");
 
         let autotunables = tunables.autotunables();
         let mut results = Vec::with_capacity(autotunables.len());
@@ -214,7 +213,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let plan = tunables.plan(&key);
-        println!("({current}) Tuning plan {plan:?} for key {key}");
+        // println!("({current}) Tuning plan {plan:?} for key {key}");
         let client = client.clone();
         let channel = self.channel.0.clone();
 
@@ -234,17 +233,16 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let client_cloned = client.clone();
 
+        // println!("({current}) generate inputs for  {key}");
+        // println!("({current}) generate inputs done for  {key}");
         let test_inputs = tunables.generate_inputs(&key, inputs);
         #[cfg(std_io)]
         let checksum = tunables.compute_checksum();
         let key_cloned = key.clone();
 
         let fut_result = async move {
-            println!("({current}) generate inputs for  {key}");
-            println!("({current}) generate inputs done for  {key}");
-
             let inside = StreamId::current();
-            println!("({inside}) start autotune origine ({current}) task for {key}");
+            println!("({inside}) START autotune origine ({current}) task for {key}");
             let t = Self::generate_tune_message(
                 key_cloned,
                 &client_cloned,
