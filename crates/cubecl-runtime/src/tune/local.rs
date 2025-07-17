@@ -2,6 +2,7 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::{
     any::{Any, TypeId},
