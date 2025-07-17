@@ -274,7 +274,8 @@ impl<K: AutotuneKey> Tuner<K> {
                         AutotuneMessage::Pending(key)
                     } else {
                         println!("({current}) block on executing autotune with the runtime.");
-                        TunerRuntime::block_on(fut_result, client)
+                        // TunerRuntime::block_on(fut_result, client)
+                        cubecl_common::future::block_on(fut_result)
                     }
                 }
             };

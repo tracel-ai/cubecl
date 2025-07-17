@@ -136,6 +136,7 @@ where
         // If this is cached and ready, use the operation.
         {
             let state = self.state.read();
+
             if let Some(map) = state.as_ref() {
                 let read = self
                     .count
