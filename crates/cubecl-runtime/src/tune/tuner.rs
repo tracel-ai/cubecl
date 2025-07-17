@@ -257,6 +257,8 @@ impl<K: AutotuneKey> Tuner<K> {
             let message = {
                 cfg_if::cfg_if! {
                     if #[cfg(target_family = "wasm")] {
+                        let sender = sender.clone();
+
                         let send_fut = async move {
                             // If the channel has been closed, ignore. Maybe the main app is exiting
                             // before the tune results come in.
