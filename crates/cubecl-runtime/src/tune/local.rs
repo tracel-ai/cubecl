@@ -68,9 +68,17 @@ where
                 return set.clone().downcast().expect(DOWNCAST_ERROR);
             }
         };
+
         core::mem::drop(sets);
 
         let mut sets = self.sets.write();
+
+        if let Some(sets) = sets.as_ref() {
+            if let Some(set) = sets.get(&type_id) {
+                return set.clone().downcast().expect(DOWNCAST_ERROR);
+            }
+        };
+
         let content = Arc::new(init_set());
 
         if let Some(sets) = sets.as_mut() {
