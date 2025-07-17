@@ -137,6 +137,7 @@ impl<'a> ArgsManager<'a> {
     }
 
     pub fn get_builtin(&self, builtin: Builtin) -> Value<'a, 'a> {
-        self.builtin[builtin as usize].expect("Unsupported builtin was used")
+        self.builtin[builtin as usize]
+            .expect(&format!("Unsupported builtin was used: {:?}", builtin))
     }
 }

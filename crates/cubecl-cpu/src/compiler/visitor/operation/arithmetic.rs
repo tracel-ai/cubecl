@@ -69,9 +69,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Div(div) => {
                 let (lhs, rhs) = self.get_binary_op_variable(div.lhs, div.rhs);
                 let operation = if div.lhs.elem().is_int() {
-                    arith::divf(lhs, rhs, self.location)
-                } else {
                     arith::divsi(lhs, rhs, self.location)
+                } else {
+                    arith::divf(lhs, rhs, self.location)
                 };
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);

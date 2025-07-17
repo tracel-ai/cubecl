@@ -11,7 +11,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::MemoryManagement,
+    memory_management::{MemoryManagement, offset_handles},
     storage::{BindingResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
@@ -129,10 +129,26 @@ impl ComputeServer for CpuServer {
 
     fn empty_tensors(
         &mut self,
-        _shapes: Vec<&[usize]>,
-        _elem_sizes: Vec<usize>,
+        shape: Vec<&[usize]>,
+        elem_size: Vec<usize>,
     ) -> Vec<(Handle, Vec<usize>)> {
-        todo!("Check how strides should be done on CPU")
+        let align = 8;
+        let strides = shape
+            .iter()
+            .map(|shape| contiguous_strides(shape))
+            .collect::<Vec<_>>();
+        let sizes = shape
+            .iter()
+            .map(|it| it.iter().product::<usize>())
+            .zip(elem_size)
+            .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
+            .collect::<Vec<_>>();
+        let total_size = sizes.iter().sum::<usize>();
+
+        let mem_handle = self.empty(total_size);
+        let handles = offset_handles(mem_handle, &sizes);
+
+        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(
@@ -210,4 +226,13 @@ impl CpuServer {
 
         resource.write().copy_from_slice(data);
     }
+}
+
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
 }

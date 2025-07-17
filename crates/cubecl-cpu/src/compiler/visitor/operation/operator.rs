@@ -1,6 +1,6 @@
 use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator};
 use tracel_llvm::melior::{
-    dialect::{arith, memref, ods::vector},
+    dialect::{arith, memref, ods::arith as ods_arith, ods::vector},
     ir::attribute::DenseI64ArrayAttribute,
 };
 
@@ -115,6 +115,21 @@ impl<'a> Visitor<'a> {
             self.append_operation_with_result(arith::extui(value, target, self.location))
         } else if to_cast.elem() == out.elem() {
             value
+        } else if to_cast.elem().is_float()
+            && out.elem().is_float()
+            && to_cast.elem().size() < out.elem().size()
+        {
+            self.append_operation_with_result(arith::extf(value, target, self.location))
+        } else if to_cast.elem().is_float()
+            && out.elem().is_float()
+            && to_cast.elem().size() > out.elem().size()
+        {
+            self.append_operation_with_result(ods_arith::truncf(
+                self.context,
+                target,
+                value,
+                self.location,
+            ))
         } else {
             panic!("Cast not implemented {} -> {}", to_cast.item, out.item);
         };
