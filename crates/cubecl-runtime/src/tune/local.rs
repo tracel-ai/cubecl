@@ -221,6 +221,7 @@ where
                     let autotune =
                         tuner.prepare_autotune(key.clone(), &inputs, &operations, client);
                     core::mem::drop(state);
+                    println!("({current}) State lock dropped {key:?}");
 
                     autotune();
 
