@@ -218,8 +218,10 @@ where
                         .as_ref()
                         .and_then(|s| s.get(id))
                         .expect("Should be initialized");
+                    println!("({current}) Prepare autotune {key:?}");
                     let autotune =
                         tuner.prepare_autotune(key.clone(), &inputs, &operations, client);
+                    println!("({current}) Prepare autotune done. {key:?}");
                     core::mem::drop(state);
                     println!("({current}) State lock dropped {key:?}");
 
