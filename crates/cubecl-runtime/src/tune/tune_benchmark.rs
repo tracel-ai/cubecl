@@ -69,7 +69,9 @@ impl<
             match result {
                 Ok(val) => {
                     timing = val.timing_method();
+                    println!("Waiting on execution ..");
                     let duration = val.resolve().await.duration();
+                    println!("Waiting on execution done.");
 
                     // We need to await the duration before.
                     if let Some(err) = error {
@@ -83,6 +85,7 @@ impl<
                 }
                 Err(err) => {
                     log::warn!("Error while autotuning {err:?}");
+                    println!("Error while autotuning {err:?}");
                     return Err(AutotuneError::Unknown(format!("{err:?}")));
                 }
             }

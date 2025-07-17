@@ -257,16 +257,18 @@ impl<K: AutotuneKey> Tuner<K> {
                     // Mark the current tuning as pending.
                     AutotuneMessage::Pending(key)
                 } else {
-                    #[cfg(multi_threading)]
                     // When multi threading, we want the current profiling to execute in a batch.
+                    #[cfg(multi_threading)]
                     let stream_current = client.profile_acquire();
+                    println!("Start autotune {stream_current:?}");
 
                     // On native, it is possible to run the tuning on a thread, which could help startup times,
                     // but it could be strange, as benchmarks would need a "warmup" time until a good kernel is selected.
                     let result  = cubecl_common::future::block_on(fut_result);
 
                     #[cfg(multi_threading)]
-                    client.profile_release(stream_current);
+                    client.profile_release(stream_current, true);
+                    println!("Finished autotune {stream_current:?}");
 
                     result
                 }

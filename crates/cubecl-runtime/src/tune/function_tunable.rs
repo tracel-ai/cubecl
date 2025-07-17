@@ -145,6 +145,7 @@ macro_rules! impl_tunable {
                     f: impl Fn($($params,)*) -> Out,
                     $($params: $params,)*
                 ) -> Out {
+                    std::println!("Calling");
                     f($($params,)*)
                 }
                 call_inner(self, $($params),*)
@@ -172,6 +173,7 @@ macro_rules! impl_tunable_result {
                     f: impl Fn($($params,)*) -> Result<Out, Err>,
                     $($params: $params,)*
                 ) -> Result<Out, Err> {
+                    std::println!("Calling here");
                     f($($params,)*)
                 }
                 call_inner(self, $($params),*).map_err(Into::into)

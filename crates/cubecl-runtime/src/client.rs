@@ -272,12 +272,12 @@ where
         mode: ExecutionMode,
     ) {
         let level = self.state.logger.profile_level();
+        let name = kernel.name();
+        println!("Executing {:?}", name);
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
                 self.profile_guard();
-
-                let name = kernel.name();
 
                 unsafe {
                     self.channel
@@ -315,6 +315,7 @@ where
                 self.state.logger.register_profiled(info, profile);
             }
         }
+        println!("Execution done.");
     }
 
     /// Executes the `kernel` over the given `bindings`.
@@ -412,7 +413,6 @@ where
             0,
         );
 
-        println!("Wait for aquiring.");
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
@@ -460,7 +460,7 @@ where
         }
 
         #[cfg(multi_threading)]
-        self.profile_release(stream_id);
+        self.profile_release(stream_id, true);
 
         result
     }
@@ -482,11 +482,12 @@ where
             core::mem::drop(current);
 
             loop {
-                std::thread::sleep(core::time::Duration::from_millis(10));
+                std::thread::sleep(core::time::Duration::from_millis(500));
 
                 let current = self.state.current_profiling.read();
                 match current.as_ref() {
                     Some(current_stream_id) => {
+                        println!("Profile guard loop {current:?} ==? {:?}", stream_id);
                         if current_stream_id == &stream_id {
                             return;
                         }
@@ -525,6 +526,7 @@ where
                             }
                         }
                         None => {
+                            println!("Aquired Loop {stream_id:?}");
                             *current = Some(stream_id);
                             return Some(stream_id);
                         }
@@ -532,6 +534,7 @@ where
                 }
             }
             None => {
+                println!("Aquired FIRST {stream_id:?}");
                 *current = Some(stream_id);
                 Some(stream_id)
             }
@@ -539,7 +542,8 @@ where
     }
 
     #[cfg(multi_threading)]
-    pub(crate) fn profile_release(&self, stream_id: Option<StreamId>) {
+    pub(crate) fn profile_release(&self, stream_id: Option<StreamId>, strict: bool) {
+        println!("Released {stream_id:?}");
         let stream_id = match stream_id {
             Some(val) => val,
             None => return, // No releasing
@@ -549,12 +553,18 @@ where
         match current.as_mut() {
             Some(current_stream_id) => {
                 if current_stream_id != &stream_id {
-                    panic!("Can't release a different profiling guard.");
+                    if strict {
+                        panic!("Can't release a different profiling guard.");
+                    }
                 } else {
                     *current = None;
                 }
             }
-            None => panic!("Can't release an empty profiling guard"),
+            None => {
+                if strict {
+                    panic!("Can't release an empty profiling guard")
+                }
+            }
         }
     }
 }
