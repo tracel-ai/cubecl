@@ -190,7 +190,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute benchmarks to find out what the fastest operation is.
-    pub fn execute_autotune<
+    pub fn prepare_autotune<
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
         In: Clone + Send + Sync + 'static,
@@ -201,7 +201,7 @@ impl<K: AutotuneKey> Tuner<K> {
         inputs: &In,
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<S, C>,
-    ) {
+    ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
         let current = StreamId::current();
         println!("({current}) Tuning {key}");
@@ -216,72 +216,76 @@ impl<K: AutotuneKey> Tuner<K> {
         let plan = tunables.plan(&key);
         println!("({current}) Tuning plan {plan:?} for key {key}");
         let client = client.clone();
+        let channel = self.channel.0.clone();
 
-        let message = 'message: {
-            if autotunables.len() == 1 {
-                println!("({current}) No need to run autotune for key {key}");
-                break 'message AutotuneMessage::Done {
-                    key,
-                    fastest_index: 0,
-                    results,
-                    #[cfg(std_io)]
-                    checksum: tunables.compute_checksum(),
-                };
-            }
+        if autotunables.len() == 1 {
+            println!("({current}) No need to run autotune for key {key}");
+            let msg = AutotuneMessage::Done {
+                key,
+                fastest_index: 0,
+                results,
+                #[cfg(std_io)]
+                checksum: tunables.compute_checksum(),
+            };
+            return Box::new(move || {
+                channel.try_send(msg).expect("Loss message channel somehow");
+            });
+        }
 
+        let client_cloned = client.clone();
+
+        let test_inputs = tunables.generate_inputs(&key, inputs);
+        #[cfg(std_io)]
+        let checksum = tunables.compute_checksum();
+        let key_cloned = key.clone();
+
+        let fut_result = async move {
             println!("({current}) generate inputs for  {key}");
-            let test_inputs = tunables.generate_inputs(&key, inputs);
             println!("({current}) generate inputs done for  {key}");
 
-            #[cfg(std_io)]
-            let checksum = tunables.compute_checksum();
-
-            let key_cloned = key.clone();
-
-            let client_cloned = client.clone();
-            let fut_result = async move {
-                let inside = StreamId::current();
-                println!("({inside}) start autotune origine ({current}) task for {key}");
-                let t = Self::generate_tune_message(
-                    key_cloned,
-                    &client_cloned,
-                    plan,
-                    autotunables,
-                    test_inputs,
-                    results,
-                    #[cfg(std_io)]
-                    checksum,
-                )
-                .await;
-                println!("({inside}) finished autotune origine ({current}) task for {key}");
-                t
-            };
-
-            cfg_if::cfg_if! {
-                if #[cfg(target_family = "wasm")] {
-                    let sender = self.channel.0.clone();
-                    let send_fut = async move {
-                        // If the channel has been closed, ignore. Maybe the main app is exiting
-                        // before the tune results come in.
-                        let _ = sender.send(fut_result.await).await;
-                    };
-                    // On wasm, spawn the tuning as a detached task.
-                    wasm_bindgen_futures::spawn_local(send_fut);
-                    // Mark the current tuning as pending.
-                    AutotuneMessage::Pending(key)
-                } else {
-                    println!("({current}) block on executing autotune with the runtime.");
-                    TunerRuntime::block_on(fut_result, client)
-                }
-            }
+            let inside = StreamId::current();
+            println!("({inside}) start autotune origine ({current}) task for {key}");
+            let t = Self::generate_tune_message(
+                key_cloned,
+                &client_cloned,
+                plan,
+                autotunables,
+                test_inputs,
+                results,
+                #[cfg(std_io)]
+                checksum,
+            )
+            .await;
+            println!("({inside}) finished autotune origine ({current}) task for {key}");
+            t
         };
 
-        // Note that this message will be processed straight away by handle_results.
-        println!("({current}) Sending in channel message");
-        self.channel
-            .0
-            .try_send(message)
-            .expect("Loss message channel somehow");
+        Box::new(move || {
+            let message = {
+                cfg_if::cfg_if! {
+                    if #[cfg(target_family = "wasm")] {
+                        let sender = self.channel.0.clone();
+                        let send_fut = async move {
+                            // If the channel has been closed, ignore. Maybe the main app is exiting
+                            // before the tune results come in.
+                            let _ = sender.send(fut_result.await).await;
+                        };
+                        // On wasm, spawn the tuning as a detached task.
+                        wasm_bindgen_futures::spawn_local(send_fut);
+                        // Mark the current tuning as pending.
+                        AutotuneMessage::Pending(key)
+                    } else {
+                        println!("({current}) block on executing autotune with the runtime.");
+                        TunerRuntime::block_on(fut_result, client)
+                    }
+                }
+            };
+            // Note that this message will be processed straight away by handle_results.
+            println!("({current}) Sending in channel message");
+            channel
+                .try_send(message)
+                .expect("Loss message channel somehow");
+        })
     }
 
     async fn generate_tune_message<

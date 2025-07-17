@@ -218,7 +218,12 @@ where
                         .as_ref()
                         .and_then(|s| s.get(id))
                         .expect("Should be initialized");
-                    tuner.execute_autotune(key.clone(), &inputs, &operations, client);
+                    let autotune =
+                        tuner.prepare_autotune(key.clone(), &inputs, &operations, client);
+                    core::mem::drop(state);
+
+                    autotune();
+
                     println!("({current}) Tuning done for {key:?}");
                 } else {
                     // We're waiting for results to come in.
@@ -234,6 +239,7 @@ where
         };
 
         let fastest = {
+            println!("({current}) final lock of state");
             let mut state = self.state.write();
             let tuner = state
                 .as_mut()
@@ -241,7 +247,9 @@ where
                 .expect("Should be initialized");
 
             // Read all results that have come in since.
+            println!("({current}) Handling results");
             tuner.handle_results();
+            println!("({current}) Handling results done.");
 
             // Check again what the fastest option is, new results might have come in.
             match tuner.fastest(&key) {
