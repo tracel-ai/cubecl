@@ -7,6 +7,7 @@ use core::{
     any::{Any, TypeId},
     fmt::Display,
     hash::Hash,
+    sync::atomic::AtomicU32,
 };
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
@@ -20,6 +21,7 @@ pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: spin::RwLock<Option<HashMap<ID, Tuner<AK>>>>,
     name: &'static str,
     sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
+    count: AtomicU32,
 }
 
 unsafe impl<AK: AutotuneKey, ID> Sync for LocalTuner<AK, ID> {}
@@ -48,6 +50,7 @@ where
             state: spin::RwLock::new(None),
             name,
             sets: spin::RwLock::new(None),
+            count: AtomicU32::new(0),
         }
     }
 
@@ -131,22 +134,35 @@ where
         println!("({current}) Autotune execute {key:?}");
 
         // If this is cached and ready, use the operation.
-        if let Some(map) = self.state.read().as_ref() {
-            if let Some(tuner) = map.get(id) {
-                if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-                    println!("({current}) Autotune execution hit {key:?}");
-                    #[cfg(feature = "autotune-checks")]
-                    self.checks(&operations, &inputs);
+        {
+            let state = self.state.read();
+            if let Some(map) = state.as_ref() {
+                let read = self
+                    .count
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                println!("({current}) STATE READ {read}");
+                if let Some(tuner) = map.get(id) {
+                    if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+                        println!("({current}) Autotune execution hit {key:?}");
+                        #[cfg(feature = "autotune-checks")]
+                        self.checks(&operations, &inputs);
+                        core::mem::drop(state);
 
-                    let op = operations.fastest(fastest_index);
-                    println!("({current}) Autotune found fastest {key:?}");
-                    let result = op
-                        .execute(inputs)
-                        .expect("Should run when selected by autotune.");
-                    println!("({current}) Autotune executed fastest {key:?}");
+                        let op = operations.fastest(fastest_index);
 
-                    return result;
+                        println!("({current}) Autotune found fastest {key:?}");
+                        let result = op
+                            .execute(inputs)
+                            .expect("Should run when selected by autotune.");
+                        println!("({current}) Autotune executed fastest {key:?}");
+
+                        self.count
+                            .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                        return result;
+                    }
                 }
+                self.count
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
             }
         }
 
@@ -155,6 +171,11 @@ where
         // checksums if need be.
         let (fastest, run_autotune) = {
             let mut state = self.state.write();
+            let read = self
+                .count
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            println!("({current}) STATE WRITE {read}");
+
             let map = state.get_or_insert_with(Default::default);
             let tuner = map.entry(id.clone()).or_insert_with(move || {
                 let name = self.name.replace("::", "-");
@@ -182,6 +203,9 @@ where
                 // deadlock.
                 run_autotune = true;
             }
+
+            self.count
+                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
             (fastest, run_autotune)
         };
 
@@ -213,6 +237,11 @@ where
                     let current = StreamId::current();
                     println!("({current}) Will try to start a new autotune for key {key:?}");
                     let state = self.state.read();
+                    let read = self
+                        .count
+                        .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                    println!("({current}) During auto read {read}");
+
                     println!("({current}) State lock in read mode {key:?}");
                     let tuner = state
                         .as_ref()
@@ -223,6 +252,9 @@ where
                         tuner.prepare_autotune(key.clone(), &inputs, &operations, client);
                     println!("({current}) Prepare autotune done. {key:?}");
                     core::mem::drop(state);
+                    self.count
+                        .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+
                     println!("({current}) State lock dropped {key:?}");
 
                     autotune();
@@ -244,6 +276,11 @@ where
         let fastest = {
             println!("({current}) final lock of state");
             let mut state = self.state.write();
+            let read = self
+                .count
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            println!("({current}) Bad a la fin write {read}");
+
             let tuner = state
                 .as_mut()
                 .and_then(|s| s.get_mut(id))
@@ -255,7 +292,7 @@ where
             println!("({current}) Handling results done.");
 
             // Check again what the fastest option is, new results might have come in.
-            match tuner.fastest(&key) {
+            let t = match tuner.fastest(&key) {
                 TuneCacheResult::Hit { fastest_index } => {
                     // Theres a known good value - just run it.
                     fastest_index
@@ -279,7 +316,11 @@ where
                 TuneCacheResult::Unchecked => {
                     panic!("Should have checked the cache.")
                 }
-            }
+            };
+
+            self.count
+                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            t
         };
 
         #[cfg(feature = "autotune-checks")]
