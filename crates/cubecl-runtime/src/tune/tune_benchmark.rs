@@ -2,7 +2,10 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::time::Duration;
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
+use cubecl_common::{
+    profile::{ProfileDuration, TimingMethod},
+    stream_id::StreamId,
+};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
@@ -44,6 +47,8 @@ impl<
     ///
     /// Returns at least one duration, otherwise an error is returned.
     pub async fn profile(self) -> Result<(Vec<Duration>, TimingMethod), AutotuneError> {
+        let current = StreamId::current();
+        println!("({current}) Inside profile");
         let operation = self.operation;
         let num_samples = 10;
         let mut durations: Vec<_> = Vec::with_capacity(num_samples);
@@ -51,27 +56,35 @@ impl<
 
         for i in 0..num_samples + 1 {
             let mut error = None;
+            println!("({current}) Will lock to profile {}", operation.name());
             let result: Result<ProfileDuration, crate::server::ProfileError> = self.client.profile(
                 || {
+                    println!("({current}) Operation profiled inside a profile");
                     // It is important to return the output since otherwise deadcode elimination
                     // might optimize away code that needs to be profiled.
-                    match operation.execute(self.inputs.clone()) {
+                    let t = match operation.execute(self.inputs.clone()) {
                         Ok(val) => Ok(val),
                         Err(err) => {
                             error = Some(err);
                             Err(())
                         }
-                    }
+                    };
+                    println!(
+                        "({current}) Finished operation execution {}",
+                        operation.name()
+                    );
+                    t
                 },
                 operation.name(),
             );
 
+            let current = StreamId::current();
             match result {
                 Ok(val) => {
                     timing = val.timing_method();
-                    println!("Waiting on execution ..");
+                    println!("({current}) Waiting on execution ..");
                     let duration = val.resolve().await.duration();
-                    println!("Waiting on execution done.");
+                    println!("({current}) Waiting on execution done.");
 
                     // We need to await the duration before.
                     if let Some(err) = error {
@@ -85,7 +98,7 @@ impl<
                 }
                 Err(err) => {
                     log::warn!("Error while autotuning {err:?}");
-                    println!("Error while autotuning {err:?}");
+                    println!("({current}), Error while autotuning {err:?}");
                     return Err(AutotuneError::Unknown(format!("{err:?}")));
                 }
             }

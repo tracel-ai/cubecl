@@ -167,7 +167,7 @@ where
             }
             let mut run_autotune = true;
             let current = StreamId::current();
-            println!("({current}) {fastest:?}");
+            println!("({current}) {fastest:?} {key:?}");
 
             if matches!(fastest, TuneCacheResult::Miss) && !tuner.autotuning.contains(&key) {
                 tuner.autotuning.insert(key.clone());
@@ -205,12 +205,16 @@ where
                     //   - tune_2 save
                     // - tune_1 save
                     // ```
+                    let current = StreamId::current();
+                    println!("({current}) Will try to start a new autotune for key {key:?}");
                     let state = self.state.read();
+                    println!("({current}) State lock in read mode {key:?}");
                     let tuner = state
                         .as_ref()
                         .and_then(|s| s.get(id))
                         .expect("Should be initialized");
                     tuner.execute_autotune(key.clone(), &inputs, &operations, client);
+                    println!("({current}) Tuning done for {key:?}");
                 } else {
                     // We're waiting for results to come in.
                 }

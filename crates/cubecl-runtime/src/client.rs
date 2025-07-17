@@ -273,11 +273,13 @@ where
     ) {
         let level = self.state.logger.profile_level();
         let name = kernel.name();
-        println!("Executing {:?}", name);
+        let current = StreamId::current();
+        println!("({current}) Enqueue {:?}", name);
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
                 self.profile_guard();
+                println!("({current}) Executing {:?}", name);
 
                 unsafe {
                     self.channel
@@ -315,7 +317,7 @@ where
                 self.state.logger.register_profiled(info, profile);
             }
         }
-        println!("Execution done.");
+        println!("({current}) Execution completed {name}");
     }
 
     /// Executes the `kernel` over the given `bindings`.
@@ -430,9 +432,7 @@ where
 
         let token = self.channel.start_profile();
 
-        println!("Start func inner");
         let out = func();
-        println!("Finished func inner");
 
         #[allow(unused_mut)]
         let mut result = self.channel.end_profile(token);

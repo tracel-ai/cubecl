@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
 use cubecl_common::profile::TimingMethod;
+use cubecl_common::stream_id::StreamId;
 use hashbrown::HashSet;
 
 use core::time::Duration;
@@ -202,6 +203,8 @@ impl<K: AutotuneKey> Tuner<K> {
         client: &ComputeClient<S, C>,
     ) {
         log::info!("Tuning {key}");
+        let current = StreamId::current();
+        println!("({current}) Tuning {key}");
 
         let autotunables = tunables.autotunables();
         let mut results = Vec::with_capacity(autotunables.len());
@@ -211,10 +214,12 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let plan = tunables.plan(&key);
+        println!("({current}) Tuning plan {plan:?} for key {key}");
         let client = client.clone();
 
         let message = 'message: {
             if autotunables.len() == 1 {
+                println!("({current}) No need to run autotune for key {key}");
                 break 'message AutotuneMessage::Done {
                     key,
                     fastest_index: 0,
@@ -224,7 +229,10 @@ impl<K: AutotuneKey> Tuner<K> {
                 };
             }
 
+            println!("({current}) generate inputs for  {key}");
             let test_inputs = tunables.generate_inputs(&key, inputs);
+            println!("({current}) generate inputs done for  {key}");
+
             #[cfg(std_io)]
             let checksum = tunables.compute_checksum();
 
@@ -232,7 +240,9 @@ impl<K: AutotuneKey> Tuner<K> {
 
             let client_cloned = client.clone();
             let fut_result = async move {
-                Self::generate_tune_message(
+                let inside = StreamId::current();
+                println!("({inside}) start autotune origine ({current}) task for {key}");
+                let t = Self::generate_tune_message(
                     key_cloned,
                     &client_cloned,
                     plan,
@@ -242,7 +252,9 @@ impl<K: AutotuneKey> Tuner<K> {
                     #[cfg(std_io)]
                     checksum,
                 )
-                .await
+                .await;
+                println!("({inside}) finished autotune origine ({current}) task for {key}");
+                t
             };
 
             cfg_if::cfg_if! {
@@ -258,12 +270,14 @@ impl<K: AutotuneKey> Tuner<K> {
                     // Mark the current tuning as pending.
                     AutotuneMessage::Pending(key)
                 } else {
+                    println!("({current}) block on executing autotune with the runtime.");
                     TunerRuntime::block_on(fut_result, client)
                 }
             }
         };
 
         // Note that this message will be processed straight away by handle_results.
+        println!("({current}) Sending in channel message");
         self.channel
             .0
             .try_send(message)
@@ -328,6 +342,8 @@ impl<K: AutotuneKey> Tuner<K> {
         test_inputs: &In,
         results: &mut [Result<AutotuneOutcome, AutotuneError>],
     ) {
+        let current = StreamId::current();
+        println!("({current}) Execute tune plan {plan:?}");
         loop {
             let mut num_autotuned = 0;
 
@@ -340,9 +356,10 @@ impl<K: AutotuneKey> Tuner<K> {
             for index in tunable_indices {
                 let op = &autotunables[index];
                 let name = op.name().to_string();
-                println!("{name:?}");
+                println!("({current}) Profile tune {name:?}");
                 let tuner = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
                 let profiles = tuner.profile().await.map(|result| (name, index, result));
+                println!("({current}) All Profile tune done");
 
                 match profiles {
                     Ok(result) => {
