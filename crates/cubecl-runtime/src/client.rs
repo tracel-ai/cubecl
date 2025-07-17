@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use crate::{
     DeviceProperties,
     channel::ComputeChannel,

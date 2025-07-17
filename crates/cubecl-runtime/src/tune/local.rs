@@ -126,25 +126,31 @@ where
         In: Clone + Send + Sync + 'static,
         Out: AutotuneOutput,
     {
+        let current = StreamId::current();
         let key = operations.generate_key(&inputs);
+        println!("({current}) Autotune execute {key:?}");
 
         // If this is cached and ready, use the operation.
         if let Some(map) = self.state.read().as_ref() {
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+                    println!("({current}) Autotune execution hit {key:?}");
                     #[cfg(feature = "autotune-checks")]
                     self.checks(&operations, &inputs);
 
                     let op = operations.fastest(fastest_index);
+                    println!("({current}) Autotune found fastest {key:?}");
                     let result = op
                         .execute(inputs)
                         .expect("Should run when selected by autotune.");
+                    println!("({current}) Autotune executed fastest {key:?}");
 
                     return result;
                 }
             }
         }
 
+        println!("({current}) Autotune no state {key:?}");
         // Create the tuner if needed, and update some state like
         // checksums if need be.
         let (fastest, run_autotune) = {
@@ -166,7 +172,6 @@ where
                 fastest = tuner.fastest(&key);
             }
             let mut run_autotune = true;
-            let current = StreamId::current();
             println!("({current}) {fastest:?} {key:?}");
 
             if matches!(fastest, TuneCacheResult::Miss) && !tuner.autotuning.contains(&key) {
