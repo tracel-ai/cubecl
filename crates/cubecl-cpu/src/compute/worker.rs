@@ -5,16 +5,7 @@ use std::{
     thread,
 };
 
-use dtor::dtor;
-
 use super::compute_task::ComputeTask;
-
-pub static STOP_SIGNAL: AtomicBool = AtomicBool::new(false);
-
-#[dtor]
-fn stop_program() {
-    STOP_SIGNAL.store(true, Ordering::Release);
-}
 
 #[derive(Debug)]
 pub struct Worker {
@@ -63,9 +54,6 @@ impl InnerWorker {
                 Ok(compute_task) => compute_task.compute(),
                 Err(mpsc::RecvTimeoutError::Timeout) => self.waiting.store(true, Ordering::Release),
                 _ => (),
-            }
-            if STOP_SIGNAL.load(Ordering::Acquire) {
-                break;
             }
         }
     }

@@ -156,7 +156,7 @@ impl<'a> Visitor<'a> {
             Attribute::unit(context),
         )];
 
-        let mut args = ArgsManager::new(&kernel.buffers, &kernel.scalars, context, location);
+        let mut args = ArgsManager::new(&kernel, context, location);
 
         let func_type = TypeAttribute::new(args.get_fn_type(context).into());
 

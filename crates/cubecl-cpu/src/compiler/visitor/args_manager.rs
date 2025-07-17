@@ -1,9 +1,4 @@
-// use std::collections::HashMap;
-
-use cubecl_core::{
-    compute::{Binding, ScalarBinding},
-    ir::Builtin,
-};
+use cubecl_core::{Metadata, ir::Builtin, prelude::KernelDefinition};
 use tracel_llvm::melior::ir::{
     Block, Location,
     r#type::{FunctionType, IntegerType, MemRefType},
@@ -13,22 +8,16 @@ use crate::compiler::builtin::BuiltinArray;
 
 use super::prelude::*;
 
-// enum MetadataKey {
-//     Rank { var: Variable },
-//     Stride { var: Variable },
-//     Shape { var: Variable },
-//     Length { var: Variable },
-//     BufferLength { var: Variable },
-// }
-
 const NB_BUILTIN: usize = 30;
 
 pub(super) struct ArgsManager<'a> {
     pub buffers: Vec<Value<'a, 'a>>,
     pub scalars: Vec<Value<'a, 'a>>,
+    pub metadata_memref: Option<Value<'a, 'a>>,
+    pub ext_meta_positions: Vec<u32>,
+    pub metadata: Metadata,
     buffers_len: usize,
     scalars_len: usize,
-    // metadata: HashMap<MetadataKey, Value<'a, 'a>>,
     builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
     function_types: Vec<Type<'a>>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
@@ -37,31 +26,58 @@ pub(super) struct ArgsManager<'a> {
 const NB_PASSED_BUILTIN: usize = 9;
 
 impl<'a> ArgsManager<'a> {
-    pub fn new(
-        bindings: &[Binding],
-        scalar_bindings: &[ScalarBinding],
-        context: &'a Context,
-        location: Location<'a>,
-    ) -> Self {
-        let total_arg_len = bindings.len() + scalar_bindings.len() + NB_PASSED_BUILTIN;
+    pub fn new(kernel: &KernelDefinition, context: &'a Context, location: Location<'a>) -> Self {
+        let total_arg_len = kernel.buffers.len() + kernel.scalars.len() + NB_PASSED_BUILTIN;
+
+        let mut num_ext = 0;
+        let mut ext_meta_positions = vec![];
+
+        let mut all_meta: Vec<_> = kernel
+            .buffers
+            .iter()
+            .map(|buf| (buf.id, buf.has_extended_meta))
+            .collect();
+
+        all_meta.sort_by_key(|(id, _)| *id);
+
+        for (_, has_extended_meta) in &all_meta {
+            ext_meta_positions.push(num_ext);
+            if *has_extended_meta {
+                num_ext += 1;
+            }
+        }
+
+        let num_meta = all_meta.len();
+
+        let metadata = Metadata::new(num_meta as u32, num_ext);
+
         let mut args = ArgsManager {
-            buffers: Vec::with_capacity(bindings.len()),
-            buffers_len: bindings.len(),
-            scalars: Vec::with_capacity(scalar_bindings.len()),
-            scalars_len: scalar_bindings.len(),
+            buffers: Vec::with_capacity(kernel.buffers.len()),
+            buffers_len: kernel.buffers.len(),
+            scalars: Vec::with_capacity(kernel.scalars.len()),
+            scalars_len: kernel.scalars.len(),
+            metadata_memref: None,
             builtin: [None; NB_BUILTIN],
+            metadata,
+            ext_meta_positions,
             function_types: Vec::with_capacity(total_arg_len),
             block_inputs: Vec::with_capacity(total_arg_len),
         };
 
-        for binding in bindings.iter() {
+        for binding in kernel.buffers.iter() {
             let inner_type = binding.item.elem.to_type(context);
             let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
         }
 
-        for binding in scalar_bindings.iter() {
+        // Metadata memref
+        let inner_type = IntegerType::new(context, 32).into();
+        let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
+        args.function_types.push(memref);
+        args.block_inputs.push((memref, location));
+
+        for binding in kernel.scalars.iter() {
             let inner_type = binding.elem.to_type(context);
             let scalar = if binding.count > 1 {
                 Type::vector(&[binding.count as u64], inner_type)
@@ -81,6 +97,11 @@ impl<'a> ArgsManager<'a> {
         args
     }
 
+    pub fn ext_meta_position(&self, var: Variable) -> u32 {
+        let id = var.index().expect("Variable should have index");
+        self.ext_meta_positions[id as usize]
+    }
+
     pub fn get_fn_type(&self, context: &'a Context) -> FunctionType<'a> {
         FunctionType::new(context, &self.function_types, &[])
     }
@@ -92,7 +113,9 @@ impl<'a> ArgsManager<'a> {
             self.buffers.push(block.argument(i).unwrap().into());
         }
 
-        for i in self.buffers_len..self.buffers_len + self.scalars_len {
+        self.metadata_memref = Some(block.argument(self.buffers_len).unwrap().into());
+
+        for i in self.buffers_len + 1..self.buffers_len + 1 + self.scalars_len {
             self.scalars.push(block.argument(i).unwrap().into());
         }
 
@@ -100,7 +123,7 @@ impl<'a> ArgsManager<'a> {
             self.set_builtin(
                 builtin,
                 block
-                    .argument(self.buffers_len + self.scalars_len + i)
+                    .argument(self.buffers_len + self.scalars_len + 1 + i)
                     .unwrap()
                     .into(),
             );

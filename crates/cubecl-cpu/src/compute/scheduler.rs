@@ -60,7 +60,10 @@ impl Scheduler {
         }
 
         let Bindings {
-            buffers, scalars, ..
+            buffers,
+            scalars,
+            metadata,
+            ..
         } = bindings;
 
         let handles: Vec<_> = buffers
@@ -74,7 +77,7 @@ impl Scheduler {
 
         let scalars: Vec<_> = scalars.into_values().collect();
 
-        let mut mlir_data = MlirData::new(handles, scalars);
+        let mut mlir_data = MlirData::new(handles, scalars, metadata);
         mlir_data.builtin.set_cube_dim(cube_dim);
         mlir_data.builtin.set_cube_count(cube_count);
 
