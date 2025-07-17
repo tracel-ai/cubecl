@@ -65,6 +65,7 @@ mod operation;
 mod tune_benchmark;
 mod tune_cache;
 mod tuner;
+mod tuner_runtime;
 mod util;
 
 pub use base::*;

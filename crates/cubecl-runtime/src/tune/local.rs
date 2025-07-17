@@ -8,6 +8,7 @@ use core::{
     fmt::Display,
     hash::Hash,
 };
+use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 
 #[cfg(not(feature = "std"))]
@@ -54,7 +55,7 @@ where
     pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
     where
         F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
-        In: Clone + Send + 'static,
+        In: Clone + Send + Sync + 'static,
         Out: AutotuneOutput,
     {
         let sets = self.sets.read();
@@ -122,7 +123,7 @@ where
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
-        In: Clone + Send + 'static,
+        In: Clone + Send + Sync + 'static,
         Out: AutotuneOutput,
     {
         let key = operations.generate_key(&inputs);
@@ -164,10 +165,16 @@ where
                 tuner.validate_checksum(&key, &checksum);
                 fastest = tuner.fastest(&key);
             }
-            let mut run_autotune = false;
+            let mut run_autotune = true;
+            let current = StreamId::current();
+            println!("({current}) {fastest:?}");
 
             if matches!(fastest, TuneCacheResult::Miss) && !tuner.autotuning.contains(&key) {
                 tuner.autotuning.insert(key.clone());
+                // TODO: Aquire the autotune profile lock, otherwise we might wait for another
+                // stream to actually compute the autotuning, but if we are in a recursive
+                // autotuning, only one stream can execute autotuning at the same time, creating a
+                // deadlock.
                 run_autotune = true;
             }
             (fastest, run_autotune)
@@ -209,6 +216,7 @@ where
                 }
             }
             TuneCacheResult::Pending => {
+                println!("Pending");
                 // We're waiting for results to come in.
             }
             TuneCacheResult::Unchecked => {
@@ -237,6 +245,7 @@ where
                     0
                 }
                 TuneCacheResult::Miss => {
+                    println!("Miss 2");
                     if run_autotune {
                         panic!("Should have at least started autotuning");
                     } else {

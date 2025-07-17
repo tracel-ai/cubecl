@@ -14,6 +14,7 @@ use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::ComputeServer;
+use crate::tune::tuner_runtime::TunerRuntime;
 use crate::tune::{TuneBenchmark, TuneCache};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
@@ -46,7 +47,7 @@ impl core::fmt::Display for AutotuneOutcome {
     }
 }
 
-enum AutotuneMessage<K> {
+pub(crate) enum AutotuneMessage<K> {
     Done {
         key: K,
         fastest_index: usize,
@@ -191,7 +192,7 @@ impl<K: AutotuneKey> Tuner<K> {
     pub fn execute_autotune<
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
-        In: Clone + Send + 'static,
+        In: Clone + Send + Sync + 'static,
         Out: AutotuneOutput,
     >(
         &self,
@@ -257,20 +258,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     // Mark the current tuning as pending.
                     AutotuneMessage::Pending(key)
                 } else {
-                    // When multi threading, we want the current profiling to execute in a batch.
-                    #[cfg(multi_threading)]
-                    let stream_current = client.profile_acquire();
-                    println!("Start autotune {stream_current:?}");
-
-                    // On native, it is possible to run the tuning on a thread, which could help startup times,
-                    // but it could be strange, as benchmarks would need a "warmup" time until a good kernel is selected.
-                    let result  = cubecl_common::future::block_on(fut_result);
-
-                    #[cfg(multi_threading)]
-                    client.profile_release(stream_current, true);
-                    println!("Finished autotune {stream_current:?}");
-
-                    result
+                    TunerRuntime::block_on(fut_result, client)
                 }
             }
         };
