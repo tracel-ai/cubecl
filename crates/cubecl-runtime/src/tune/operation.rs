@@ -114,8 +114,12 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     }
 
     /// Generate a set of test inputs from a key and reference inputs
-    pub fn generate_inputs(&self, key: &K, inputs: &Inputs) -> Inputs {
-        self.input_gen.generate(key, inputs)
+    pub fn generate_inputs(&self, key: &K, inputs: &Inputs) -> Box<dyn FnOnce() -> Inputs> {
+        let generate = self.input_gen.clone();
+        let key = key.clone();
+        let inputs = inputs.clone();
+
+        Box::new(move || generate.generate(&key, &inputs))
     }
 }
 
