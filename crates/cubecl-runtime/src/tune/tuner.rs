@@ -201,8 +201,9 @@ impl<K: AutotuneKey> Tuner<K> {
         client: &ComputeClient<S, C>,
     ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
+
         // Note that this message will be processed straight away by handle_results.
-        let channel = self.channel.0.clone();
+        let sender = self.channel.0.clone();
 
         let autotunables = tunables.autotunables();
         let mut results = Vec::with_capacity(autotunables.len());
@@ -211,8 +212,6 @@ impl<K: AutotuneKey> Tuner<K> {
             results.push(Err(AutotuneError::Skip));
         }
 
-        let plan = tunables.plan(&key);
-        let client = client.clone();
         if autotunables.len() == 1 {
             let message = AutotuneMessage::Done {
                 key,
@@ -223,21 +222,22 @@ impl<K: AutotuneKey> Tuner<K> {
             };
 
             return Box::new(move || {
-                channel
+                sender
                     .try_send(message)
                     .expect("Loss message channel somehow")
             });
         }
 
-        let test_inputs_gen = tunables.generate_inputs(&key.clone(), inputs);
+        let client = client.clone();
+        let key_cloned = key.clone();
+        let plan = tunables.plan(&key);
+        let inputs_generator = tunables.inputs_generator(&key.clone(), inputs);
 
         #[cfg(std_io)]
         let checksum = tunables.compute_checksum();
 
-        let key_cloned = key.clone();
-
         let fut_result = async move {
-            let test_inputs = test_inputs_gen();
+            let test_inputs = inputs_generator();
 
             Self::generate_tune_message(
                 key_cloned,
@@ -256,7 +256,6 @@ impl<K: AutotuneKey> Tuner<K> {
             let message = {
                 cfg_if::cfg_if! {
                     if #[cfg(target_family = "wasm")] {
-                        let sender = self.channel.0.clone();
                         let send_fut = async move {
                             // If the channel has been closed, ignore. Maybe the main app is exiting
                             // before the tune results come in.
@@ -267,14 +266,13 @@ impl<K: AutotuneKey> Tuner<K> {
                         // Mark the current tuning as pending.
                         AutotuneMessage::Pending(key)
                     } else {
-                        // TunerRuntime::block_on(fut_result, client)
                         cubecl_common::future::block_on(fut_result)
                     }
                 }
             };
 
             // Note that this message will be processed straight away by handle_results.
-            channel
+            sender
                 .try_send(message)
                 .expect("Loss message channel somehow");
         })

@@ -125,64 +125,75 @@ where
             let mut state = self.state.lock();
             let map = state.get_or_insert_with(Default::default);
 
-            // TODO: Improve perf for that.
-            let tuner = map.entry(id.clone()).or_insert_with(move || {
-                let name = self.name.replace("::", "-");
-                Tuner::new(&name, &id.to_string())
-            });
+            let tuner = match map.get_mut(id) {
+                Some(val) => val,
+                None => map.entry(id.clone()).or_insert_with(move || {
+                    let name = self.name.replace("::", "-");
+                    Tuner::new(&name, &id.to_string())
+                }),
+            };
 
-            let mut fastest = tuner.fastest(&key);
+            match tuner.fastest(&key) {
+                TuneCacheResult::Hit { fastest_index } => {
+                    core::mem::drop(state);
 
-            if let TuneCacheResult::Hit { fastest_index } = fastest {
-                core::mem::drop(state);
+                    #[cfg(feature = "autotune-checks")]
+                    self.checks(&operations, &inputs);
 
-                #[cfg(feature = "autotune-checks")]
-                self.checks(&operations, &inputs);
+                    let op = operations.fastest(fastest_index);
+                    let result = op
+                        .execute(inputs)
+                        .expect("Should run when selected by autotune.");
+                    return result;
+                }
+                TuneCacheResult::Pending => {
+                    core::mem::drop(state);
 
-                let op = operations.fastest(fastest_index);
-                let result = op
-                    .execute(inputs)
-                    .expect("Should run when selected by autotune.");
+                    let op = operations.fastest(0);
+                    let result = op
+                        .execute(inputs)
+                        .expect("Should run when selected by autotune.");
+                    return result;
+                }
+                #[cfg(std_io)]
+                TuneCacheResult::Unchecked => {
+                    // If the cache checksum hasn't been checked, do so now, and retry.
+                    let checksum = operations.compute_checksum();
+                    tuner.validate_checksum(&key, &checksum);
 
-                return result;
+                    // Check if with validation we can use its result
+                    if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+                        core::mem::drop(state);
+
+                        let op = operations.fastest(fastest_index);
+                        let result = op
+                            .execute(inputs)
+                            .expect("Should run when selected by autotune.");
+                        return result;
+                    }
+                }
+
+                #[cfg(not(std_io))]
+                TuneCacheResult::Unchecked => (),
+                TuneCacheResult::Miss => (),
             }
 
-            // If the cache checksum hasn't been checked, do so now, and retry.
-            #[cfg(std_io)]
-            if matches!(fastest, TuneCacheResult::Unchecked) {
-                let checksum = operations.compute_checksum();
-                tuner.validate_checksum(&key, &checksum);
-                fastest = tuner.fastest(&key);
+            if tuner.autotuning.contains(&key) {
+                Box::new(move || {})
+            } else {
+                tuner.autotuning.insert(key.clone());
+                tuner.prepare_autotune(key.clone(), &inputs, &operations, client)
             }
-
-            if let TuneCacheResult::Hit { fastest_index } = fastest {
-                core::mem::drop(state);
-
-                #[cfg(feature = "autotune-checks")]
-                self.checks(&operations, &inputs);
-
-                let op = operations.fastest(fastest_index);
-                let result = op
-                    .execute(inputs)
-                    .expect("Should run when selected by autotune.");
-
-                return result;
-            }
-
-            let tuner = state
-                .as_ref()
-                .and_then(|s| s.get(id))
-                .expect("Should be initialized");
-
-            tuner.prepare_autotune(key.clone(), &inputs, &operations, client)
         };
 
         autotune_job();
 
         let index_to_run = {
-            let state = self.state.lock();
-            let map = state.as_ref().unwrap();
-            let tuner = map.get(id).unwrap();
+            let mut state = self.state.lock();
+            let map = state.as_mut().unwrap();
+            let tuner = map.get_mut(id).unwrap();
+
+            tuner.handle_results();
 
             match tuner.fastest(&key) {
                 TuneCacheResult::Hit { fastest_index } => {
