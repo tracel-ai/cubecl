@@ -93,6 +93,7 @@ pub enum VariableKind {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord)]
+#[repr(u8)]
 pub enum Builtin {
     UnitPos,
     UnitPosX,

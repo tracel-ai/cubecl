@@ -200,6 +200,27 @@ test_unary_impl!(
     ]
 );
 
+test_unary_impl!(test_abs, F, F::abs, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: -1., 0., 2., -3.],
+        expected: as_type![F: 1., 0., 2., 3.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: -1., 0., 2., -3.],
+        expected: as_type![F: 1., 0., 2., 3.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: -1., 0., 2., -3.],
+        expected: as_type![F: 1., 0., 2., 3.]
+    }
+]);
+
 test_unary_impl!(
     test_normalize,
     F,
@@ -357,9 +378,31 @@ macro_rules! testgen_unary {
 
             add_test!(test_normalize);
             add_test!(test_magnitude);
+            add_test!(test_abs);
         }
     };
 }
+
+test_unary_impl_int!(test_abs_int, I, I::abs, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![I: 3, -5, 0, -127],
+        expected: as_type![I: 3, 5, 0, 127]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![I: 3, -5, 0, -127],
+        expected: as_type![I: 3, 5, 0, 127]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![I: 3, -5, 0, -127],
+        expected: as_type![I: 3, 5, 0, 127]
+    }
+]);
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -380,6 +423,7 @@ macro_rules! testgen_unary_int {
                 };
             }
 
+            add_test!(test_abs_int);
             add_test!(test_count_ones);
             add_test!(test_reverse_bits);
             add_test!(test_leading_zeros);
