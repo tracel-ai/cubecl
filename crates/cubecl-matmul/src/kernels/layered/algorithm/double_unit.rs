@@ -13,7 +13,7 @@ use crate::{
     },
     kernels::layered::{
         Algorithm,
-        selector::{TileSizeSelection, unit_matmul_selection},
+        selector::{TileSizeSelection, UnitMatmulSelectionOptions, unit_matmul_selection},
     },
 };
 
@@ -45,7 +45,16 @@ impl Algorithm for DoubleUnitAlgorithm {
         _elem_acc: Elem,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        unit_matmul_selection::<R>(client, problem, plane_dim, true, args.tile_size)
+        unit_matmul_selection::<R>(
+            client,
+            problem,
+            plane_dim,
+            true,
+            UnitMatmulSelectionOptions {
+                tile: args.tile_size,
+                ..Default::default()
+            },
+        )
     }
 
     fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {

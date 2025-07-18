@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -188,7 +189,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute benchmarks to find out what the fastest operation is.
-    pub fn execute_autotune<
+    pub fn prepare_autotune<
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
         In: Clone + Send + 'static,
@@ -199,8 +200,11 @@ impl<K: AutotuneKey> Tuner<K> {
         inputs: &In,
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<S, C>,
-    ) {
+    ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
+
+        // Note that this message will be processed straight away by handle_results.
+        let sender = self.channel.0.clone();
 
         let autotunables = tunables.autotunables();
         let mut results = Vec::with_capacity(autotunables.len());
@@ -209,65 +213,72 @@ impl<K: AutotuneKey> Tuner<K> {
             results.push(Err(AutotuneError::Skip));
         }
 
-        let plan = tunables.plan(&key);
-        let client = client.clone();
-
-        let message = 'message: {
-            if autotunables.len() == 1 {
-                break 'message AutotuneMessage::Done {
-                    key,
-                    fastest_index: 0,
-                    results,
-                    #[cfg(std_io)]
-                    checksum: tunables.compute_checksum(),
-                };
-            }
-
-            let test_inputs = tunables.generate_inputs(&key, inputs);
-            #[cfg(std_io)]
-            let checksum = tunables.compute_checksum();
-
-            let key_cloned = key.clone();
-
-            let fut_result = async move {
-                Self::generate_tune_message(
-                    key_cloned,
-                    &client,
-                    plan,
-                    autotunables,
-                    test_inputs,
-                    results,
-                    #[cfg(std_io)]
-                    checksum,
-                )
-                .await
+        if autotunables.len() == 1 {
+            let message = AutotuneMessage::Done {
+                key,
+                fastest_index: 0,
+                results,
+                #[cfg(std_io)]
+                checksum: tunables.compute_checksum(),
             };
 
-            cfg_if::cfg_if! {
-                if #[cfg(target_family = "wasm")] {
-                    let sender = self.channel.0.clone();
-                    let send_fut = async move {
-                        // If the channel has been closed, ignore. Maybe the main app is exiting
-                        // before the tune results come in.
-                        let _ = sender.send(fut_result.await).await;
-                    };
-                    // On wasm, spawn the tuning as a detached task.
-                    wasm_bindgen_futures::spawn_local(send_fut);
-                    // Mark the current tuning as pending.
-                    AutotuneMessage::Pending(key)
-                } else {
-                    // On native, it is possible to run the tuning on a thread, which could help startup times,
-                    // but it could be strange, as benchmarks would need a "warmup" time until a good kernel is selected.
-                    cubecl_common::future::block_on(fut_result)
-                }
-            }
+            return Box::new(move || {
+                sender
+                    .try_send(message)
+                    .expect("Loss message channel somehow")
+            });
+        }
+
+        let client = client.clone();
+        let key_cloned = key.clone();
+        let plan = tunables.plan(&key);
+        let inputs_generator = tunables.inputs_generator(&key.clone(), inputs);
+
+        #[cfg(std_io)]
+        let checksum = tunables.compute_checksum();
+
+        let fut_result = async move {
+            let test_inputs = inputs_generator();
+
+            Self::generate_tune_message(
+                key_cloned,
+                &client,
+                plan,
+                autotunables,
+                test_inputs,
+                results,
+                #[cfg(std_io)]
+                checksum,
+            )
+            .await
         };
 
-        // Note that this message will be processed straight away by handle_results.
-        self.channel
-            .0
-            .try_send(message)
-            .expect("Loss message channel somehow");
+        Box::new(move || {
+            let message = {
+                cfg_if::cfg_if! {
+                    if #[cfg(target_family = "wasm")] {
+                        let sender = sender.clone();
+
+                        let send_fut = async move {
+                            // If the channel has been closed, ignore. Maybe the main app is exiting
+                            // before the tune results come in.
+                            let _ = sender.send(fut_result.await).await;
+                        };
+                        // On wasm, spawn the tuning as a detached task.
+                        wasm_bindgen_futures::spawn_local(send_fut);
+                        // Mark the current tuning as pending.
+                        AutotuneMessage::Pending(key)
+                    } else {
+                        cubecl_common::future::block_on(fut_result)
+                    }
+                }
+            };
+
+            // Note that this message will be processed straight away by handle_results.
+            sender
+                .try_send(message)
+                .expect("Loss message channel somehow");
+        })
     }
 
     async fn generate_tune_message<
