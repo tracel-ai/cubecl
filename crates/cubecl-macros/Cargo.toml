@@ -31,4 +31,4 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
 
-cubecl-common = { path = "../cubecl-common", version = "0.6", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.7", default-features = false }
