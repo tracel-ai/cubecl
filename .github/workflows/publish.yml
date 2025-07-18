@@ -129,6 +129,7 @@ jobs:
       - publish-cubecl-opt
       - publish-cubecl-common
       - publish-cubecl-core
+      - publish-cubecl-random
       - publish-cubecl-runtime
     secrets: inherit
 
