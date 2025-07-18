@@ -63,6 +63,27 @@ jobs:
       - publish-cubecl-macros
     secrets: inherit
 
+  publish-cubecl-random:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-random
+    needs:
+      - publish-cubecl-runtime
+      - publish-cubecl-std
+      - publish-cubecl-core
+      - publish-cubecl-common
+    secrets: inherit
+
+  publish-cubecl-reduce:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-reduce
+    needs:
+      - publish-cubecl-std
+      - publish-cubecl-runtime
+      - publish-cubecl-core
+    secrets: inherit
+
   publish-cubecl-matmul:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
@@ -88,16 +109,6 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-random
       - publish-cubecl-matmul
-    secrets: inherit
-
-  publish-cubecl-reduce:
-    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
-    with:
-      crate: cubecl-reduce
-    needs:
-      - publish-cubecl-std
-      - publish-cubecl-runtime
-      - publish-cubecl-core
     secrets: inherit
 
   publish-cubecl-opt:
