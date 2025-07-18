@@ -4,7 +4,7 @@ Installing CubeCL is straightforward. It’s available as a Rust crate, and you 
 ```toml
 [dependencies]
 cubecl = {
-    version = "0.6.0",  # Replace with the latest version from crates.io
+    version = "0.7.0",  # Replace with the latest version from crates.io
     features = ["wgpu"]  # Enable desired runtime features (e.g., wgpu, cuda, hip)
 }
 ```
