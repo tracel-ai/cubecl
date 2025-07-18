@@ -10,7 +10,6 @@ use crate::{
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
 
-use crate::components::batch::BatchAttention;
 use crate::components::batch::BatchAttentionFamily;
 use crate::components::batch::BatchConfig;
 use cubecl_core::frontend::CubePrimitive;
