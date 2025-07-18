@@ -15,9 +15,9 @@ default = ["std", "cubecl-common/default", "cubecl-ir/default"]
 std = ["cubecl-common/std"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "0.6.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "0.7.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
 
 float-ord = "0.3"
 log = "0.4"
