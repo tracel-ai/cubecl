@@ -24,7 +24,7 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             input.into_tensor_arg(1),
-            input.into_tensor_arg(1),
+            output.into_tensor_arg(1),
         )
     };
 
