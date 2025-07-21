@@ -99,7 +99,6 @@ impl ComputeServer for CpuServer {
 
     fn create(&mut self, data: &[u8]) -> Handle {
         let handle = self.empty(data.len());
-
         let binding = handle.clone().binding();
         self.copy_to_binding(binding, data);
 

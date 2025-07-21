@@ -181,7 +181,6 @@ impl<'a> Visitor<'a> {
         ));
     }
 
-    // TODO: cleanup this abomination by refactoring melior to make it at least not as bulky and verbose
     pub(self) fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
         module: &tracel_llvm::melior::ir::Module<'a>,
@@ -210,8 +209,8 @@ impl<'a> Visitor<'a> {
         let absolute_pos_tmp_2 = block.muli(absolute_pos_tmp_0, absolute_pos_tmp_1, location)?;
 
         let unit_pos_tmp0 = block.muli(
+            args.get_builtin(Builtin::CubeDimX),
             args.get_builtin(Builtin::CubeDimY),
-            args.get_builtin(Builtin::CubeDimZ),
             location,
         )?;
 
@@ -219,14 +218,14 @@ impl<'a> Visitor<'a> {
             block.muli(unit_pos_tmp0, args.get_builtin(Builtin::UnitPosZ), location)?;
 
         let unit_pos_tmp2 = block.muli(
-            args.get_builtin(Builtin::CubeDimY),
-            args.get_builtin(Builtin::UnitPosZ),
+            args.get_builtin(Builtin::CubeDimX),
+            args.get_builtin(Builtin::UnitPosY),
             location,
         )?;
 
-        let unit_pos_tmp3 = block.muli(unit_pos_tmp1, unit_pos_tmp2, location)?;
+        let unit_pos_tmp3 = block.addi(unit_pos_tmp1, unit_pos_tmp2, location)?;
 
-        let unit_pos = block.muli(unit_pos_tmp3, args.get_builtin(Builtin::UnitPosX), location)?;
+        let unit_pos = block.addi(unit_pos_tmp3, args.get_builtin(Builtin::UnitPosX), location)?;
         args.set_builtin(Builtin::UnitPos, unit_pos);
 
         block.append_operation(scf::r#for(
@@ -294,6 +293,31 @@ impl<'a> Visitor<'a> {
                                     location,
                                 )?;
                                 args.set_builtin(Builtin::AbsolutePosZ, absolute_pos_z);
+
+                                let cube_pos_tmp = block.muli(
+                                    args.get_builtin(Builtin::CubeDimX),
+                                    args.get_builtin(Builtin::CubeDimY),
+                                    location,
+                                )?;
+                                let cube_pos_tmp2 = block.muli(
+                                    cube_pos_tmp,
+                                    args.get_builtin(Builtin::CubePosZ),
+                                    location,
+                                )?;
+
+                                let cube_pos_tmp3 = block.muli(
+                                    args.get_builtin(Builtin::CubeDimX),
+                                    args.get_builtin(Builtin::CubePosY),
+                                    location,
+                                )?;
+                                let cube_pos_tmp4 =
+                                    block.addi(cube_pos_tmp2, cube_pos_tmp3, location)?;
+                                let cube_pos_tmp5 = block.addi(
+                                    cube_pos_tmp4,
+                                    args.get_builtin(Builtin::CubePosX),
+                                    location,
+                                )?;
+                                args.set_builtin(Builtin::CubePos, cube_pos_tmp5);
 
                                 let absolute_pos_tmp_4 =
                                     block.muli(absolute_pos_z, absolute_pos_tmp_2, location)?;

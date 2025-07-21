@@ -9,6 +9,21 @@ use crate::compiler::visitor::prelude::*;
 impl<'a> Visitor<'a> {
     pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {
         match operator {
+            Operator::And(and) => {
+                let lhs = self.get_variable(and.lhs);
+                let rhs = self.get_variable(and.rhs);
+                let value = self.append_operation_with_result(arith::andi(lhs, rhs, self.location));
+                self.insert_variable(out, value);
+            }
+            Operator::Cast(cast) => {
+                self.visit_cast(cast.input, out);
+            }
+            Operator::CopyMemory(_copy_memory) => {
+                todo!("copy_memory is not implemented {}", operator)
+            }
+            Operator::CopyMemoryBulk(_copy_memory_bulk) => {
+                todo!("copy_memory_bulk is not implemented {}", operator)
+            }
             Operator::Index(index) | Operator::UncheckedIndex(index) => {
                 let index_value = self.get_index(index.index, out.item);
                 let load_ssa = self.visit_index(index, index_value, out);
@@ -19,8 +34,31 @@ impl<'a> Visitor<'a> {
                     self.get_index(index_assign.index, index_assign.value.item);
                 self.visit_index_assign(index_assign, index_assign_value, out)
             }
-            Operator::Cast(cast) => {
-                self.visit_cast(cast.input, out);
+            Operator::InitLine(_init_line) => {
+                todo!("init_line is not implemented {}", operator)
+            }
+            Operator::Not(not) => {
+                let lhs = self.get_variable(not.input);
+                let mask = self.create_int_constant_from_item(not.input.item, -1);
+                let value =
+                    self.append_operation_with_result(arith::xori(lhs, mask, self.location));
+                self.insert_variable(out, value);
+            }
+            Operator::Or(or) => {
+                let lhs = self.get_variable(or.lhs);
+                let rhs = self.get_variable(or.rhs);
+                let value = self.append_operation_with_result(arith::ori(lhs, rhs, self.location));
+                self.insert_variable(out, value);
+            }
+            Operator::Reinterpret(reinterpret) => {
+                let target_type = out.item.to_type(self.context);
+                let input = self.get_variable(reinterpret.input);
+                let value = self.append_operation_with_result(arith::bitcast(
+                    input,
+                    target_type,
+                    self.location,
+                ));
+                self.insert_variable(out, value);
             }
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
@@ -33,7 +71,6 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, value);
             }
-            _ => todo!("{:?} is not yet implemented", operator),
         }
     }
 

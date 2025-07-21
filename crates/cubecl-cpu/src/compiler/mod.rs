@@ -32,9 +32,13 @@ impl Compiler for MlirCompiler {
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
+        #[cfg(feature = "mlir-dump")]
+        dump_scope(&kernel.body);
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .optimize(kernel.body.clone(), kernel.cube_dim, mode);
+        #[cfg(feature = "mlir-dump")]
+        dump_opt(&opt);
         MlirEngine::from_cubecl_ir(kernel, &opt)
     }
 
@@ -44,5 +48,28 @@ impl Compiler for MlirCompiler {
 
     fn extension(&self) -> &'static str {
         "mlir"
+    }
+}
+
+#[cfg(feature = "mlir-dump")]
+fn dump_scope(scope: &cubecl_core::prelude::Scope) {
+    use std::fs;
+
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
+        fs::write(format!("{dir}/cubecl.ir.txt"), format!("{}", scope)).unwrap();
+    }
+}
+
+#[cfg(feature = "mlir-dump")]
+fn dump_opt(opt: &cubecl_opt::Optimizer) {
+    use std::fs;
+
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
+        fs::write(format!("{dir}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
+        fs::write(
+            format!("{dir}/cubecl-opt.ir.dot"),
+            format!("{}", opt.dot_viz()),
+        )
+        .unwrap();
     }
 }
