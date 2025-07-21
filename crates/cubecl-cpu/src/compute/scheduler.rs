@@ -1,16 +1,25 @@
-use cubecl_core::{ExecutionMode, compute::CubeTask, server::Bindings};
-use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
+use std::collections::HashMap;
+use std::fmt::Debug;
+
+use cubecl_core::{ExecutionMode, compute::CubeTask, prelude::CompiledKernel, server::Bindings};
+use cubecl_runtime::{id::KernelId, memory_management::MemoryManagement, storage::BytesStorage};
 
 use crate::{
     CpuCompiler,
-    compiler::{MlirCompilerOptions, mlir_data::MlirData},
+    compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData},
 };
 
 use super::{compute_task::ComputeTask, worker::Worker};
 
-#[derive(Debug)]
 pub struct Scheduler {
     workers: Vec<Worker>,
+    compilation_cache: HashMap<KernelId, CompiledKernel<MlirCompiler>>,
+}
+
+impl Debug for Scheduler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self.workers)
+    }
 }
 
 impl Default for Scheduler {
@@ -22,7 +31,11 @@ impl Default for Scheduler {
             .map(|_| Worker::default())
             .collect();
 
-        Scheduler { workers }
+        let compilation_cache = HashMap::new();
+        Scheduler {
+            workers,
+            compilation_cache,
+        }
     }
 }
 
@@ -41,14 +54,18 @@ impl Scheduler {
         kind: ExecutionMode,
         memory_management: &mut MemoryManagement<BytesStorage>,
     ) {
-        let cube_dim = kernel
-            .compile(
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-            )
-            .cube_dim;
+        let kernel = self
+            .compilation_cache
+            .entry(kernel.id())
+            .or_insert_with(|| {
+                kernel.compile(
+                    &mut Default::default(),
+                    &MlirCompilerOptions::default(),
+                    kind,
+                )
+            });
 
+        let cube_dim = kernel.cube_dim;
         let mut unit_pos_vec = Vec::with_capacity((cube_dim.x * cube_dim.y * cube_dim.z) as usize);
 
         for unit_pos_x in 0..cube_dim.x {
@@ -81,12 +98,7 @@ impl Scheduler {
         mlir_data.builtin.set_cube_dim(cube_dim);
         mlir_data.builtin.set_cube_count(cube_count);
 
-        let kernel = kernel.compile(
-            &mut Default::default(),
-            &MlirCompilerOptions::default(),
-            kind,
-        );
-        let mlir_engine = kernel.repr.unwrap();
+        let mlir_engine = kernel.repr.clone().unwrap();
 
         for (slice, worker) in unit_pos_vec
             .chunks(unit_pos_vec.len().div_ceil(self.workers.len()))

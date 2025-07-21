@@ -7,6 +7,8 @@ use std::{
 
 use super::compute_task::ComputeTask;
 
+pub const MAX_STACK_SIZE: usize = 4 * 1024 * 1024;
+
 #[derive(Debug)]
 pub struct Worker {
     // TODO: A circular sync buffer with cache alignment would be a better fit, but for the moment a mpsc channel will do the job.
@@ -22,7 +24,10 @@ impl Default for Worker {
             rx,
             waiting: Arc::clone(&waiting),
         };
-        thread::spawn(move || inner_worker.work());
+        thread::Builder::new()
+            .stack_size(MAX_STACK_SIZE)
+            .spawn(move || inner_worker.work())
+            .unwrap();
         Self { tx, waiting }
     }
 }

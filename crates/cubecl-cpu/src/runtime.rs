@@ -57,10 +57,9 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     };
     let storage = BytesStorage::default();
 
-    const LINUX_PAGE_SIZE: u64 = 4 * 1024;
     const ALIGNMENT: u64 = 4;
     let mem_properties = MemoryDeviceProperties {
-        max_page_size: LINUX_PAGE_SIZE,
+        max_page_size: max_shared_memory_size as u64,
         alignment: ALIGNMENT,
     };
 
