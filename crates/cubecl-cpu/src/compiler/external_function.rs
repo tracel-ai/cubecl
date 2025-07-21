@@ -1,17 +1,22 @@
 use tracel_llvm::melior::{
     Context, ExecutionEngine,
-    dialect::llvm,
+    dialect::{func, llvm},
     ir::{
-        BlockLike, Identifier, Location, Region,
+        BlockLike, Identifier, Location, Region, Type,
         attribute::{StringAttribute, TypeAttribute},
         r#type::IntegerType,
     },
 };
 
+use crate::compute::compute_task::sync_cube;
+
 pub fn register_external_function(execution_engine: &ExecutionEngine) {
     unsafe {
         execution_engine.register_symbol("printf", libc::printf as *mut ());
-        execution_engine.register_symbol("_mlir_printf", libc::printf as *mut ()); // This is only there to fool the execution engine to generate .so for inspection even if symbol resolution will probably not work.
+        execution_engine.register_symbol("sync_cube", sync_cube as *mut ());
+        // This is only there to fool the execution engine to generate .so for inspection even if symbol resolution will probably not work.
+        execution_engine.register_symbol("_mlir_printf", libc::printf as *mut ());
+        execution_engine.register_symbol("_mlir_sync_cube", sync_cube as *mut ());
     }
 }
 
@@ -34,6 +39,16 @@ pub fn add_external_function_to_module<'a>(
             Identifier::new(context, "sym_visibility"),
             StringAttribute::new(context, "private").into(),
         )],
+        Location::unknown(context),
+    ));
+    let func_name = StringAttribute::new(context, "sync_cube");
+    let func_type = TypeAttribute::new(llvm::r#type::function(Type::none(context), &[], false));
+    module.body().append_operation(func::func(
+        context,
+        func_name,
+        func_type,
+        Region::new(),
+        &[],
         Location::unknown(context),
     ));
 }

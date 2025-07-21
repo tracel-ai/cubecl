@@ -3,6 +3,7 @@ pub(super) mod bitwise;
 pub(super) mod comparison;
 pub(super) mod metadata;
 pub(super) mod operator;
+pub(super) mod synchronization;
 
 use cubecl_core::ir::{NonSemantic, Operation};
 use tracel_llvm::melior::{
@@ -54,8 +55,8 @@ impl<'a> Visitor<'a> {
             }
             // These operation are not needed in MLIR
             Operation::NonSemantic(_) => {}
-            Operation::Synchronization(_synchronization) => {
-                todo!("Synchronization operation are not yet supported");
+            Operation::Synchronization(synchronization) => {
+                self.visit_synchronization(synchronization);
             }
             operation => {
                 todo!(
