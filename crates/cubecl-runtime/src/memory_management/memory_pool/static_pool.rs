@@ -1,4 +1,5 @@
 use crate::memory_management::MemoryUsage;
+use alloc::vec::Vec;
 use hashbrown::HashMap;
 
 use super::{MemoryPool, Slice, SliceHandle, SliceId, calculate_padding};
