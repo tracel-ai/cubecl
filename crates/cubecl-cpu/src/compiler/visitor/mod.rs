@@ -5,7 +5,7 @@ pub(super) mod instruction;
 pub(super) mod item;
 pub(super) mod operation;
 pub(super) mod prelude;
-pub(super) mod variable;
+pub(super) mod variables;
 
 use std::collections::HashMap;
 
@@ -31,6 +31,7 @@ use tracel_llvm::melior::{
 };
 
 use prelude::*;
+use variables::Variables;
 
 use super::external_function::add_external_function_to_module;
 
@@ -43,16 +44,14 @@ pub struct Visitor<'a> {
     pub current_region: RegionRef<'a, 'a>,
     pub context: &'a Context,
     pub location: Location<'a>,
-    pub current_local_variables: HashMap<u32, Value<'a, 'a>>,
-    pub current_version_variables: HashMap<(u32, u16), Value<'a, 'a>>,
-    pub current_mut_variables: HashMap<u32, Value<'a, 'a>>,
+
     pub str_counter: usize,
 
+    pub(self) variables: Variables<'a>,
     pub(self) args_manager: ArgsManager<'a>,
 }
 
 impl<'a> Visitor<'a> {
-    #[allow(clippy::too_many_arguments)]
     pub(self) fn new(
         current_block: BlockRef<'a, 'a>,
         last_block: BlockRef<'a, 'a>,
@@ -62,12 +61,10 @@ impl<'a> Visitor<'a> {
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
     ) -> Self {
-        let current_local_variables = HashMap::new();
-        let current_version_variables = HashMap::new();
-        let current_mut_variables = HashMap::new();
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
+        let variables = Variables::default();
         Self {
             block: current_block,
             last_block,
@@ -77,11 +74,9 @@ impl<'a> Visitor<'a> {
             current_region,
             context,
             location,
-            current_local_variables,
-            current_version_variables,
-            current_mut_variables,
             str_counter,
             args_manager,
+            variables,
         }
     }
 

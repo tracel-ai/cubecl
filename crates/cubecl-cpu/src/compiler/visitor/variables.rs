@@ -1,4 +1,4 @@
-use std::num::NonZero;
+use std::{collections::HashMap, num::NonZero};
 
 use cubecl_core::ir::{
     Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, VariableKind,
@@ -16,14 +16,21 @@ use tracel_llvm::melior::{
 
 use super::prelude::*;
 
+#[derive(Default, Debug)]
+pub struct Variables<'a> {
+    pub local: HashMap<u32, Value<'a, 'a>>,
+    pub version: HashMap<(u32, u16), Value<'a, 'a>>,
+    pub mutable: HashMap<u32, Value<'a, 'a>>,
+}
+
 impl<'a> Visitor<'a> {
     pub fn insert_variable(&mut self, variable: Variable, value: Value<'a, 'a>) {
         match variable.kind {
             VariableKind::LocalConst { id } => {
-                self.current_local_variables.insert(id, value);
+                self.variables.local.insert(id, value);
             }
             VariableKind::Versioned { id, version } => {
-                self.current_version_variables.insert((id, version), value);
+                self.variables.version.insert((id, version), value);
             }
             VariableKind::LocalMut { id } => {
                 let r#type = variable.elem().to_type(self.context);
@@ -33,22 +40,18 @@ impl<'a> Visitor<'a> {
                     None,
                     None,
                 );
-                let memref = self
-                    .current_mut_variables
-                    .get(&id)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        let value = self.append_operation_with_result(memref::alloca(
-                            self.context,
-                            memref_type,
-                            &[],
-                            &[],
-                            None,
-                            self.location,
-                        ));
-                        self.current_mut_variables.insert(id, value);
-                        value
-                    });
+                let memref = self.variables.mutable.get(&id).copied().unwrap_or_else(|| {
+                    let value = self.append_operation_with_result(memref::alloca(
+                        self.context,
+                        memref_type,
+                        &[],
+                        &[],
+                        None,
+                        self.location,
+                    ));
+                    self.variables.mutable.insert(id, value);
+                    value
+                });
                 let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
                 let zero = self.append_operation_with_result(arith::constant(
                     self.context,
@@ -109,7 +112,8 @@ impl<'a> Visitor<'a> {
                 self.args_manager.buffers[id as usize]
             }
             VariableKind::LocalMut { id } => *self
-                .current_mut_variables
+                .variables
+                .mutable
                 .get(&id)
                 .expect("Variable should have been declared before"),
             _ => todo!(
@@ -129,7 +133,8 @@ impl<'a> Visitor<'a> {
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::LocalConst { id } => *self
-                .current_local_variables
+                .variables
+                .local
                 .get(&id)
                 .expect("Variable should have been declared before"),
             VariableKind::Builtin(builtin) => self.get_builtin(builtin),
@@ -193,12 +198,14 @@ impl<'a> Visitor<'a> {
                 }
             }
             VariableKind::Versioned { id, version } => *self
-                .current_version_variables
+                .variables
+                .version
                 .get(&(id, version))
                 .expect("Variable should have been declared before"),
             VariableKind::LocalMut { id } => {
                 let memref = *self
-                    .current_mut_variables
+                    .variables
+                    .mutable
                     .get(&id)
                     .expect("Variable should have been declared before");
                 let result_type = variable.item.to_type(self.context);
