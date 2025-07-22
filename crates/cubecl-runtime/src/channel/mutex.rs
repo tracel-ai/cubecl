@@ -123,4 +123,9 @@ where
     fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.server.lock().end_profile(token)
     }
+
+    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
+        let mut server = self.server.lock();
+        server.allocation_mode(mode)
+    }
 }

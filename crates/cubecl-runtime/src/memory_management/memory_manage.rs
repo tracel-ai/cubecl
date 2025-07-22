@@ -69,7 +69,7 @@ impl MemoryPool for DynamicPool {
 
 #[derive(Default, Clone, Copy)]
 /// The mode of allocation used.
-pub enum Mode {
+pub enum MemoryAllocationMode {
     /// Use the automatic memory management strategy for allocation.
     #[default]
     Auto,
@@ -84,7 +84,7 @@ pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
-    mode: Mode,
+    mode: MemoryAllocationMode,
 }
 
 /// Exclude certain storage buffers from being selected when reserving memory.
@@ -273,12 +273,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             pools,
             storage,
             alloc_reserve_count: 0,
-            mode: Mode::Auto,
+            mode: MemoryAllocationMode::Auto,
         }
     }
 
     /// Change the mode of allocation.
-    pub fn mode(&mut self, mode: Mode) {
+    pub fn mode(&mut self, mode: MemoryAllocationMode) {
         self.mode = mode;
     }
 
@@ -325,7 +325,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> SliceHandle {
-        if let Mode::Static = self.mode {
+        if let MemoryAllocationMode::Static = self.mode {
             return self.static_pool.alloc(&mut self.storage, size);
         }
 

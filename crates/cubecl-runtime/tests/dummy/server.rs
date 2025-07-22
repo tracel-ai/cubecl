@@ -195,6 +195,10 @@ impl ComputeServer for DummyServer {
     fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.timestamps.stop(token)
     }
+
+    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+        self.memory_management.mode(mode)
+    }
 }
 
 impl DummyServer {

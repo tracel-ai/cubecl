@@ -4,7 +4,7 @@ use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
-    memory_management::MemoryUsage,
+    memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError},
     storage::{BindingResource, ComputeStorage},
 };
@@ -378,6 +378,13 @@ where
         self.profile_guard();
 
         self.channel.memory_usage()
+    }
+
+    /// Change the memory allocation mode.
+    pub fn allocation_mode(&self, mode: MemoryAllocationMode) {
+        self.profile_guard();
+
+        self.channel.allocation_mode(mode)
     }
 
     /// Ask the client to release memory that it can release.
