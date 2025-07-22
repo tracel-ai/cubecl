@@ -232,6 +232,12 @@ impl<'a> Visitor<'a> {
         )?;
         let cube_count_dim_xy = block.muli(cube_count_dim_x, cube_count_dim_y, location)?;
 
+        let cube_count_xy = block.muli(
+            args.get(Builtin::CubeCountX),
+            args.get(Builtin::CubeCountY),
+            location,
+        )?;
+
         block.append_operation(scf::r#for(
             start,
             args.get(Builtin::CubeCountZ),
@@ -252,6 +258,9 @@ impl<'a> Visitor<'a> {
 
                 let absolute_pos_z_corrected =
                     block.muli(absolute_pos_z, cube_count_dim_xy, location)?;
+
+                let cube_pos_z_corrected =
+                    block.muli(args.get(Builtin::CubePosZ), cube_count_xy, location)?;
 
                 block.append_operation(scf::r#for(
                     start,
@@ -283,6 +292,14 @@ impl<'a> Visitor<'a> {
                             location,
                         )?;
 
+                        let cube_pos_y_corrected = block.muli(
+                            args.get(Builtin::CubePosY),
+                            args.get(Builtin::CubeCountX),
+                            location,
+                        )?;
+                        let cube_pos_yz_corrected =
+                            block.addi(cube_pos_z_corrected, cube_pos_y_corrected, location)?;
+
                         block.append_operation(scf::r#for(
                             start,
                             args.get(Builtin::CubeCountX),
@@ -310,6 +327,13 @@ impl<'a> Visitor<'a> {
                                     location,
                                 )?;
                                 args.set(Builtin::AbsolutePos, absolute_pos);
+
+                                let cube_pos = block.addi(
+                                    cube_pos_yz_corrected,
+                                    args.get(Builtin::CubePosX),
+                                    location,
+                                )?;
+                                args.set(Builtin::CubePos, cube_pos);
 
                                 region.append_block(block);
                                 let current_block = region.first_block().unwrap();

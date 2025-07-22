@@ -184,7 +184,6 @@ impl ComputeServer for CpuServer {
 
     fn flush(&mut self) {}
 
-    // TODO find when task are finish to be scheduled
     fn sync(&mut self) -> DynFut<()> {
         self.logger.profile_summary();
         Box::pin(async move {})
