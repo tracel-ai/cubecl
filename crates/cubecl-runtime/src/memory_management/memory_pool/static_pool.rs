@@ -74,17 +74,14 @@ impl MemoryPool for StaticPool {
         explicit: bool,
     ) {
         if explicit {
-            let mut removed = Vec::new();
-            self.slices.values_mut().for_each(|slice| {
+            self.slices.retain(|_, slice| {
                 if slice.is_free() {
-                    removed.push(slice.id());
                     storage.dealloc(slice.storage.id);
+                    false
+                } else {
+                    true
                 }
             });
-
-            for id in removed {
-                self.slices.remove(&id);
-            }
         }
     }
 }
