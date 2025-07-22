@@ -391,7 +391,7 @@ where
         self.channel.allocation_mode(mode)
     }
 
-    /// Use an static memory strategy to execute the provided function.
+    /// Use a static memory strategy to execute the provided function.
     ///
     /// # Notes
     ///
