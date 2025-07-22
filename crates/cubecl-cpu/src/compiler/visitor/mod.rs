@@ -194,138 +194,98 @@ impl<'a> Visitor<'a> {
         let start = block.const_int_from_type(context, location, 0, integer_type)?;
         let step = block.const_int_from_type(context, location, 1, integer_type)?;
 
-        let absolute_pos_tmp_0 = block.muli(
-            args.get_builtin(Builtin::CubeCountX),
-            args.get_builtin(Builtin::CubeDimX),
+        args.compute_derived_args_builtin(block, location);
+
+        let cube_count_dim_x = block.muli(
+            args.get(Builtin::CubeCountX),
+            args.get(Builtin::CubeDimX),
             location,
         )?;
-
-        let absolute_pos_tmp_1 = block.muli(
-            args.get_builtin(Builtin::CubeCountY),
-            args.get_builtin(Builtin::CubeDimY),
+        let cube_count_dim_y = block.muli(
+            args.get(Builtin::CubeCountY),
+            args.get(Builtin::CubeDimY),
             location,
         )?;
-
-        let absolute_pos_tmp_2 = block.muli(absolute_pos_tmp_0, absolute_pos_tmp_1, location)?;
-
-        let unit_pos_tmp0 = block.muli(
-            args.get_builtin(Builtin::CubeDimX),
-            args.get_builtin(Builtin::CubeDimY),
-            location,
-        )?;
-
-        let unit_pos_tmp1 =
-            block.muli(unit_pos_tmp0, args.get_builtin(Builtin::UnitPosZ), location)?;
-
-        let unit_pos_tmp2 = block.muli(
-            args.get_builtin(Builtin::CubeDimX),
-            args.get_builtin(Builtin::UnitPosY),
-            location,
-        )?;
-
-        let unit_pos_tmp3 = block.addi(unit_pos_tmp1, unit_pos_tmp2, location)?;
-
-        let unit_pos = block.addi(unit_pos_tmp3, args.get_builtin(Builtin::UnitPosX), location)?;
-        args.set_builtin(Builtin::UnitPos, unit_pos);
+        let cube_count_dim_xy = block.muli(cube_count_dim_x, cube_count_dim_y, location)?;
 
         block.append_operation(scf::r#for(
             start,
-            args.get_builtin(Builtin::CubeCountX),
+            args.get(Builtin::CubeCountZ),
             step,
             {
                 let region = Region::new();
                 let block = Block::new(&[(integer_type, location)]);
-                let cube_pos_x = block.argument(0)?.into();
-                args.set_builtin(Builtin::CubePosX, cube_pos_x);
+                args.set(Builtin::CubePosZ, block.argument(0)?.into());
 
-                let absolute_pos_x_tmp =
-                    block.muli(cube_pos_x, args.get_builtin(Builtin::CubeDimX), location)?;
-                let absolute_pos_x = block.addi(
-                    absolute_pos_x_tmp,
-                    args.get_builtin(Builtin::UnitPosX),
+                let absolute_pos_tmp_z = block.muli(
+                    args.get(Builtin::CubePosZ),
+                    args.get(Builtin::CubeDimZ),
                     location,
                 )?;
-                args.set_builtin(Builtin::AbsolutePosX, absolute_pos_x);
+                let absolute_pos_z =
+                    block.addi(absolute_pos_tmp_z, args.get(Builtin::UnitPosZ), location)?;
+                args.set(Builtin::AbsolutePosZ, absolute_pos_z);
+
+                let absolute_pos_z_corrected =
+                    block.muli(absolute_pos_z, cube_count_dim_xy, location)?;
 
                 block.append_operation(scf::r#for(
                     start,
-                    args.get_builtin(Builtin::CubeCountY),
+                    args.get(Builtin::CubeCountY),
                     step,
                     {
                         let region = Region::new();
                         let block = Block::new(&[(integer_type, location)]);
-                        let cube_pos_y = block.argument(0)?.into();
-                        args.set_builtin(Builtin::CubePosY, cube_pos_y);
+                        args.set(Builtin::CubePosY, block.argument(0)?.into());
 
-                        let absolute_pos_y_tmp = block.muli(
-                            cube_pos_y,
-                            args.get_builtin(Builtin::CubeDimY),
+                        let absolute_pos_tmp_y = block.muli(
+                            args.get(Builtin::CubePosY),
+                            args.get(Builtin::CubeDimY),
                             location,
                         )?;
                         let absolute_pos_y = block.addi(
-                            absolute_pos_y_tmp,
-                            args.get_builtin(Builtin::UnitPosY),
+                            absolute_pos_tmp_y,
+                            args.get(Builtin::UnitPosY),
                             location,
                         )?;
-                        args.set_builtin(Builtin::AbsolutePosY, absolute_pos_y);
+                        args.set(Builtin::AbsolutePosY, absolute_pos_y);
 
-                        let absolute_pos_tmp_3 =
-                            block.muli(absolute_pos_y, absolute_pos_tmp_0, location)?;
+                        let absolute_pos_y_corrected =
+                            block.muli(absolute_pos_y, cube_count_dim_x, location)?;
+
+                        let absolute_pos_xy_corrected = block.addi(
+                            absolute_pos_z_corrected,
+                            absolute_pos_y_corrected,
+                            location,
+                        )?;
+
                         block.append_operation(scf::r#for(
                             start,
-                            args.get_builtin(Builtin::CubeCountY),
+                            args.get(Builtin::CubeCountX),
                             step,
                             {
                                 let region = Region::new();
                                 let block = Block::new(&[(integer_type, location)]);
+                                args.set(Builtin::CubePosX, block.argument(0)?.into());
 
-                                let cube_pos_z = block.argument(0)?.into();
-                                args.set_builtin(Builtin::CubePosZ, cube_pos_z);
+                                let absolute_pos_tmp_x = block.muli(
+                                    args.get(Builtin::CubePosX),
+                                    args.get(Builtin::CubeDimX),
+                                    location,
+                                )?;
+                                let absolute_pos_x = block.addi(
+                                    absolute_pos_tmp_x,
+                                    args.get(Builtin::UnitPosX),
+                                    location,
+                                )?;
+                                args.set(Builtin::AbsolutePosX, absolute_pos_x);
 
-                                let absolute_pos_z_tmp = block.muli(
-                                    cube_pos_z,
-                                    args.get_builtin(Builtin::CubeDimZ),
+                                let absolute_pos = block.addi(
+                                    absolute_pos_xy_corrected,
+                                    absolute_pos_x,
                                     location,
                                 )?;
-                                let absolute_pos_z = block.addi(
-                                    absolute_pos_z_tmp,
-                                    args.get_builtin(Builtin::UnitPosZ),
-                                    location,
-                                )?;
-                                args.set_builtin(Builtin::AbsolutePosZ, absolute_pos_z);
-
-                                let cube_pos_tmp = block.muli(
-                                    args.get_builtin(Builtin::CubeDimX),
-                                    args.get_builtin(Builtin::CubeDimY),
-                                    location,
-                                )?;
-                                let cube_pos_tmp2 = block.muli(
-                                    cube_pos_tmp,
-                                    args.get_builtin(Builtin::CubePosZ),
-                                    location,
-                                )?;
-
-                                let cube_pos_tmp3 = block.muli(
-                                    args.get_builtin(Builtin::CubeDimX),
-                                    args.get_builtin(Builtin::CubePosY),
-                                    location,
-                                )?;
-                                let cube_pos_tmp4 =
-                                    block.addi(cube_pos_tmp2, cube_pos_tmp3, location)?;
-                                let cube_pos_tmp5 = block.addi(
-                                    cube_pos_tmp4,
-                                    args.get_builtin(Builtin::CubePosX),
-                                    location,
-                                )?;
-                                args.set_builtin(Builtin::CubePos, cube_pos_tmp5);
-
-                                let absolute_pos_tmp_4 =
-                                    block.muli(absolute_pos_z, absolute_pos_tmp_2, location)?;
-                                let absolute_pos_tmp_5 =
-                                    block.addi(absolute_pos_x, absolute_pos_tmp_3, location)?;
-                                let absolute_pos =
-                                    block.addi(absolute_pos_tmp_5, absolute_pos_tmp_4, location)?;
-                                args.set_builtin(Builtin::AbsolutePos, absolute_pos);
+                                args.set(Builtin::AbsolutePos, absolute_pos);
 
                                 region.append_block(block);
                                 let current_block = region.first_block().unwrap();
@@ -356,6 +316,7 @@ impl<'a> Visitor<'a> {
                             },
                             location,
                         ));
+
                         block.append_operation(scf::r#yield(&[], location));
                         region.append_block(block);
                         region

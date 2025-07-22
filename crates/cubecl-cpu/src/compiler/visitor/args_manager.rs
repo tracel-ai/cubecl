@@ -1,6 +1,6 @@
 use cubecl_core::{Metadata, ir::Builtin, prelude::KernelDefinition};
 use tracel_llvm::melior::ir::{
-    Block, Location,
+    Block, BlockRef, Location,
     r#type::{FunctionType, IntegerType, MemRefType},
 };
 
@@ -120,7 +120,7 @@ impl<'a> ArgsManager<'a> {
         }
 
         for (i, builtin) in BuiltinArray::builtin_order().into_iter().enumerate() {
-            self.set_builtin(
+            self.set(
                 builtin,
                 block
                     .argument(self.buffers_len + self.scalars_len + 1 + i)
@@ -132,11 +132,49 @@ impl<'a> ArgsManager<'a> {
         block
     }
 
-    pub fn set_builtin(&mut self, builtin: Builtin, value: Value<'a, 'a>) {
+    pub fn compute_derived_args_builtin(
+        &mut self,
+        block: BlockRef<'a, 'a>,
+        location: Location<'a>,
+    ) {
+        let cube_dim_xy = block
+            .muli(
+                self.get(Builtin::CubeDimX),
+                self.get(Builtin::CubeDimY),
+                location,
+            )
+            .unwrap();
+        let cube_dim = block
+            .muli(cube_dim_xy, self.get(Builtin::CubeDimZ), location)
+            .unwrap();
+        self.set(Builtin::CubeDim, cube_dim);
+
+        let unit_pos_z_corrected = block
+            .muli(self.get(Builtin::UnitPosZ), cube_dim_xy, location)
+            .unwrap();
+
+        let unit_pos_y_corrected = block
+            .muli(
+                self.get(Builtin::UnitPosY),
+                self.get(Builtin::CubeDimX),
+                location,
+            )
+            .unwrap();
+
+        let unit_pos_xy_corrected = block
+            .addi(unit_pos_z_corrected, unit_pos_y_corrected, location)
+            .unwrap();
+        let unit_pos = block
+            .addi(unit_pos_xy_corrected, self.get(Builtin::UnitPosX), location)
+            .unwrap();
+        self.set(Builtin::UnitPos, unit_pos);
+    }
+
+    pub fn set(&mut self, builtin: Builtin, value: Value<'a, 'a>) {
         self.builtin[builtin as usize] = Some(value);
     }
 
-    pub fn get_builtin(&self, builtin: Builtin) -> Value<'a, 'a> {
+    pub fn get(&self, builtin: Builtin) -> Value<'a, 'a> {
         self.builtin[builtin as usize]
             .expect(&format!("Unsupported builtin was used: {:?}", builtin))
     }

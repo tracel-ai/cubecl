@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use cubecl_core::ExecutionMode;
 
@@ -7,20 +7,23 @@ use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
 // -1 variant indicate that the counter is not initialized
 static NB_CUBE_TO_SYNC: AtomicI32 = AtomicI32::new(-1);
 
-pub fn sync_cube() {
-    println!("SyncCube");
-    // if NB_CUBE_TO_SYNC.load(Ordering::Acquire) == -1 {
-    //     let available_parallelism = std::thread::available_parallelism()
-    //         .expect("Can't get available parallelism on this platform")
-    //         .get();
-    //     NB_CUBE_TO_SYNC.store(available_parallelism as i32 - 1, Ordering::Release);
-    // } else {
-    //     NB_CUBE_TO_SYNC.fetch_sub(-1, Ordering::Release);
-    // }
-    // while {
-    //     let val = NB_CUBE_TO_SYNC.load(Ordering::);
-    //     val != 0 && val != 1
-    // } {}
+pub fn sync_cube(cube_dim: u32) {
+    if NB_CUBE_TO_SYNC.load(Ordering::Acquire) == -1 {
+        NB_CUBE_TO_SYNC.store((cube_dim as i64 - 1) as i32, Ordering::Release);
+    } else {
+        NB_CUBE_TO_SYNC.fetch_sub(-1, Ordering::Release);
+    }
+    loop {
+        let val = NB_CUBE_TO_SYNC.load(Ordering::Acquire);
+        if val == 0 {
+            NB_CUBE_TO_SYNC.store(-1, Ordering::Release);
+            break;
+        }
+        if val == -1 {
+            break;
+        }
+        std::hint::spin_loop();
+    }
 }
 
 pub struct ComputeTask {

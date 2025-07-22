@@ -266,6 +266,6 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn get_builtin(&self, builtin: Builtin) -> Value<'a, 'a> {
-        self.args_manager.get_builtin(builtin)
+        self.args_manager.get(builtin)
     }
 }

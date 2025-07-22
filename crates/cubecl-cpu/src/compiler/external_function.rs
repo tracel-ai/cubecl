@@ -2,9 +2,9 @@ use tracel_llvm::melior::{
     Context, ExecutionEngine,
     dialect::{func, llvm},
     ir::{
-        BlockLike, Identifier, Location, Region, Type,
+        BlockLike, Identifier, Location, Region,
         attribute::{StringAttribute, TypeAttribute},
-        r#type::IntegerType,
+        r#type::{FunctionType, IntegerType},
     },
 };
 
@@ -42,13 +42,17 @@ pub fn add_external_function_to_module<'a>(
         Location::unknown(context),
     ));
     let func_name = StringAttribute::new(context, "sync_cube");
-    let func_type = TypeAttribute::new(llvm::r#type::function(Type::none(context), &[], false));
+    let integer_type = IntegerType::new(context, 32).into();
+    let func_type = TypeAttribute::new(FunctionType::new(context, &[integer_type], &[]).into());
     module.body().append_operation(func::func(
         context,
         func_name,
         func_type,
         Region::new(),
-        &[],
+        &[(
+            Identifier::new(context, "sym_visibility"),
+            StringAttribute::new(context, "private").into(),
+        )],
         Location::unknown(context),
     ));
 }
