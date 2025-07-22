@@ -1,5 +1,5 @@
 [package]
-authors = ["marcantoinemanningham <marc-antoine.m@outlook.com>"]
+authors = ["marcantoinem <marc-antoine.m@outlook.com>"]
 categories = ["science"]
 description = "CPU runtime for CubeCL"
 edition.workspace = true
@@ -11,7 +11,6 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpu"
 version.workspace = true
 
 [features]
-# compilation-cache = ["cubecl-common/cache"]
 mlir-dump = []
 default = [
     "std",

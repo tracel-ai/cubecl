@@ -52,6 +52,7 @@ compilation-cache = [
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
+cubecl-cpu = { path = "../cubecl-cpu", version = "0.7.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.7.0", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "0.7.0", default-features = false, optional = true }
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", default-features = false, optional = true }
