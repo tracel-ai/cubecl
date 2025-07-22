@@ -1,5 +1,6 @@
 use super::ComputeChannel;
 use crate::logging::ServerLogger;
+use crate::memory_management::MemoryAllocationMode;
 use crate::server::{
     Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
     ProfilingToken,
@@ -124,7 +125,7 @@ where
         self.server.lock().end_profile(token)
     }
 
-    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
+    fn allocation_mode(&self, mode: MemoryAllocationMode) {
         let mut server = self.server.lock();
         server.allocation_mode(mode)
     }

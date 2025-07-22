@@ -269,7 +269,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .collect();
 
         Self {
-            static_pool: StaticPool::default(),
+            static_pool: StaticPool::new(properties.max_page_size),
             pools,
             storage,
             alloc_reserve_count: 0,

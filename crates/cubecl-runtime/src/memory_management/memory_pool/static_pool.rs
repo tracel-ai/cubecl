@@ -1,28 +1,29 @@
-use crate::{
-    memory_management::MemoryUsage,
-    storage::{StorageHandle, StorageId},
-};
+use crate::memory_management::MemoryUsage;
 use hashbrown::HashMap;
 
-use super::{MemoryPool, SliceHandle, SliceId, calculate_padding};
+use super::{MemoryPool, Slice, SliceHandle, SliceId, calculate_padding};
 
-#[derive(Default)]
 pub struct StaticPool {
-    handle: HashMap<StorageId, StorageHandle>,
-    slices: HashMap<SliceId, StorageId>,
-    padding_total: u64,
+    slices: HashMap<SliceId, Slice>,
+    max_alloc_size: u64,
+}
+
+impl StaticPool {
+    pub fn new(max_alloc_size: u64) -> Self {
+        Self {
+            slices: HashMap::new(),
+            max_alloc_size,
+        }
+    }
 }
 
 impl MemoryPool for StaticPool {
     fn max_alloc_size(&self) -> u64 {
-        todo!()
+        self.max_alloc_size
     }
 
     fn get(&self, binding: &super::SliceBinding) -> Option<&crate::storage::StorageHandle> {
-        self.slices
-            .get(binding.id())
-            .map(|id| self.handle.get(id))
-            .flatten()
+        self.slices.get(binding.id()).map(|slice| &slice.storage)
     }
 
     fn try_reserve(
@@ -39,36 +40,50 @@ impl MemoryPool for StaticPool {
         size: u64,
     ) -> SliceHandle {
         let padding = calculate_padding(size, storage.alignment() as u64);
-        self.padding_total += padding;
         let size_alloc = size + padding;
 
         let storage_handle = storage.alloc(size_alloc);
-        let storage_id = storage_handle.id;
-        self.handle.insert(storage_id, storage_handle);
-        let handle = SliceHandle::new();
-        self.slices.insert(handle.id().clone(), storage_id);
+        let slice_handle = SliceHandle::new();
+        let slice = Slice::new(storage_handle, slice_handle.clone(), padding);
 
-        handle
+        self.slices.insert(slice.id(), slice);
+
+        slice_handle
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
-        let used_slices: Vec<_> = self.handle.values().collect();
-        let used = used_slices.iter().map(|s| s.size()).sum();
+        let used_slices: Vec<_> = self
+            .slices
+            .values()
+            .filter(|slice| !slice.is_free())
+            .collect();
 
         MemoryUsage {
             number_allocs: used_slices.len() as u64,
-            bytes_in_use: used,
-            bytes_padding: self.padding_total,
-            bytes_reserved: used,
+            bytes_in_use: used_slices.iter().map(|slice| slice.storage.size()).sum(),
+            bytes_padding: used_slices.iter().map(|slice| slice.padding).sum(),
+            bytes_reserved: self.slices.values().map(|slice| slice.storage.size()).sum(),
         }
     }
 
     fn cleanup<Storage: crate::storage::ComputeStorage>(
         &mut self,
-        _storage: &mut Storage,
+        storage: &mut Storage,
         _alloc_nr: u64,
-        _explicit: bool,
+        explicit: bool,
     ) {
-        // This pool doesn't do any shrinking currently.
+        if explicit {
+            let mut removed = Vec::new();
+            self.slices.values_mut().for_each(|slice| {
+                if slice.is_free() {
+                    removed.push(slice.id());
+                    storage.dealloc(slice.storage.id);
+                }
+            });
+
+            for id in removed {
+                self.slices.remove(&id);
+            }
+        }
     }
 }
