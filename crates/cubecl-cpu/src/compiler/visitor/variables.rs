@@ -21,6 +21,19 @@ pub struct Variables<'a> {
     pub local: HashMap<u32, Value<'a, 'a>>,
     pub version: HashMap<(u32, u16), Value<'a, 'a>>,
     pub mutable: HashMap<u32, Value<'a, 'a>>,
+    pub global_constant: HashMap<u32, Item>,
+}
+
+impl<'a> Variables<'a> {
+    pub fn new(opt: &Optimizer) -> Self {
+        let mut variables = Self::default();
+        for const_array in opt.const_arrays() {
+            variables
+                .global_constant
+                .insert(const_array.id, const_array.item);
+        }
+        variables
+    }
 }
 
 impl<'a> Visitor<'a> {
@@ -116,6 +129,23 @@ impl<'a> Visitor<'a> {
                 .mutable
                 .get(&id)
                 .expect("Variable should have been declared before"),
+            VariableKind::ConstantArray { id, length } => {
+                let name = id.to_string();
+                let r#type = self
+                    .variables
+                    .global_constant
+                    .get(&id)
+                    .unwrap()
+                    .clone()
+                    .to_type(self.context);
+                let r#type = MemRefType::new(r#type, &[length as i64], None, None);
+                self.append_operation_with_result(memref::get_global(
+                    self.context,
+                    &name,
+                    r#type,
+                    self.location,
+                ))
+            }
             _ => todo!(
                 "This variable isn't backed by memory or implemented: {}",
                 variable
@@ -128,6 +158,7 @@ impl<'a> Visitor<'a> {
             VariableKind::GlobalInputArray(_)
                 | VariableKind::GlobalOutputArray(_)
                 | VariableKind::LocalMut { .. }
+                | VariableKind::ConstantArray { .. }
         )
     }
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {

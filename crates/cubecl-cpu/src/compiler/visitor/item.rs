@@ -1,9 +1,9 @@
-use cubecl_core::ir::Item;
+use cubecl_core::ir::{ConstantScalarValue, Item, VariableKind};
 use tracel_llvm::melior::{
     Context,
     dialect::{arith, ods::vector},
     ir::{
-        Type, Value,
+        Attribute, Type, Value,
         attribute::{FloatAttribute, IntegerAttribute},
     },
 };
@@ -24,6 +24,45 @@ impl IntoType for Item {
 }
 
 impl<'a> Visitor<'a> {
+    pub fn into_attribute(
+        context: &'a Context,
+        var: Variable,
+        item: Item,
+    ) -> Option<Attribute<'a>> {
+        let r#type = item.elem.to_type(context);
+        match var.kind {
+            VariableKind::ConstantScalar(ConstantScalarValue::Float(float, _)) => {
+                if item.elem.is_float() {
+                    Some(FloatAttribute::new(context, r#type, float).into())
+                } else {
+                    Some(IntegerAttribute::new(r#type, float as i64).into())
+                }
+            }
+            VariableKind::ConstantScalar(ConstantScalarValue::Bool(bool)) => {
+                if item.elem.is_float() {
+                    Some(FloatAttribute::new(context, r#type, bool as i64 as f64).into())
+                } else {
+                    Some(IntegerAttribute::new(r#type, bool as i64).into())
+                }
+            }
+            VariableKind::ConstantScalar(ConstantScalarValue::Int(int, _)) => {
+                if item.elem.is_float() {
+                    Some(FloatAttribute::new(context, r#type, int as f64).into())
+                } else {
+                    Some(IntegerAttribute::new(r#type, int as i64).into())
+                }
+            }
+            VariableKind::ConstantScalar(ConstantScalarValue::UInt(u_int, _)) => {
+                if item.elem.is_float() {
+                    Some(FloatAttribute::new(context, r#type, u_int as f64).into())
+                } else {
+                    Some(IntegerAttribute::new(r#type, u_int as i64).into())
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub fn create_float_constant_from_item(&self, item: Item, constant: f64) -> Value<'a, 'a> {
         let float = item.elem.to_type(self.context);
         let constant = FloatAttribute::new(self.context, float, constant);
