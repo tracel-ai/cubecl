@@ -18,7 +18,7 @@ use crate::{
 use super::Extension;
 use super::arch::AMDArchitecture;
 use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
-use super::mma::{WmmaFill, WmmaIntrinsicCompiler};
+use super::mma::{WmmaFill, WmmaIntrinsicCompiler, WmmaLoad};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -96,6 +96,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 extensions.push(extension);
             }
         };
+
         #[allow(clippy::single_match)]
         match instruction {
             shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
@@ -136,9 +137,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         extensions: &mut Vec<Self::Extension>,
         instruction: &shared::WmmaInstruction<Self>,
     ) {
-        // if TypeId::of::<M>() != TypeId::of::<WmmaIntrinsicCompiler>() {
-        //     return;
-        // }
+        if TypeId::of::<M>() != TypeId::of::<WmmaIntrinsicCompiler>() {
+            return;
+        }
 
         match instruction {
             shared::WmmaInstruction::Fill { frag, .. } => {
@@ -147,6 +148,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     _ => panic!(),
                 };
                 let extension = Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(frag)));
+                if !extensions.contains(&extension) {
+                    extensions.push(extension);
+                }
+            }
+            shared::WmmaInstruction::Load { frag, layout, .. } => {
+                let frag = match frag {
+                    Variable::WmmaFragment { frag, .. } => frag.clone(),
+                    _ => panic!(),
+                };
+                let extension = Extension::Wmma(WmmaExtension::Load(WmmaLoad::new(frag, *layout)));
                 if !extensions.contains(&extension) {
                     extensions.push(extension);
                 }

@@ -18,6 +18,21 @@ pub struct WmmaFill<D: Dialect> {
     frag: Fragment<D>,
 }
 
+#[derive(new, Debug, Clone, PartialEq)]
+pub struct WmmaLoad<D: Dialect> {
+    frag: Fragment<D>,
+    layout: Option<FragmentLayout<D>>,
+}
+
+#[derive(new, Debug, Clone, PartialEq)]
+pub struct WmmaExecute<D: Dialect> {
+    frag_a: Fragment<D>,
+    frag_b: Fragment<D>,
+    frag_c: Fragment<D>,
+    frag_d: Fragment<D>,
+    warp_size: u32,
+}
+
 impl<D: Dialect> WmmaFill<D> {
     pub fn fn_name(&self) -> String {
         let layout = match self.frag.layout {
@@ -51,6 +66,118 @@ impl<D: Dialect> WmmaFill<D> {
 __device__ void {name}({frag} frag, {elem} value) {{
     for (uint i = 0; i < uint(8); ++i) {{
       frag[i] = value;
+    }}
+}}
+        "
+        )
+    }
+}
+
+impl<D: Dialect> WmmaLoad<D> {
+    pub fn fn_name(&self) -> String {
+        let layout_frag = match self.frag.layout {
+            Some(layout) => match layout {
+                FragmentLayout::ColMajor => "col",
+                FragmentLayout::RowMajor => "row",
+                FragmentLayout::_Dialect(_) => "",
+            },
+            None => "",
+        };
+        let layout = match self.layout {
+            Some(layout) => match layout {
+                FragmentLayout::ColMajor => "col",
+                FragmentLayout::RowMajor => "row",
+                FragmentLayout::_Dialect(_) => "",
+            },
+            None => "",
+        };
+        let ident = match self.frag.ident {
+            FragmentIdent::A => "a",
+            FragmentIdent::B => "b",
+            FragmentIdent::Accumulator => "c",
+            FragmentIdent::_Dialect(_) => "d",
+        };
+        let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
+
+        format!("wmma_load_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}",)
+    }
+
+    /// Matrix A must be in column major layout (so fragments correspond to a row)
+    /// Matrices B, C and D must be in row major layout (so fragments correspond to a column)
+    ///
+    /// Each lane is a thread so each column get 8 VGPRs used to store fragments
+    /// Here is the layout for C and D matrices and how they map to registers
+    ///
+    /// Lane index   0      1      2      3      ...     13     14     15     ...     17     18     ...     30     31
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR0      | 1,1  | 1,2  | 1,3  | 1,4  | ...  | 1,13 | 1,14 | 1,15 | ...  | 2,1  | 2,2  | ...  | 2,15 | 2,16 |
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR1      | 3,1  | 3,2  | 3,3  | 3,4  | ...  | 3,13 | 3,14 | 3,15 | ...  | 4,1  | 4,2  | ...  | 4,15 | 4,16 |
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR2      | 5,1  | 5,2  | 5,3  | 5,4  | ...  | 5,13 | 5,14 | 5,15 | ...  | 6,1  | 6,2  | ...  | 6,15 | 6,16 |
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR3      | 7,1  | 7,2  | 7,3  | 7,4  | ...  | 7,13 | 7,14 | 7,15 | ...  | 8,1  | 8,2  | ...  | 8,15 | 8,16 |
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR4      | 9,1  | 9,2  | 9,3  | 9,4  | ...  | 9,13 | 9,14 | 9,15 | ...  | 10,1 | 10,2 | ...  | 10,15| 10,16|
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR5      | 11,1 | 11,2 | 11,3 | 11,4 | ...  | 11,13| 11,14| 11,15| ...  | 12,1 | 12,2 | ...  | 12,15| 12,16|
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR6      | 13,1 | 13,2 | 13,3 | 13,4 | ...  | 13,13| 13,14| 13,15| ...  | 14,1 | 14,2 | ...  | 14,15| 14,16|
+    /// --------------------------------------------------------------------------------------------------------------
+    /// VGPR7      | 15,1 | 15,2 | 15,3 | 15,4 | ...  | 15,13| 15,14| 15,15| ...  | 16,1 | 16,2 | ...  | 16,15| 16,16|
+    /// --------------------------------------------------------------------------------------------------------------
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let elem = self.frag.elem;
+        let frag = self.frag;
+        let name = self.fn_name();
+
+        let (index_body, length, step) = match frag.ident {
+            FragmentIdent::A | FragmentIdent::B => {
+                let length = 16;
+                let step = 1;
+                // fragment a and b are always in half precision and they don't require special attention
+                // to how they are stored in memory as matrix A and B are also in half precision
+                let index = if (frag.ident == FragmentIdent::A
+                    && frag.layout.unwrap() == FragmentLayout::ColMajor)
+                    || (frag.ident == FragmentIdent::B
+                        && frag.layout.unwrap() == FragmentLayout::RowMajor)
+                {
+                    format!("i * stride + wmmaLane")
+                } else {
+                    format!("i + wmmaLane * stride")
+                };
+                (index, length, step)
+            }
+            FragmentIdent::Accumulator => {
+                let length = 8;
+                let step = get_output_accumulator_index_step(&elem, &frag);
+                let index = match self.layout {
+                    Some(FragmentLayout::ColMajor) => {
+                        format!("(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * stride")
+                    }
+                    Some(FragmentLayout::RowMajor) => {
+                        format!("(i * uint(2) + threadIdx.x / uint(16)) * stride + wmmaLane")
+                    }
+                    _ => panic!(
+                        "cannot load data to an accumulator without knowing the layout of the data"
+                    ),
+                };
+                (index, length, step)
+            }
+            other => panic!("unknown matrix identifier {other}"),
+        };
+
+        write!(
+            f,
+            "
+// Load the fragment.
+__device__ void {name}({frag} frag, const {elem}* value_ptr, uint offset, uint stride) {{
+    const uint wmmaLane = uint(threadIdx.x % 16);
+
+    for (uint i = 0; i < uint({length}); ++i) {{
+      const uint index = {index_body};
+      // frag[i * {step}] = value_ptr[index];
+      frag[i * {step}] = value_ptr[0];
     }}
 }}
         "
@@ -142,84 +269,71 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 offset,
                 stride,
             } => {
-                // Matrix A must be in column major layout (so fragments correspond to a row)
-                // Matrices B, C and D must be in row major layout (so fragments correspond to a column)
-                //
-                // Each lane is a thread so each column get 8 VGPRs used to store fragments
-                // Here is the layout for C and D matrices and how they map to registers
-                //
-                // Lane index   0      1      2      3      ...     13     14     15     ...     17     18     ...     30     31
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR0      | 1,1  | 1,2  | 1,3  | 1,4  | ...  | 1,13 | 1,14 | 1,15 | ...  | 2,1  | 2,2  | ...  | 2,15 | 2,16 |
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR1      | 3,1  | 3,2  | 3,3  | 3,4  | ...  | 3,13 | 3,14 | 3,15 | ...  | 4,1  | 4,2  | ...  | 4,15 | 4,16 |
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR2      | 5,1  | 5,2  | 5,3  | 5,4  | ...  | 5,13 | 5,14 | 5,15 | ...  | 6,1  | 6,2  | ...  | 6,15 | 6,16 |
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR3      | 7,1  | 7,2  | 7,3  | 7,4  | ...  | 7,13 | 7,14 | 7,15 | ...  | 8,1  | 8,2  | ...  | 8,15 | 8,16 |
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR4      | 9,1  | 9,2  | 9,3  | 9,4  | ...  | 9,13 | 9,14 | 9,15 | ...  | 10,1 | 10,2 | ...  | 10,15| 10,16|
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR5      | 11,1 | 11,2 | 11,3 | 11,4 | ...  | 11,13| 11,14| 11,15| ...  | 12,1 | 12,2 | ...  | 12,15| 12,16|
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR6      | 13,1 | 13,2 | 13,3 | 13,4 | ...  | 13,13| 13,14| 13,15| ...  | 14,1 | 14,2 | ...  | 14,15| 14,16|
-                // --------------------------------------------------------------------------------------------------------------
-                // VGPR7      | 15,1 | 15,2 | 15,3 | 15,4 | ...  | 15,13| 15,14| 15,15| ...  | 16,1 | 16,2 | ...  | 16,15| 16,16|
-                // --------------------------------------------------------------------------------------------------------------
+                let extension = WmmaLoad::new(
+                    match frag {
+                        Variable::WmmaFragment { frag, .. } => frag.clone(),
+                        _ => panic!(),
+                    },
+                    *layout,
+                );
+                let name = extension.fn_name();
                 let value_ptr = frag_as_ptr(f, value, offset);
-                // TODO: support iu8 and iu4
-                let (index, length, step) = match frag {
-                    Variable::WmmaFragment { frag: inner, .. } => {
-                        match inner.ident {
-                            FragmentIdent::A | FragmentIdent::B => {
-                                let length = 16;
-                                let step = 1;
-                                // fragment a and b are always in half precision and they don't require special attention
-                                // to how they are stored in memory as matrix A and B are also in half precision
-                                let index = if (inner.ident == FragmentIdent::A
-                                    && inner.layout.unwrap() == FragmentLayout::ColMajor)
-                                    || (inner.ident == FragmentIdent::B
-                                        && inner.layout.unwrap() == FragmentLayout::RowMajor)
-                                {
-                                    format!("i * {stride} + wmmaLane")
-                                } else {
-                                    format!("i + wmmaLane * {stride}")
-                                };
-                                (index, length, step)
-                            }
-                            FragmentIdent::Accumulator => {
-                                let length = 8;
-                                let step = get_output_accumulator_index_step(value, inner);
-                                let index = match layout {
-                                    Some(FragmentLayout::ColMajor) => {
-                                        format!(
-                                            "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * {stride}"
-                                        )
-                                    }
-                                    Some(FragmentLayout::RowMajor) => {
-                                        format!(
-                                            "(i * uint(2) + threadIdx.x / uint(16)) * {stride} + wmmaLane"
-                                        )
-                                    }
-                                    _ => panic!(
-                                        "cannot load data to an accumulator without knowing the layout of the data"
-                                    ),
-                                };
-                                (index, length, step)
-                            }
-                            other => panic!("unknown matrix identifier {other}"),
-                        }
-                    }
-                    other => panic!("{other} is not a WMMMA fragment!"),
-                };
-                write!(
-                    f,
-                    "// load
-for (uint i = 0; i < uint({length}); ++i) {{
-  {frag}[i * {step}] = {value_ptr}[{index}];
-}}
-"
-                )
+                writeln!(f, "{name}({frag}, {value_ptr}, {offset}, {stride});")
+
+                // let value_ptr = frag_as_ptr(f, value, offset);
+                // // TODO: support iu8 and iu4
+                // let (index, length, step) = match frag {
+                //     Variable::WmmaFragment { frag: inner, .. } => {
+                //         match inner.ident {
+                //             FragmentIdent::A | FragmentIdent::B => {
+                //                 let length = 16;
+                //                 let step = 1;
+                //                 // fragment a and b are always in half precision and they don't require special attention
+                //                 // to how they are stored in memory as matrix A and B are also in half precision
+                //                 let index = if (inner.ident == FragmentIdent::A
+                //                     && inner.layout.unwrap() == FragmentLayout::ColMajor)
+                //                     || (inner.ident == FragmentIdent::B
+                //                         && inner.layout.unwrap() == FragmentLayout::RowMajor)
+                //                 {
+                //                     format!("i * {stride} + wmmaLane")
+                //                 } else {
+                //                     format!("i + wmmaLane * {stride}")
+                //                 };
+                //                 (index, length, step)
+                //             }
+                //             FragmentIdent::Accumulator => {
+                //                 let length = 8;
+                //                 let step = get_output_accumulator_index_step(&value.elem(), inner);
+                //                 let index = match layout {
+                //                     Some(FragmentLayout::ColMajor) => {
+                //                         format!(
+                //                             "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * {stride}"
+                //                         )
+                //                     }
+                //                     Some(FragmentLayout::RowMajor) => {
+                //                         format!(
+                //                             "(i * uint(2) + threadIdx.x / uint(16)) * {stride} + wmmaLane"
+                //                         )
+                //                     }
+                //                     _ => panic!(
+                //                         "cannot load data to an accumulator without knowing the layout of the data"
+                //                     ),
+                //                 };
+                //                 (index, length, step)
+                //             }
+                //             other => panic!("unknown matrix identifier {other}"),
+                //         }
+                //     }
+                //     other => panic!("{other} is not a WMMMA fragment!"),
+                // };
+                //                 write!(
+                //                     f,
+                //                     "// load
+                // for (uint i = 0; i < uint({length}); ++i) {{
+                //   {frag}[i * {step}] = {value_ptr}[{index}];
+                // }}
+                // "
+                //                )
             }
             WmmaInstruction::Execute {
                 frag_a,
@@ -324,7 +438,7 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
                 let step = match output {
                     Variable::WmmaFragment { frag: inner, .. } => match inner.ident {
                         FragmentIdent::Accumulator => {
-                            get_output_accumulator_index_step(input, inner)
+                            get_output_accumulator_index_step(&input.elem(), inner)
                         }
                         _ => 1,
                     },
@@ -374,9 +488,9 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
     }
 }
 
-fn get_output_accumulator_index_step(
-    input: &Variable<HipDialect<WmmaIntrinsicCompiler>>,
-    output: &Fragment<HipDialect<WmmaIntrinsicCompiler>>,
+fn get_output_accumulator_index_step<D: Dialect>(
+    input_elem: &Elem<D>,
+    output: &Fragment<D>,
 ) -> u32 {
     // Each VGPR is 32 bit wide and there is 8 VGPR per lane, an accumulator can then be either:
     // - a vector of 8 float
@@ -385,12 +499,9 @@ fn get_output_accumulator_index_step(
     // just only 16 bits. In such a case we always use the lower 16 bits (opsel set to false) which means
     // that we only assign values to even indexes of the accumulator (0, 2, 4, ...)
 
-    assert_eq!(
-        output.ident,
-        FragmentIdent::<HipDialect<WmmaIntrinsicCompiler>>::Accumulator
-    );
+    assert_eq!(output.ident, FragmentIdent::<D>::Accumulator);
 
-    match input.elem() {
+    match input_elem {
         Elem::F16 | Elem::BF16 | Elem::F32 => {
             match output.elem {
                 // loading into accumulator of 16 half precision
@@ -400,7 +511,7 @@ fn get_output_accumulator_index_step(
                 other => panic!("unsupported format {other} for {output}"),
             }
         }
-        other => panic!("unsupported format {other} for {input}"),
+        other => panic!("unsupported format {other} for {input_elem}"),
     }
 }
 
