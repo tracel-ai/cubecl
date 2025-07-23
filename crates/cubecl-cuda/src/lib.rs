@@ -9,9 +9,13 @@ mod runtime;
 pub use device::*;
 pub use runtime::*;
 
-#[cfg(feature = "ptx-wmma")]
+#[cfg(all(feature = "ptx-wmma", not(feature = "ptx-mma")))]
 pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
-#[cfg(not(feature = "ptx-wmma"))]
+
+#[cfg(feature = "ptx-mma")]
+pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::MmaSyncCompiler;
+
+#[cfg(all(not(feature = "ptx-wmma"), not(feature = "ptx-mma")))]
 pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
 
 #[cfg(test)]
