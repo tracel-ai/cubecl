@@ -71,9 +71,15 @@ alignas(64) unsigned long long int opaque[16];
     }
 
     fn compile_extensions(
-        _f: &mut std::fmt::Formatter<'_>,
-        _extensions: &[Self::Extension],
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
     ) -> std::fmt::Result {
+        for extension in extensions {
+            match extension {
+                Extension::NoExtension => {}
+                Extension::MmaSync(inst) => inst.format_mma(f)?,
+            }
+        }
         Ok(())
     }
 

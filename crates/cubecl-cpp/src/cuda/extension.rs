@@ -17,3 +17,14 @@ pub enum MmaSyncExtension<D: Dialect> {
     Store(MmaStore<D>),
     Cast(MmaCast<D>),
 }
+impl<D: Dialect> MmaSyncExtension<D> {
+    pub fn format_mma(&self, f: &mut std::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            MmaSyncExtension::Fill(fill) => fill.format_extension(f),
+            MmaSyncExtension::Load(load) => load.format_extension(f),
+            MmaSyncExtension::Execute(execute) => execute.format_extension(f),
+            MmaSyncExtension::Store(store) => store.format_extension(f),
+            MmaSyncExtension::Cast(cast) => cast.format_extension(f),
+        }
+    }
+}

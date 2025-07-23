@@ -264,26 +264,11 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
 
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Define vector types for fragments
-        writeln!(
-            f,
-            "typedef __half half8_t __attribute__((ext_vector_type(8)));"
-        )?;
-        writeln!(
-            f,
-            "typedef __half half16_t __attribute__((ext_vector_type(16)));"
-        )?;
-        writeln!(
-            f,
-            "typedef __nv_bfloat16 bhalf8_t __attribute__((ext_vector_type(8)));"
-        )?;
-        writeln!(
-            f,
-            "typedef __nv_bfloat16 bhalf16_t __attribute__((ext_vector_type(16)));"
-        )?;
-        writeln!(
-            f,
-            "typedef float float8_t __attribute__((ext_vector_type(8)));"
-        )?;
+        writeln!(f, "typedef __half half8_t[8];")?;
+        writeln!(f, "typedef __half half16_t[16];")?;
+        writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
+        writeln!(f, "typedef __nv_bfloat16 bhalf16_t[16];")?;
+        writeln!(f, "typedef float float8_t[8];")?;
         Ok(())
     }
 
@@ -410,7 +395,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
                     gpu::Elem::Float(gpu::FloatKind::F32),
                 ),
             ];
-            let shapes = vec![(16, 8, 16), (8, 8, 32), (16, 8, 8)];
+            let shapes = vec![(16, 8, 16), (8, 8, 32), (16, 8, 8), (16, 16, 16)];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
                 .map(|(m, n, k)| (m, n, k, shapes.clone()))
@@ -427,12 +412,14 @@ fn get_fragment_length<D: Dialect>(frag: &Fragment<D>) -> u32 {
             (16, 8, 16) => 8, // Each thread holds 8 elements for A/B in m16n8k16
             (8, 8, 32) => 8,
             (16, 8, 8) => 4,
+            (16, 16, 16) => 8,
             _ => panic!("Unsupported tile shape {}x{}x{}", frag.m, frag.n, frag.k),
         },
         FragmentIdent::Accumulator => match (frag.m, frag.n, frag.k) {
             (16, 8, 16) => 4, // Each thread holds 4 elements for C/D in m16n8k16
             (8, 8, 32) => 4,
             (16, 8, 8) => 4,
+            (16, 16, 16) => 8,
             _ => panic!("Unsupported tile shape {}x{}x{}", frag.m, frag.n, frag.k),
         },
         FragmentIdent::_Dialect(_) => 1,
