@@ -100,14 +100,12 @@ impl<'a> Visitor<'a> {
         let vector_type = index.list.item.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
-            let zero = DenseI64ArrayAttribute::new(self.context, &[0]).into();
-            self.append_operation_with_result(vector::extract(
-                self.context,
-                to_extract,
-                &[index_value],
-                zero,
-                self.location,
-            ))
+            let zero =
+                DenseI64ArrayAttribute::new(self.context, &[Visitor::into_i64(index.index)]).into();
+            // Extract operation on vector with dynamic indexes is badly supported by MLIR
+            let vector_extract =
+                vector::extract(self.context, to_extract, &[], zero, self.location);
+            self.append_operation_with_result(vector_extract)
         } else if out.item.is_vectorized() {
             let memref = self.get_memory(index.list);
             self.append_operation_with_result(vector::load(
