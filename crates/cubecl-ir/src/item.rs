@@ -210,7 +210,7 @@ impl Elem {
     pub fn is_int(&self) -> bool {
         matches!(
             self,
-            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt(_) | Elem::AtomicUInt(_)
+            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt(_) | Elem::AtomicUInt(_) | Elem::Bool
         )
     }
 
@@ -219,7 +219,7 @@ impl Elem {
     }
 
     pub fn is_unsigned_int(&self) -> bool {
-        matches!(self, Elem::UInt(_) | Elem::AtomicUInt(_))
+        matches!(self, Elem::UInt(_) | Elem::AtomicUInt(_) | Elem::Bool)
     }
 
     pub fn is_float(&self) -> bool {

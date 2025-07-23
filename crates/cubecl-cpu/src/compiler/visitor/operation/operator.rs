@@ -1,7 +1,10 @@
 use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator};
 use tracel_llvm::melior::{
-    dialect::{arith, memref, ods::arith as ods_arith, ods::vector},
-    ir::attribute::DenseI64ArrayAttribute,
+    dialect::{
+        arith, memref,
+        ods::{self, vector},
+    },
+    ir::{Operation, attribute::DenseI64ArrayAttribute},
 };
 
 use crate::compiler::visitor::prelude::*;
@@ -158,33 +161,86 @@ impl<'a> Visitor<'a> {
             ));
         };
 
-        let value = if to_cast.elem().is_int() && out.elem().is_float() {
-            self.append_operation_with_result(arith::sitofp(value, target, self.location))
-        } else if to_cast.elem().is_float() && out.elem().is_int() {
-            self.append_operation_with_result(arith::fptosi(value, target, self.location))
-        } else if matches!(to_cast.elem(), Elem::Bool) || out.elem().is_int() {
-            self.append_operation_with_result(arith::extui(value, target, self.location))
-        } else if to_cast.elem() == out.elem() {
-            value
-        } else if to_cast.elem().is_float()
-            && out.elem().is_float()
-            && to_cast.elem().size() < out.elem().size()
-        {
-            self.append_operation_with_result(arith::extf(value, target, self.location))
-        } else if to_cast.elem().is_float()
-            && out.elem().is_float()
-            && to_cast.elem().size() > out.elem().size()
-        {
-            self.append_operation_with_result(ods_arith::truncf(
-                self.context,
-                target,
-                value,
-                self.location,
-            ))
+        let value = if to_cast.elem().is_int() == out.elem().is_int() {
+            self.get_cast_same_type_category(to_cast.elem(), out.elem(), target, value)
         } else {
-            panic!("Cast not implemented {} -> {}", to_cast.item, out.item);
+            self.get_cast_different_type_category(to_cast.elem(), out.elem(), target, value)
         };
 
         self.insert_variable(out, value);
+    }
+
+    fn get_cast_different_type_category(
+        &self,
+        to_cast: Elem,
+        out: Elem,
+        target: Type<'a>,
+        value: Value<'a, 'a>,
+    ) -> Value<'a, 'a> {
+        if to_cast.is_int() {
+            self.append_operation_with_result(self.cast_int_to_float(to_cast, target, value))
+        } else {
+            self.append_operation_with_result(self.cast_float_to_int(out, target, value))
+        }
+    }
+
+    fn cast_float_to_int(
+        &self,
+        out: Elem,
+        target: Type<'a>,
+        value: Value<'a, 'a>,
+    ) -> Operation<'a> {
+        if out.is_signed_int() {
+            arith::fptosi(value, target, self.location)
+        } else {
+            arith::fptoui(value, target, self.location)
+        }
+    }
+
+    fn cast_int_to_float(
+        &self,
+        to_cast: Elem,
+        target: Type<'a>,
+        value: Value<'a, 'a>,
+    ) -> Operation<'a> {
+        if to_cast.is_signed_int() {
+            arith::sitofp(value, target, self.location)
+        } else {
+            arith::uitofp(value, target, self.location)
+        }
+    }
+
+    fn get_cast_same_type_category(
+        &self,
+        to_cast: Elem,
+        out: Elem,
+        target: Type<'a>,
+        value: Value<'a, 'a>,
+    ) -> Value<'a, 'a> {
+        if to_cast.size() > out.size() {
+            self.append_operation_with_result(self.get_trunc(to_cast, target, value))
+        } else if to_cast.size() < out.size() {
+            self.append_operation_with_result(self.get_ext(to_cast, target, value))
+        } else {
+            value
+        }
+    }
+
+    fn get_trunc(&self, to_cast: Elem, target: Type<'a>, value: Value<'a, 'a>) -> Operation<'a> {
+        if to_cast.is_int() {
+            arith::trunci(value, target, self.location)
+        } else {
+            ods::arith::truncf(self.context, target, value, self.location).into()
+        }
+    }
+
+    fn get_ext(&self, to_cast: Elem, target: Type<'a>, value: Value<'a, 'a>) -> Operation<'a> {
+        if to_cast.is_signed_int() {
+            arith::extsi(value, target, self.location)
+        } else if to_cast.is_unsigned_int() {
+            arith::extui(value, target, self.location)
+        } else {
+            arith::extf(value, target, self.location)
+        }
     }
 }
