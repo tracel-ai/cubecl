@@ -13,6 +13,51 @@ use cubecl_core::ir::{self as gpu};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
 
+#[derive(new, Debug, Clone, PartialEq)]
+pub struct WmmaFill<D: Dialect> {
+    frag: Fragment<D>,
+}
+
+impl<D: Dialect> WmmaFill<D> {
+    pub fn fn_name(&self) -> String {
+        let layout = match self.frag.layout {
+            Some(layout) => match layout {
+                FragmentLayout::ColMajor => "col",
+                FragmentLayout::RowMajor => "row",
+                FragmentLayout::_Dialect(_) => "",
+            },
+            None => "",
+        };
+        let ident = match self.frag.ident {
+            FragmentIdent::A => "a",
+            FragmentIdent::B => "b",
+            FragmentIdent::Accumulator => "c",
+            FragmentIdent::_Dialect(_) => "d",
+        };
+        let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
+
+        format!("wmma_fill_{ident}_{m}x{n}x{k}_{layout}",)
+    }
+
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let elem = self.frag.elem;
+        let frag = self.frag;
+        let name = self.fn_name();
+
+        write!(
+            f,
+            "
+// Fill the fragment.
+__device__ void {name}({frag} frag, {elem} value) {{
+    for (uint i = 0; i < uint(8); ++i) {{
+      frag[i] = value;
+    }}
+}}
+        "
+        )
+    }
+}
+
 impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // nothing to do
@@ -83,25 +128,12 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
-                let fill_with_zeros =
-                    matches!(value, Variable::ConstantScalar(number, _) if number.is_zero());
-                if fill_with_zeros {
-                    write!(
-                        f,
-                        "// fill
-{frag} = {{}};
-"
-                    )
-                } else {
-                    write!(
-                        f,
-                        "// fill
-for (uint i = 0; i < uint(8); ++i) {{
-  {frag}[i] = {value};
-}}
-"
-                    )
-                }
+                let extension = WmmaFill::new(match frag {
+                    Variable::WmmaFragment { frag, .. } => frag.clone(),
+                    _ => panic!(),
+                });
+                let name = extension.fn_name();
+                writeln!(f, "{name}({frag}, {value});")
             }
             WmmaInstruction::Load {
                 frag,

@@ -1,3 +1,4 @@
+use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
@@ -16,7 +17,8 @@ use crate::{
 
 use super::Extension;
 use super::arch::AMDArchitecture;
-use super::extension::{format_f162bf16, format_max, format_min};
+use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
+use super::mma::{WmmaFill, WmmaIntrinsicCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -58,6 +60,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 Extension::Max(var) => format_max::<Self>(f, var)?,
                 Extension::Min(var) => format_min::<Self>(f, var)?,
                 Extension::NoExtension => {}
+                Extension::Wmma(inst) => inst.format_wmma(f)?,
             }
         }
         Ok(())
@@ -123,6 +126,29 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 let input_elem = input_item.elem();
                 if *input_elem == Elem::<Self>::BF16 {
                     register_extension(Extension::F162BF16);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn register_wmma_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &shared::WmmaInstruction<Self>,
+    ) {
+        // if TypeId::of::<M>() != TypeId::of::<WmmaIntrinsicCompiler>() {
+        //     return;
+        // }
+
+        match instruction {
+            shared::WmmaInstruction::Fill { frag, .. } => {
+                let frag = match frag {
+                    Variable::WmmaFragment { frag, .. } => frag.clone(),
+                    _ => panic!(),
+                };
+                let extension = Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(frag)));
+                if !extensions.contains(&extension) {
+                    extensions.push(extension);
                 }
             }
             _ => {}

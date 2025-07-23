@@ -51,6 +51,12 @@ pub trait DialectIncludes<D: Dialect> {
         extensions: &mut Vec<Self::Extension>,
         instruction: &WarpInstruction<D>,
     );
+    #[allow(unused_variables)]
+    fn register_wmma_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &WmmaInstruction<D>,
+    ) {
+    }
 }
 
 // Types

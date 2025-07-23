@@ -61,7 +61,7 @@ pub struct Fragment<D: Dialect> {
 }
 
 /// Warp Matrix-Multiply and Accumulate Instruction.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WmmaInstruction<D: Dialect> {
     /// Fill the fragment with the value.
     Fill {
