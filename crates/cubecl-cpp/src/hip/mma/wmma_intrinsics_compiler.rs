@@ -63,8 +63,9 @@ impl<D: Dialect> WmmaFill<D> {
             f,
             "
 // Fill the fragment.
-__device__ void {name}({frag} frag, {elem} value) {{
-    for (uint i = 0; i < uint(8); ++i) {{
+__device__ void {name}({frag}& frag, {elem} value) {{
+    #pragma unroll
+    for (uint i = 0; i < 8; ++i) {{
       frag[i] = value;
     }}
 }}
@@ -171,13 +172,13 @@ impl<D: Dialect> WmmaLoad<D> {
             f,
             "
 // Load the fragment.
-__device__ void {name}({frag} frag, const {elem}* value_ptr, uint offset, uint stride) {{
+__device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint offset, const uint stride) {{
     const uint wmmaLane = uint(threadIdx.x % 16);
 
-    for (uint i = 0; i < uint({length}); ++i) {{
+    #pragma unroll
+    for (uint i = 0; i < {length}; ++i) {{
       const uint index = {index_body};
-      // frag[i * {step}] = value_ptr[index];
-      frag[i * {step}] = value_ptr[0];
+      frag[i * {step}] = value_ptr[index];
     }}
 }}
         "
