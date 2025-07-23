@@ -1,64 +1,48 @@
-use std::sync::{Arc, mpsc};
-use std::time::Duration;
-use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    thread,
-};
+use std::sync::mpsc;
+use std::thread;
 
-use super::compute_task::ComputeTask;
+use super::compute_task::{ComputeTask, Message};
 
 pub const MAX_STACK_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct Worker {
     // TODO: A circular sync buffer with cache alignment would be a better fit, but for the moment a mpsc channel will do the job.
-    waiting: Arc<AtomicBool>,
-    tx: mpsc::Sender<ComputeTask>,
+    tx: mpsc::Sender<Message>,
 }
 
 impl Default for Worker {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
-        let waiting = Arc::new(AtomicBool::new(true));
-        let inner_worker = InnerWorker {
-            rx,
-            waiting: Arc::clone(&waiting),
-        };
+        let inner_worker = InnerWorker { rx };
         thread::Builder::new()
             .stack_size(MAX_STACK_SIZE)
             .spawn(move || inner_worker.work())
             .unwrap();
-        Self { tx, waiting }
+        Self { tx }
     }
 }
 
 impl Worker {
     pub fn send_task(&mut self, compute_task: ComputeTask) {
-        self.waiting.store(false, Ordering::Release);
-        self.tx.send(compute_task).unwrap();
+        self.tx.send(Message::ComputeTask(compute_task)).unwrap();
     }
 
-    // Spin lock inspired by https://marabos.nl/atomics/building-spinlock.html
-    pub fn sync(&self) {
-        while !self.waiting.load(Ordering::Acquire) {
-            std::hint::spin_loop();
-        }
+    pub fn send_stop(&mut self, callback: mpsc::Sender<()>) {
+        self.tx.send(Message::EndTask(callback)).unwrap();
     }
 }
 
 struct InnerWorker {
-    waiting: Arc<AtomicBool>,
-    rx: mpsc::Receiver<ComputeTask>,
+    rx: mpsc::Receiver<Message>,
 }
 
 impl InnerWorker {
     fn work(self) {
-        loop {
-            let rx_fifo = self.rx.recv_timeout(Duration::from_millis(1));
-            match rx_fifo {
-                Ok(compute_task) => compute_task.compute(),
-                Err(mpsc::RecvTimeoutError::Timeout) => self.waiting.store(true, Ordering::Release),
-                _ => (),
+        for msg in self.rx.into_iter() {
+            match msg {
+                Message::ComputeTask(compute_task) => compute_task.compute(),
+                Message::EndTask(end_task) => end_task.send(()).unwrap(),
             }
         }
     }

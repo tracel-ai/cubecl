@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{
+    atomic::{AtomicI32, Ordering},
+    mpsc,
+};
 
 use cubecl_core::ExecutionMode;
 
@@ -24,6 +27,11 @@ pub fn sync_cube(cube_dim: u32) {
         }
         std::hint::spin_loop();
     }
+}
+
+pub enum Message {
+    ComputeTask(ComputeTask),
+    EndTask(mpsc::Sender<()>),
 }
 
 pub struct ComputeTask {

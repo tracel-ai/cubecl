@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
+use std::{collections::HashMap, sync::mpsc};
 
 use cubecl_core::{ExecutionMode, compute::CubeTask, prelude::CompiledKernel, server::Bindings};
 use cubecl_runtime::{id::KernelId, memory_management::MemoryManagement, storage::BytesStorage};
@@ -40,12 +40,6 @@ impl Default for Scheduler {
 }
 
 impl Scheduler {
-    pub fn sync(&mut self) {
-        for worker in self.workers.iter_mut() {
-            worker.sync();
-        }
-    }
-
     pub fn dispatch_execute(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
@@ -100,6 +94,8 @@ impl Scheduler {
 
         let mlir_engine = kernel.repr.clone().unwrap();
 
+        let (send, receive) = mpsc::channel();
+        let mut msg_count = 0;
         for (slice, worker) in unit_pos_vec
             .chunks(unit_pos_vec.len().div_ceil(self.workers.len()))
             .zip(self.workers.iter_mut())
@@ -114,8 +110,15 @@ impl Scheduler {
                 vec_unit_pos,
                 kind,
             };
+            msg_count += 1;
             worker.send_task(compute_task);
+            worker.send_stop(send.clone());
         }
-        self.sync();
+        for _ in receive.into_iter() {
+            msg_count -= 1;
+            if msg_count == 0 {
+                break;
+            }
+        }
     }
 }
