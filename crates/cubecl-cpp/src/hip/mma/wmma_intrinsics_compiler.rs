@@ -25,33 +25,33 @@ pub struct WmmaLoad<D: Dialect> {
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
+pub struct WmmaStore<D: Dialect> {
+    frag: Fragment<D>,
+    layout: FragmentLayout<D>,
+}
+
+#[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaExecute<D: Dialect> {
     frag_a: Fragment<D>,
     frag_b: Fragment<D>,
     frag_c: Fragment<D>,
     frag_d: Fragment<D>,
-    warp_size: u32,
+}
+
+#[derive(new, Debug, Clone, PartialEq)]
+pub struct WmmaCast<D: Dialect> {
+    frag_input: Fragment<D>,
+    frag_output: Fragment<D>,
 }
 
 impl<D: Dialect> WmmaFill<D> {
     pub fn fn_name(&self) -> String {
-        let layout = match self.frag.layout {
-            Some(layout) => match layout {
-                FragmentLayout::ColMajor => "col",
-                FragmentLayout::RowMajor => "row",
-                FragmentLayout::_Dialect(_) => "",
-            },
-            None => "",
-        };
-        let ident = match self.frag.ident {
-            FragmentIdent::A => "a",
-            FragmentIdent::B => "b",
-            FragmentIdent::Accumulator => "c",
-            FragmentIdent::_Dialect(_) => "d",
-        };
+        let layout = frag_layout_str(&self.frag.layout);
+        let ident = frag_ident_str(&self.frag.ident);
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
+        let elem = self.frag.elem;
 
-        format!("wmma_fill_{ident}_{m}x{n}x{k}_{layout}",)
+        format!("wmma_fill_{elem}_{ident}_{m}x{n}x{k}_{layout}",)
     }
 
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -76,31 +76,13 @@ __device__ void {name}({frag}& frag, {elem} value) {{
 
 impl<D: Dialect> WmmaLoad<D> {
     pub fn fn_name(&self) -> String {
-        let layout_frag = match self.frag.layout {
-            Some(layout) => match layout {
-                FragmentLayout::ColMajor => "col",
-                FragmentLayout::RowMajor => "row",
-                FragmentLayout::_Dialect(_) => "",
-            },
-            None => "",
-        };
-        let layout = match self.layout {
-            Some(layout) => match layout {
-                FragmentLayout::ColMajor => "col",
-                FragmentLayout::RowMajor => "row",
-                FragmentLayout::_Dialect(_) => "",
-            },
-            None => "",
-        };
-        let ident = match self.frag.ident {
-            FragmentIdent::A => "a",
-            FragmentIdent::B => "b",
-            FragmentIdent::Accumulator => "c",
-            FragmentIdent::_Dialect(_) => "d",
-        };
+        let layout_frag = frag_layout_str(&self.frag.layout);
+        let layout = frag_layout_str(&self.layout);
+        let ident = frag_ident_str(&self.frag.ident);
+        let elem = self.frag.elem;
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
 
-        format!("wmma_load_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}",)
+        format!("wmma_load_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}",)
     }
 
     /// Matrix A must be in column major layout (so fragments correspond to a row)
@@ -172,13 +154,136 @@ impl<D: Dialect> WmmaLoad<D> {
             f,
             "
 // Load the fragment.
-__device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint offset, const uint stride) {{
+__device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride) {{
     const uint wmmaLane = uint(threadIdx.x % 16);
 
     #pragma unroll
     for (uint i = 0; i < {length}; ++i) {{
       const uint index = {index_body};
       frag[i * {step}] = value_ptr[index];
+    }}
+}}
+        "
+        )
+    }
+}
+
+impl<D: Dialect> WmmaStore<D> {
+    pub fn fn_name(&self) -> String {
+        let layout_frag = frag_layout_str(&self.frag.layout);
+        let layout_option = Some(self.layout.clone());
+        let layout = frag_layout_str(&layout_option);
+        let ident = frag_ident_str(&self.frag.ident);
+        let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
+        let elem = self.frag.elem;
+
+        format!("wmma_store_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}",)
+    }
+
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let elem = self.frag.elem;
+        let frag = self.frag;
+        let name = self.fn_name();
+        // frag holds a result column where threads 0-15 of the wavefront have the even rows and threads 16-31 the odd rows
+        // moreover, since we use OPSEL to false in the Execute instruction in f16 output format, the output elements are
+        // stored in even indexes (0, 2, 4, ...) (low 16-bits of the VGPR) in frag
+        let frag_idx = match elem {
+            Elem::F16 | Elem::BF16 => "elemIdx * 2",
+            Elem::F32 => "elemIdx",
+            other => {
+                panic!("C fragment format cannot be {other}. Only f16, bf16 and f32 are supported.")
+            }
+        };
+        // FragmentLayout here represents the desired layout of the matrix C
+        let output_idx = match self.layout {
+            FragmentLayout::ColMajor => format!("wmmaLane * stride + rowIdx"),
+            FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * stride"),
+            FragmentLayout::_Dialect(_) => String::new(),
+        };
+
+        write!(
+            f,
+            "
+// Store the fragment.
+__device__ void {name}({frag}& frag, {elem}* output_ptr, uint stride) {{
+    const uint wmmaLane = uint(threadIdx.x % 16);
+
+    #pragma unroll
+    for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
+      const uint rowIdx = elemIdx * uint(2) + threadIdx.x / uint(16);
+      output_ptr[{output_idx}] = frag[{frag_idx}];
+    }}
+}}
+        "
+        )
+    }
+}
+
+impl<D: Dialect> WmmaExecute<D> {
+    pub fn fn_name(&self) -> String {
+        format!(
+            "wmma_execute_16x16x16_{}_{}",
+            self.frag_a.elem, self.frag_c.elem
+        )
+    }
+
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let name = self.fn_name();
+        let ab_format = match self.frag_a.elem {
+            Elem::F32 => "f32",
+            Elem::BF16 => "bf16",
+            Elem::F16 => "f16",
+            _ => panic!(),
+        };
+        let (cd_format, opsel) = match self.frag_c.elem {
+            Elem::F32 => ("f32", ""),
+            Elem::BF16 => ("bf16", ", false"),
+            Elem::F16 => ("f16", ", false"),
+            _ => panic!(),
+        };
+        let warp_size = 32;
+        write!(
+            f,
+            "
+// Execute wmma.
+__device__ void {name}({}& frag_a, {}& frag_b, {}& frag_c, {}& frag_d) {{
+    frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}(frag_a, frag_b, frag_c{opsel});
+}}
+        ", self.frag_a, self.frag_b, self.frag_c, self.frag_d
+        )
+    }
+}
+
+impl<D: Dialect> WmmaCast<D> {
+    pub fn fn_name(&self) -> String {
+        let layout = frag_layout_str(&self.frag_input.layout);
+        let ident = frag_ident_str(&self.frag_input.ident);
+        let (m, n, k) = (self.frag_input.m, self.frag_input.n, self.frag_input.k);
+        let elem = self.frag_input.elem;
+        let elem_out = self.frag_output.elem;
+
+        format!("wmma_cast_{elem}_to_{elem_out}_{ident}_{m}x{n}x{k}_{layout}",)
+    }
+
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let input = self.frag_input;
+        let output = self.frag_output;
+        let name = self.fn_name();
+        let step = match output.ident {
+            FragmentIdent::Accumulator => {
+                get_output_accumulator_index_step(&self.frag_input.elem, &output)
+            }
+            _ => 1,
+        };
+
+        write!(
+            f,
+            "
+// Cast the fragment.
+__device__ void {name}({input}& input, {output}& output) {{
+    #pragma unroll
+    for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
+      output[elemIdx * {step}] = input[elemIdx];
     }}
 }}
         "
@@ -270,71 +375,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 offset,
                 stride,
             } => {
-                let extension = WmmaLoad::new(
-                    match frag {
-                        Variable::WmmaFragment { frag, .. } => frag.clone(),
-                        _ => panic!(),
-                    },
-                    *layout,
-                );
+                let extension = WmmaLoad::new(variable_to_frag(frag), *layout);
                 let name = extension.fn_name();
                 let value_ptr = frag_as_ptr(f, value, offset);
-                writeln!(f, "{name}({frag}, {value_ptr}, {offset}, {stride});")
-
-                // let value_ptr = frag_as_ptr(f, value, offset);
-                // // TODO: support iu8 and iu4
-                // let (index, length, step) = match frag {
-                //     Variable::WmmaFragment { frag: inner, .. } => {
-                //         match inner.ident {
-                //             FragmentIdent::A | FragmentIdent::B => {
-                //                 let length = 16;
-                //                 let step = 1;
-                //                 // fragment a and b are always in half precision and they don't require special attention
-                //                 // to how they are stored in memory as matrix A and B are also in half precision
-                //                 let index = if (inner.ident == FragmentIdent::A
-                //                     && inner.layout.unwrap() == FragmentLayout::ColMajor)
-                //                     || (inner.ident == FragmentIdent::B
-                //                         && inner.layout.unwrap() == FragmentLayout::RowMajor)
-                //                 {
-                //                     format!("i * {stride} + wmmaLane")
-                //                 } else {
-                //                     format!("i + wmmaLane * {stride}")
-                //                 };
-                //                 (index, length, step)
-                //             }
-                //             FragmentIdent::Accumulator => {
-                //                 let length = 8;
-                //                 let step = get_output_accumulator_index_step(&value.elem(), inner);
-                //                 let index = match layout {
-                //                     Some(FragmentLayout::ColMajor) => {
-                //                         format!(
-                //                             "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * {stride}"
-                //                         )
-                //                     }
-                //                     Some(FragmentLayout::RowMajor) => {
-                //                         format!(
-                //                             "(i * uint(2) + threadIdx.x / uint(16)) * {stride} + wmmaLane"
-                //                         )
-                //                     }
-                //                     _ => panic!(
-                //                         "cannot load data to an accumulator without knowing the layout of the data"
-                //                     ),
-                //                 };
-                //                 (index, length, step)
-                //             }
-                //             other => panic!("unknown matrix identifier {other}"),
-                //         }
-                //     }
-                //     other => panic!("{other} is not a WMMMA fragment!"),
-                // };
-                //                 write!(
-                //                     f,
-                //                     "// load
-                // for (uint i = 0; i < uint({length}); ++i) {{
-                //   {frag}[i * {step}] = {value_ptr}[{index}];
-                // }}
-                // "
-                //                )
+                writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
             WmmaInstruction::Execute {
                 frag_a,
@@ -343,60 +387,16 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 frag_d,
                 warp_size,
             } => {
-                if *warp_size == 64 {
-                    panic!("Wavefront size 64 not yet supported.")
-                }
-                let ab_format = if let Variable::WmmaFragment { frag: inner_a, .. } = frag_a {
-                    if let Variable::WmmaFragment { frag: inner_b, .. } = frag_b {
-                        if inner_a.elem == inner_b.elem {
-                            match inner_a.elem {
-                                Elem::F16 => "f16",
-                                Elem::BF16 => "bf16",
-                                other => {
-                                    panic!("{other} format not supported for {frag_a} and {frag_b}")
-                                }
-                            }
-                        } else {
-                            panic!(
-                                "{frag_a} and {frag_b} have different types (respectively {} and {})",
-                                inner_a.elem, inner_b.elem
-                            )
-                        }
-                    } else {
-                        panic!("{frag_b} is not a WMMA fragment!")
-                    }
-                } else {
-                    panic!("{frag_a} is not a WMMA fragment!")
-                };
-                let (cd_format, opsel) = if let Variable::WmmaFragment { frag: inner_c, .. } =
-                    frag_c
-                {
-                    if let Variable::WmmaFragment { frag: inner_d, .. } = frag_d {
-                        if inner_c.elem == inner_d.elem {
-                            match inner_c.elem {
-                                Elem::F32 => ("f32", ""),
-                                Elem::F16 => ("f16", ", false"),
-                                Elem::BF16 => ("bf16", ", false"),
-                                other => {
-                                    panic!("{other} format not supported for {frag_c} and {frag_d}")
-                                }
-                            }
-                        } else {
-                            panic!(
-                                "{frag_c} and {frag_d} have different types (respectively {} and {})",
-                                inner_c.elem, inner_d.elem
-                            )
-                        }
-                    } else {
-                        panic!("{frag_d} is not a WMMA fragment!")
-                    }
-                } else {
-                    panic!("{frag_c} is not a WMMA fragment!")
-                };
-                writeln!(
-                    f,
-                    "{frag_d} = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}({frag_a}, {frag_b}, {frag_c}{opsel});"
-                )
+                assert_eq!(*warp_size, 32, "Only warp size of 32 supported");
+
+                let extension = WmmaExecute::new(
+                    variable_to_frag(&frag_a),
+                    variable_to_frag(&frag_b),
+                    variable_to_frag(&frag_c),
+                    variable_to_frag(&frag_d),
+                );
+                let name = extension.fn_name();
+                writeln!(f, "{name}({frag_a}, {frag_b}, {frag_c}, {frag_d});")
             }
             WmmaInstruction::Store {
                 output,
@@ -405,54 +405,15 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 offset,
                 stride,
             } => {
+                let extension = WmmaStore::new(variable_to_frag(frag), *layout);
+                let name = extension.fn_name();
                 let output_ptr = frag_as_ptr(f, output, offset);
-                // frag holds a result column where threads 0-15 of the wavefront have the even rows and threads 16-31 the odd rows
-                // moreover, since we use OPSEL to false in the Execute instruction in f16 output format, the output elements are
-                // stored in even indexes (0, 2, 4, ...) (low 16-bits of the VGPR) in frag
-                let frag_idx = match frag {
-                    Variable::WmmaFragment { frag: inner, .. } => match inner.elem {
-                        Elem::F16 | Elem::BF16 => "elemIdx * 2",
-                        Elem::F32 => "elemIdx",
-                        other => panic!(
-                            "C fragment format cannot be {other}. Only f16, bf16 and f32 are supported."
-                        ),
-                    },
-                    other => panic!("{frag} is not a WMMA fragment (it is a {other})!"),
-                };
-                // FragmentLayout here represents the desired layout of the matrix C
-                let output_idx = match layout {
-                    FragmentLayout::ColMajor => format!("wmmaLane * {stride} + rowIdx"),
-                    FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * {stride}"),
-                    FragmentLayout::_Dialect(_) => String::new(),
-                };
-                write!(
-                    f,
-                    "// store
-for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
-  const uint rowIdx = elemIdx * uint(2) + threadIdx.x / uint(16);
-  {output_ptr}[{output_idx}] = {frag}[{frag_idx}];
-}}
- "
-                )
+                writeln!(f, "{name}({frag}, {output_ptr}, {stride});")
             }
             WmmaInstruction::Cast { input, output } => {
-                let step = match output {
-                    Variable::WmmaFragment { frag: inner, .. } => match inner.ident {
-                        FragmentIdent::Accumulator => {
-                            get_output_accumulator_index_step(&input.elem(), inner)
-                        }
-                        _ => 1,
-                    },
-                    _ => 1,
-                };
-                write!(
-                    f,
-                    "// cast
-for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
-  {output}[elemIdx * {step}] = {input}[elemIdx];
-}}
- "
-                )
+                let extension = WmmaCast::new(variable_to_frag(input), variable_to_frag(output));
+                let name = extension.fn_name();
+                writeln!(f, "{name}({input}, {output});")
             }
         }
     }
@@ -535,5 +496,32 @@ fn frag_as_ptr<D: Dialect>(
         frag_ptr.reinterpret_ptr(f, item_value)
     } else {
         frag_ptr
+    }
+}
+
+fn frag_ident_str<D: Dialect>(frag: &FragmentIdent<D>) -> &str {
+    match frag {
+        FragmentIdent::A => "a",
+        FragmentIdent::B => "b",
+        FragmentIdent::Accumulator => "c",
+        FragmentIdent::_Dialect(_) => "d",
+    }
+}
+
+fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
+    match frag {
+        Some(layout) => match layout {
+            FragmentLayout::ColMajor => "col",
+            FragmentLayout::RowMajor => "row",
+            FragmentLayout::_Dialect(_) => "",
+        },
+        None => "",
+    }
+}
+
+pub(crate) fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
+    match frag {
+        Variable::WmmaFragment { frag, .. } => frag.clone(),
+        _ => panic!(),
     }
 }

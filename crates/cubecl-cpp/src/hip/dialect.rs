@@ -18,7 +18,9 @@ use crate::{
 use super::Extension;
 use super::arch::AMDArchitecture;
 use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
-use super::mma::{WmmaFill, WmmaIntrinsicCompiler, WmmaLoad};
+use super::mma::{
+    WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore, variable_to_frag,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -141,28 +143,37 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
             return;
         }
 
-        match instruction {
+        let extension = match instruction {
             shared::WmmaInstruction::Fill { frag, .. } => {
-                let frag = match frag {
-                    Variable::WmmaFragment { frag, .. } => frag.clone(),
-                    _ => panic!(),
-                };
-                let extension = Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(frag)));
-                if !extensions.contains(&extension) {
-                    extensions.push(extension);
-                }
+                Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
             }
-            shared::WmmaInstruction::Load { frag, layout, .. } => {
-                let frag = match frag {
-                    Variable::WmmaFragment { frag, .. } => frag.clone(),
-                    _ => panic!(),
-                };
-                let extension = Extension::Wmma(WmmaExtension::Load(WmmaLoad::new(frag, *layout)));
-                if !extensions.contains(&extension) {
-                    extensions.push(extension);
-                }
+            shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
+                WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
+            ),
+            shared::WmmaInstruction::Execute {
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                warp_size: _,
+            } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
+                variable_to_frag(frag_a),
+                variable_to_frag(frag_b),
+                variable_to_frag(frag_c),
+                variable_to_frag(frag_d),
+            ))),
+            shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
+                WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
+            ),
+            shared::WmmaInstruction::Cast { input, output } => {
+                Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
+                    variable_to_frag(input),
+                    variable_to_frag(output),
+                )))
             }
-            _ => {}
+        };
+        if !extensions.contains(&extension) {
+            extensions.push(extension);
         }
     }
 }
