@@ -132,6 +132,10 @@ where
     fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         self.server.borrow_mut().end_profile(token)
     }
+
+    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
+        self.server.borrow_mut().allocation_mode(mode)
+    }
 }
 
 /// This is unsafe, since no concurrency is supported by the `RefCell` channel.

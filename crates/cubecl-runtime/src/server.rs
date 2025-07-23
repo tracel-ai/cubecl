@@ -2,7 +2,7 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        MemoryHandle, MemoryUsage,
+        MemoryAllocationMode, MemoryHandle, MemoryUsage,
         memory_pool::{SliceBinding, SliceHandle},
     },
     storage::{BindingResource, ComputeStorage},
@@ -113,6 +113,9 @@ where
 
     /// Disable collecting timestamps.
     fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
+
+    /// Update the memory mode of allocation in the server.
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode);
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

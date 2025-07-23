@@ -88,4 +88,8 @@ impl WgpuMemManager {
     pub(crate) fn needs_flush(&self, max_pending: usize) -> bool {
         self.pending_operations.count() > max_pending
     }
+
+    pub(crate) fn mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+        self.memory_pool.mode(mode);
+    }
 }
