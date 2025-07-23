@@ -12,7 +12,7 @@ impl<'a> Visitor<'a> {
         let value = match bitwise {
             Bitwise::BitwiseAnd(bin_op) => {
                 let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
-                self.append_operation_with_result(arith::addi(lhs, rhs, self.location))
+                self.append_operation_with_result(arith::andi(lhs, rhs, self.location))
             }
             Bitwise::BitwiseOr(bin_op) => {
                 let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
@@ -28,7 +28,12 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::ShiftRight(bin_op) => {
                 let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
-                self.append_operation_with_result(arith::shrsi(lhs, rhs, self.location))
+                let operation = if bin_op.lhs.elem().is_signed_int() {
+                    arith::shrsi(lhs, rhs, self.location)
+                } else {
+                    arith::shrui(lhs, rhs, self.location)
+                };
+                self.append_operation_with_result(operation)
             }
             Bitwise::CountOnes(unary_operator) => {
                 let value = self.get_variable(unary_operator.input);

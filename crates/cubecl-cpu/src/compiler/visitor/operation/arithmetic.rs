@@ -68,8 +68,10 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Div(div) => {
                 let (lhs, rhs) = self.get_binary_op_variable(div.lhs, div.rhs);
-                let operation = if div.lhs.elem().is_int() {
+                let operation = if div.lhs.elem().is_signed_int() {
                     arith::divsi(lhs, rhs, self.location)
+                } else if div.lhs.elem().is_unsigned_int() {
+                    arith::divui(lhs, rhs, self.location)
                 } else {
                     arith::divf(lhs, rhs, self.location)
                 };
@@ -81,35 +83,23 @@ impl<'a> Visitor<'a> {
                 let rhs = self.get_variable(dot.rhs);
                 // This could be used if it wasn't broken and the documentation was usable https://mlir.llvm.org/docs/Dialects/Vector/#vectorcontract-vectorcontractionop
                 let result = dot.lhs.elem().to_type(self.context);
-                if dot.lhs.elem().is_int() {
-                    let mut operation =
-                        self.append_operation_with_result(arith::muli(lhs, rhs, self.location));
-                    if dot.lhs.item.is_vectorized() {
-                        let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                        operation = self.append_operation_with_result(vector::reduction(
-                            self.context,
-                            result,
-                            operation,
-                            kind,
-                            self.location,
-                        ));
-                    }
-                    self.insert_variable(out, operation);
+                let mul = if dot.lhs.elem().is_int() {
+                    arith::muli(lhs, rhs, self.location)
                 } else {
-                    let mut operation =
-                        self.append_operation_with_result(arith::mulf(lhs, rhs, self.location));
-                    if dot.lhs.item.is_vectorized() {
-                        let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                        operation = self.append_operation_with_result(vector::reduction(
-                            self.context,
-                            result,
-                            operation,
-                            kind,
-                            self.location,
-                        ));
-                    }
-                    self.insert_variable(out, operation);
+                    arith::mulf(lhs, rhs, self.location)
+                };
+                let mut operation = self.append_operation_with_result(mul);
+                if dot.lhs.item.is_vectorized() {
+                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                    operation = self.append_operation_with_result(vector::reduction(
+                        self.context,
+                        result,
+                        operation,
+                        kind,
+                        self.location,
+                    ));
                 }
+                self.insert_variable(out, operation);
             }
             Arithmetic::Erf(_) => {
                 unreachable!("Should have been transformed in primitive in a previous passe");
@@ -355,7 +345,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Sqrt(sqrt) => {
                 let input = self.get_variable(sqrt.input);
-                let output = self.append_operation_with_result(llvm_ods::intr_sin(
+                let output = self.append_operation_with_result(llvm_ods::intr_sqrt(
                     self.context,
                     input,
                     self.location,
