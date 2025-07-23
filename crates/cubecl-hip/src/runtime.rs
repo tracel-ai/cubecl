@@ -232,7 +232,7 @@ impl Runtime for HipRuntime {
         true
     }
 
-    fn gpu_count() -> usize {
+    fn device_count() -> usize {
         let mut device_count: c_int = 0;
         let result;
         unsafe {

@@ -49,7 +49,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 
-    fn gpu_count() -> usize;
+    fn device_count() -> usize;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

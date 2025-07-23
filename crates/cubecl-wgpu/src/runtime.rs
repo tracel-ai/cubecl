@@ -111,7 +111,7 @@ impl Runtime for WgpuRuntime {
         true
     }
 
-    fn gpu_count() -> usize {
+    fn device_count() -> usize {
         let instance = Instance::new(&InstanceDescriptor {
             backends: Backends::all(),
             ..Default::default()

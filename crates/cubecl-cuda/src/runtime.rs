@@ -283,7 +283,7 @@ impl Runtime for CudaRuntime {
         true
     }
 
-    fn gpu_count() -> usize {
+    fn device_count() -> usize {
         let size_c = cudarc::driver::result::device::get_count().unwrap_or(0);
         size_c.try_into().unwrap_or(0)
     }
