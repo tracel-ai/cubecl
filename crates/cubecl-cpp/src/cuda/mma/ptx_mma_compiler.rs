@@ -266,8 +266,8 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
         // Define vector types for fragments
         writeln!(f, "typedef __half half8_t[8];")?;
         writeln!(f, "typedef __half half16_t[16];")?;
-        writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
-        writeln!(f, "typedef __nv_bfloat16 bhalf16_t[16];")?;
+        // writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
+        // writeln!(f, "typedef __nv_bfloat16 bhalf16_t[16];")?;
         writeln!(f, "typedef float float8_t[8];")?;
         Ok(())
     }
