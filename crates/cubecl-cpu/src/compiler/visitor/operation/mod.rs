@@ -95,13 +95,13 @@ impl<'a> Visitor<'a> {
                 self.visit_operator_with_out(operator, out);
             }
             Operation::CoopMma(_) | Operation::Plane(_) | Operation::Tma(_) => {
-                panic!("{} is not supported on CPU.", operation);
+                panic!("{operation} is not supported on CPU.");
             }
             Operation::Branch(_) => {
                 unreachable!("Branch operation are removed in SSA form");
             }
             Operation::Synchronization(_) | Operation::NonSemantic(_) => {
-                unreachable!("{} doesn't have an out", operation);
+                unreachable!("{operation} doesn't have an out");
             }
         }
     }

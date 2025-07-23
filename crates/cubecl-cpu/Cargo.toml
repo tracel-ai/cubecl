@@ -45,7 +45,6 @@ serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
 libc = { workspace = true }
-dtor = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [

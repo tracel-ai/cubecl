@@ -136,7 +136,6 @@ impl<'a> Visitor<'a> {
                     .global_constant
                     .get(&id)
                     .unwrap()
-                    .clone()
                     .to_type(self.context);
                 let r#type = MemRefType::new(r#type, &[length as i64], None, None);
                 self.append_operation_with_result(memref::get_global(

@@ -28,7 +28,7 @@ impl Display for ScopeProcessing {
         for instruction in self.instructions.iter() {
             let instruction_str = instruction.to_string();
             if !instruction_str.is_empty() {
-                writeln!(f, "    {}", instruction_str,)?;
+                writeln!(f, "    {instruction_str}")?;
             }
         }
         write!(f, "}}")?;

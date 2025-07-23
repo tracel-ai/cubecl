@@ -53,6 +53,7 @@ pub struct Visitor<'a> {
 }
 
 impl<'a> Visitor<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(self) fn new(
         current_block: BlockRef<'a, 'a>,
         last_block: BlockRef<'a, 'a>,
@@ -153,7 +154,7 @@ impl<'a> Visitor<'a> {
             Attribute::unit(context),
         )];
 
-        let mut args = ArgsManager::new(&kernel, context, location);
+        let mut args = ArgsManager::new(kernel, context, location);
 
         let func_type = TypeAttribute::new(args.get_fn_type(context).into());
         for const_array in opt.const_arrays() {

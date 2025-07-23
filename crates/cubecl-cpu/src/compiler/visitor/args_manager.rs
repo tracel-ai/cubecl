@@ -184,6 +184,6 @@ impl<'a> ArgsManager<'a> {
 
     pub fn get(&self, builtin: Builtin) -> Value<'a, 'a> {
         self.builtin[builtin as usize]
-            .expect(&format!("Unsupported builtin was used: {:?}", builtin))
+            .unwrap_or_else(|| panic!("Unsupported builtin was used: {builtin:?}"))
     }
 }

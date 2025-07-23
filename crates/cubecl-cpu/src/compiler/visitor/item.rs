@@ -56,7 +56,7 @@ impl<'a> Visitor<'a> {
                 if item.elem.is_float() {
                     Some(FloatAttribute::new(context, r#type, int as f64).into())
                 } else {
-                    Some(IntegerAttribute::new(r#type, int as i64).into())
+                    Some(IntegerAttribute::new(r#type, int).into())
                 }
             }
             VariableKind::ConstantScalar(ConstantScalarValue::UInt(u_int, _)) => {
