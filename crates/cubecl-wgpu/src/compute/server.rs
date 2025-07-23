@@ -236,6 +236,10 @@ impl ComputeServer for WgpuServer {
 
         handles.into_iter().zip(strides).collect()
     }
+
+    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+        self.stream.mem_manage.mode(mode);
+    }
 }
 
 fn compiler(backend: wgpu::Backend) -> AutoCompiler {

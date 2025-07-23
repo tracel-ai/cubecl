@@ -2,6 +2,7 @@ use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 
 use crate::{
     logging::ServerLogger,
+    memory_management::MemoryAllocationMode,
     server::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
         ProfilingToken,
@@ -70,6 +71,9 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
 
     /// Get the current memory usage of the server.
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
+
+    /// Change the memory allocation mode.
+    fn allocation_mode(&self, mode: MemoryAllocationMode);
 
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&self);

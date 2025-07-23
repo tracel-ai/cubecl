@@ -4,7 +4,7 @@ use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
-    memory_management::MemoryUsage,
+    memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError},
     storage::{BindingResource, ComputeStorage},
 };
@@ -378,6 +378,46 @@ where
         self.profile_guard();
 
         self.channel.memory_usage()
+    }
+
+    /// Change the memory allocation mode.
+    ///
+    /// # Safety
+    ///
+    /// This function isn't thread safe and might create memory leaks.
+    pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
+        self.profile_guard();
+
+        self.channel.allocation_mode(mode)
+    }
+
+    /// Use a static memory strategy to execute the provided function.
+    ///
+    /// # Notes
+    ///
+    /// Using that memory strategy is beneficial for weights loading and similar workflows.
+    /// However make sure to call [Self::memory_cleanup()] if you want to free the allocated
+    /// memory.
+    pub fn memory_static_allocation<Input, Output, Func: Fn(Input) -> Output>(
+        &self,
+        input: Input,
+        func: Func,
+    ) -> Output {
+        // We use the same profiling lock to make sure no other task is currently using the current
+        // device. Meaning that the current static memory strategy will only be used for the
+        // provided function.
+
+        #[cfg(multi_threading)]
+        let stream_id = self.profile_acquire();
+
+        self.channel.allocation_mode(MemoryAllocationMode::Static);
+        let output = func(input);
+        self.channel.allocation_mode(MemoryAllocationMode::Auto);
+
+        #[cfg(multi_threading)]
+        self.profile_release(stream_id);
+
+        output
     }
 
     /// Ask the client to release memory that it can release.
