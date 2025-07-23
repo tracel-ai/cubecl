@@ -210,10 +210,10 @@ impl<D: Dialect> MmaExecute<D> {
             r#"
 // Execute mma.sync.
 __device__ void {name}({}& a, {}& b, {}& c, {}& d) {{
-    uint32_t const *A = reinterpret_cast<uint32_t const *>(&a);
-    uint32_t const *B = reinterpret_cast<uint32_t const *>(&b);
-    float const *C = reinterpret_cast<float const *>(&c);
-    float *D = reinterpret_cast<float *>(&d);
+    uint const *A = reinterpret_cast<uint const *>(a);
+    uint const *B = reinterpret_cast<uint const *>(b);
+    float const *C = reinterpret_cast<float const *>(c);
+    float *D = reinterpret_cast<float *>(d);
 
     asm volatile(
         "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32  {{%0,%1,%2,%3}}, {{%4,%5,%6,%7}}, {{%8,%9}}, "

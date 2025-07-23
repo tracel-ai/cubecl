@@ -147,13 +147,16 @@ pub fn find_instruction_size(
     m: usize,
     n: usize,
 ) -> TileSize {
-    return (16, 8, 16).into();
 
     let supported = |m: u8, n: u8, k: u8| {
         properties
             .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
             .unwrap_or(true)
     };
+
+    if supported(16, 8, 16) {
+        return (16, 8, 16).into();
+    }
 
     if m >= 4 * n && supported(32, 8, 16) {
         (32, 8, 16).into()
