@@ -264,10 +264,12 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
 
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Define vector types for fragments
+        writeln!(f, "typedef __half half4_t[4];")?;
         writeln!(f, "typedef __half half8_t[8];")?;
         writeln!(f, "typedef __half half16_t[16];")?;
         // writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
         // writeln!(f, "typedef __nv_bfloat16 bhalf16_t[16];")?;
+        writeln!(f, "typedef float float4_t[4];")?;
         writeln!(f, "typedef float float8_t[8];")?;
         Ok(())
     }
@@ -303,15 +305,20 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
         fragment: &Fragment<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         match fragment.ident {
-            FragmentIdent::A | FragmentIdent::B => match fragment.elem {
-                Elem::F16 => write!(f, "half16_t"),
-                Elem::BF16 => write!(f, "bhalf16_t"),
+            FragmentIdent::A => match fragment.elem {
+                Elem::F16 => write!(f, "half8_t"),
+                Elem::BF16 => write!(f, "bhalf8_t"),
+                other => panic!("Unsupported type {other} for {fragment}"),
+            },
+            FragmentIdent::B => match fragment.elem {
+                Elem::F16 => write!(f, "half4_t"),
+                Elem::BF16 => write!(f, "bhalf4_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::Accumulator => match fragment.elem {
-                Elem::F16 => write!(f, "half8_t"),
-                Elem::BF16 => write!(f, "bhalf8_t"),
-                Elem::F32 => write!(f, "float8_t"),
+                Elem::F16 => write!(f, "half4_t"),
+                Elem::BF16 => write!(f, "bhalf4_t"),
+                Elem::F32 => write!(f, "float4_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::_Dialect(_) => Ok(()),
