@@ -26,4 +26,5 @@ pub mod compute;
 pub mod device;
 pub mod runtime;
 
+pub use device::CpuDevice;
 pub use runtime::*;

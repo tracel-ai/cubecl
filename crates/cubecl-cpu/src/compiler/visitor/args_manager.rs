@@ -1,4 +1,11 @@
-use cubecl_core::{Metadata, ir::Builtin, prelude::KernelDefinition};
+use std::collections::HashMap;
+
+use cubecl_core::{
+    Metadata,
+    compute::ScalarBinding,
+    ir::{Builtin, Elem},
+    prelude::KernelDefinition,
+};
 use tracel_llvm::melior::ir::{
     Block, BlockRef, Location,
     r#type::{FunctionType, IntegerType, MemRefType},
@@ -12,12 +19,12 @@ const NB_BUILTIN: usize = 30;
 
 pub(super) struct ArgsManager<'a> {
     pub buffers: Vec<Value<'a, 'a>>,
-    pub scalars: Vec<Value<'a, 'a>>,
+    pub scalars_memref: HashMap<Elem, Value<'a, 'a>>,
     pub metadata_memref: Option<Value<'a, 'a>>,
     pub ext_meta_positions: Vec<u32>,
     pub metadata: Metadata,
+    scalars: Vec<ScalarBinding>,
     buffers_len: usize,
-    scalars_len: usize,
     builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
     function_types: Vec<Type<'a>>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
@@ -50,12 +57,13 @@ impl<'a> ArgsManager<'a> {
         let num_meta = all_meta.len();
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
+        let scalars = kernel.scalars.clone();
 
         let mut args = ArgsManager {
             buffers: Vec::with_capacity(kernel.buffers.len()),
             buffers_len: kernel.buffers.len(),
-            scalars: Vec::with_capacity(kernel.scalars.len()),
-            scalars_len: kernel.scalars.len(),
+            scalars_memref: HashMap::with_capacity(kernel.scalars.len()),
+            scalars,
             metadata_memref: None,
             builtin: [None; NB_BUILTIN],
             metadata,
@@ -79,13 +87,9 @@ impl<'a> ArgsManager<'a> {
 
         for binding in kernel.scalars.iter() {
             let inner_type = binding.elem.to_type(context);
-            let scalar = if binding.count > 1 {
-                Type::vector(&[binding.count as u64], inner_type)
-            } else {
-                inner_type
-            };
-            args.function_types.push(scalar);
-            args.block_inputs.push((scalar, location));
+            let memref = MemRefType::new(inner_type, &[binding.count as i64], None, None).into();
+            args.function_types.push(memref);
+            args.block_inputs.push((memref, location));
         }
 
         let integer_type: Type<'_> = IntegerType::new(context, 32).into();
@@ -115,15 +119,19 @@ impl<'a> ArgsManager<'a> {
 
         self.metadata_memref = Some(block.argument(self.buffers_len).unwrap().into());
 
-        for i in self.buffers_len + 1..self.buffers_len + 1 + self.scalars_len {
-            self.scalars.push(block.argument(i).unwrap().into());
+        for i in 0..self.scalars.len() {
+            let binding = &self.scalars[i];
+            self.scalars_memref.insert(
+                binding.elem,
+                block.argument(i + self.buffers_len + 1).unwrap().into(),
+            );
         }
 
         for (i, builtin) in BuiltinArray::builtin_order().into_iter().enumerate() {
             self.set(
                 builtin,
                 block
-                    .argument(self.buffers_len + self.scalars_len + 1 + i)
+                    .argument(self.buffers_len + self.scalars.len() + 1 + i)
                     .unwrap()
                     .into(),
             );

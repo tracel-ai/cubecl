@@ -19,18 +19,7 @@ pub struct MemRef<const N_DIMS: usize> {
 pub type LineMemRef = MemRef<1>;
 
 impl LineMemRef {
-    pub fn new(pointer: &mut [u8]) -> Self {
-        let len = pointer.len();
-        let pointer = pointer.as_mut_ptr() as *mut c_void;
-        Self {
-            allocated: pointer,
-            aligned: pointer,
-            offset: 0,
-            shape: [len as c_longlong],
-            stride: [1],
-        }
-    }
-    pub fn new_u32(pointer: &mut [u32]) -> Self {
+    pub fn new<T>(pointer: &mut [T]) -> Self {
         let len = pointer.len();
         let pointer = pointer.as_mut_ptr() as *mut c_void;
         Self {

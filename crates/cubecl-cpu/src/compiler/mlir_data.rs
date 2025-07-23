@@ -74,7 +74,7 @@ impl MlirData {
         }
 
         let ptr = shared_mlir_data.metadata.as_mut();
-        let line_memref = LineMemRef::new_u32(ptr);
+        let line_memref = LineMemRef::new(ptr);
         push_undirected(line_memref);
 
         for scalar in scalars_binding.into_iter() {
@@ -84,8 +84,9 @@ impl MlirData {
                 .last_mut()
                 .unwrap()
                 .data
-                .as_mut_ptr() as *mut u8;
-            args_second_indirection.push(data as *mut ());
+                .as_mut_slice();
+            let line_memref = LineMemRef::new(data);
+            push_undirected(line_memref);
         }
 
         let shared_mlir_data = Arc::new(shared_mlir_data);

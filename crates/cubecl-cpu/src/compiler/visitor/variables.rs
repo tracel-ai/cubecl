@@ -260,19 +260,21 @@ impl<'a> Visitor<'a> {
                 }
             }
             VariableKind::GlobalScalar(id) => {
-                let var = self.args_manager.scalars[id as usize];
-                if variable.item.is_vectorized() {
-                    let result_type = variable.item.to_type(self.context);
-                    self.append_operation_with_result(vector::load(
+                let memref = *self
+                    .args_manager
+                    .scalars_memref
+                    .get(&variable.elem())
+                    .unwrap();
+                let index = self
+                    .block
+                    .const_int_from_type(
                         self.context,
-                        result_type,
-                        var,
-                        &[],
                         self.location,
-                    ))
-                } else {
-                    var
-                }
+                        id as i64,
+                        Type::index(self.context),
+                    )
+                    .unwrap();
+                self.append_operation_with_result(memref::load(memref, &[index], self.location))
             }
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
