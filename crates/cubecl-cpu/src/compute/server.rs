@@ -212,6 +212,10 @@ impl ComputeServer for CpuServer {
                 .expect("Can't find resource"),
         )
     }
+
+    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+        self.ctx.memory_management.mode(mode);
+    }
 }
 
 impl CpuServer {
