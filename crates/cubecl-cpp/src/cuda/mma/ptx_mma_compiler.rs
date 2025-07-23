@@ -207,17 +207,18 @@ impl<D: Dialect> MmaExecute<D> {
 
         write!(
             f,
-            "
+            r#"
 // Execute mma.sync.
-__device__ void {name}({}& frag_a, {}& frag_b, {}& frag_c, {}& frag_d) {{
-    asm volatile (
-        \"mma.sync.aligned.{shape}.{ab_format}.{cd_format} \"
-        \"{0}, {1}, {2}, {3};\\n\"
-        : \"=r\"(frag_d)
-        : \"r\"(frag_a), \"r\"(frag_b), \"r\"(frag_c)
+__device__ void {name}({}& A, {}& B, {}& C, {}& D) {{
+    asm volatile(
+        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32  {{%0,%1,%2,%3}}, {{%4,%5,%6,%7}}, {{%8,%9}}, "
+        "{{%10,%11,%12,%13}};\n"
+        : "=f"(D[0]), "=f"(D[1]), "=f"(D[2]), "=f"(D[3])
+        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]),
+          "f"(C[0]), "f"(C[1]), "f"(C[2]), "f"(C[3])
     );
 }}
-        ",
+        "#,
             self.frag_a, self.frag_b, self.frag_c, self.frag_d
         )
     }
