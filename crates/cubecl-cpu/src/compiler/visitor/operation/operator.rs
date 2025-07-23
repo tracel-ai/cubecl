@@ -18,8 +18,22 @@ impl<'a> Visitor<'a> {
             Operator::Cast(cast) => {
                 self.visit_cast(cast.input, out);
             }
-            Operator::CopyMemory(_copy_memory) => {
-                todo!("copy_memory is not implemented {}", operator)
+            Operator::CopyMemory(copy_memory) => {
+                let memref = self.get_memory(copy_memory.input);
+                let in_index = self.get_index(copy_memory.in_index, copy_memory.input.item);
+                let value = self.append_operation_with_result(memref::load(
+                    memref,
+                    &[in_index],
+                    self.location,
+                ));
+                let out_memref = self.get_memory(out);
+                let out_index = self.get_index(copy_memory.out_index, out.item);
+                self.block.append_operation(memref::store(
+                    value,
+                    out_memref,
+                    &[out_index],
+                    self.location,
+                ));
             }
             Operator::CopyMemoryBulk(_copy_memory_bulk) => {
                 todo!("copy_memory_bulk is not implemented {}", operator)
