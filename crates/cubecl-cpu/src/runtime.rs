@@ -107,6 +107,6 @@ impl Runtime for CpuRuntime {
     }
 
     fn device_count() -> usize {
-        0
+        1
     }
 }
