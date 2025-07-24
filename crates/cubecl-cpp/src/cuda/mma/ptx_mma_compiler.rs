@@ -88,30 +88,78 @@ impl<D: Dialect> MmaLoad<D> {
         format!("mma_load_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}")
     }
 
-    // TODO: Use ldmatrix.sync to load fragments.
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let elem = self.frag.elem;
+        let frag = self.frag;
+        let name = self.fn_name();
+
+        let trans = match frag.layout {
+            Some(layout) => match layout {
+                FragmentLayout::ColMajor => "trans.",
+                FragmentLayout::RowMajor => "",
+                FragmentLayout::_Dialect(_) => "",
+            },
+            None => "",
+        };
+
+        let (amd_body, args) = match frag.ident {
+            FragmentIdent::A => (
+                format!(
+                    r#"
+__device__ void {name}_ams(uint& a0, uint& a1, uint& a2, uint& a3, const {elem}* shared_mem) {{
+    asm volatile(
+        "ldmatrix.sync.aligned.m16n8.x2.{trans}shared.b16 {{%0, %1, %2, %3}}, [%4];"
+        : "=r"(a0), "=r"(a1), "=r"(a2), "=r"(a3)
+        : "r"(shared_mem)
+    );
+}}
+"#
+                ),
+                "fr, fr+1, fr+2, fr+3, value_ptr",
+            ),
+            FragmentIdent::B => (
+                format!(
+                    r#"
+__device__ void {name}_ams(uint& b0, uint& b1, const {elem}* shared_mem) {{
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.{trans}shared.b16 {{%0, %1}}, [%2];"
+        : "=r"(b0), "=r"(b1)
+        : "r"(shared_mem)
+    );
+}}
+"#
+                ),
+                "fr, fr+1, value_ptr",
+            ),
+            FragmentIdent::Accumulator => return self.format_extension_acc(f),
+            other => panic!("Unknown matrix identifier {other}"),
+        };
+
+        write!(
+            f,
+            "
+{amd_body}
+
+// Load the fragment from memory.
+__device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride) {{
+    uint *fr = reinterpret_cast<uint *>(frag);
+
+    {name}_ams({args})
+}}
+        "
+        )
+    }
+
+    pub fn format_extension_acc(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let elem = self.frag.elem;
         let frag = self.frag;
         let name = self.fn_name();
         let length = get_fragment_length(&frag);
 
-        let index_body = match frag.ident {
-            FragmentIdent::A => {
-                // Matrix A: row-major, each thread loads elements along rows.
-                // TODO: Support col major loading.
-                "wmmaLane + i * stride".to_string()
-            }
-            FragmentIdent::B => {
-                // Matrix B: column-major, each thread loads elements along columns.
-                // TODO: Support row major loading.
-                "i + wmmaLane * stride".to_string()
-            }
-            FragmentIdent::Accumulator => match self.layout {
-                Some(FragmentLayout::RowMajor) => "wmmaLane + i * stride".to_string(),
-                Some(FragmentLayout::ColMajor) => "i + wmmaLane * stride".to_string(),
-                _ => panic!("Accumulator load requires explicit layout"),
-            },
-            other => panic!("Unknown matrix identifier {other}"),
+        let index_body = match self.layout {
+            Some(FragmentLayout::RowMajor) => "wmmaLane + i * stride".to_string(),
+            Some(FragmentLayout::ColMajor) => "i + wmmaLane * stride".to_string(),
+            _ => panic!("Accumulator load requires explicit layout"),
         };
 
         write!(
