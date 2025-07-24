@@ -190,11 +190,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         _scalars: &[(Elem<Self>, usize)],
-        _flags: &Flags,
+        flags: &Flags,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
-        Self::compile_wmma_type_definitions(f)?;
+
+        if flags.inst_wmma {
+            Self::compile_wmma_type_definitions(f)?;
+        }
+
         Ok(())
     }
 

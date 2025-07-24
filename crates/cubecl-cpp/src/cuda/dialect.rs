@@ -182,11 +182,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
 
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
+
         if flags.use_grid_constants {
             shared::type_scalar_definitions::<Self>(f, scalars)?;
             shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
         }
-        Self::compile_wmma_type_definitions(f)?;
+
+        if flags.inst_wmma {
+            Self::compile_wmma_type_definitions(f)?;
+        }
+
         Ok(())
     }
 
