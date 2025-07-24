@@ -263,29 +263,11 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
         Ok(())
     }
 
-    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &crate::shared::Variable<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_declaration(f, var)
-    }
-
-    fn compile_wwma_fragment_ident(
-        _f: &mut std::fmt::Formatter<'_>,
-        _ident: &FragmentIdent<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_fragment_layout(
-        _f: &mut std::fmt::Formatter<'_>,
-        _layout: &FragmentLayout<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        Ok(())
     }
 
     fn compile_wmma_fragment(

@@ -292,11 +292,6 @@ __device__ void {name}({input}& input, {output}& output) {{
 }
 
 impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
-    fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // nothing to do
-        Ok(())
-    }
-
     fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
         f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
@@ -305,34 +300,11 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
-    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
-        // in other words fragments are duplicated
-        // so lanes 0,16 / 1,17 / ... / 15, 31 are the same
-        f.write_str("uint wmmaLane = uint(threadIdx.x % 16);\n")
-    }
-
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &crate::shared::Variable<HipDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_declaration(f, var)
-    }
-
-    fn compile_wwma_fragment_ident(
-        _f: &mut std::fmt::Formatter<'_>,
-        _ident: &FragmentIdent<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        // nothing to do
-        Ok(())
-    }
-
-    fn compile_wmma_fragment_layout(
-        _f: &mut std::fmt::Formatter<'_>,
-        _layout: &FragmentLayout<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        // nothing to do
-        Ok(())
     }
 
     fn compile_wmma_fragment(
