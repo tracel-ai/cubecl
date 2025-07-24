@@ -125,9 +125,9 @@ impl<D: Dialect> WmmaLoad<D> {
                     || (frag.ident == FragmentIdent::B
                         && frag.layout.unwrap() == FragmentLayout::RowMajor)
                 {
-                    format!("i * stride + wmmaLane")
+                    "i * stride + wmmaLane".to_string()
                 } else {
-                    format!("i + wmmaLane * stride")
+                    "i + wmmaLane * stride".to_string()
                 };
                 (index, length, step)
             }
@@ -136,10 +136,10 @@ impl<D: Dialect> WmmaLoad<D> {
                 let step = get_output_accumulator_index_step(&elem, &frag);
                 let index = match self.layout {
                     Some(FragmentLayout::ColMajor) => {
-                        format!("(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * stride")
+                        "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * stride".to_string()
                     }
                     Some(FragmentLayout::RowMajor) => {
-                        format!("(i * uint(2) + threadIdx.x / uint(16)) * stride + wmmaLane")
+                        "(i * uint(2) + threadIdx.x / uint(16)) * stride + wmmaLane".to_string()
                     }
                     _ => panic!(
                         "cannot load data to an accumulator without knowing the layout of the data"
@@ -171,7 +171,7 @@ __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride)
 impl<D: Dialect> WmmaStore<D> {
     pub fn fn_name(&self) -> String {
         let layout_frag = frag_layout_str(&self.frag.layout);
-        let layout_option = Some(self.layout.clone());
+        let layout_option = Some(self.layout);
         let layout = frag_layout_str(&layout_option);
         let ident = frag_ident_str(&self.frag.ident);
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
@@ -196,8 +196,8 @@ impl<D: Dialect> WmmaStore<D> {
         };
         // FragmentLayout here represents the desired layout of the matrix C
         let output_idx = match self.layout {
-            FragmentLayout::ColMajor => format!("wmmaLane * stride + rowIdx"),
-            FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * stride"),
+            FragmentLayout::ColMajor => "wmmaLane * stride + rowIdx".to_string(),
+            FragmentLayout::RowMajor => "wmmaLane + rowIdx * stride".to_string(),
             FragmentLayout::_Dialect(_) => String::new(),
         };
 
@@ -334,7 +334,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
                 let extension = WmmaFill::new(match frag {
-                    Variable::WmmaFragment { frag, .. } => frag.clone(),
+                    Variable::WmmaFragment { frag, .. } => *frag,
                     _ => panic!(),
                 });
                 let name = extension.fn_name();
@@ -362,10 +362,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 assert_eq!(*warp_size, 32, "Only warp size of 32 supported");
 
                 let extension = WmmaExecute::new(
-                    variable_to_frag(&frag_a),
-                    variable_to_frag(&frag_b),
-                    variable_to_frag(&frag_c),
-                    variable_to_frag(&frag_d),
+                    variable_to_frag(frag_a),
+                    variable_to_frag(frag_b),
+                    variable_to_frag(frag_c),
+                    variable_to_frag(frag_d),
                 );
                 let name = extension.fn_name();
                 writeln!(f, "{name}({frag_a}, {frag_b}, {frag_c}, {frag_d});")
@@ -493,7 +493,7 @@ fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
 
 pub(crate) fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
     match frag {
-        Variable::WmmaFragment { frag, .. } => frag.clone(),
+        Variable::WmmaFragment { frag, .. } => *frag,
         _ => panic!(),
     }
 }

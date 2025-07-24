@@ -99,20 +99,16 @@ impl<D: Dialect> MmaLoad<D> {
             FragmentIdent::A => {
                 // Matrix A: row-major, each thread loads elements along rows.
                 // TODO: Support col major loading.
-                format!("wmmaLane + i * stride")
+                "wmmaLane + i * stride".to_string()
             }
             FragmentIdent::B => {
                 // Matrix B: column-major, each thread loads elements along columns.
                 // TODO: Support row major loading.
-                format!("i + wmmaLane * stride")
+                "i + wmmaLane * stride".to_string()
             }
             FragmentIdent::Accumulator => match self.layout {
-                Some(FragmentLayout::RowMajor) => {
-                    format!("wmmaLane + i * stride")
-                }
-                Some(FragmentLayout::ColMajor) => {
-                    format!("i + wmmaLane * stride")
-                }
+                Some(FragmentLayout::RowMajor) => "wmmaLane + i * stride".to_string(),
+                Some(FragmentLayout::ColMajor) => "i + wmmaLane * stride".to_string(),
                 _ => panic!("Accumulator load requires explicit layout"),
             },
             other => panic!("Unknown matrix identifier {other}"),
@@ -139,7 +135,7 @@ __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride)
 impl<D: Dialect> MmaStore<D> {
     pub fn fn_name(&self) -> String {
         let layout_frag = frag_layout_str(&self.frag.layout);
-        let layout_option = Some(self.layout.clone());
+        let layout_option = Some(self.layout);
         let layout = frag_layout_str(&layout_option);
         let ident = frag_ident_str(&self.frag.ident);
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
@@ -155,8 +151,8 @@ impl<D: Dialect> MmaStore<D> {
         let length = get_fragment_length(&frag);
 
         let output_idx = match self.layout {
-            FragmentLayout::RowMajor => format!("wmmaLane + i * stride"),
-            FragmentLayout::ColMajor => format!("i + wmmaLane * stride"),
+            FragmentLayout::RowMajor => "wmmaLane + i * stride".to_string(),
+            FragmentLayout::ColMajor => "i + wmmaLane * stride".to_string(),
             FragmentLayout::_Dialect(_) => String::new(),
         };
 
@@ -302,7 +298,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
                 let extension = MmaFill::new(match frag {
-                    Variable::WmmaFragment { frag, .. } => frag.clone(),
+                    Variable::WmmaFragment { frag, .. } => *frag,
                     _ => panic!(),
                 });
                 let name = extension.fn_name();
@@ -435,7 +431,7 @@ fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
 
 pub(crate) fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
     match frag {
-        Variable::WmmaFragment { frag, .. } => frag.clone(),
+        Variable::WmmaFragment { frag, .. } => *frag,
         _ => panic!(),
     }
 }
