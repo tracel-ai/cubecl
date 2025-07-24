@@ -1,3 +1,5 @@
+//! This MMA compiler is a work in progress and shouldn't be used.
+
 use std::fmt::Formatter;
 
 use crate::{
@@ -86,8 +88,7 @@ impl<D: Dialect> MmaLoad<D> {
         format!("mma_load_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}")
     }
 
-    // Matrix A is typically in row-major, Matrix B in column-major for mma.sync.
-    // Matrix C/D layouts depend on the specified layout (row-major or col-major).
+    // TODO: Use ldmatrix.sync to load fragments.
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let elem = self.frag.elem;
         let frag = self.frag;
@@ -97,10 +98,12 @@ impl<D: Dialect> MmaLoad<D> {
         let index_body = match frag.ident {
             FragmentIdent::A => {
                 // Matrix A: row-major, each thread loads elements along rows.
+                // TODO: Support col major loading.
                 format!("wmmaLane + i * stride")
             }
             FragmentIdent::B => {
                 // Matrix B: column-major, each thread loads elements along columns.
+                // TODO: Support row major loading.
                 format!("i + wmmaLane * stride")
             }
             FragmentIdent::Accumulator => match self.layout {
@@ -185,8 +188,7 @@ impl<D: Dialect> MmaExecute<D> {
 
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = self.fn_name();
-        // let (m, n, k) = (self.frag_a.m, self.frag_a.n, self.frag_a.k);
-        // TODO: Only supports m16n8k16 for now
+        // TODO: Support more shapes, only m16n8k16 for now.
 
         write!(
             f,
