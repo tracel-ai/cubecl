@@ -85,8 +85,7 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.35.1"
-tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "a5800d4c2886949ad38332e0f14f004df8f9f645" }
+sysinfo = "0.36.1"
 libc = "0.2.172"
 
 [profile.dev]
