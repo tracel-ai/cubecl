@@ -13,7 +13,7 @@ use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
     ir::{Elem, FloatKind, IntKind, UIntKind},
 };
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
 use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -27,6 +27,7 @@ use crate::{
     compute::{HipContext, HipServer, HipStorage, contiguous_strides},
     device::AmdDevice,
 };
+use core::ffi::c_int;
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -229,5 +230,18 @@ impl Runtime for HipRuntime {
         }
 
         true
+    }
+
+    fn device_count() -> usize {
+        let mut device_count: c_int = 0;
+        let result;
+        unsafe {
+            result = hipGetDeviceCount(&mut device_count);
+        }
+        if result == HIP_SUCCESS {
+            device_count.try_into().unwrap_or(0)
+        } else {
+            0
+        }
     }
 }

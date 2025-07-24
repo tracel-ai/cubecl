@@ -48,6 +48,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn max_cube_count() -> (u32, u32, u32);
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
+
+    fn device_count() -> usize;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

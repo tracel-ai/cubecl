@@ -235,7 +235,7 @@ pub struct MetadataBinding {
 }
 
 /// Binding of a set of scalars of the same type to execute a kernel.
-#[derive(new, Debug)]
+#[derive(new, Debug, Clone)]
 pub struct ScalarBinding {
     /// Type of the scalars
     pub elem: Elem,
