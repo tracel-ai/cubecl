@@ -92,7 +92,6 @@ impl<D: Dialect> MmaLoad<D> {
         let elem = self.frag.elem;
         let frag = self.frag;
         let name = self.fn_name();
-        let (m, n, k) = (frag.m, frag.n, frag.k);
         let length = get_fragment_length(&frag);
 
         let index_body = match frag.ident {
@@ -186,24 +185,8 @@ impl<D: Dialect> MmaExecute<D> {
 
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = self.fn_name();
-        let (m, n, k) = (self.frag_a.m, self.frag_a.n, self.frag_a.k);
-        let ab_format = match self.frag_a.elem {
-            Elem::F16 => "f16",
-            Elem::BF16 => "bf16",
-            _ => panic!("Unsupported input type for mma.sync"),
-        };
-        let cd_format = match self.frag_c.elem {
-            Elem::F32 => "f32",
-            Elem::F16 => "f16",
-            Elem::BF16 => "bf16",
-            _ => panic!("Unsupported output type for mma.sync"),
-        };
-        let shape = match (m, n, k) {
-            (16, 8, 16) => "m16n8k16",
-            (8, 8, 32) => "m8n8k32",
-            (16, 8, 8) => "m16n8k8",
-            _ => panic!("Unsupported tile shape {}x{}x{}", m, n, k),
-        };
+        // let (m, n, k) = (self.frag_a.m, self.frag_a.n, self.frag_a.k);
+        // TODO: Only supports m16n8k16 for now
 
         write!(
             f,
@@ -272,16 +255,13 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
         // Define vector types for fragments
         writeln!(f, "typedef __half half4_t[4];")?;
         writeln!(f, "typedef __half half8_t[8];")?;
-        writeln!(f, "typedef __half half16_t[16];")?;
-        // writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
-        // writeln!(f, "typedef __nv_bfloat16 bhalf16_t[16];")?;
+        writeln!(f, "typedef __nv_bfloat16 bhalf4_t[4];")?;
+        writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
         writeln!(f, "typedef float float4_t[4];")?;
-        writeln!(f, "typedef float float8_t[8];")?;
         Ok(())
     }
 
-    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "uint wmmaLane = threadIdx.x % 32;")?;
+    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
@@ -408,10 +388,9 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
                     gpu::Elem::Float(gpu::FloatKind::F32),
                 ),
             ];
-            let shapes = vec![(16, 8, 16), (8, 8, 32), (16, 8, 8), (16, 16, 16)];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                .map(|(m, n, k)| (m, n, k, shapes.clone()))
+                .map(|(m, n, k)| (m, n, k, vec![(16, 8, 16)]))
                 .collect();
             result.extend(combinations);
         }
@@ -421,20 +400,9 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
 
 fn get_fragment_length<D: Dialect>(frag: &Fragment<D>) -> u32 {
     match frag.ident {
-        FragmentIdent::A | FragmentIdent::B => match (frag.m, frag.n, frag.k) {
-            (16, 8, 16) => 8, // Each thread holds 8 elements for A/B in m16n8k16
-            (8, 8, 32) => 8,
-            (16, 8, 8) => 4,
-            (16, 16, 16) => 8,
-            _ => panic!("Unsupported tile shape {}x{}x{}", frag.m, frag.n, frag.k),
-        },
-        FragmentIdent::Accumulator => match (frag.m, frag.n, frag.k) {
-            (16, 8, 16) => 4, // Each thread holds 4 elements for C/D in m16n8k16
-            (8, 8, 32) => 4,
-            (16, 8, 8) => 4,
-            (16, 16, 16) => 8,
-            _ => panic!("Unsupported tile shape {}x{}x{}", frag.m, frag.n, frag.k),
-        },
+        FragmentIdent::A => 8,
+        FragmentIdent::B => 4,
+        FragmentIdent::Accumulator => 4,
         FragmentIdent::_Dialect(_) => 1,
     }
 }
