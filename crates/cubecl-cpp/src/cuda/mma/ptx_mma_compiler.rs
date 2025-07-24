@@ -106,21 +106,21 @@ impl<D: Dialect> MmaLoad<D> {
             FragmentIdent::A => (
                 format!(
                     r#"
-__device__ void {name}_ams(uint& a0, uint& a1, uint& a2, uint& a3, const {elem}* shared_mem) {{
+__device__ void {name}_ams(uint& a0, uint& a1, uint& a2, uint& a3, const uint shared_mem) {{
     asm volatile(
-        "ldmatrix.sync.aligned.m16n8.x2.{trans}shared.b16 {{%0, %1, %2, %3}}, [%4];"
+        "ldmatrix.sync.aligned.m8n8.x4.{trans}shared.b16 {{%0, %1, %2, %3}}, [%4];"
         : "=r"(a0), "=r"(a1), "=r"(a2), "=r"(a3)
         : "r"(shared_mem)
     );
 }}
 "#
                 ),
-                "fr, fr+1, fr+2, fr+3, value_ptr",
+                "fr[0], fr[1], fr[2], fr[3], ptr",
             ),
             FragmentIdent::B => (
                 format!(
                     r#"
-__device__ void {name}_ams(uint& b0, uint& b1, const {elem}* shared_mem) {{
+__device__ void {name}_ams(uint& b0, uint& b1, const uint shared_mem) {{
     asm volatile(
         "ldmatrix.sync.aligned.m8n8.x2.{trans}shared.b16 {{%0, %1}}, [%2];"
         : "=r"(b0), "=r"(b1)
@@ -129,7 +129,7 @@ __device__ void {name}_ams(uint& b0, uint& b1, const {elem}* shared_mem) {{
 }}
 "#
                 ),
-                "fr, fr+1, value_ptr",
+                "fr[0], fr[1], ptr",
             ),
             FragmentIdent::Accumulator => return self.format_extension_acc(f),
             other => panic!("Unknown matrix identifier {other}"),
@@ -143,8 +143,9 @@ __device__ void {name}_ams(uint& b0, uint& b1, const {elem}* shared_mem) {{
 // Load the fragment from memory.
 __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride) {{
     uint *fr = reinterpret_cast<uint *>(frag);
+    const uint ptr = __cvta_generic_to_shared(value_ptr);
 
-    {name}_ams({args})
+    {name}_ams({args});
 }}
         "
         )
