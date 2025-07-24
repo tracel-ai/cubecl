@@ -19,6 +19,7 @@ default = [
     "convolution",
     "cubecl-core/default",
     "cubecl-cuda?/default",
+    "cubecl-cpu?/default",
     "cubecl-hip?/default",
     "cubecl-wgpu?/default",
 ]
@@ -37,6 +38,7 @@ profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 # Runtimes
 cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
+cpu = ["cubecl-cpu"]
 hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 wgpu = ["cubecl-wgpu"]
@@ -50,6 +52,7 @@ compilation-cache = [
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
+cubecl-cpu = { path = "../cubecl-cpu", version = "0.7.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.7.0", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "0.7.0", default-features = false, optional = true }
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", default-features = false, optional = true }

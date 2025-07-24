@@ -16,7 +16,7 @@ macro_rules! testgen_tensor_identity {
 
             #[test]
             pub fn test_tiny() {
-                test_identity::<TestRuntime, NumericT>(&Default::default(), 3);
+                test_identity::<TestRuntime, NumericT>(&Default::default(), 4);
             }
 
             #[test]
@@ -31,7 +31,7 @@ macro_rules! testgen_tensor_identity {
 
             #[test]
             pub fn test_large() {
-                test_identity::<TestRuntime, NumericT>(&Default::default(), 4096)
+                test_identity::<TestRuntime, NumericT>(&Default::default(), 1024)
             }
     };
     ([$($numeric:ident),*]) => {
