@@ -105,4 +105,8 @@ impl Runtime for CpuRuntime {
     fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
         true
     }
+
+    fn device_count() -> usize {
+        0
+    }
 }
