@@ -131,6 +131,35 @@ impl<D: Dialect> Elem<D> {
             other => other.size() * 8,
         }
     }
+
+    pub const fn ident(&self) -> &str {
+        match self {
+            Elem::FP4(_) => "fp4",
+            Elem::FP4x2(_) => "fp4x2",
+            Elem::FP6(_) => "fp6",
+            Elem::FP6x2(_) => "fp6x2",
+            Elem::FP8(_) => "fp8",
+            Elem::FP8x2(_) => "fp8x2",
+            Elem::F16 => "f16",
+            Elem::F16x2 => "f16x2",
+            Elem::BF16x2 => "bf16x2",
+            Elem::BF16 => "bf16",
+            Elem::TF32 => "tf32",
+            Elem::F32 => "f32",
+            Elem::F64 => "f64",
+            Elem::I8 => "i8",
+            Elem::I16 => "i16",
+            Elem::I32 => "i32",
+            Elem::I64 => "i64",
+            Elem::U8 => "u8",
+            Elem::U16 => "u16",
+            Elem::U32 => "u32",
+            Elem::U64 => "u64",
+            Elem::Bool => "bool",
+            Elem::Atomic(_) => "atomic",
+            Elem::_Dialect(_) => "",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]

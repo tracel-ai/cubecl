@@ -51,7 +51,7 @@ impl<D: Dialect> MmaFill<D> {
         let layout = frag_layout_str(&self.frag.layout);
         let ident = frag_ident_str(&self.frag.ident);
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
-        let elem = self.frag.elem;
+        let elem = self.frag.elem.ident();
 
         format!("mma_fill_{elem}_{ident}_{m}x{n}x{k}_{layout}")
     }
@@ -82,7 +82,7 @@ impl<D: Dialect> MmaLoad<D> {
         let layout_frag = frag_layout_str(&self.frag.layout);
         let layout = frag_layout_str(&self.layout);
         let ident = frag_ident_str(&self.frag.ident);
-        let elem = self.frag.elem;
+        let elem = self.frag.elem.ident();
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
 
         format!("mma_load_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}")
@@ -188,7 +188,7 @@ impl<D: Dialect> MmaStore<D> {
         let layout = frag_layout_str(&layout_option);
         let ident = frag_ident_str(&self.frag.ident);
         let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
-        let elem = self.frag.elem;
+        let elem = self.frag.elem.ident();
 
         format!("mma_store_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}")
     }
@@ -227,7 +227,11 @@ impl<D: Dialect> MmaExecute<D> {
         let (m, n, k) = (self.frag_a.m, self.frag_a.n, self.frag_a.k);
         format!(
             "mma_execute_{}x{}x{}_{}_{}",
-            m, n, k, self.frag_a.elem, self.frag_c.elem
+            m,
+            n,
+            k,
+            self.frag_a.elem.ident(),
+            self.frag_c.elem.ident()
         )
     }
 
@@ -264,8 +268,8 @@ impl<D: Dialect> MmaCast<D> {
         let layout = frag_layout_str(&self.frag_input.layout);
         let ident = frag_ident_str(&self.frag_input.ident);
         let (m, n, k) = (self.frag_input.m, self.frag_input.n, self.frag_input.k);
-        let elem = self.frag_input.elem;
-        let elem_out = self.frag_output.elem;
+        let elem = self.frag_input.elem.ident();
+        let elem_out = self.frag_output.elem.ident();
 
         format!("mma_cast_{elem}_to_{elem_out}_{ident}_{m}x{n}x{k}_{layout}")
     }
