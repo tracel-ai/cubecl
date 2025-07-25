@@ -100,12 +100,22 @@ pub fn kernel_simple_f16_m16n8k16_smem(lhs: &Array<f16>, rhs: &Array<f16>, out: 
 
     cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
 
+    let d = cmma::cast::<f16, f32>(&a);
+
     cmma::store(
         &mut out.to_slice_mut(),
-        &c,
+        &d,
         16,
         cmma::MatrixLayout::RowMajor,
     );
+
+    // sync_cube();
+
+    // for s in 0..num_load_b {
+    //     let index = index_base_a + s;
+    //     let index_out = index_base_b + s;
+    //     out[index_out] = f32::cast_from(smem_a[index]);
+    // }
 }
 
 #[cube(launch)]
@@ -515,7 +525,7 @@ pub fn test_simple_f16_m16n8k16_smem<R: Runtime>(client: ComputeClient<R::Server
 
     let lhs = client.create(f16::as_bytes(&lhs));
     let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 128);
+    let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
         kernel_simple_f16_m16n8k16_smem::launch::<R>(
@@ -524,7 +534,7 @@ pub fn test_simple_f16_m16n8k16_smem<R: Runtime>(client: ComputeClient<R::Server
             CubeDim::new_1d(32),
             ArrayArg::from_raw_parts::<f16>(&lhs, 256, 1),
             ArrayArg::from_raw_parts::<f16>(&rhs, 128, 1),
-            ArrayArg::from_raw_parts::<f32>(&out, 128, 1),
+            ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
         )
     };
 

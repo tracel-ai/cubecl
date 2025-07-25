@@ -90,6 +90,7 @@ impl<D: Dialect> MmaLoad<D> {
     }
 
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        return self.format_extension_fallback(f);
         let elem = self.frag.elem;
         let frag = self.frag;
         let name = self.fn_name();
@@ -152,7 +153,7 @@ __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride)
         )
     }
 
-    pub fn format_extension_acc(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn format_extension_acc(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let elem = self.frag.elem;
         let frag = self.frag;
         let name = self.fn_name();
@@ -180,6 +181,47 @@ __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride)
         "
         )
     }
+
+    fn format_extension_fallback(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let elem = self.frag.elem;
+        let frag = self.frag;
+        let name = self.fn_name();
+        let length = get_fragment_length(&frag);
+
+        let index_body = match self.layout {
+            Some(FragmentLayout::RowMajor) => "row * stride + col".to_string(),
+            Some(FragmentLayout::ColMajor) => "(i % 4)".to_string(),
+            _ => "row * stride + col".to_string(),
+        };
+
+        // Look at https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-fragment-mma-16816-float.
+        write!(
+            f,
+            "
+// Load the fragment from memory.
+__device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride) {{
+    const uint wmmaLane = threadIdx.x % 32;
+    const uint row_in_square = wmmaLane / 4;
+    const uint offset_col = (wmmaLane % 4) * 2;
+
+
+    #pragma unroll
+    for (uint i = 0; i < {length}; ++i) {{
+        const uint square = i / 2;
+        const uint square_row = square % 2;
+        const uint square_col = square / 2;
+
+        const uint col_in_square = i % 2 + offset_col;
+        const uint col = col_in_square + square_col * 8;
+        const uint row = row_in_square + square_row * 8;
+
+        const uint index = {index_body};
+        frag[i] = value_ptr[index];
+    }}
+}}
+        "
+        )
+    }
 }
 
 impl<D: Dialect> MmaStore<D> {
@@ -199,9 +241,11 @@ impl<D: Dialect> MmaStore<D> {
         let frag = self.frag;
         let name = self.fn_name();
         let length = get_fragment_length(&frag);
+        let length = 1;
 
         let output_idx = match self.layout {
-            FragmentLayout::RowMajor => "wmmaLane + i * stride".to_string(),
+            // FragmentLayout::RowMajor => "wmmaLane * 8 + i * stride".to_string(),
+            FragmentLayout::RowMajor => "wmmaLane".to_string(),
             FragmentLayout::ColMajor => "i + wmmaLane * stride".to_string(),
             FragmentLayout::_Dialect(_) => String::new(),
         };
@@ -311,6 +355,7 @@ impl<D: Dialect> MmaSyncCompiler<D> {
             writeln!(f, "typedef __nv_bfloat16 mma_bhalf8_t[8];")?;
         }
         writeln!(f, "typedef float mma_float4_t[4];")?;
+        writeln!(f, "typedef float mma_float8_t[4];")?;
         Ok(())
     }
 
@@ -330,11 +375,13 @@ impl<D: Dialect> MmaSyncCompiler<D> {
             FragmentIdent::A => match fragment.elem {
                 Elem::F16 => write!(f, "mma_half8_t"),
                 Elem::BF16 => write!(f, "mma_bhalf8_t"),
+                Elem::F32 => write!(f, "mma_float8_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::B => match fragment.elem {
                 Elem::F16 => write!(f, "mma_half4_t"),
                 Elem::BF16 => write!(f, "mma_bhalf4_t"),
+                Elem::F32 => write!(f, "mma_float4_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::Accumulator => match fragment.elem {
