@@ -6,8 +6,9 @@ use crate::{
     Dialect,
     cuda::{CudaDialect, arch::CudaArchitecture},
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
-        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
+        Architecture, DialectWmmaCompiler, Elem, Flags, Fragment, FragmentIdent, FragmentLayout,
+        SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr, frag_ident_str,
+        frag_layout_str, variable_to_frag, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -102,11 +103,11 @@ impl<D: Dialect> MmaLoad<D> {
             None => "",
         };
 
-        let (amd_body, args) = match frag.ident {
+        let (asm_body, args) = match frag.ident {
             FragmentIdent::A => (
                 format!(
                     r#"
-__device__ void {name}_ams(uint& a0, uint& a1, uint& a2, uint& a3, const uint shared_mem) {{
+__device__ void {name}_asm(uint& a0, uint& a1, uint& a2, uint& a3, const uint shared_mem) {{
     asm volatile(
         "ldmatrix.sync.aligned.m8n8.x4.{trans}shared.b16 {{%0, %1, %2, %3}}, [%4];"
         : "=r"(a0), "=r"(a1), "=r"(a2), "=r"(a3)
@@ -120,7 +121,7 @@ __device__ void {name}_ams(uint& a0, uint& a1, uint& a2, uint& a3, const uint sh
             FragmentIdent::B => (
                 format!(
                     r#"
-__device__ void {name}_ams(uint& b0, uint& b1, const uint shared_mem) {{
+__device__ void {name}_asm(uint& b0, uint& b1, const uint shared_mem) {{
     asm volatile(
         "ldmatrix.sync.aligned.m8n8.x2.{trans}shared.b16 {{%0, %1}}, [%2];"
         : "=r"(b0), "=r"(b1)
@@ -138,14 +139,14 @@ __device__ void {name}_ams(uint& b0, uint& b1, const uint shared_mem) {{
         write!(
             f,
             "
-{amd_body}
+{asm_body}
 
 // Load the fragment from memory.
 __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride) {{
     uint *fr = reinterpret_cast<uint *>(frag);
     const uint ptr = __cvta_generic_to_shared(value_ptr);
 
-    {name}_ams({args});
+    {name}_asm({args});
 }}
         "
         )
@@ -296,18 +297,19 @@ __device__ void {name}({input}& input, {output}& output) {{
 }
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "#include <cuda_fp16.h>")?;
-        writeln!(f, "#include <cuda_bf16.h>")?;
-        Ok(())
-    }
-
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
         // Define vector types for fragments
-        writeln!(f, "typedef __half half4_t[4];")?;
-        writeln!(f, "typedef __half half8_t[8];")?;
-        writeln!(f, "typedef __nv_bfloat16 bhalf4_t[4];")?;
-        writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
+        if flags.elem_f16 {
+            writeln!(f, "typedef __half half4_t[4];")?;
+            writeln!(f, "typedef __half half8_t[8];")?;
+        }
+        if flags.elem_bf16 {
+            writeln!(f, "typedef __nv_bfloat16 bhalf4_t[4];")?;
+            writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
+        }
         writeln!(f, "typedef float float4_t[4];")?;
         Ok(())
     }
@@ -437,54 +439,5 @@ fn get_fragment_length<D: Dialect>(frag: &Fragment<D>) -> u32 {
         FragmentIdent::B => 4,
         FragmentIdent::Accumulator => 4,
         FragmentIdent::_Dialect(_) => 1,
-    }
-}
-
-fn frag_as_ptr<D: Dialect>(
-    f: &mut Formatter<'_>,
-    frag: &Variable<D>,
-    offset: &Variable<D>,
-) -> Variable<D> {
-    let item = frag.item();
-    let mut frag_ptr = Variable::tmp_ptr(item);
-    if frag.is_const() {
-        frag_ptr.to_const();
-    }
-    let frag_ptr_out = frag_ptr.fmt_left();
-    writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
-
-    if item.vectorization > 1 {
-        let mut item_value = item;
-        item_value.vectorization = 1;
-        frag_ptr.reinterpret_ptr(f, item_value)
-    } else {
-        frag_ptr
-    }
-}
-
-fn frag_ident_str<D: Dialect>(frag: &FragmentIdent<D>) -> &str {
-    match frag {
-        FragmentIdent::A => "a",
-        FragmentIdent::B => "b",
-        FragmentIdent::Accumulator => "c",
-        FragmentIdent::_Dialect(_) => "d",
-    }
-}
-
-fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
-    match frag {
-        Some(layout) => match layout {
-            FragmentLayout::ColMajor => "col",
-            FragmentLayout::RowMajor => "row",
-            FragmentLayout::_Dialect(_) => "",
-        },
-        None => "",
-    }
-}
-
-pub(crate) fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
-    match frag {
-        Variable::WmmaFragment { frag, .. } => *frag,
-        _ => panic!(),
     }
 }

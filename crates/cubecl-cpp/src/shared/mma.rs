@@ -1,10 +1,10 @@
 use cubecl_core::Feature;
 use cubecl_core::ir::{self as gpu};
 use cubecl_runtime::DeviceProperties;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::{fmt::Debug, marker::PhantomData};
 
-use super::{Component, Dialect, Elem, Variable};
+use super::{Component, Dialect, Elem, FmtLeft, Variable};
 
 pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
 
@@ -327,5 +327,54 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
                 }
             }
         }
+    }
+}
+
+pub fn frag_as_ptr<D: Dialect>(
+    f: &mut Formatter<'_>,
+    frag: &Variable<D>,
+    offset: &Variable<D>,
+) -> Variable<D> {
+    let item = frag.item();
+    let mut frag_ptr = Variable::tmp_ptr(item);
+    if frag.is_const() {
+        frag_ptr.to_const();
+    }
+    let frag_ptr_out = frag_ptr.fmt_left();
+    writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
+
+    if item.vectorization > 1 {
+        let mut item_value = item;
+        item_value.vectorization = 1;
+        frag_ptr.reinterpret_ptr(f, item_value)
+    } else {
+        frag_ptr
+    }
+}
+
+pub fn frag_ident_str<D: Dialect>(frag: &FragmentIdent<D>) -> &str {
+    match frag {
+        FragmentIdent::A => "a",
+        FragmentIdent::B => "b",
+        FragmentIdent::Accumulator => "c",
+        FragmentIdent::_Dialect(_) => "d",
+    }
+}
+
+pub fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
+    match frag {
+        Some(layout) => match layout {
+            FragmentLayout::ColMajor => "col",
+            FragmentLayout::RowMajor => "row",
+            FragmentLayout::_Dialect(_) => "",
+        },
+        None => "",
+    }
+}
+
+pub fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
+    match frag {
+        Variable::WmmaFragment { frag, .. } => *frag,
+        _ => panic!(),
     }
 }

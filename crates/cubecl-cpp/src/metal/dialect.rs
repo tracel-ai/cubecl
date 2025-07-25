@@ -851,13 +851,8 @@ impl DialectInstructions<Self> for MslDialect {
 // Coop Matrices dialect
 
 impl DialectWmmaCompiler<Self> for MslDialect {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         writeln!(f, "#include <metal_simdgroup_matrix>")
-    }
-
-    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // not used
-        Ok(())
     }
 
     fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

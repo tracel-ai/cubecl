@@ -1,8 +1,8 @@
 use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        DialectWmmaCompiler, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
-        WmmaInstruction, wmma_api_base,
+        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
+        SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -13,11 +13,14 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 pub struct RocWmmaCompiler {}
 
 impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
 
-    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_type_definitions(
+        _f: &mut std::fmt::Formatter<'_>,
+        _flags: &Flags,
+    ) -> std::fmt::Result {
         Ok(())
     }
 

@@ -4,8 +4,9 @@ use crate::{
     Dialect,
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
-        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
+        Architecture, DialectWmmaCompiler, Elem, Flags, Fragment, FragmentIdent, FragmentLayout,
+        SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr, frag_ident_str,
+        frag_layout_str, variable_to_frag, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -292,11 +293,18 @@ __device__ void {name}({input}& input, {output}& output) {{
 }
 
 impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
-        f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
-        f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
-        f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        if flags.elem_bf16 {
+            f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
+            f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
+        }
+        if flags.elem_f16 {
+            f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
+            f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+        }
         f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
@@ -446,54 +454,5 @@ fn get_output_accumulator_index_step<D: Dialect>(
             }
         }
         other => panic!("unsupported format {other} for {input_elem}"),
-    }
-}
-
-fn frag_as_ptr<D: Dialect>(
-    f: &mut Formatter<'_>,
-    frag: &Variable<D>,
-    offset: &Variable<D>,
-) -> Variable<D> {
-    let item = frag.item();
-    let mut frag_ptr = Variable::tmp_ptr(item);
-    if frag.is_const() {
-        frag_ptr.to_const();
-    }
-    let frag_ptr_out = frag_ptr.fmt_left();
-    writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
-
-    if item.vectorization > 1 {
-        let mut item_value = item;
-        item_value.vectorization = 1;
-        frag_ptr.reinterpret_ptr(f, item_value)
-    } else {
-        frag_ptr
-    }
-}
-
-fn frag_ident_str<D: Dialect>(frag: &FragmentIdent<D>) -> &str {
-    match frag {
-        FragmentIdent::A => "a",
-        FragmentIdent::B => "b",
-        FragmentIdent::Accumulator => "c",
-        FragmentIdent::_Dialect(_) => "d",
-    }
-}
-
-fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
-    match frag {
-        Some(layout) => match layout {
-            FragmentLayout::ColMajor => "col",
-            FragmentLayout::RowMajor => "row",
-            FragmentLayout::_Dialect(_) => "",
-        },
-        None => "",
-    }
-}
-
-pub(crate) fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
-    match frag {
-        Variable::WmmaFragment { frag, .. } => *frag,
-        _ => panic!(),
     }
 }

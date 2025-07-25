@@ -6,6 +6,7 @@ use cubecl_core::ir::Id;
 
 use crate::shared::{
     Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable, unary,
+    variable_to_frag,
 };
 use crate::{
     Dialect,
@@ -18,9 +19,7 @@ use crate::{
 use super::Extension;
 use super::arch::AMDArchitecture;
 use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
-use super::mma::{
-    WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore, variable_to_frag,
-};
+use super::mma::{WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -47,7 +46,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
             f.write_str("#include <hip/hip_fp16.h>\n")?;
         }
         if flags.inst_wmma {
-            Self::compile_wmma_includes(f)?;
+            Self::compile_wmma_includes(f, flags)?;
         }
         Ok(())
     }
@@ -196,7 +195,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         shared::type_vectorized_definitions::<Self>(f, items)?;
 
         if flags.inst_wmma {
-            Self::compile_wmma_type_definitions(f)?;
+            Self::compile_wmma_type_definitions(f, flags)?;
         }
 
         Ok(())
@@ -455,12 +454,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_includes(f)
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        M::compile_wmma_includes(f, flags)
     }
 
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_type_definitions(f)
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        M::compile_wmma_type_definitions(f, flags)
     }
 
     fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
