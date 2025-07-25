@@ -16,7 +16,7 @@ use super::{
     Extension,
     arch::CudaArchitecture,
     extension::MmaSyncExtension,
-    mma::{MmaCast, MmaExecute, MmaFill, MmaLoad, MmaStore, MmaSyncCompiler},
+    mma::{CudaWmmaCompiler, MmaCast, MmaExecute, MmaFill, MmaLoad, MmaStore},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -101,7 +101,7 @@ alignas(64) unsigned long long int opaque[16];
         extensions: &mut Vec<Self::Extension>,
         instruction: &shared::WmmaInstruction<Self>,
     ) {
-        if TypeId::of::<M>() != TypeId::of::<MmaSyncCompiler>() {
+        if TypeId::of::<M>() != TypeId::of::<CudaWmmaCompiler>() {
             return;
         }
 

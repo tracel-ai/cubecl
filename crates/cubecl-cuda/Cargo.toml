@@ -13,7 +13,6 @@ version.workspace = true
 [features]
 compilation-cache = ["cubecl-common/cache"]
 default = [
-    "ptx-mma",
     "std",
     "cubecl-runtime/default",
     "cubecl-common/default",
@@ -23,7 +22,6 @@ default = [
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 ptx-wmma = []
-ptx-mma = []
 
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]

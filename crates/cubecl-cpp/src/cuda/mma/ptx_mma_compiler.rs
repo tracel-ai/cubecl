@@ -1,20 +1,20 @@
-//! This MMA compiler is a work in progress and shouldn't be used.
-
-use std::fmt::Formatter;
+use std::{fmt::Formatter, marker::PhantomData};
 
 use crate::{
     Dialect,
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::arch::CudaArchitecture,
     shared::{
-        Architecture, DialectWmmaCompiler, Elem, Flags, Fragment, FragmentIdent, FragmentLayout,
+        Architecture, Elem, Flags, Fragment, FragmentIdent, FragmentLayout,
         SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr, frag_ident_str,
-        frag_layout_str, variable_to_frag, wmma_api_base,
+        frag_layout_str, variable_to_frag,
     },
 };
 use cubecl_core::ir::{self as gpu};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct MmaSyncCompiler {}
+pub struct MmaSyncCompiler<D: Dialect> {
+    phantom_data: PhantomData<D>,
+}
 
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct MmaFill<D: Dialect> {
@@ -296,59 +296,60 @@ __device__ void {name}({input}& input, {output}& output) {{
     }
 }
 
-impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
-    fn compile_wmma_type_definitions(
+impl<D: Dialect> MmaSyncCompiler<D> {
+    pub fn compile_wmma_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         flags: &Flags,
     ) -> std::fmt::Result {
         // Define vector types for fragments
         if flags.elem_f16 {
-            writeln!(f, "typedef __half half4_t[4];")?;
-            writeln!(f, "typedef __half half8_t[8];")?;
+            writeln!(f, "typedef __half mma_half4_t[4];")?;
+            writeln!(f, "typedef __half mma_half8_t[8];")?;
         }
         if flags.elem_bf16 {
-            writeln!(f, "typedef __nv_bfloat16 bhalf4_t[4];")?;
-            writeln!(f, "typedef __nv_bfloat16 bhalf8_t[8];")?;
+            writeln!(f, "typedef __nv_bfloat16 mma_bhalf4_t[4];")?;
+            writeln!(f, "typedef __nv_bfloat16 mma_bhalf8_t[8];")?;
         }
-        writeln!(f, "typedef float float4_t[4];")?;
+        writeln!(f, "typedef float mma_float4_t[4];")?;
         Ok(())
     }
 
-    fn compile_wmma_fragment_declaration(
+    pub fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &crate::shared::Variable<CudaDialect<Self>>,
+        var: &crate::shared::Variable<D>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var)
+        Self::compile_wmma_fragment(f, &variable_to_frag(var))?;
+        writeln!(f, " {var};")
     }
 
-    fn compile_wmma_fragment(
+    pub fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<CudaDialect<Self>>,
+        fragment: &Fragment<D>,
     ) -> std::fmt::Result {
         match fragment.ident {
             FragmentIdent::A => match fragment.elem {
-                Elem::F16 => write!(f, "half8_t"),
-                Elem::BF16 => write!(f, "bhalf8_t"),
+                Elem::F16 => write!(f, "mma_half8_t"),
+                Elem::BF16 => write!(f, "mma_bhalf8_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::B => match fragment.elem {
-                Elem::F16 => write!(f, "half4_t"),
-                Elem::BF16 => write!(f, "bhalf4_t"),
+                Elem::F16 => write!(f, "mma_half4_t"),
+                Elem::BF16 => write!(f, "mma_bhalf4_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::Accumulator => match fragment.elem {
-                Elem::F16 => write!(f, "half4_t"),
-                Elem::BF16 => write!(f, "bhalf4_t"),
-                Elem::F32 => write!(f, "float4_t"),
+                Elem::F16 => write!(f, "mma_half4_t"),
+                Elem::BF16 => write!(f, "mma_bhalf4_t"),
+                Elem::F32 => write!(f, "mma_float4_t"),
                 other => panic!("Unsupported type {other} for {fragment}"),
             },
             FragmentIdent::_Dialect(_) => Ok(()),
         }
     }
 
-    fn compile_wmma_instruction(
+    pub fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
-        instruction: &WmmaInstruction<CudaDialect<Self>>,
+        instruction: &WmmaInstruction<D>,
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
@@ -408,7 +409,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for MmaSyncCompiler {
         }
     }
 
-    fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
+    pub fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
         let mut result: SupportedWmmaCombinations = vec![];
         if arch.is_wmma_capable() {
             let types = vec![
