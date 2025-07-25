@@ -1,4 +1,4 @@
-use std::{collections::HashSet, marker::PhantomData};
+use std::{any::TypeId, collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
@@ -8,27 +8,28 @@ use crate::{
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind,
-        Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary,
+        Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary, variable_to_frag,
     },
 };
 
-use super::{Extension, arch::CudaArchitecture};
+use super::{
+    Extension,
+    arch::CudaArchitecture,
+    extension::MmaSyncExtension,
+    mma::{CudaWmmaCompiler, MmaCast, MmaExecute, MmaFill, MmaLoad, MmaStore},
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect<M> {
     _wmma_compiler: PhantomData<M>,
 }
 
-// Base dialect
-
 impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
     type Architecture = CudaArchitecture;
 }
 
-// Includes
-
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
-    type Extension = Extension;
+    type Extension = Extension<Self>;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <cuda_runtime.h>\n")?;
@@ -47,9 +48,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
         if flags.elem_f16 {
             f.write_str("#include <cuda_fp16.h>\n")?;
         }
+
         if flags.inst_wmma {
-            Self::compile_wmma_includes(f)?;
+            Self::compile_wmma_includes(f, flags)?;
         }
+
         if flags.op_pipeline {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
@@ -70,9 +73,15 @@ alignas(64) unsigned long long int opaque[16];
     }
 
     fn compile_extensions(
-        _f: &mut std::fmt::Formatter<'_>,
-        _extensions: &[Self::Extension],
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
     ) -> std::fmt::Result {
+        for extension in extensions {
+            match extension {
+                Extension::NoExtension => {}
+                Extension::MmaSync(inst) => inst.format_mma(f)?,
+            }
+        }
         Ok(())
     }
 
@@ -86,6 +95,48 @@ alignas(64) unsigned long long int opaque[16];
         _extensions: &mut Vec<Self::Extension>,
         _instruction: &WarpInstruction<Self>,
     ) {
+    }
+
+    fn register_wmma_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &shared::WmmaInstruction<Self>,
+    ) {
+        if TypeId::of::<M>() != TypeId::of::<CudaWmmaCompiler>() {
+            return;
+        }
+
+        let extension = match instruction {
+            shared::WmmaInstruction::Fill { frag, .. } => {
+                Extension::MmaSync(MmaSyncExtension::Fill(MmaFill::new(variable_to_frag(frag))))
+            }
+            shared::WmmaInstruction::Load { frag, layout, .. } => Extension::MmaSync(
+                MmaSyncExtension::Load(MmaLoad::new(variable_to_frag(frag), *layout)),
+            ),
+            shared::WmmaInstruction::Execute {
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                warp_size: _,
+            } => Extension::MmaSync(MmaSyncExtension::Execute(MmaExecute::new(
+                variable_to_frag(frag_a),
+                variable_to_frag(frag_b),
+                variable_to_frag(frag_c),
+                variable_to_frag(frag_d),
+            ))),
+            shared::WmmaInstruction::Store { frag, layout, .. } => Extension::MmaSync(
+                MmaSyncExtension::Store(MmaStore::new(variable_to_frag(frag), *layout)),
+            ),
+            shared::WmmaInstruction::Cast { input, output } => {
+                Extension::MmaSync(MmaSyncExtension::Cast(MmaCast::new(
+                    variable_to_frag(input),
+                    variable_to_frag(output),
+                )))
+            }
+        };
+        if !extensions.contains(&extension) {
+            extensions.push(extension);
+        }
     }
 }
 
@@ -133,11 +184,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
 
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
+
         if flags.use_grid_constants {
             shared::type_scalar_definitions::<Self>(f, scalars)?;
             shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
         }
-        Self::compile_wmma_type_definitions(f)?;
+
+        if flags.inst_wmma {
+            Self::compile_wmma_type_definitions(f, flags)?;
+        }
+
         Ok(())
     }
 
@@ -446,12 +502,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_includes(f)
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        M::compile_wmma_includes(f, flags)
     }
 
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_type_definitions(f)
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        M::compile_wmma_type_definitions(f, flags)
     }
 
     fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -596,34 +596,35 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
         let out = self.compile_variable(out.unwrap());
-        match cmma {
-            gpu::CoopMma::Fill { value } => Instruction::Wmma(WmmaInstruction::Fill {
+
+        let inst = match cmma {
+            gpu::CoopMma::Fill { value } => WmmaInstruction::Fill {
                 frag: out,
                 value: self.compile_variable(value),
-            }),
+            },
             gpu::CoopMma::Load {
                 value,
                 stride,
                 offset,
                 layout,
-            } => Instruction::Wmma(WmmaInstruction::Load {
+            } => WmmaInstruction::Load {
                 frag: out,
                 offset: self.compile_variable(offset),
                 value: self.compile_variable(value),
                 stride: self.compile_variable(stride),
                 layout: layout.and_then(|l| self.compile_matrix_layout(l)),
-            }),
+            },
             gpu::CoopMma::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
-            } => Instruction::Wmma(WmmaInstruction::Execute {
+            } => WmmaInstruction::Execute {
                 frag_a: self.compile_variable(mat_a),
                 frag_b: self.compile_variable(mat_b),
                 frag_c: self.compile_variable(mat_c),
                 frag_d: out,
                 warp_size: self.compilation_options.warp_size,
-            }),
+            },
             gpu::CoopMma::Store {
                 mat,
                 stride,
@@ -632,7 +633,7 @@ impl<D: Dialect> CppCompiler<D> {
             } => {
                 self.flags.indexes.unit_pos = true;
                 self.flags.indexes.plane_index = true;
-                Instruction::Wmma(WmmaInstruction::Store {
+                WmmaInstruction::Store {
                     output: out,
                     offset: self.compile_variable(offset),
                     frag: self.compile_variable(mat),
@@ -640,13 +641,17 @@ impl<D: Dialect> CppCompiler<D> {
                     layout: self
                         .compile_matrix_layout(layout)
                         .expect("Layout required for store instruction"),
-                })
+                }
             }
-            gpu::CoopMma::Cast { input } => Instruction::Wmma(WmmaInstruction::Cast {
+            gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
                 input: self.compile_variable(input),
                 output: out,
-            }),
-        }
+            },
+        };
+
+        D::register_wmma_instruction_extension(&mut self.extensions, &inst);
+
+        Instruction::Wmma(inst)
     }
 
     fn compile_metadata(

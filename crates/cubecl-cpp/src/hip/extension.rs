@@ -1,5 +1,7 @@
 use crate::{Dialect, shared::Elem};
 
+use super::mma::{WmmaCast, WmmaExecute, WmmaFill, WmmaLoad, WmmaStore};
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Extension<D: Dialect> {
@@ -8,6 +10,28 @@ pub enum Extension<D: Dialect> {
     Min(Elem<D>),
     #[default]
     NoExtension,
+    Wmma(WmmaExtension<D>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WmmaExtension<D: Dialect> {
+    Fill(WmmaFill<D>),
+    Load(WmmaLoad<D>),
+    Execute(WmmaExecute<D>),
+    Store(WmmaStore<D>),
+    Cast(WmmaCast<D>),
+}
+
+impl<D: Dialect> WmmaExtension<D> {
+    pub fn format_wmma(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            WmmaExtension::Fill(fill) => fill.format_extension(f),
+            WmmaExtension::Load(load) => load.format_extension(f),
+            WmmaExtension::Execute(execute) => execute.format_extension(f),
+            WmmaExtension::Store(store) => store.format_extension(f),
+            WmmaExtension::Cast(cast) => cast.format_extension(f),
+        }
+    }
 }
 
 pub fn format_f162bf16(f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

@@ -13,18 +13,6 @@ use super::WMMA_MINIMUM_VERSION;
 pub struct PtxWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
-    fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<CudaDialect<Self>>,
@@ -41,27 +29,6 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
             _ => panic!("unsupported type"),
         };
         writeln!(f, "{ty} {var}[{reg_count}];")
-    }
-
-    fn compile_wwma_fragment_ident(
-        _f: &mut std::fmt::Formatter<'_>,
-        _ident: &FragmentIdent<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_fragment_layout(
-        _f: &mut std::fmt::Formatter<'_>,
-        _layout: &FragmentLayout<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_fragment(
-        _f: &mut std::fmt::Formatter<'_>,
-        _fragment: &Fragment<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        Ok(())
     }
 
     fn compile_wmma_instruction(

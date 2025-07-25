@@ -51,6 +51,12 @@ pub trait DialectIncludes<D: Dialect> {
         extensions: &mut Vec<Self::Extension>,
         instruction: &WarpInstruction<D>,
     );
+    #[allow(unused_variables)]
+    fn register_wmma_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &WmmaInstruction<D>,
+    ) {
+    }
 }
 
 // Types
@@ -637,30 +643,51 @@ pub trait DialectInstructions<D: Dialect> {
     ) -> std::fmt::Result;
 }
 
-// Coop Matrices dialect
-
 pub trait DialectWmmaCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    #[allow(unused_variables)]
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        Ok(())
+    }
+    #[allow(unused_variables)]
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        Ok(())
+    }
+    #[allow(unused_variables)]
+    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+    #[allow(unused_variables)]
+    fn compile_wwma_fragment_ident(
+        f: &mut std::fmt::Formatter<'_>,
+        ident: &FragmentIdent<D>,
+    ) -> std::fmt::Result {
+        Ok(())
+    }
+    #[allow(unused_variables)]
+    fn compile_wmma_fragment_layout(
+        f: &mut std::fmt::Formatter<'_>,
+        layout: &FragmentLayout<D>,
+    ) -> std::fmt::Result {
+        Ok(())
+    }
+    #[allow(unused_variables)]
+    fn compile_wmma_fragment(
+        f: &mut std::fmt::Formatter<'_>,
+        fragment: &Fragment<D>,
+    ) -> std::fmt::Result {
+        Ok(())
+    }
+
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<D>,
     ) -> std::fmt::Result;
-    fn compile_wwma_fragment_ident(
-        f: &mut std::fmt::Formatter<'_>,
-        ident: &FragmentIdent<D>,
-    ) -> std::fmt::Result;
-    fn compile_wmma_fragment_layout(
-        f: &mut std::fmt::Formatter<'_>,
-        layout: &FragmentLayout<D>,
-    ) -> std::fmt::Result;
-    fn compile_wmma_fragment(
-        f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<D>,
-    ) -> std::fmt::Result;
+
     fn compile_wmma_instruction(
         f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<D>,
