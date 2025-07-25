@@ -494,10 +494,7 @@ pub fn test_simple_1<R: Runtime>(
     assert_eq!(test_simple_1_expected(), actual);
 }
 
-pub fn test_simple_f16_m16n8k16_smem<R: Runtime>(
-    client: ComputeClient<R::Server, R::Channel>,
-    cube_dimensions: CubeDim,
-) {
+pub fn test_simple_f16_m16n8k16_smem<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
@@ -518,10 +515,10 @@ pub fn test_simple_f16_m16n8k16_smem<R: Runtime>(
     let out = client.empty(core::mem::size_of::<f32>() * 128);
 
     unsafe {
-        kernel_simple_f16_m16n16k16_gmem::launch::<R>(
+        kernel_simple_f16_m16n8k16_smem::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            cube_dimensions,
+            CubeDim::new_1d(32),
             ArrayArg::from_raw_parts::<f16>(&lhs, 256, 1),
             ArrayArg::from_raw_parts::<f16>(&rhs, 128, 1),
             ArrayArg::from_raw_parts::<f32>(&out, 128, 1),
@@ -877,11 +874,7 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_simple_f16_m16n8k16_smem() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_simple_f16_m16n8k16_smem::<TestRuntime>(
-                client,
-                cube_dimensions,
-            );
+            cubecl_core::runtime_tests::cmma::test_simple_f16_m16n8k16_smem::<TestRuntime>(client);
         }
 
         #[test]
