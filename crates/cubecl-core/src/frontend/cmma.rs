@@ -46,17 +46,17 @@
 //! }
 //! ```
 
-use std::marker::PhantomData;
-
-use crate::{
-    ir::{self, Instruction},
-    unexpanded,
-};
-
 use super::{
     CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, ReadOnly, Slice, SliceExpand,
     SliceMut,
 };
+use crate as cubecl;
+use crate::{
+    ir::{self, Instruction},
+    unexpanded,
+};
+use cubecl_macros::{CubeType, cube, intrinsic};
+use std::marker::PhantomData;
 
 use cubecl_ir::{ExpandElement, Scope};
 pub use ir::{MatrixIdent, MatrixLayout};
@@ -103,6 +103,19 @@ impl<C: CubeType> CubeDebug for MatrixExpand<C> {
     }
 }
 
+#[derive(CubeType)]
+pub enum MatrixStride {
+    Runtime(u32),
+    Comptime(MatrixStrideComptime),
+}
+
+#[derive(CubeType)]
+pub struct MatrixStrideComptime {
+    #[cube(comptime)]
+    pub stride: u32,
+}
+
+#[cube]
 impl<C: CubePrimitive> Matrix<C> {
     /// Create a new uninitialized matrix that is going to be used in the
     /// [matrix-multiply and accumulate](execute()) function.
@@ -123,13 +136,28 @@ impl<C: CubePrimitive> Matrix<C> {
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
     pub unsafe fn uninitialized(
-        ident: MatrixIdent,
+        #[comptime] ident: MatrixIdent,
         m: u32,
         n: u32,
         k: u32,
         layout: MatrixLayout,
     ) -> Self {
-        Matrix { _c: PhantomData }
+        intrinsic!(|scope| {
+            let elem = C::as_elem(scope);
+            let elem = scope.create_matrix(ir::Matrix {
+                ident,
+                m: m.constant().unwrap().as_u32() as u8,
+                n: n.constant().unwrap().as_u32() as u8,
+                k: k.constant().unwrap().as_u32() as u8,
+                elem,
+                layout,
+            });
+            MatrixExpand {
+                elem,
+                ident,
+                _c: PhantomData,
+            }
+        })
     }
 
     /// Create a new matrix that is going to be used in the
@@ -147,14 +175,19 @@ impl<C: CubePrimitive> Matrix<C> {
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
     pub fn from_value(
-        ident: MatrixIdent,
+        #[comptime] ident: MatrixIdent,
         m: u32,
         n: u32,
         k: u32,
         layout: MatrixLayout,
         value: C,
     ) -> Self {
-        Matrix { _c: PhantomData }
+        let mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
+
+        intrinsic!(|scope| {
+            fill::expand(scope, mat.clone(), value);
+            mat
+        })
     }
 
     /// Create a new matrix that is going to be used in the
@@ -172,7 +205,7 @@ impl<C: CubePrimitive> Matrix<C> {
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
     pub fn from_slice(
-        ident: MatrixIdent,
+        #[comptime] ident: MatrixIdent,
         m: u32,
         n: u32,
         k: u32,
@@ -180,61 +213,12 @@ impl<C: CubePrimitive> Matrix<C> {
         value: &Slice<C>,
         stride: u32,
     ) -> Self {
-        Matrix { _c: PhantomData }
-    }
+        let mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
 
-    pub fn __expand_uninitialized(
-        scope: &mut Scope,
-        ident: MatrixIdent,
-        m: ExpandElementTyped<u32>,
-        n: ExpandElementTyped<u32>,
-        k: ExpandElementTyped<u32>,
-        layout: MatrixLayout,
-    ) -> MatrixExpand<C> {
-        let elem = C::as_elem(scope);
-        let elem = scope.create_matrix(ir::Matrix {
-            ident,
-            m: m.constant().unwrap().as_u32() as u8,
-            n: n.constant().unwrap().as_u32() as u8,
-            k: k.constant().unwrap().as_u32() as u8,
-            elem,
-            layout,
-        });
-        MatrixExpand {
-            elem,
-            ident,
-            _c: PhantomData,
-        }
-    }
-
-    pub fn __expand_from_value(
-        scope: &mut Scope,
-        ident: MatrixIdent,
-        m: ExpandElementTyped<u32>,
-        n: ExpandElementTyped<u32>,
-        k: ExpandElementTyped<u32>,
-        layout: MatrixLayout,
-        value: ExpandElementTyped<C>,
-    ) -> MatrixExpand<C> {
-        let mat = Self::__expand_uninitialized(scope, ident, m, n, k, layout);
-        fill::expand(scope, mat.clone(), value);
-        mat
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn __expand_from_slice(
-        scope: &mut Scope,
-        ident: MatrixIdent,
-        m: ExpandElementTyped<u32>,
-        n: ExpandElementTyped<u32>,
-        k: ExpandElementTyped<u32>,
-        layout: MatrixLayout,
-        value: SliceExpand<C, ReadOnly>,
-        stride: ExpandElementTyped<u32>,
-    ) -> MatrixExpand<C> {
-        let mat = Self::__expand_uninitialized(scope, ident, m, n, k, layout);
-        load::expand(scope, mat.clone(), value, stride);
-        mat
+        intrinsic!(|scope| {
+            load::expand(scope, mat.clone(), value, stride);
+            mat
+        })
     }
 }
 
