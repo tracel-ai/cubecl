@@ -2,7 +2,7 @@ use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
 };
-use crate::storage::{ComputeStorage, StorageHandle, StorageId};
+use crate::storage::{AllocError, ComputeStorage, StorageHandle, StorageId};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
@@ -33,7 +33,11 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
+    fn alloc<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<SliceHandle, AllocError> {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -324,7 +328,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    pub fn reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> SliceHandle {
+    pub fn reserve(
+        &mut self,
+        size: u64,
+        exclude: Option<&StorageExclude>,
+    ) -> Result<SliceHandle, AllocError> {
         if let MemoryAllocationMode::Static = self.mode {
             return self.static_pool.alloc(&mut self.storage, size);
         }
@@ -341,7 +349,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"));
 
         if let Some(slice) = pool.try_reserve(size, exclude) {
-            return slice;
+            return Ok(slice);
         }
 
         pool.alloc(&mut self.storage, size)
@@ -413,7 +421,7 @@ mod tests {
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::SubSlices,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10, None).expect("alloc failed");
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -652,7 +660,7 @@ mod tests {
         }
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
-            memory_management.reserve(size, None);
+            memory_management.reserve(size, None).expect("alloc failed");
         }
         let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
@@ -670,7 +678,7 @@ mod tests {
             }),
             MemoryConfiguration::ExclusivePages,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10, None).expect("Alloc error");
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);

@@ -18,8 +18,10 @@ macro_rules! testgen_random_interval {
             fn values_closed_open_interval() {
                 let client = TestRuntime::client(&Default::default());
 
-                let input = client.create(u32::as_bytes(&[0, u32::MAX]));
-                let output = client.empty(input.size() as usize);
+                let input = client
+                    .create(u32::as_bytes(&[0, u32::MAX]))
+                    .expect("alloc failed");
+                let output = client.empty(input.size() as usize).expect("alloc failed");
 
                 kernel_to_unit_interval_co::launch::<TestRuntime>(
                     &client,
@@ -56,8 +58,10 @@ macro_rules! testgen_random_interval {
             fn values_open_interval() {
                 let client = TestRuntime::client(&Default::default());
 
-                let input = client.create(u32::as_bytes(&[0, u32::MAX]));
-                let output = client.empty(input.size() as usize);
+                let input = client
+                    .create(u32::as_bytes(&[0, u32::MAX]))
+                    .expect("alloc failed");
+                let output = client.empty(input.size() as usize).expect("alloc failed");
 
                 kernel_to_unit_interval_oo::launch::<TestRuntime>(
                     &client,

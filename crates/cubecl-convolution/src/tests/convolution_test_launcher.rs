@@ -84,8 +84,10 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, InputIdent::Lhs);
-    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, InputIdent::Rhs);
+    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, InputIdent::Lhs)
+        .expect("Failed to create lhs");
+    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, InputIdent::Rhs)
+        .expect("Failed to create rhs");
 
     let lhs_handle = lhs_handle.as_ref();
     let rhs_handle = rhs_handle.as_ref();
@@ -97,6 +99,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &problem,
         &config.line_sizes(),
     );
+
     let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
         &out_handle,
         &selection,
@@ -176,8 +179,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = vec![zero; tensor_size(problem, Ident::Out)];
 
             let shape = shape(problem, Ident::Out);
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let (handle, strides) = client
+                .create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>())
+                .expect("Failed to create output");
 
             TensorRawParts {
                 handle,

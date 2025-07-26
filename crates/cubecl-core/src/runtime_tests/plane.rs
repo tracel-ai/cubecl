@@ -540,7 +540,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(
         return;
     }
 
-    let handle = client.empty(size_of::<u32>() * 4);
+    let handle = client.empty(size_of::<u32>() * 4).expect("Alloc failed");
     let (shape, strides) = ([1], [1]);
 
     unsafe {
@@ -643,7 +643,7 @@ fn test_plane_operation<
         return;
     }
 
-    let handle = client.create(F::as_bytes(input));
+    let handle = client.create(F::as_bytes(input)).expect("Alloc failed");
     let (shape, strides) = ([input.len()], [1]);
 
     unsafe {

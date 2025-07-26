@@ -6,6 +6,7 @@ use cubecl_core::{
     ir::Elem,
     prelude::{Numeric, TensorHandleRef},
 };
+use cubecl_runtime::storage::AllocError;
 
 use crate::{
     base::ConvolutionProblem, homogeneous::multi_stage_tma::MultiStageTmaConvolutionFamily,
@@ -41,7 +42,7 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
-    ) -> TensorHandle<R, E> {
+    ) -> Result<TensorHandle<R, E>, AllocError> {
         into_tensor_handle_tma(client, handle, ident)
     }
 

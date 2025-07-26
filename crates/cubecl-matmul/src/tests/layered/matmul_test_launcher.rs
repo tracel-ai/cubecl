@@ -180,7 +180,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 elem_size.extend(&[size_of::<f32>(), size_of::<i32>()]);
             }
 
-            let mut tensors = client.create_tensors(data, shape, elem_size);
+            let mut tensors = client
+                .create_tensors(data, shape, elem_size)
+                .expect("Failed to create tensors");
             let (handle, mut strides) = tensors.remove(0);
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
@@ -243,7 +245,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 elem_size.extend(&[size_of::<f32>(), size_of::<i32>()])
             }
 
-            let mut tensors = client.create_tensors(data, shape, elem_size);
+            let mut tensors = client
+                .create_tensors(data, shape, elem_size)
+                .expect("Failed to create tensors");
             let (handle, mut strides) = tensors.remove(0);
             let _offs = tensors.pop();
             let scale = tensors.pop().map(|it| it.0);
@@ -292,7 +296,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 elem_size.extend(&[size_of::<f32>(), size_of::<i32>()])
             }
 
-            let mut tensors = client.create_tensors(data, shape, elem_size);
+            let mut tensors = client
+                .create_tensors(data, shape, elem_size)
+                .expect("Failed to create tensors");
             let (handle, strides) = tensors.remove(0);
             let _offs = tensors.pop();
             let scale = tensors.pop().map(|it| it.0);

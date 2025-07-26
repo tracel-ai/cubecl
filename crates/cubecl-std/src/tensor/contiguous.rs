@@ -3,6 +3,7 @@ use crate::{FastDivmod, FastDivmodArgs};
 use super::TensorHandle;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
+use cubecl_runtime::storage::AllocError;
 
 pub const NUM_SM_APPROX: u32 = 50;
 
@@ -191,15 +192,15 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
 pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<'_, R>,
-) -> TensorHandle<R, E> {
+) -> Result<TensorHandle<R, E>, AllocError> {
     let num_elems: usize = input.shape.iter().product();
 
-    let handle = client.empty(num_elems * size_of::<E>());
+    let handle = client.empty(num_elems * size_of::<E>())?;
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     into_contiguous_ref::<R, E>(client, input, &output.as_ref());
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
@@ -207,16 +208,16 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
 pub fn into_contiguous_pitched<R: Runtime, E: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<'_, R>,
-) -> TensorHandle<R, E> {
+) -> Result<TensorHandle<R, E>, AllocError> {
     if input.shape.len() <= 1 {
         return into_contiguous(client, input);
     }
 
-    let output = TensorHandle::empty(client, input.shape.to_vec());
+    let output = TensorHandle::empty(client, input.shape.to_vec())?;
 
     into_contiguous_ref::<R, E>(client, input, &output.as_ref());
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous.

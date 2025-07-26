@@ -317,9 +317,11 @@ pub fn test_simple_1_lined<R: Runtime>(
     let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
     let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 256);
+    let lhs = client.create(f16::as_bytes(&lhs)).expect("Alloc failed");
+    let rhs = client.create(f16::as_bytes(&rhs)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f32>() * 256)
+        .expect("Alloc failed");
 
     unsafe {
         kernel_simple_1_lined::launch::<R>(
@@ -369,9 +371,11 @@ pub fn test_simple_1_lined_offset<R: Runtime>(
     let rhs_len = rhs.len() / line_size;
     let out_len = (256 / line_size) + offset_out;
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * line_size * out_len);
+    let lhs = client.create(f16::as_bytes(&lhs)).expect("Alloc failed");
+    let rhs = client.create(f16::as_bytes(&rhs)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f32>() * line_size * out_len)
+        .expect("Alloc failed");
 
     unsafe {
         kernel_simple_1_lined_offset::launch::<R>(
@@ -415,9 +419,11 @@ pub fn test_simple_1<R: Runtime>(
     let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
     let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 256);
+    let lhs = client.create(f16::as_bytes(&lhs)).expect("Alloc failed");
+    let rhs = client.create(f16::as_bytes(&rhs)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f32>() * 256)
+        .expect("Alloc failed");
 
     unsafe {
         kernel_simple_1::launch::<R>(
@@ -521,8 +527,10 @@ pub fn test_cmma_cast_f16<R: Runtime>(
     }
 
     let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
-    let input = client.create(f32::as_bytes(&input));
-    let out = client.empty(core::mem::size_of::<f16>() * 256);
+    let input = client.create(f32::as_bytes(&input)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f16>() * 256)
+        .expect("Alloc failed");
 
     unsafe {
         cast_matrix_f16::launch::<R>(
@@ -558,8 +566,10 @@ pub fn test_cmma_cast_bf16<R: Runtime>(
     }
 
     let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
-    let input = client.create(f32::as_bytes(&input));
-    let out = client.empty(core::mem::size_of::<f16>() * 256);
+    let input = client.create(f32::as_bytes(&input)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f16>() * 256)
+        .expect("Alloc failed");
 
     unsafe {
         cast_matrix_bf16::launch::<R>(
@@ -597,9 +607,11 @@ pub fn test_simple_tf32<R: Runtime>(
     let lhs: Vec<f32> = (0..128).map(|i| (i as f32)).collect();
     let rhs: Vec<f32> = (0..128).map(|i| ((i % 8) as f32)).collect();
 
-    let lhs = client.create(f32::as_bytes(&lhs));
-    let rhs = client.create(f32::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 256);
+    let lhs = client.create(f32::as_bytes(&lhs)).expect("Alloc failed");
+    let rhs = client.create(f32::as_bytes(&rhs)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f32>() * 256)
+        .expect("Alloc failed");
 
     unsafe {
         kernel_simple_tf32::launch::<R>(
@@ -715,9 +727,11 @@ pub fn test_cmma_strided<R: Runtime>(
         .collect();
     let rhs: Vec<f16> = (0..n * k).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+    let lhs = client.create(f16::as_bytes(&lhs)).expect("Alloc failed");
+    let rhs = client.create(f16::as_bytes(&rhs)).expect("Alloc failed");
+    let out = client
+        .empty(core::mem::size_of::<f32>() * m * n)
+        .expect("Alloc failed");
 
     unsafe {
         kernel_strided::launch::<R>(

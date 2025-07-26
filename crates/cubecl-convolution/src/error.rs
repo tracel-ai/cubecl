@@ -2,11 +2,13 @@ use std::fmt::Debug;
 
 use cubecl_core::tune::AutotuneError;
 use cubecl_matmul::components::{MatmulAvailabilityError, MatmulSetupError};
+use cubecl_runtime::storage::AllocError;
 
 #[allow(clippy::large_enum_variant)]
 pub enum ConvLaunchError {
     Matmul(MatmulSetupError),
     Groups(usize),
+    Memory(AllocError),
     Unknown,
 }
 
@@ -22,6 +24,9 @@ impl Debug for ConvLaunchError {
                     "Unable to launch matmul because groups must be one, is actually {groups}",
                 )
             }
+            ConvLaunchError::Memory(err) => {
+                write!(f, "Failed to allocate memory: {err:?}")
+            }
             ConvLaunchError::Unknown => write!(f, "Unknown"),
         }
     }
@@ -36,6 +41,12 @@ impl From<MatmulSetupError> for ConvLaunchError {
 impl From<MatmulAvailabilityError> for ConvLaunchError {
     fn from(value: MatmulAvailabilityError) -> Self {
         Self::Matmul(MatmulSetupError::Unavailable(value))
+    }
+}
+
+impl From<AllocError> for ConvLaunchError {
+    fn from(value: AllocError) -> Self {
+        Self::Memory(value)
     }
 }
 

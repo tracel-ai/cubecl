@@ -1,3 +1,4 @@
+use cubecl_runtime::storage::AllocError;
 use std::sync::Arc;
 
 use cubecl_common::profile::ProfileDuration;
@@ -97,12 +98,12 @@ impl ComputeServer for CpuServer {
         self.ctx.memory_management.cleanup(true)
     }
 
-    fn create(&mut self, data: &[u8]) -> Handle {
-        let handle = self.empty(data.len());
+    fn create(&mut self, data: &[u8]) -> Result<Handle, AllocError> {
+        let handle = self.empty(data.len())?;
         let binding = handle.clone().binding();
         self.copy_to_binding(binding, data);
 
-        handle
+        Ok(handle)
     }
 
     fn create_tensors(
@@ -110,27 +111,27 @@ impl ComputeServer for CpuServer {
         data: Vec<&[u8]>,
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes)?;
         for i in 0..data.len() {
             let data = data[i];
             let (handle, _) = &handles_strides[i];
             let binding = handle.clone().binding();
             self.copy_to_binding(binding, data);
         }
-        handles_strides
+        Ok(handles_strides)
     }
 
-    fn empty(&mut self, size: usize) -> Handle {
-        let handle = self.ctx.memory_management.reserve(size as u64, None);
-        Handle::new(handle, None, None, size as u64)
+    fn empty(&mut self, size: usize) -> Result<Handle, AllocError> {
+        let handle = self.ctx.memory_management.reserve(size as u64, None)?;
+        Ok(Handle::new(handle, None, None, size as u64))
     }
 
     fn empty_tensors(
         &mut self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         let align = 8;
         let strides = shape
             .iter()
@@ -144,10 +145,10 @@ impl ComputeServer for CpuServer {
             .collect::<Vec<_>>();
         let total_size = sizes.iter().sum::<usize>();
 
-        let mem_handle = self.empty(total_size);
+        let mem_handle = self.empty(total_size)?;
         let handles = offset_handles(mem_handle, &sizes);
 
-        handles.into_iter().zip(strides).collect()
+        Ok(handles.into_iter().zip(strides).collect())
     }
 
     unsafe fn execute(

@@ -7,7 +7,7 @@ use crate::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
         ProfilingToken,
     },
-    storage::{BindingResource, ComputeStorage},
+    storage::{AllocError, BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -31,7 +31,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource>;
 
     /// Given a resource as bytes, stores it and returns the resource handle
-    fn create(&self, data: &[u8]) -> Handle;
+    fn create(&self, data: &[u8]) -> Result<Handle, AllocError>;
 
     /// Given a resource as bytes and a shape, stores it and returns the tensor handle
     fn create_tensors(
@@ -39,17 +39,17 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         data: Vec<&[u8]>,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)>;
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError>;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them
-    fn empty(&self, size: usize) -> Handle;
+    fn empty(&self, size: usize) -> Result<Handle, AllocError>;
 
     /// Reserves a tensor with `shape` in the storage, and returns a handle to it
     fn empty_tensors(
         &self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)>;
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError>;
 
     /// Executes the `kernel` over the given `bindings`.
     ///

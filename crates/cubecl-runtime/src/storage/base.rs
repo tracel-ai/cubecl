@@ -61,6 +61,23 @@ impl StorageHandle {
     }
 }
 
+#[derive(Clone, Debug)]
+/// Error type for memory allocation failures.
+pub enum AllocError {
+    /// Something went wrong and we failed to allocate memory.
+    Failed,
+}
+
+impl core::fmt::Display for AllocError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            AllocError::Failed => write!(f, "out of memory"),
+        }
+    }
+}
+
+impl core::error::Error for AllocError {}
+
 /// Storage types are responsible for allocating and deallocating memory.
 pub trait ComputeStorage: Send {
     /// The resource associated type determines the way data is implemented and how
@@ -74,7 +91,7 @@ pub trait ComputeStorage: Send {
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
 
     /// Allocates `size` units of memory and returns a handle to it
-    fn alloc(&mut self, size: u64) -> StorageHandle;
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, AllocError>;
 
     /// Deallocates the memory pointed by the given storage id.
     ///

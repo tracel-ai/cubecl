@@ -34,7 +34,9 @@ pub fn kernel_add_assign_line<F: Float>(output: &mut Array<Line<F>>) {
 pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
+    let handle = client
+        .create(F::as_bytes(&[F::new(0.0), F::new(1.0)]))
+        .expect("Alloc failed");
 
     let vectorization = 2;
 
@@ -54,7 +56,9 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(
 pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
+    let handle = client
+        .create(F::as_bytes(&[F::new(0.0), F::new(1.0)]))
+        .expect("Alloc failed");
 
     let vectorization = 2;
 
@@ -74,7 +78,9 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(
 pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
+    let handle = client
+        .create(F::as_bytes(&[F::new(0.0), F::new(1.0)]))
+        .expect("Alloc failed");
 
     let vectorization = 2;
 

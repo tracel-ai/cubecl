@@ -4,6 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+use cubecl_runtime::storage::AllocError;
 use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 
 use crate::components::{MatmulAvailabilityError, MatmulSetupError};
@@ -109,7 +110,7 @@ pub fn launch<R: Runtime, E: Numeric>(
     let rhs_layout = matrix_batch_layout(&rhs.strides);
 
     let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
-        into_contiguous::<R, E>(client, &lhs.as_ref())
+        into_contiguous::<R, E>(client, &lhs.as_ref())?
     } else {
         lhs
     };
@@ -122,16 +123,16 @@ pub fn launch<R: Runtime, E: Numeric>(
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
 
-        let mut rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
+        let mut rhs = into_contiguous::<R, E>(client, &rhs.as_ref())?;
 
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
 
-        (rhs_original_shape, rhs)
+        Result::<_, AllocError>::Ok((rhs_original_shape, rhs))
     };
 
     let (rhs_original_shape, rhs) = match rhs_layout {
-        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs),
+        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs)?,
         MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
@@ -140,10 +141,10 @@ pub fn launch<R: Runtime, E: Numeric>(
                 let rhs_original_shape = rhs.shape.to_vec();
                 (rhs_original_shape, rhs)
             } else {
-                correct_rhs_layout(rhs)
+                correct_rhs_layout(rhs)?
             }
         }
-        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs),
+        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs)?,
     };
 
     let cube_count = simple_cube_count(

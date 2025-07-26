@@ -11,7 +11,7 @@ use std::sync::Arc;
 use super::DummyKernel;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
-use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
+use cubecl_runtime::storage::{AllocError, BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{Binding, ComputeServer, Handle},
@@ -85,15 +85,15 @@ impl ComputeServer for DummyServer {
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
 
-    fn create(&mut self, data: &[u8]) -> Handle {
-        let handle = self.empty(data.len());
+    fn create(&mut self, data: &[u8]) -> Result<Handle, AllocError> {
+        let handle = self.empty(data.len())?;
         let resource = self.get_resource(handle.clone().binding());
         let bytes = resource.resource().write();
         for (i, val) in data.iter().enumerate() {
             bytes[i] = *val;
         }
 
-        handle
+        Ok(handle)
     }
 
     fn create_tensors(
@@ -101,51 +101,51 @@ impl ComputeServer for DummyServer {
         data: Vec<&[u8]>,
         shape: Vec<&[usize]>,
         _elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        data.into_iter()
-            .zip(shape)
-            .map(|(data, shape)| {
-                let rank = shape.len();
-                let mut strides = vec![1; rank];
-                for i in (0..rank - 1).rev() {
-                    strides[i] = strides[i + 1] * shape[i + 1];
-                }
-                let handle = self.create(data);
-
-                (handle, strides)
-            })
-            .collect()
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
+        let mut results = Vec::new();
+        for (data, shape) in data.into_iter().zip(shape) {
+            let rank = shape.len();
+            let mut strides = vec![1; rank];
+            for i in (0..rank - 1).rev() {
+                strides[i] = strides[i + 1] * shape[i + 1];
+            }
+            let handle = self.create(data)?;
+            results.push((handle, strides));
+        }
+        Ok(results)
     }
 
-    fn empty(&mut self, size: usize) -> Handle {
-        Handle::new(
-            self.memory_management.reserve(size as u64, None),
+    fn empty(&mut self, size: usize) -> Result<Handle, AllocError> {
+        Ok(Handle::new(
+            self.memory_management.reserve(size as u64, None)?,
             None,
             None,
             size as u64,
-        )
+        ))
     }
 
     fn empty_tensors(
         &mut self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        shape
-            .into_iter()
-            .zip(elem_size)
-            .map(|(shape, elem_size)| {
-                let rank = shape.len();
-                let mut strides = vec![1; rank];
-                for i in (0..rank - 1).rev() {
-                    strides[i] = strides[i + 1] * shape[i + 1];
-                }
-                let size = (shape.iter().product::<usize>() * elem_size) as u64;
-                let handle =
-                    Handle::new(self.memory_management.reserve(size, None), None, None, size);
-                (handle, strides)
-            })
-            .collect()
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
+        let mut results = Vec::new();
+        for (shape, elem_size) in shape.into_iter().zip(elem_size) {
+            let rank = shape.len();
+            let mut strides = vec![1; rank];
+            for i in (0..rank - 1).rev() {
+                strides[i] = strides[i + 1] * shape[i + 1];
+            }
+            let size = (shape.iter().product::<usize>() * elem_size) as u64;
+            let handle = Handle::new(
+                self.memory_management.reserve(size, None)?,
+                None,
+                None,
+                size,
+            );
+            results.push((handle, strides));
+        }
+        Ok(results)
     }
 
     unsafe fn execute(
@@ -161,13 +161,18 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|b| self.get_resource(b))
             .collect();
-        let metadata = self.create(bytemuck::cast_slice(&bindings.metadata.data));
+        let metadata = self
+            .create(bytemuck::cast_slice(&bindings.metadata.data))
+            .expect("Must be able to allocate metadata");
         resources.push(self.get_resource(metadata.binding()));
 
         let scalars = bindings
             .scalars
             .into_values()
-            .map(|s| self.create(s.data()))
+            .map(|s| {
+                self.create(s.data())
+                    .expect("Must be able to allocate metadata")
+            })
             .collect::<Vec<_>>();
         resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
 

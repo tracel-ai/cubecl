@@ -364,7 +364,7 @@ macro_rules! sample_float {
             {
                 fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
                     cubecl_random::seed(seed);
-                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
+                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec()).expect("alloc failed");
 
                     cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
 
@@ -388,7 +388,8 @@ impl Sample for flex32 {
         seed: u64,
     ) -> TensorHandle<R, Self> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
+        let output =
+            TensorHandle::<R, flex32>::empty(client, shape.to_vec()).expect("alloc failed");
 
         cubecl_random::random_uniform::<R, f32>(
             client,
@@ -408,7 +409,7 @@ impl Sample for tf32 {
         seed: u64,
     ) -> TensorHandle<R, Self> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec()).expect("alloc failed");
 
         cubecl_random::random_uniform::<R, f32>(
             client,

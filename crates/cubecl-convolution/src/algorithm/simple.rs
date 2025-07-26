@@ -7,6 +7,7 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 use cubecl_matmul::components::MatmulSelection;
+use cubecl_runtime::storage::AllocError;
 
 use crate::{
     base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily,
@@ -40,21 +41,21 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
         ident: cubecl_matmul::components::InputIdent,
-    ) -> TensorHandle<R, E> {
+    ) -> Result<TensorHandle<R, E>, AllocError> {
         let rank = handle.shape.len();
         let dim_c = rank - 1;
         let mut handle = if has_valid_layout(handle, ident) {
             TensorHandle::from_ref(handle)
         } else {
-            into_contiguous(client, handle)
+            into_contiguous(client, handle)?
         };
         match ident {
-            InputIdent::Lhs => handle,
+            InputIdent::Lhs => Ok(handle),
             InputIdent::Rhs => {
                 // Reshape to (K, N) so the loader knows how to handle it
                 handle.shape = vec![handle.shape[1..].iter().product(), handle.shape[0]];
                 handle.strides = vec![handle.strides[dim_c], handle.strides[0]];
-                handle
+                Ok(handle)
             }
         }
     }

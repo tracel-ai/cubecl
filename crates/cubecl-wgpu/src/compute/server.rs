@@ -13,6 +13,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::offset_handles;
+use cubecl_runtime::storage::AllocError;
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
@@ -134,11 +135,11 @@ impl ComputeServer for WgpuServer {
     ///
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
-    fn create(&mut self, data: &[u8]) -> server::Handle {
+    fn create(&mut self, data: &[u8]) -> Result<server::Handle, AllocError> {
         self.stream.create(data)
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle {
+    fn empty(&mut self, size: usize) -> Result<server::Handle, AllocError> {
         self.stream.empty(size as u64)
     }
 
@@ -201,8 +202,8 @@ impl ComputeServer for WgpuServer {
         data: Vec<&[u8]>,
         shapes: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_size);
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_size)?;
 
         for i in 0..data.len() {
             let data = data[i];
@@ -210,14 +211,14 @@ impl ComputeServer for WgpuServer {
             self.stream.copy_to_handle(handle.clone(), data);
         }
 
-        handles_strides
+        Ok(handles_strides)
     }
 
     fn empty_tensors(
         &mut self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         let strides = shape
             .iter()
@@ -231,10 +232,9 @@ impl ComputeServer for WgpuServer {
             .collect::<Vec<_>>();
         let total_size = sizes.iter().sum::<usize>();
 
-        let mem_handle = self.empty(total_size);
+        let mem_handle = self.empty(total_size)?;
         let handles = offset_handles(mem_handle, &sizes);
-
-        handles.into_iter().zip(strides).collect()
+        Ok(handles.into_iter().zip(strides).collect())
     }
 
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {

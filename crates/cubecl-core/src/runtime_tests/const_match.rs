@@ -29,7 +29,7 @@ pub fn test_kernel_const_match<
 >(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+    let handle = client.create(as_bytes![F: 0.0, 1.0]).expect("Alloc failed");
 
     let index = 1;
     let value = 5.0;

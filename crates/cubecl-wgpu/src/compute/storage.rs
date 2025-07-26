@@ -1,4 +1,6 @@
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_runtime::storage::{
+    AllocError, ComputeStorage, StorageHandle, StorageId, StorageUtilization,
+};
 use hashbrown::HashMap;
 use std::num::NonZeroU64;
 use wgpu::BufferUsages;
@@ -79,9 +81,10 @@ impl ComputeStorage for WgpuStorage {
         WgpuResource::new(buffer.clone(), handle.offset(), handle.size())
     }
 
-    fn alloc(&mut self, size: u64) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, AllocError> {
         let id = StorageId::new();
 
+        // TODO: Test whether memor fits.
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
@@ -90,7 +93,10 @@ impl ComputeStorage for WgpuStorage {
         });
 
         self.memory.insert(id, buffer);
-        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization { offset: 0, size },
+        ))
     }
 
     fn dealloc(&mut self, id: StorageId) {

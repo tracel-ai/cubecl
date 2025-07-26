@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::{Runtime, server};
 use cubecl_runtime::server::Handle;
+use cubecl_runtime::storage::AllocError;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
 pub struct TensorHandle<R, E>
@@ -66,11 +67,13 @@ where
         }
     }
 
-    pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+    pub fn empty(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: Vec<usize>,
+    ) -> Result<Self, AllocError> {
         let elem_size = E::size().expect("To be a native type");
-        let (handle, strides) = client.empty_tensor(&shape, elem_size);
-
-        Self::new(handle, shape, strides)
+        let (handle, strides) = client.empty_tensor(&shape, elem_size)?;
+        Ok(Self::new(handle, shape, strides))
     }
 
     /// Create a new tensor.
@@ -144,10 +147,13 @@ where
     R: Runtime,
     E: Numeric,
 {
-    pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+    pub fn zeros(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: Vec<usize>,
+    ) -> Result<Self, AllocError> {
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
-        let output = Self::empty(client, shape);
+        let output = Self::empty(client, shape)?;
 
         let vectorization_factor = tensor_line_size_parallel(
             R::supported_line_sizes().iter().cloned(),
@@ -174,7 +180,7 @@ where
             )
         };
 
-        output
+        Ok(output)
     }
 }
 

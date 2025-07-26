@@ -1,3 +1,5 @@
+use crate::storage::AllocError;
+
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
@@ -72,7 +74,7 @@ impl ComputeStorage for BytesStorage {
         }
     }
 
-    fn alloc(&mut self, size: u64) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, AllocError> {
         let id = StorageId::new();
         let handle = StorageHandle {
             id,
@@ -87,7 +89,7 @@ impl ComputeStorage for BytesStorage {
             self.memory.insert(id, memory);
         }
 
-        handle
+        Ok(handle)
     }
 
     fn dealloc(&mut self, id: StorageId) {
@@ -106,7 +108,7 @@ mod tests {
     #[test]
     fn test_can_alloc_and_dealloc() {
         let mut storage = BytesStorage::default();
-        let handle_1 = storage.alloc(64);
+        let handle_1 = storage.alloc(64).expect("Alloc error");
 
         assert_eq!(handle_1.size(), 64);
         storage.dealloc(handle_1.id);
@@ -115,7 +117,7 @@ mod tests {
     #[test]
     fn test_slices() {
         let mut storage = BytesStorage::default();
-        let handle_1 = storage.alloc(64);
+        let handle_1 = storage.alloc(64).expect("Alloc error");
         let handle_2 = StorageHandle::new(
             handle_1.id,
             StorageUtilization {

@@ -80,9 +80,15 @@ pub fn kernel_buffer_len(out: &mut Tensor<u32>) {
 }
 
 pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(12 * core::mem::size_of::<u32>());
-    let handle2 = client.empty(12 * core::mem::size_of::<u32>());
-    let handle3 = client.empty(12 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(12 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(12 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle3 = client
+        .empty(12 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_shape_dim_4::launch_unchecked::<R>(
@@ -103,9 +109,15 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
 }
 
 pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(12 * core::mem::size_of::<u32>());
-    let handle2 = client.empty(12 * core::mem::size_of::<u32>());
-    let handle3 = client.empty(12 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(12 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(12 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle3 = client
+        .empty(12 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_shape_different_ranks::launch_unchecked::<R>(
@@ -126,9 +138,15 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R
 }
 
 pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(9 * core::mem::size_of::<u32>());
-    let handle2 = client.empty(9 * core::mem::size_of::<u32>());
-    let handle3 = client.empty(9 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(9 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(9 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle3 = client
+        .empty(9 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_stride_different_ranks::launch_unchecked::<R>(
@@ -149,9 +167,15 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R::Server, 
 }
 
 pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(3 * core::mem::size_of::<u32>());
-    let handle2 = client.empty(3 * core::mem::size_of::<u32>());
-    let handle3 = client.empty(3 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(3 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(3 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
+    let handle3 = client
+        .empty(3 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_len_different_ranks::launch_unchecked::<R>(
@@ -172,7 +196,9 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R::
 }
 
 pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(64 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(64 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_buffer_len::launch_unchecked::<R>(
@@ -190,7 +216,9 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R::Server
 }
 
 pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(32 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(32 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_buffer_len::launch_unchecked::<R>(
@@ -208,7 +236,9 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R
 }
 
 pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(256 * core::mem::size_of::<u32>());
+    let handle1 = client
+        .empty(256 * core::mem::size_of::<u32>())
+        .expect("Alloc failed");
     // We use an offset of 256 bytes here because this is the default in WebGPU and
     // as of wgpu 22+, 256 is the value of 'min_storage_buffer_offset_alignment' for metal GPUs.
     let handle1 = handle1

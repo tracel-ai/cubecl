@@ -16,7 +16,7 @@ use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCC
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
-use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::storage::{AllocError, BindingResource};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -159,12 +159,11 @@ impl ComputeServer for HipServer {
         ctx.memory_management.cleanup(true);
     }
 
-    fn create(&mut self, data: &[u8]) -> server::Handle {
-        let handle = self.empty(data.len());
-
+    fn create(&mut self, data: &[u8]) -> Result<server::Handle, AllocError> {
+        let handle = self.empty(data.len())?;
         let binding = handle.clone().binding();
         self.copy_to_binding(binding, data);
-        handle
+        Ok(handle)
     }
 
     fn create_tensors(
@@ -172,28 +171,28 @@ impl ComputeServer for HipServer {
         data: Vec<&[u8]>,
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
-    ) -> Vec<(server::Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
+    ) -> Result<Vec<(server::Handle, Vec<usize>)>, AllocError> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes)?;
         for i in 0..data.len() {
             let data = data[i];
             let (handle, _) = &handles_strides[i];
             let binding = handle.clone().binding();
             self.copy_to_binding(binding, data);
         }
-        handles_strides
+        Ok(handles_strides)
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle {
+    fn empty(&mut self, size: usize) -> Result<server::Handle, AllocError> {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
-        server::Handle::new(handle, None, None, size as u64)
+        let handle = ctx.memory_management.reserve(size as u64, None)?;
+        Ok(server::Handle::new(handle, None, None, size as u64))
     }
 
     fn empty_tensors(
         &mut self,
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
-    ) -> Vec<(server::Handle, Vec<usize>)> {
+    ) -> Result<Vec<(server::Handle, Vec<usize>)>, AllocError> {
         let mut total_size = 0;
         let mut strides = Vec::new();
         let mut sizes = Vec::new();
@@ -206,10 +205,10 @@ impl ComputeServer for HipServer {
             total_size += size;
         }
 
-        let mem_handle = self.empty(total_size);
+        let mem_handle = self.empty(total_size)?;
         let handles = offset_handles(mem_handle, &sizes);
 
-        handles.into_iter().zip(strides).collect()
+        Ok(handles.into_iter().zip(strides).collect())
     }
 
     unsafe fn execute(
@@ -247,8 +246,16 @@ impl ComputeServer for HipServer {
         } = bindings;
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
-        let info = self.create(bytemuck::cast_slice(&metadata.data));
-        let scalars: Vec<_> = scalars.values().map(|s| self.create(s.data())).collect();
+        let info = self
+            .create(bytemuck::cast_slice(&metadata.data))
+            .expect("Must be able to allocate metadata");
+        let scalars: Vec<_> = scalars
+            .values()
+            .map(|s| {
+                self.create(s.data())
+                    .expect("Must be able to allocate metadata")
+            })
+            .collect();
 
         let ctx = self.get_context();
 

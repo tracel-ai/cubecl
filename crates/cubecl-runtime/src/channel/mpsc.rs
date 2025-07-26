@@ -14,7 +14,7 @@ use crate::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
         ProfilingToken,
     },
-    storage::{BindingResource, ComputeStorage},
+    storage::{AllocError, BindingResource, ComputeStorage},
 };
 
 /// Create a channel using a [multi-producer, single-consumer channel to communicate with
@@ -36,6 +36,7 @@ where
 }
 
 type Callback<Response> = async_channel::Sender<Response>;
+type VecHandles = Vec<(Handle, Vec<usize>)>;
 
 enum Message<Server>
 where
@@ -47,18 +48,18 @@ where
         Binding,
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
     ),
-    Create(Vec<u8>, Callback<Handle>),
+    Create(Vec<u8>, Callback<Result<Handle, AllocError>>),
     CreateTensor(
         Vec<Vec<u8>>,
         Vec<Vec<usize>>,
         Vec<usize>,
-        Callback<Vec<(Handle, Vec<usize>)>>,
+        Callback<Result<VecHandles, AllocError>>,
     ),
-    Empty(usize, Callback<Handle>),
+    Empty(usize, Callback<Result<Handle, AllocError>>),
     EmptyTensor(
         Vec<Vec<usize>>,
         Vec<usize>,
-        Callback<Vec<(Handle, Vec<usize>)>>,
+        Callback<Result<VecHandles, AllocError>>,
     ),
     ExecuteKernel(
         (Server::Kernel, CubeCount, ExecutionMode),
@@ -206,7 +207,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn create(&self, data: &[u8]) -> Handle {
+    fn create(&self, data: &[u8]) -> Result<Handle, AllocError> {
         let (callback, response) = async_channel::unbounded();
 
         self.state
@@ -222,7 +223,7 @@ where
         data: Vec<&[u8]>,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         let (callback, response) = async_channel::unbounded();
 
         self.state
@@ -238,7 +239,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn empty(&self, size: usize) -> Handle {
+    fn empty(&self, size: usize) -> Result<Handle, AllocError> {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
@@ -252,7 +253,7 @@ where
         &self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
