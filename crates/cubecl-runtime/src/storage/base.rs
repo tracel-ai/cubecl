@@ -68,7 +68,7 @@ pub enum AllocError {
     Failed,
 }
 
-impl std::fmt::Display for AllocError {
+impl core::fmt::Display for AllocError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AllocError::Failed => write!(f, "out of memory"),
@@ -76,7 +76,7 @@ impl std::fmt::Display for AllocError {
     }
 }
 
-impl std::error::Error for AllocError {}
+impl core::error::Error for AllocError {}
 
 /// Storage types are responsible for allocating and deallocating memory.
 pub trait ComputeStorage: Send {
