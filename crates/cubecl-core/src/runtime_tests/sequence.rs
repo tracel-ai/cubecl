@@ -33,7 +33,7 @@ pub fn sequence_index<F: Float>(output: &mut Array<F>) {
 pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0]);
+    let handle = client.create(as_bytes![F: 0.0]).expect("Alloc failed");
 
     sequence_for_loop::launch::<F, R>(
         &client,
@@ -51,7 +51,7 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(
 pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0]);
+    let handle = client.create(as_bytes![F: 0.0]).expect("Alloc failed");
 
     sequence_index::launch::<F, R>(
         &client,

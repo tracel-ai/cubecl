@@ -76,7 +76,7 @@ impl MatmulTestCase {
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
-        TensorHandle::empty(client, vec![self.batch, self.m, self.n])
+        TensorHandle::empty(client, vec![self.batch, self.m, self.n]).expect("alloc failed")
     }
 
     pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(

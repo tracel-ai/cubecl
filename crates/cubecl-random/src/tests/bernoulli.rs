@@ -11,7 +11,8 @@ macro_rules! testgen_random_bernoulli {
                 seed(0);
 
                 let client = R::client(&Default::default());
-                let output = TensorHandle::<R, E>::empty(&client, shape.to_vec());
+                let output =
+                    TensorHandle::<R, E>::empty(&client, shape.to_vec()).expect("alloc failed");
 
                 random_bernoulli::<R, E>(&client, prob, output.as_ref());
 

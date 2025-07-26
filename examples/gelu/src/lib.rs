@@ -22,8 +22,12 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
     let vectorization = 4;
-    let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input_handle = client.create(f32::as_bytes(input));
+    let output_handle = client
+        .empty(input.len() * core::mem::size_of::<f32>())
+        .expect("Failed to allocate memory");
+    let input_handle = client
+        .create(f32::as_bytes(input))
+        .expect("Failed to allocate memory");
 
     unsafe {
         gelu_array::launch_unchecked::<f32, R>(

@@ -5,7 +5,7 @@ use crate::{
         MemoryAllocationMode, MemoryHandle, MemoryUsage,
         memory_pool::{SliceBinding, SliceHandle},
     },
-    storage::{BindingResource, ComputeStorage},
+    storage::{AllocError, BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
@@ -58,7 +58,7 @@ where
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
 
     /// Given a resource as bytes, stores it and returns the memory handle.
-    fn create(&mut self, data: &[u8]) -> Handle;
+    fn create(&mut self, data: &[u8]) -> Result<Handle, AllocError>;
 
     /// Given a resource as bytes with `shape`, stores it and returns the tensor handle.
     /// May or may not be contiguous, depending on what's best for the given runtime. Always use
@@ -70,17 +70,17 @@ where
         data: Vec<&[u8]>,
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)>;
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError>;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn empty(&mut self, size: usize) -> Handle;
+    fn empty(&mut self, size: usize) -> Result<Handle, AllocError>;
 
     /// Reserves `shape` bytes in the storage, and returns a handle to it.
     fn empty_tensors(
         &mut self,
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)>;
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

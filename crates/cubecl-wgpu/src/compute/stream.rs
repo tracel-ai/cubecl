@@ -6,7 +6,8 @@ use cubecl_core::{
     server::{Binding, Bindings, Handle, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
-    memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
+    memory_management::MemoryDeviceProperties, storage::AllocError,
+    timestamp_profiler::TimestampProfiler,
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
@@ -96,12 +97,17 @@ impl WgpuStream {
             CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
-        let info = (!bindings.metadata.data.is_empty())
-            .then(|| self.create(bytemuck::cast_slice(&bindings.metadata.data)));
+        let info = (!bindings.metadata.data.is_empty()).then(|| {
+            self.create(bytemuck::cast_slice(&bindings.metadata.data))
+                .expect("Must be able to allocate metadata")
+        });
         let scalars = bindings
             .scalars
             .values()
-            .map(|s| self.create(s.data()))
+            .map(|s| {
+                self.create(s.data())
+                    .expect("Must be able to allocate metadata")
+            })
             .collect::<Vec<_>>();
 
         // Store all the resources we'll be using. This could be eliminated if
@@ -347,11 +353,11 @@ impl WgpuStream {
         }
     }
 
-    pub fn empty(&mut self, size: u64) -> Handle {
+    pub fn empty(&mut self, size: u64) -> Result<Handle, AllocError> {
         self.mem_manage.reserve(size, false)
     }
 
-    pub fn create(&mut self, data: &[u8]) -> Handle {
+    pub fn create(&mut self, data: &[u8]) -> Result<Handle, AllocError> {
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
         let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -362,10 +368,9 @@ impl WgpuStream {
         // a buffer we copy to MUST not have any outstanding compute work associated with it.
         // Any handles with compute work are kept in pending operations,
         // and the allocation here won't try to use that buffer.
-        let alloc = self.mem_manage.reserve(aligned_len, true);
+        let alloc = self.mem_manage.reserve(aligned_len, true)?;
         self.copy_to_handle(alloc.clone(), data);
-
-        alloc
+        Ok(alloc)
     }
 
     pub fn copy_to_handle(&mut self, handle: Handle, data: &[u8]) {

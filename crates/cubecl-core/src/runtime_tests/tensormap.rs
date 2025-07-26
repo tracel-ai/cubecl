@@ -117,9 +117,13 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let shape = vec![64, 64];
-    let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+    let (handle, strides) = client
+        .create_tensor(F::as_bytes(&values), &shape, size_of::<F>())
+        .expect("Alloc failed");
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
-    let out = client.empty(16 * 32 * size_of::<F>());
+    let out = client
+        .empty(16 * 32 * size_of::<F>())
+        .expect("Alloc failed");
 
     tensormap_load::launch::<F, R>(
         &client,
@@ -159,12 +163,14 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
     }
 
     let values = (0..32 * 16).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let handle = client.create(F::as_bytes(&values));
-    let (out, out_strides) = client.create_tensor(
-        &vec![0u8; 64 * 64 * size_of::<F>()],
-        &[64, 64],
-        size_of::<F>(),
-    );
+    let handle = client.create(F::as_bytes(&values)).expect("Alloc failed");
+    let (out, out_strides) = client
+        .create_tensor(
+            &vec![0u8; 64 * 64 * size_of::<F>()],
+            &[64, 64],
+            size_of::<F>(),
+        )
+        .expect("Alloc failed");
 
     tensormap_store::launch::<F, R>(
         &client,
@@ -233,11 +239,15 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
     let shape = [n, h, w, c];
-    let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+    let (handle, strides) = client
+        .create_tensor(F::as_bytes(&values), &shape, size_of::<F>())
+        .expect("Alloc failed");
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
-    let out = client.empty(out_size * size_of::<F>());
+    let out = client
+        .empty(out_size * size_of::<F>())
+        .expect("Alloc failed");
 
     tensormap_im2col_load::launch::<F, R>(
         &client,
@@ -299,10 +309,10 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
         return;
     }
 
-    let in_handle_1 = client.empty(4);
-    let in_handle_2 = client.empty(64);
-    let out_handle_1 = client.empty(64);
-    let out_handle_2 = client.empty(size_of::<u32>() * 4);
+    let in_handle_1 = client.empty(4).expect("Alloc failed");
+    let in_handle_2 = client.empty(64).expect("Alloc failed");
+    let out_handle_1 = client.empty(64).expect("Alloc failed");
+    let out_handle_2 = client.empty(size_of::<u32>() * 4).expect("Alloc failed");
     let strides = vec![16, 1];
     let input_1 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_1, &strides, &[2, 3], 1) };
     let input_2 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_2, &strides, &[4, 5], 1) };

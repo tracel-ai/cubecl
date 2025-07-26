@@ -53,7 +53,9 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
         return;
     };
 
-    let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
+    let handle = client
+        .create(F::as_bytes(&[F::from_int(12), F::from_int(1)]))
+        .expect("Alloc failed");
 
     kernel_atomic_add::launch::<F, R>(
         &client,
@@ -86,7 +88,9 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
         return;
     };
 
-    let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
+    let handle = client
+        .create(F::as_bytes(&[F::from_int(12), F::from_int(1)]))
+        .expect("Alloc failed");
 
     kernel_atomic_min::launch::<F, R>(
         &client,
@@ -119,7 +123,9 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
         return;
     };
 
-    let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
+    let handle = client
+        .create(F::as_bytes(&[F::from_int(12), F::from_int(1)]))
+        .expect("Alloc failed");
 
     kernel_atomic_max::launch::<F, R>(
         &client,

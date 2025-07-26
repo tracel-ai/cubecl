@@ -21,7 +21,9 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R::Server, R::Channel>)
         return;
     }
 
-    let handle = client.empty(64 * core::mem::size_of::<f32>());
+    let handle = client
+        .empty(64 * core::mem::size_of::<f32>())
+        .expect("Alloc failed");
 
     let vectorization = 1;
 

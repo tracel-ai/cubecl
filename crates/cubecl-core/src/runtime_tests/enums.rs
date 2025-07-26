@@ -70,7 +70,9 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 }
 
 pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let array = client.empty(std::mem::size_of::<f32>());
+    let array = client
+        .empty(std::mem::size_of::<f32>())
+        .expect("Alloc failed");
 
     kernel_scalar_enum::launch::<R>(
         &client,
@@ -105,7 +107,9 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
     client: &ComputeClient<R::Server, R::Channel>,
     expected: T,
 ) {
-    let array = client.empty(std::mem::size_of::<T>());
+    let array = client
+        .empty(std::mem::size_of::<T>())
+        .expect("Alloc failed");
 
     kernel_array_float_int::launch(
         client,
@@ -141,8 +145,8 @@ fn kernel_tuple_enum(first: &mut SimpleEnum<Array<u32>>, second: SimpleEnum<Arra
 }
 
 pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) {
-    let first = client.create(as_bytes![u32: 20]);
-    let second = client.create(as_bytes![u32: 5]);
+    let first = client.create(as_bytes![u32: 20]).expect("Alloc failed");
+    let second = client.create(as_bytes![u32: 5]).expect("Alloc failed");
 
     kernel_tuple_enum::launch(
         client,

@@ -5,7 +5,7 @@ use crate::server::{
     Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
     ProfilingToken,
 };
-use crate::storage::{BindingResource, ComputeStorage};
+use crate::storage::{AllocError, BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
@@ -65,7 +65,7 @@ where
         self.server.lock().get_resource(binding)
     }
 
-    fn create(&self, data: &[u8]) -> Handle {
+    fn create(&self, data: &[u8]) -> Result<Handle, AllocError> {
         self.server.lock().create(data)
     }
 
@@ -74,11 +74,11 @@ where
         data: Vec<&[u8]>,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         self.server.lock().create_tensors(data, shape, elem_size)
     }
 
-    fn empty(&self, size: usize) -> Handle {
+    fn empty(&self, size: usize) -> Result<Handle, AllocError> {
         self.server.lock().empty(size)
     }
 
@@ -86,7 +86,7 @@ where
         &self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         self.server.lock().empty_tensors(shape, elem_size)
     }
 

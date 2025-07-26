@@ -22,7 +22,7 @@ use cubecl_core::{
     server::{BindingWithMeta, Bindings, Handle, TensorMapBinding},
 };
 use cubecl_runtime::memory_management::MemoryUsage;
-use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::storage::{AllocError, BindingResource};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -195,8 +195,8 @@ impl ComputeServer for CudaServer {
         Box::pin(self.read_tensor_async(bindings))
     }
 
-    fn create(&mut self, data: &[u8]) -> server::Handle {
-        let handle = self.empty(data.len());
+    fn create(&mut self, data: &[u8]) -> Result<server::Handle, AllocError> {
+        let handle = self.empty(data.len())?;
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
@@ -209,7 +209,7 @@ impl ComputeServer for CudaServer {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
         }
 
-        handle
+        Ok(handle)
     }
 
     fn create_tensors(
@@ -217,8 +217,8 @@ impl ComputeServer for CudaServer {
         data: Vec<&[u8]>,
         shapes: Vec<&[usize]>,
         elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes.clone());
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
+        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes.clone())?;
         let ctx = self.get_context();
 
         for i in 0..data.len() {
@@ -263,20 +263,20 @@ impl ComputeServer for CudaServer {
             }
         }
 
-        handles_strides
+        Ok(handles_strides)
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle {
+    fn empty(&mut self, size: usize) -> Result<server::Handle, AllocError> {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
-        server::Handle::new(handle, None, None, size as u64)
+        let handle = ctx.memory_management.reserve(size as u64, None)?;
+        Ok(server::Handle::new(handle, None, None, size as u64))
     }
 
     fn empty_tensors(
         &mut self,
         shape: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         let mut strides = Vec::new();
         let mut sizes = Vec::new();
         let mut total_size = 0;
@@ -305,10 +305,10 @@ impl ComputeServer for CudaServer {
             sizes.push(size);
         }
 
-        let mem_handle = self.empty(total_size);
+        let mem_handle = self.empty(total_size)?;
         let handles = offset_handles(mem_handle, &sizes);
 
-        handles.into_iter().zip(strides).collect()
+        Ok(handles.into_iter().zip(strides).collect())
     }
 
     unsafe fn execute(
@@ -363,21 +363,25 @@ impl ComputeServer for CudaServer {
             let mut handles = Vec::new();
             if bindings.metadata.static_len > 0 {
                 let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
-                handles.push(self.create(bytemuck::cast_slice(dyn_meta)));
+                handles.push(
+                    self.create(bytemuck::cast_slice(dyn_meta))
+                        .expect("Must be able to allocate metadata"),
+                );
             }
 
             (scalars, handles)
         } else {
             let mut handles = Vec::new();
             if !bindings.metadata.data.is_empty() {
-                handles.push(self.create(bytemuck::cast_slice(&bindings.metadata.data)))
+                handles.push(
+                    self.create(bytemuck::cast_slice(&bindings.metadata.data))
+                        .expect("Must be able to allocate metadata"),
+                )
             }
-            handles.extend(
-                bindings
-                    .scalars
-                    .values()
-                    .map(|scalar| self.create(scalar.data())),
-            );
+            handles.extend(bindings.scalars.values().map(|scalar| {
+                self.create(scalar.data())
+                    .expect("Must be able to allocate metadata.")
+            }));
             (Vec::new(), handles)
         };
 

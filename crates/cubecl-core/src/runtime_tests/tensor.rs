@@ -13,7 +13,9 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server, R::Ch
     let shape = [2, 2, 3];
 
     let input_size = shape.iter().product::<usize>();
-    let input = client.empty(core::mem::size_of::<f32>() * input_size);
+    let input = client
+        .empty(core::mem::size_of::<f32>() * input_size)
+        .expect("Alloc failed");
 
     // Each column corresponds to a complete coordinate.
     // That is, when increasing the index, the coordinates are
@@ -28,7 +30,9 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server, R::Ch
 
     // The result is independent of the line size
     for &line_size in R::supported_line_sizes() {
-        let output = client.empty(core::mem::size_of::<u32>() * output_size);
+        let output = client
+            .empty(core::mem::size_of::<u32>() * output_size)
+            .expect("Alloc failed");
         unsafe {
             tensor_coordinate::launch::<R>(
                 &client,

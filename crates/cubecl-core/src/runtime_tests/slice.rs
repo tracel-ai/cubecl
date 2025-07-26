@@ -49,8 +49,12 @@ pub fn slice_mut_len(output: &mut Array<u32>) {
 pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
-    let output = client.empty(core::mem::size_of::<F>());
+    let input = client
+        .create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0])
+        .expect("Alloc failed");
+    let output = client
+        .empty(core::mem::size_of::<F>())
+        .expect("Alloc failed");
 
     unsafe {
         slice_select::launch::<F, R>(
@@ -71,8 +75,12 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
 pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
-    let output = client.empty(core::mem::size_of::<u32>());
+    let input = client
+        .create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0])
+        .expect("Alloc failed");
+    let output = client
+        .empty(core::mem::size_of::<u32>())
+        .expect("Alloc failed");
 
     unsafe {
         slice_len::launch::<F, R>(
@@ -93,8 +101,10 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
 pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
-    let output = client.create(as_bytes![F: 0.0]);
+    let input = client
+        .create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0])
+        .expect("Alloc failed");
+    let output = client.create(as_bytes![F: 0.0]).expect("Alloc failed");
 
     unsafe {
         slice_for::launch::<F, R>(
@@ -115,8 +125,10 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(
 pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 15.0]);
-    let output = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create(as_bytes![F: 15.0]).expect("Alloc failed");
+    let output = client
+        .create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0])
+        .expect("Alloc failed");
 
     unsafe {
         slice_mut_assign::launch::<F, R>(
@@ -135,7 +147,9 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(
 }
 
 pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let output = client.empty(core::mem::size_of::<u32>() * 4);
+    let output = client
+        .empty(core::mem::size_of::<u32>() * 4)
+        .expect("Alloc failed");
 
     unsafe {
         slice_mut_len::launch::<R>(

@@ -1,4 +1,5 @@
 use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::Elem};
+use cubecl_runtime::storage::AllocError;
 use std::fmt::{Debug, Display};
 
 use crate::components::TileSize;
@@ -13,6 +14,9 @@ pub enum MatmulSetupError {
 
     /// No compatible line size could be found for the given constraints.
     LineSize(LineSizeError),
+
+    /// Memory failed allocation
+    Memory(AllocError),
 }
 
 /// A specific feature required for matmul is not available in the current runtime or hardware.
@@ -63,6 +67,12 @@ impl From<LineSizeError> for MatmulSetupError {
     }
 }
 
+impl From<AllocError> for MatmulSetupError {
+    fn from(value: AllocError) -> Self {
+        Self::Memory(value)
+    }
+}
+
 impl Display for MatmulSetupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
@@ -89,6 +99,12 @@ impl Debug for MatmulSetupError {
                 writeln!(
                     f,
                     "Unable to launch matmul because could not find supported line size: {err:?}"
+                )
+            }
+            MatmulSetupError::Memory(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because memory allocation failed: {err:?}"
                 )
             }
         }

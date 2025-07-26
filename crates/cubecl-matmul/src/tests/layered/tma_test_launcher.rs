@@ -163,8 +163,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let (handle, mut strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let (handle, mut strides) = client
+                .create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>())
+                .expect("Failed to create tensor");
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -199,8 +200,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let (handle, mut strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let (handle, mut strides) = client
+                .create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>())
+                .expect("Failed to create tensor");
 
             if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -222,8 +224,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = vec![zero; tensor_size(problem, Ident::Out)];
 
             let shape = problem.shape(Ident::Out);
-            let (handle, strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let (handle, strides) = client
+                .create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>())
+                .expect("Failed to create tensor");
             TensorRawParts {
                 handle,
                 scale: None,

@@ -57,8 +57,8 @@ macro_rules! test_unary_impl {
             $(
             {
                 let input = $input;
-                let output_handle = client.empty(input.len() * core::mem::size_of::<$float_type>());
-                let input_handle = client.create($float_type::as_bytes(input));
+                let output_handle = client.empty(input.len() * core::mem::size_of::<$float_type>()).expect("Alloc failed");
+                let input_handle = client.create($float_type::as_bytes(input)).expect("Alloc failed");
 
                 unsafe {
                     test_function::launch_unchecked::<$float_type, R>(
@@ -99,8 +99,8 @@ macro_rules! test_unary_impl_int {
             $(
             {
                 let input = $input;
-                let output_handle = client.empty(input.len() * core::mem::size_of::<$int_type>());
-                let input_handle = client.create($int_type::as_bytes(input));
+                let output_handle = client.empty(input.len() * core::mem::size_of::<$int_type>()).expect("Alloc failed");
+                let input_handle = client.create($int_type::as_bytes(input)).expect("Alloc failed");
 
                 unsafe {
                     test_function::launch_unchecked::<$int_type, R>(
@@ -145,8 +145,8 @@ macro_rules! test_unary_impl_int_fixed {
             $(
             {
                 let input = $input;
-                let output_handle = client.empty(input.len() * core::mem::size_of::<$out_type>());
-                let input_handle = client.create($int_type::as_bytes(input));
+                let output_handle = client.empty(input.len() * core::mem::size_of::<$out_type>()).expect("Alloc failed");
+                let input_handle = client.create($int_type::as_bytes(input)).expect("Alloc failed");
 
                 unsafe {
                     test_function::launch_unchecked::<$int_type, R>(

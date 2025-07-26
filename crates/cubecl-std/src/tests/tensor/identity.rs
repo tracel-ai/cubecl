@@ -16,7 +16,7 @@ pub fn test_identity<R: Runtime, C: Numeric + CubeElement + Display>(
 
     let expected = identity_cpu::<C>(dim);
 
-    let identity = TensorHandle::<R, C>::empty(&client, [dim, dim].to_vec());
+    let identity = TensorHandle::<R, C>::empty(&client, [dim, dim].to_vec()).expect("alloc failed");
     tensor::identity::launch(&client, &identity);
 
     let actual = client.read_one_tensor(identity.handle.clone().binding_with_meta(

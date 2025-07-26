@@ -497,12 +497,15 @@ impl TestCase {
     {
         let client = R::client(device);
 
-        let input_handle = client.create(<P::EI as CubeElement>::as_bytes(&input_values));
+        let input_handle = client
+            .create(<P::EI as CubeElement>::as_bytes(&input_values))
+            .expect("failed alloc");
 
         // Zero initialize a tensor with the same shape as input
         // except for the `self.axis` axis where the shape is 1.
-        let output_handle =
-            client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
+        let output_handle = client
+            .create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]))
+            .expect("failed alloc");
         let mut output_shape = self.shape.clone();
         output_shape[self.axis.unwrap()] = 1;
         let output_stride = self.output_stride();
@@ -551,8 +554,12 @@ impl TestCase {
     {
         let client = R::client(device);
 
-        let input_handle = client.create(F::as_bytes(&input_values));
-        let output_handle = client.create(F::as_bytes(&[F::from_int(0)]));
+        let input_handle = client
+            .create(F::as_bytes(&input_values))
+            .expect("failed alloc");
+        let output_handle = client
+            .create(F::as_bytes(&[F::from_int(0)]))
+            .expect("failed alloc");
 
         let input = unsafe {
             TensorHandleRef::<R>::from_raw_parts(

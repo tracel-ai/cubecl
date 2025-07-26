@@ -47,8 +47,12 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(F::as_bytes(&data[..num_out]));
-    let handle2 = client.empty(2 * num_out * size_of::<u8>());
+    let handle1 = client
+        .create(F::as_bytes(&data[..num_out]))
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(2 * num_out * size_of::<u8>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_fp8::launch_unchecked::<F, R>(
@@ -89,8 +93,12 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(F::as_bytes(&data[..num_out]));
-    let handle2 = client.empty(2 * num_out * size_of::<u8>());
+    let handle1 = client
+        .create(F::as_bytes(&data[..num_out]))
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(2 * num_out * size_of::<u8>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_fp6::launch_unchecked::<F, R>(
@@ -127,8 +135,12 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vect
 
     let data = [2.0, 1024.0, 57312.0, f32::from_bits(0x7F000000)];
     let num_out = vectorization as usize;
-    let handle1 = client.create(f32::as_bytes(&data[..num_out]));
-    let handle2 = client.empty(num_out * size_of::<u8>());
+    let handle1 = client
+        .create(f32::as_bytes(&data[..num_out]))
+        .expect("Alloc failed");
+    let handle2 = client
+        .empty(num_out * size_of::<u8>())
+        .expect("Alloc failed");
 
     unsafe {
         kernel_scale::launch_unchecked::<R>(

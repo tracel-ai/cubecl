@@ -6,6 +6,7 @@ use cubecl_matmul::components::{
     tile::TileMatmulFamily,
 };
 
+use cubecl_runtime::storage::AllocError;
 use cubecl_std::tensor::TensorHandle;
 
 use cubecl_core::{ir::Elem, prelude::*};
@@ -76,7 +77,7 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
-    ) -> TensorHandle<R, E>;
+    ) -> Result<TensorHandle<R, E>, AllocError>;
 
     fn selection<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

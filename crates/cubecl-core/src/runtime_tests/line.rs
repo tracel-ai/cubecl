@@ -13,7 +13,9 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     for line_size in R::line_size_elem(&F::as_elem_native().unwrap()) {
-        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client
+            .create(F::as_bytes(&vec![F::new(0.0); line_size as usize]))
+            .expect("Alloc failed");
         unsafe {
             kernel_line_index::launch_unchecked::<F, R>(
                 &client,
@@ -46,7 +48,9 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     for line_size in R::line_size_elem(&F::as_elem_native().unwrap()) {
-        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client
+            .create(F::as_bytes(&vec![F::new(0.0); line_size as usize]))
+            .expect("Alloc failed");
         unsafe {
             kernel_line_index_assign::launch_unchecked::<F, R>(
                 &client,
@@ -82,7 +86,9 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     for line_size in R::line_size_elem(&F::as_elem_native_unchecked()) {
-        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client
+            .create(F::as_bytes(&vec![F::new(0.0); line_size as usize]))
+            .expect("Alloc failed");
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(
                 &client,
@@ -121,9 +127,9 @@ macro_rules! impl_line_comparison {
             pub fn [< test_line_ $cmp >] <R: Runtime, F: Float + CubeElement>(
                 client: ComputeClient<R::Server, R::Channel>,
             ) {
-                let lhs = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0]);
-                let rhs = client.create(as_bytes![F: 0.0, 2.0, 1.0, 3.0]);
-                let output = client.empty(16);
+                let lhs = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0]).expect("Alloc failed");
+                let rhs = client.create(as_bytes![F: 0.0, 2.0, 1.0, 3.0]).expect("Alloc failed");
+                let output = client.empty(16).expect("Alloc failed");
 
                 unsafe {
                     [< kernel_line_ $cmp >]::launch::<F, R>(

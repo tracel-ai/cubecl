@@ -35,7 +35,9 @@ pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R::Server, R::Channel
     let cube_count = CubeCount::new_3d(cube_count_x, cube_count_y, cube_count_z);
     let num_cubes = cube_count_x * cube_count_y * cube_count_z;
 
-    let handle = client.empty((num_cubes as usize * 4 + 4) * size_of::<u32>());
+    let handle = client
+        .empty((num_cubes as usize * 4 + 4) * size_of::<u32>())
+        .expect("Alloc failed");
 
     let vectorization = 1;
 

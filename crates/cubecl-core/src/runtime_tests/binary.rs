@@ -69,9 +69,9 @@ macro_rules! test_binary_impl {
             {
                 let lhs = $lhs;
                 let rhs = $rhs;
-                let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
-                let lhs_handle = client.create($float_type::as_bytes(lhs));
-                let rhs_handle = client.create($float_type::as_bytes(rhs));
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>()).expect("Alloc failed");
+                let lhs_handle = client.create($float_type::as_bytes(lhs)).expect("Alloc failed");
+                let rhs_handle = client.create($float_type::as_bytes(rhs)).expect("Alloc failed");
 
                 unsafe {
                     test_function::launch_unchecked::<$float_type, R>(
@@ -154,9 +154,9 @@ macro_rules! test_mulhi_impl {
             {
                 let lhs = $lhs;
                 let rhs = $rhs;
-                let output_handle = client.empty($expected.len() * core::mem::size_of::<u32>());
-                let lhs_handle = client.create(u32::as_bytes(lhs));
-                let rhs_handle = client.create(u32::as_bytes(rhs));
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<u32>()).expect("Alloc failed");
+                let lhs_handle = client.create(u32::as_bytes(lhs)).expect("Alloc failed");
+                let rhs_handle = client.create(u32::as_bytes(rhs)).expect("Alloc failed");
 
                 unsafe {
                     test_mulhi_kernel::launch_unchecked::<R>(

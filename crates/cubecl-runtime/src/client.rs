@@ -6,7 +6,7 @@ use crate::{
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError},
-    storage::{BindingResource, ComputeStorage},
+    storage::{AllocError, BindingResource, ComputeStorage},
 };
 use alloc::format;
 use alloc::sync::Arc;
@@ -190,9 +190,8 @@ where
     }
 
     /// Given a resource, stores it and returns the resource handle.
-    pub fn create(&self, data: &[u8]) -> Handle {
+    pub fn create(&self, data: &[u8]) -> Result<Handle, AllocError> {
         self.profile_guard();
-
         self.channel.create(data)
     }
 
@@ -214,11 +213,11 @@ where
         data: &[u8],
         shape: &[usize],
         elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        self.channel
-            .create_tensors(vec![data], vec![shape], vec![elem_size])
+    ) -> Result<(Handle, Vec<usize>), AllocError> {
+        Ok(self
+            .create_tensors(vec![data], vec![shape], vec![elem_size])?
             .pop()
-            .unwrap()
+            .unwrap())
     }
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
@@ -229,26 +228,28 @@ where
         data: Vec<&[u8]>,
         shapes: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         self.profile_guard();
-
         self.channel.create_tensors(data, shapes, elem_size)
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    pub fn empty(&self, size: usize) -> Handle {
+    pub fn empty(&self, size: usize) -> Result<Handle, AllocError> {
         self.profile_guard();
-
         self.channel.empty(size)
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
-    pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        self.channel
-            .empty_tensors(vec![shape], vec![elem_size])
+    pub fn empty_tensor(
+        &self,
+        shape: &[usize],
+        elem_size: usize,
+    ) -> Result<(Handle, Vec<usize>), AllocError> {
+        Ok(self
+            .empty_tensors(vec![shape], vec![elem_size])?
             .pop()
-            .unwrap()
+            .unwrap())
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
@@ -257,9 +258,8 @@ where
         &self,
         shapes: Vec<&[usize]>,
         elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+    ) -> Result<Vec<(Handle, Vec<usize>)>, AllocError> {
         self.profile_guard();
-
         self.channel.empty_tensors(shapes, elem_size)
     }
 

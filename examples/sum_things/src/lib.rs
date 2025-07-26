@@ -187,8 +187,12 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input = &[-1., 10., 1., 5.];
     let len = input.len();
 
-    let output = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input = client.create(f32::as_bytes(input));
+    let output = client
+        .empty(input.len() * core::mem::size_of::<f32>())
+        .expect("Failed to allocate memory");
+    let input = client
+        .create(f32::as_bytes(input))
+        .expect("Failed to allocate memory");
 
     for kind in [
         KernelKind::Basic,

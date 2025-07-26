@@ -99,8 +99,8 @@ where
     let kernel_shape = &weight.shape[1..dim_c];
     let out_shape = &out.shape[1..dim_c];
 
-    let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
-    let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
+    let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs)?;
+    let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs)?;
 
     let plane_dim = client.properties().hardware.plane_size_max;
 

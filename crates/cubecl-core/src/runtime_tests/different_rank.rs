@@ -50,9 +50,15 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
 ) {
     let vectorisation = 2;
 
-    let handle_lhs = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
-    let handle_rhs = client.create(as_bytes![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
-    let handle_out = client.create(as_bytes![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    let handle_lhs = client
+        .create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+        .expect("Alloc failed");
+    let handle_rhs = client
+        .create(as_bytes![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+        .expect("Alloc failed");
+    let handle_out = client
+        .create(as_bytes![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        .expect("Alloc failed");
 
     let lhs = unsafe {
         TensorArg::from_raw_parts::<F>(&handle_lhs, &strides_lhs, &shape_lhs, vectorisation)

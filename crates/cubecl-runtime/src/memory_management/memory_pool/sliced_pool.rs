@@ -2,7 +2,7 @@ use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::memory_pool::calculate_padding;
 use crate::memory_management::{MemoryUsage, StorageExclude};
-use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use crate::storage::{AllocError, ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
@@ -119,8 +119,12 @@ impl MemoryPool for SlicedPool {
         Some(slice.handle.clone())
     }
 
-    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
-        let storage_id = self.create_page(storage);
+    fn alloc<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<SliceHandle, AllocError> {
+        let storage_id = self.create_page(storage)?;
         self.recently_added_pages.push(storage_id);
         self.recently_allocated_size += self.page_size;
 
@@ -150,7 +154,7 @@ impl MemoryPool for SlicedPool {
             page.slices.insert(extra_slice_offset, extra_slice_id);
         }
 
-        handle_slice
+        Ok(handle_slice)
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
@@ -216,8 +220,11 @@ impl SlicedPool {
     }
 
     /// Creates a page of given size by allocating on the storage.
-    fn create_page<Storage: ComputeStorage>(&mut self, storage: &mut Storage) -> StorageId {
-        let storage = storage.alloc(self.page_size);
+    fn create_page<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+    ) -> Result<StorageId, AllocError> {
+        let storage = storage.alloc(self.page_size)?;
 
         let id = storage.id;
         self.ring.push_page(id);
@@ -225,7 +232,7 @@ impl SlicedPool {
         self.pages.insert(id, MemoryPage::new(HashMap::new()));
         self.storage_index.insert(id, self.page_size);
 
-        id
+        Ok(id)
     }
 }
 

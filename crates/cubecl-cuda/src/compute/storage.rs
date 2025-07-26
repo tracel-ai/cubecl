@@ -1,4 +1,6 @@
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_runtime::storage::{
+    AllocError, ComputeStorage, StorageHandle, StorageId, StorageUtilization,
+};
 use cudarc::driver::sys::CUstream;
 use std::collections::HashMap;
 
@@ -126,12 +128,17 @@ impl ComputeStorage for CudaStorage {
         )
     }
 
-    fn alloc(&mut self, size: u64) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, AllocError> {
         let id = StorageId::new();
-        let ptr =
-            unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize).unwrap() };
+        let ptr = unsafe {
+            cudarc::driver::result::malloc_async(self.stream, size as usize)
+                .map_err(|_| AllocError::Failed)?
+        };
         self.memory.insert(id, ptr);
-        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization { offset: 0, size },
+        ))
     }
 
     fn dealloc(&mut self, id: StorageId) {

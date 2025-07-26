@@ -7,6 +7,7 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 use cubecl_matmul::components::MatmulSelection;
+use cubecl_runtime::storage::AllocError;
 
 use crate::{
     base::{ConvolutionProblem, Dimensionality},
@@ -52,7 +53,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
         ident: InputIdent,
-    ) -> TensorHandle<R, E> {
+    ) -> Result<TensorHandle<R, E>, AllocError> {
         into_tensor_handle_tma(client, handle, ident)
     }
 
@@ -76,16 +77,16 @@ pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &TensorHandleRef<'_, R>,
     ident: InputIdent,
-) -> TensorHandle<R, E> {
+) -> Result<TensorHandle<R, E>, AllocError> {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
     let mut handle = if has_valid_layout(handle, ident) {
         TensorHandle::from_ref(handle)
     } else {
-        into_contiguous_pitched(client, handle)
+        into_contiguous_pitched(client, handle)?
     };
     match ident {
-        InputIdent::Lhs => handle,
+        InputIdent::Lhs => Ok(handle),
         InputIdent::Rhs => {
             let k_size = handle.shape[1..dim_c].iter().product();
             handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
@@ -94,7 +95,7 @@ pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
                 handle.strides[dim_c - 1],
                 handle.strides[dim_c],
             ];
-            handle
+            Ok(handle)
         }
     }
 }

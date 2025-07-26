@@ -5,6 +5,8 @@ use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_plane(&mut self, plane: Plane, out: Option<Variable>, uniform: bool) {
+        println!("Vulkan doing plane stuff!!!");
+
         self.capabilities
             .insert(Capability::GroupNonUniformArithmetic);
         let subgroup = self.subgroup();

@@ -25,8 +25,8 @@ pub fn run_test_read_global<R: Runtime>(
     let target = [f16::from_f32(1.0), f16::from_f32(-8.5)];
     let casted: [i8; 4] = unsafe { core::mem::transmute(target) };
 
-    let input = client.create(i8::as_bytes(&casted));
-    let output = client.empty(4);
+    let input = client.create(i8::as_bytes(&casted)).expect("alloc failed");
+    let output = client.empty(4).expect("alloc failed");
     unsafe {
         kernel_read_global::launch_unchecked::<R>(
             &client,
@@ -63,8 +63,8 @@ pub fn run_test_write_global<R: Runtime>(
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
     let casted: [i8; 4] = unsafe { core::mem::transmute(source) };
 
-    let output = client.empty(4);
-    let input = client.create(f16::as_bytes(&source));
+    let output = client.empty(4).expect("alloc failed");
+    let input = client.create(f16::as_bytes(&source)).expect("alloc failed");
 
     unsafe {
         kernel_write_global::launch_unchecked::<R>(
@@ -108,7 +108,7 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server, 
 
     let target = [f16::from_f32(1.0), f16::from_f32(-8.5)];
 
-    let output = client.empty(4);
+    let output = client.empty(4).expect("alloc failed");
 
     unsafe {
         kernel_read_shared_memory::launch_unchecked::<R>(
@@ -145,8 +145,8 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server,
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
     let casted: [i8; 4] = unsafe { core::mem::transmute(source) };
 
-    let output = client.empty(4);
-    let input = client.create(f16::as_bytes(&source));
+    let output = client.empty(4).expect("alloc failed");
+    let input = client.create(f16::as_bytes(&source)).expect("alloc failed");
 
     unsafe {
         kernel_write_shared_memory::launch_unchecked::<R>(

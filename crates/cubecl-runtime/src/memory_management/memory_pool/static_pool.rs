@@ -1,4 +1,4 @@
-use crate::memory_management::MemoryUsage;
+use crate::{memory_management::MemoryUsage, storage::AllocError};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
@@ -39,17 +39,17 @@ impl MemoryPool for StaticPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> SliceHandle {
+    ) -> Result<SliceHandle, AllocError> {
         let padding = calculate_padding(size, storage.alignment() as u64);
         let size_alloc = size + padding;
 
-        let storage_handle = storage.alloc(size_alloc);
+        let storage_handle = storage.alloc(size_alloc)?;
         let slice_handle = SliceHandle::new();
         let slice = Slice::new(storage_handle, slice_handle.clone(), padding);
 
         self.slices.insert(slice.id(), slice);
 
-        slice_handle
+        Ok(slice_handle)
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
