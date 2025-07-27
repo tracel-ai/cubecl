@@ -1,5 +1,5 @@
 #![allow(unused)]
-
+//! **Disclaimer**: This is not safe! Most of it is, but you should definitely know or find out how many GPUs you got and don't forget to start counting at 0. With the wrong rank you give a wrong pointer. This is subject to change in the future. 
 //! NCCL Operations for CubeCL CUDA Runtime
 //!
 //! This module provides high-level NCCL collective operations like AllReduce,
@@ -8,11 +8,6 @@
 //! **Note**: This is currently a single-threaded async variant. In the future, there will be
 //! a sequential version so worker threads can use it more efficiently. Also, some grouping
 //! features will be added, but these will end up in this or another abstraction layer.
-//!
-//! # Features
-//! - Type-safe collective operations with automatic datatype mapping
-//! - Automatic device management across multiple GPUs
-//! - Resource cleanup with RAII pattern
 //!
 //! # Usage
 //! ```rust,ignore
