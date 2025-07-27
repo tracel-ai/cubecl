@@ -16,12 +16,12 @@ channel-cell = []
 channel-mpsc = []
 channel-mutex = []
 default = [
-    "std",
-    "channel-mutex",
-    "channel-mpsc",
-    "channel-cell",
-    "storage-bytes",
-    "cubecl-common/default",
+  "std",
+  "channel-mutex",
+  "channel-mpsc",
+  "channel-cell",
+  "storage-bytes",
+  "cubecl-common/default",
 ]
 exclusive-memory-only = []
 std = ["cubecl-common/std", "toml", "dirs"]
@@ -46,8 +46,8 @@ dirs = { workspace = true, optional = true }
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false, features = [
-    "cache",
-    "serde",
+  "cache",
+  "serde",
 ] }
 md5 = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
@@ -60,9 +60,9 @@ spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
 spin = { workspace = true, features = [
-    "mutex",
-    "spin_mutex",
-    "portable_atomic",
+  "mutex",
+  "spin_mutex",
+  "portable_atomic",
 ] }
 
 

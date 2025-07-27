@@ -6,6 +6,8 @@ mod compute;
 mod device;
 mod runtime;
 
+#[cfg(feature = "nccl")]
+pub use compute::NcclOp;
 pub use device::*;
 pub use runtime::*;
 
