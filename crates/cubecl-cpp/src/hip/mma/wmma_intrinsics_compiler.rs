@@ -203,14 +203,13 @@ impl<D: Dialect> WmmaStore<D> {
             FragmentLayout::RowMajor => "wmmaLane + rowIdx * stride".to_string(),
             FragmentLayout::_Dialect(_) => String::new(),
         };
-        let wmma_lane = wmma_lane();
 
         write!(
             f,
             "
 // Store the fragment.
 __device__ void {name}({frag}& frag, {elem}* output_ptr, uint stride) {{
-    {wmma_lane}
+    {WMMA_LANE_DEF}
 
     #pragma unroll
     for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
@@ -460,9 +459,7 @@ fn get_output_accumulator_index_step<D: Dialect>(
     }
 }
 
-fn wmma_lane() -> &str {
-    // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
-    // in other words fragments are duplicated
-    // so lanes 0,16 / 1,17 / ... / 15, 31 are the same
-    "uint wmmaLane = uint(threadIdx.x % 16);"
-}
+// threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
+// in other words fragments are duplicated
+// so lanes 0,16 / 1,17 / ... / 15, 31 are the same
+static WMMA_LANE_DEF: &str = "uint wmmaLane = uint(threadIdx.x % 16);";
