@@ -151,14 +151,12 @@ impl<D: Dialect> WmmaLoad<D> {
             other => panic!("unknown matrix identifier {other}"),
         };
 
-        let wmma_lane = wmma_lane();
-
         write!(
             f,
             "
 // Load the fragment.
 __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride) {{
-    {wmma_lane}
+    {WMMA_LANE_DEF}
 
     #pragma unroll
     for (uint i = 0; i < {length}; ++i) {{
