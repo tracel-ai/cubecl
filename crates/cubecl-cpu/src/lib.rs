@@ -19,7 +19,7 @@ mod tests {
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, f32: f32]);
     cubecl_reduce::testgen_shared_sum!([f16, f32, f64]);
 
-    // TODO: Failing test that needs to be debugged
+    // TODO: Failing test that needs to be debugged probably relied to sync_cube
     // cubecl_reduce::testgen_reduce!([f16, f32, f64]);
 }
 
