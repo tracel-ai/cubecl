@@ -14,17 +14,15 @@ pub struct SharedMemories(pub Vec<SharedMemory>);
 
 impl SharedMemories {
     pub fn visit_variable(&mut self, variable: Variable) {
-        match variable.kind {
-            // Alignment is ignored for the moment it is taken from the type
-            VariableKind::SharedMemory { id, length, .. } => {
-                if self.0.iter().all(|shared_memory| shared_memory.id != id) {
-                    let elem = variable.elem();
-                    let vectorization = variable.vectorization_factor();
-                    let length = length * vectorization as u32;
-                    self.0.push(SharedMemory { id, elem, length });
-                }
-            }
-            _ => {}
+        // Alignment is ignored for the moment it is taken from the type
+        let VariableKind::SharedMemory { id, length, .. } = variable.kind else {
+            return;
+        };
+        if self.0.iter().all(|shared_memory| shared_memory.id != id) {
+            let elem = variable.elem();
+            let vectorization = variable.vectorization_factor();
+            let length = length * vectorization as u32;
+            self.0.push(SharedMemory { id, elem, length });
         }
     }
     pub fn visit(&mut self, opt: &Optimizer) {
