@@ -6,7 +6,7 @@ use tracel_llvm::melior::{
     pass::{self, PassManager},
 };
 
-use super::visitor::Visitor;
+use super::{passes::shared_memories::SharedMemories, visitor::Visitor};
 
 pub(super) struct Module<'a> {
     module: tracel_llvm::melior::ir::Module<'a>,
@@ -25,8 +25,20 @@ impl<'a> Module<'a> {
         }
     }
 
-    pub(super) fn visit_kernel(&mut self, kernel: &KernelDefinition, opt: &Optimizer) {
-        Visitor::visit_kernel(self.context, self.location, kernel, &self.module, opt);
+    pub(super) fn visit_kernel(
+        &mut self,
+        kernel: &KernelDefinition,
+        opt: &Optimizer,
+        shared_memories: &SharedMemories,
+    ) {
+        Visitor::visit_kernel(
+            self.context,
+            self.location,
+            kernel,
+            &self.module,
+            opt,
+            shared_memories,
+        )
     }
 
     pub(super) fn run_pass(&mut self) {

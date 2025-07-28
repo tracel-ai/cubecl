@@ -45,7 +45,7 @@ impl BuiltinArray {
         self.dims[7] = unit_pos[1];
         self.dims[8] = unit_pos[2];
     }
-    pub(crate) const fn len(&self) -> usize {
-        self.dims.len()
+    pub(crate) const fn len() -> usize {
+        9
     }
 }
