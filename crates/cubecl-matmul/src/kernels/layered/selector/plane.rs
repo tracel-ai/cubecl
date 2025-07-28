@@ -153,9 +153,7 @@ pub fn find_instruction_size(
             .unwrap_or(true)
     };
 
-    if supported(16, 8, 16) {
-        (16, 8, 16).into()
-    } else if m >= 4 * n && supported(32, 8, 16) {
+    if m >= 4 * n && supported(32, 8, 16) {
         (32, 8, 16).into()
     } else if n >= 4 * n && supported(8, 32, 16) {
         (8, 32, 16).into()

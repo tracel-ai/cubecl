@@ -49,77 +49,6 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_f16_m16n8k16_smem(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
-    let mut smem_a = SharedMemory::<f16>::new(256);
-    let mut smem_b = SharedMemory::<f16>::new(128);
-
-    // num loads per unit.
-    let num_load_a = 8;
-    let num_load_b = 4;
-    let index_base_a = UNIT_POS_X * num_load_a;
-    let index_base_b = UNIT_POS_X * num_load_b;
-
-    for s in 0..num_load_a {
-        let index = index_base_a + s;
-        smem_a[index] = lhs[index];
-    }
-
-    for s in 0..num_load_b {
-        let index = index_base_b + s;
-        smem_b[index] = rhs[index];
-    }
-
-    sync_cube();
-
-    let a = cmma::Matrix::<f16>::from_slice(
-        cmma::MatrixIdent::A,
-        16,
-        8,
-        16,
-        cmma::MatrixLayout::RowMajor,
-        &smem_a.to_slice(),
-        16,
-    );
-    let b = cmma::Matrix::<f16>::from_slice(
-        cmma::MatrixIdent::B,
-        16,
-        8,
-        16,
-        cmma::MatrixLayout::RowMajor,
-        &smem_b.to_slice(),
-        16,
-    );
-    let c = cmma::Matrix::<f32>::from_value(
-        cmma::MatrixIdent::Accumulator,
-        16,
-        8,
-        16,
-        cmma::MatrixLayout::Undefined,
-        0.0,
-    );
-
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
-
-    let d = cmma::cast::<f16, f32>(&a);
-
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &d,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
-
-    // sync_cube();
-
-    // for s in 0..num_load_b {
-    //     let index = index_base_a + s;
-    //     let index_out = index_base_b + s;
-    //     out[index_out] = f32::cast_from(smem_a[index]);
-    // }
-}
-
-#[cube(launch)]
-/// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_lined(
     lhs: &Array<Line<f16>>,
     rhs: &Array<Line<f16>>,
@@ -507,43 +436,6 @@ pub fn test_simple_1<R: Runtime>(
     assert_eq!(test_simple_1_expected(), actual);
 }
 
-pub fn test_simple_f16_m16n8k16_smem<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
-        m: 16,
-        n: 8,
-        k: 16,
-    }) {
-        // We can't execute the test, skip.
-        return;
-    }
-
-    let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
-    let rhs: Vec<f16> = (0..128).map(|i| f16::from_f32((i % 27) as f32)).collect();
-
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 256);
-
-    unsafe {
-        kernel_simple_f16_m16n8k16_smem::launch::<R>(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(32),
-            ArrayArg::from_raw_parts::<f16>(&lhs, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(&rhs, 128, 1),
-            ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
-        )
-    };
-
-    let actual = client.read_one(out.binding());
-    let actual = f32::from_bytes(&actual);
-
-    assert_eq!(test_simple_m16n8k16_expected(), actual);
-}
-
 pub fn test_simple_1_expected() -> Vec<f32> {
     vec![
         504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504.,
@@ -567,24 +459,6 @@ pub fn test_simple_1_expected() -> Vec<f32> {
         13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048.,
         13048., 13048., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944.,
         13944., 13944., 13944., 13944., 13944., 13944., 13944.,
-    ]
-}
-
-pub fn test_simple_m16n8k16_expected() -> Vec<f32> {
-    vec![
-        1631.0, 1481.0, 1601.0, 1640.0, 1409.0, 1529.0, 1487.0, 1607.0, 4895.0, 4569.0, 4945.0,
-        4808.0, 4401.0, 4777.0, 4559.0, 4935.0, 8159.0, 7657.0, 8289.0, 7976.0, 7393.0, 8025.0,
-        7631.0, 8263.0, 11423.0, 10745.0, 11633.0, 11144.0, 10385.0, 11273.0, 10703.0, 11591.0,
-        14687.0, 13833.0, 14977.0, 14312.0, 13377.0, 14521.0, 13775.0, 14919.0, 17951.0, 16921.0,
-        18321.0, 17480.0, 16369.0, 17769.0, 16847.0, 18247.0, 21215.0, 20009.0, 21665.0, 20648.0,
-        19361.0, 21017.0, 19919.0, 21575.0, 24479.0, 23097.0, 25009.0, 23816.0, 22353.0, 24265.0,
-        22991.0, 24903.0, 27743.0, 26185.0, 28353.0, 26984.0, 25345.0, 27513.0, 26063.0, 28231.0,
-        31007.0, 29273.0, 31697.0, 30152.0, 28337.0, 30761.0, 29135.0, 31559.0, 34271.0, 32361.0,
-        35041.0, 33320.0, 31329.0, 34009.0, 32207.0, 34887.0, 37535.0, 35449.0, 38385.0, 36488.0,
-        34321.0, 37257.0, 35279.0, 38215.0, 40799.0, 38537.0, 41729.0, 39656.0, 37313.0, 40505.0,
-        38351.0, 41543.0, 44063.0, 41625.0, 45073.0, 42824.0, 40305.0, 43753.0, 41423.0, 44871.0,
-        47327.0, 44713.0, 48417.0, 45992.0, 43297.0, 47001.0, 44495.0, 48199.0, 50591.0, 47801.0,
-        51761.0, 49160.0, 46289.0, 50249.0, 47567.0, 51527.0,
     ]
 }
 
@@ -900,12 +774,6 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
-        }
-
-        #[test]
-        fn test_simple_f16_m16n8k16_smem() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::cmma::test_simple_f16_m16n8k16_smem::<TestRuntime>(client);
         }
 
         #[test]

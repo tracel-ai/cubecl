@@ -55,7 +55,7 @@ use crate::{
     ir::{self, Instruction},
     unexpanded,
 };
-use cubecl_macros::{CubeType, cube, intrinsic};
+use cubecl_macros::{cube, intrinsic};
 use std::marker::PhantomData;
 
 use cubecl_ir::{ExpandElement, Scope};
@@ -101,18 +101,6 @@ impl<C: CubeType> CubeDebug for MatrixExpand<C> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.elem, name);
     }
-}
-
-#[derive(CubeType)]
-pub enum MatrixStride {
-    Runtime(u32),
-    Comptime(MatrixStrideComptime),
-}
-
-#[derive(CubeType)]
-pub struct MatrixStrideComptime {
-    #[cube(comptime)]
-    pub stride: u32,
 }
 
 #[cube]
