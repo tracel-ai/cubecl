@@ -1,7 +1,7 @@
 use crate::{
     cuda::{CudaDialect, arch::CudaArchitecture},
     shared::{
-        Architecture, DialectWmmaCompiler, Fragment, FragmentIdent, FragmentLayout,
+        Architecture, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
         SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
     },
 };
@@ -13,16 +13,8 @@ use super::{WMMA_MINIMUM_VERSION, WMMA_NAMESPACE};
 pub struct CudaWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <mma.h>\n")
-    }
-
-    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
     }
 
     fn compile_wmma_fragment_declaration(

@@ -19,13 +19,9 @@ pub struct CudaDialect<M> {
     _wmma_compiler: PhantomData<M>,
 }
 
-// Base dialect
-
 impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
     type Architecture = CudaArchitecture;
 }
-
-// Includes
 
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
     type Extension = Extension;
@@ -47,9 +43,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
         if flags.elem_f16 {
             f.write_str("#include <cuda_fp16.h>\n")?;
         }
+
         if flags.inst_wmma {
-            Self::compile_wmma_includes(f)?;
+            Self::compile_wmma_includes(f, flags)?;
         }
+
         if flags.op_pipeline {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
@@ -133,11 +131,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
 
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
+
         if flags.use_grid_constants {
             shared::type_scalar_definitions::<Self>(f, scalars)?;
             shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
         }
-        Self::compile_wmma_type_definitions(f)?;
+
+        if flags.inst_wmma {
+            Self::compile_wmma_type_definitions(f, flags)?;
+        }
+
         Ok(())
     }
 
@@ -446,12 +449,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_includes(f)
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        M::compile_wmma_includes(f, flags)
     }
 
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_type_definitions(f)
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        M::compile_wmma_type_definitions(f, flags)
     }
 
     fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

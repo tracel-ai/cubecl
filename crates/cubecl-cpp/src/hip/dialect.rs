@@ -1,3 +1,4 @@
+use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
@@ -5,6 +6,7 @@ use cubecl_core::ir::Id;
 
 use crate::shared::{
     Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable, unary,
+    variable_to_frag,
 };
 use crate::{
     Dialect,
@@ -16,7 +18,8 @@ use crate::{
 
 use super::Extension;
 use super::arch::AMDArchitecture;
-use super::extension::{format_f162bf16, format_max, format_min};
+use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
+use super::mma::{WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -43,7 +46,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
             f.write_str("#include <hip/hip_fp16.h>\n")?;
         }
         if flags.inst_wmma {
-            Self::compile_wmma_includes(f)?;
+            Self::compile_wmma_includes(f, flags)?;
         }
         Ok(())
     }
@@ -58,6 +61,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 Extension::Max(var) => format_max::<Self>(f, var)?,
                 Extension::Min(var) => format_min::<Self>(f, var)?,
                 Extension::NoExtension => {}
+                Extension::Wmma(inst) => inst.format_wmma(f)?,
             }
         }
         Ok(())
@@ -93,6 +97,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 extensions.push(extension);
             }
         };
+
         #[allow(clippy::single_match)]
         match instruction {
             shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
@@ -128,6 +133,48 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
             _ => {}
         }
     }
+
+    fn register_wmma_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &shared::WmmaInstruction<Self>,
+    ) {
+        if TypeId::of::<M>() != TypeId::of::<WmmaIntrinsicCompiler>() {
+            return;
+        }
+
+        let extension = match instruction {
+            shared::WmmaInstruction::Fill { frag, .. } => {
+                Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
+            }
+            shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
+                WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
+            ),
+            shared::WmmaInstruction::Execute {
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                warp_size: _,
+            } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
+                variable_to_frag(frag_a),
+                variable_to_frag(frag_b),
+                variable_to_frag(frag_c),
+                variable_to_frag(frag_d),
+            ))),
+            shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
+                WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
+            ),
+            shared::WmmaInstruction::Cast { input, output } => {
+                Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
+                    variable_to_frag(input),
+                    variable_to_frag(output),
+                )))
+            }
+        };
+        if !extensions.contains(&extension) {
+            extensions.push(extension);
+        }
+    }
 }
 
 // Types
@@ -142,11 +189,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         _scalars: &[(Elem<Self>, usize)],
-        _flags: &Flags,
+        flags: &Flags,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
-        Self::compile_wmma_type_definitions(f)?;
+
+        if flags.inst_wmma {
+            Self::compile_wmma_type_definitions(f, flags)?;
+        }
+
         Ok(())
     }
 
@@ -403,12 +454,15 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_includes(f)
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        M::compile_wmma_includes(f, flags)
     }
 
-    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_type_definitions(f)
+    fn compile_wmma_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        M::compile_wmma_type_definitions(f, flags)
     }
 
     fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
