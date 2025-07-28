@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashSet, marker::PhantomData};
+use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
@@ -8,16 +8,11 @@ use crate::{
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind,
-        Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary, variable_to_frag,
+        Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
-use super::{
-    Extension,
-    arch::CudaArchitecture,
-    extension::MmaSyncExtension,
-    mma::{CudaWmmaCompiler, MmaCast, MmaExecute, MmaFill, MmaLoad, MmaStore},
-};
+use super::{Extension, arch::CudaArchitecture};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect<M> {
@@ -29,7 +24,7 @@ impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
 }
 
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
-    type Extension = Extension<Self>;
+    type Extension = Extension;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <cuda_runtime.h>\n")?;
@@ -73,15 +68,9 @@ alignas(64) unsigned long long int opaque[16];
     }
 
     fn compile_extensions(
-        f: &mut std::fmt::Formatter<'_>,
-        extensions: &[Self::Extension],
+        _f: &mut std::fmt::Formatter<'_>,
+        _extensions: &[Self::Extension],
     ) -> std::fmt::Result {
-        for extension in extensions {
-            match extension {
-                Extension::NoExtension => {}
-                Extension::MmaSync(inst) => inst.format_mma(f)?,
-            }
-        }
         Ok(())
     }
 
@@ -95,48 +84,6 @@ alignas(64) unsigned long long int opaque[16];
         _extensions: &mut Vec<Self::Extension>,
         _instruction: &WarpInstruction<Self>,
     ) {
-    }
-
-    fn register_wmma_instruction_extension(
-        extensions: &mut Vec<Self::Extension>,
-        instruction: &shared::WmmaInstruction<Self>,
-    ) {
-        if TypeId::of::<M>() != TypeId::of::<CudaWmmaCompiler>() {
-            return;
-        }
-
-        let extension = match instruction {
-            shared::WmmaInstruction::Fill { frag, .. } => {
-                Extension::MmaSync(MmaSyncExtension::Fill(MmaFill::new(variable_to_frag(frag))))
-            }
-            shared::WmmaInstruction::Load { frag, layout, .. } => Extension::MmaSync(
-                MmaSyncExtension::Load(MmaLoad::new(variable_to_frag(frag), *layout)),
-            ),
-            shared::WmmaInstruction::Execute {
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                warp_size: _,
-            } => Extension::MmaSync(MmaSyncExtension::Execute(MmaExecute::new(
-                variable_to_frag(frag_a),
-                variable_to_frag(frag_b),
-                variable_to_frag(frag_c),
-                variable_to_frag(frag_d),
-            ))),
-            shared::WmmaInstruction::Store { frag, layout, .. } => Extension::MmaSync(
-                MmaSyncExtension::Store(MmaStore::new(variable_to_frag(frag), *layout)),
-            ),
-            shared::WmmaInstruction::Cast { input, output } => {
-                Extension::MmaSync(MmaSyncExtension::Cast(MmaCast::new(
-                    variable_to_frag(input),
-                    variable_to_frag(output),
-                )))
-            }
-        };
-        if !extensions.contains(&extension) {
-            extensions.push(extension);
-        }
     }
 }
 
