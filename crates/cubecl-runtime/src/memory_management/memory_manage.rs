@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
 };
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 #[cfg(not(exclusive_memory_only))]
@@ -67,11 +67,24 @@ impl MemoryPool for DynamicPool {
     }
 }
 
+#[derive(Default, Clone, Copy)]
+/// The mode of allocation used.
+pub enum MemoryAllocationMode {
+    /// Use the automatic memory management strategy for allocation.
+    #[default]
+    Auto,
+    /// Use a static memory management strategy, meaning that all allocations are for data that is
+    /// never going to be freed.
+    Static,
+}
+
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
+    static_pool: StaticPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
+    mode: MemoryAllocationMode,
 }
 
 /// Exclude certain storage buffers from being selected when reserving memory.
@@ -256,14 +269,24 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .collect();
 
         Self {
+            static_pool: StaticPool::new(properties.max_page_size),
             pools,
             storage,
             alloc_reserve_count: 0,
+            mode: MemoryAllocationMode::Auto,
         }
+    }
+
+    /// Change the mode of allocation.
+    pub fn mode(&mut self, mode: MemoryAllocationMode) {
+        self.mode = mode;
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self, explicit: bool) {
+        self.static_pool
+            .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
+
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
@@ -271,6 +294,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Returns the storage from the specified binding
     pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+        if let Some(val) = self.static_pool.get(&binding) {
+            return Some(val.clone());
+        }
+
         self.pools.iter().find_map(|p| p.get(&binding)).cloned()
     }
 
@@ -298,6 +325,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> SliceHandle {
+        if let MemoryAllocationMode::Static = self.mode {
+            return self.static_pool.alloc(&mut self.storage, size);
+        }
+
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -332,7 +363,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
-        self.pools.iter().map(|x| x.get_memory_usage()).fold(
+        let memory_usage = self.pools.iter().map(|x| x.get_memory_usage()).fold(
             MemoryUsage {
                 number_allocs: 0,
                 bytes_in_use: 0,
@@ -340,7 +371,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 bytes_reserved: 0,
             },
             |m1, m2| m1.combine(m2),
-        )
+        );
+        memory_usage.combine(self.static_pool.get_memory_usage())
     }
 
     /// Print out a report of the current memory usage.

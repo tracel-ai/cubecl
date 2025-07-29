@@ -23,9 +23,9 @@ hip = []
 metal = []
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false, features = [
     "channel-mutex",
 ] }
 

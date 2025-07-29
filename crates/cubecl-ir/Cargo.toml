@@ -21,8 +21,8 @@ serde = ["dep:serde", "hashbrown/serde"]
 std = []
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.6" }
-cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.6" }
+cubecl-common = { path = "../cubecl-common", version = "0.7" }
+cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.7" }
 
 derive_more = { workspace = true, features = ["from"] }
 float-ord = "0.3"

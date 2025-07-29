@@ -210,8 +210,20 @@ impl Elem {
     pub fn is_int(&self) -> bool {
         matches!(
             self,
-            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt(_) | Elem::AtomicUInt(_)
+            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt(_) | Elem::AtomicUInt(_) | Elem::Bool
         )
+    }
+
+    pub fn is_signed_int(&self) -> bool {
+        matches!(self, Elem::Int(_) | Elem::AtomicInt(_))
+    }
+
+    pub fn is_unsigned_int(&self) -> bool {
+        matches!(self, Elem::UInt(_) | Elem::AtomicUInt(_) | Elem::Bool)
+    }
+
+    pub fn is_float(&self) -> bool {
+        matches!(self, Elem::Float(_) | Elem::AtomicFloat(_))
     }
 
     pub fn max_variable(&self) -> Variable {

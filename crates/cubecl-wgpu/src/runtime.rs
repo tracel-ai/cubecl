@@ -20,7 +20,7 @@ use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
-use wgpu::{InstanceFlags, RequestAdapterOptions};
+use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
@@ -109,6 +109,18 @@ impl Runtime for WgpuRuntime {
         }
 
         true
+    }
+
+    fn device_count() -> usize {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+        let adapters: Vec<_> = instance
+            .enumerate_adapters(Backends::all())
+            .into_iter()
+            .collect();
+        adapters.len()
     }
 }
 

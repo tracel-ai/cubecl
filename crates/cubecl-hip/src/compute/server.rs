@@ -288,6 +288,11 @@ impl ComputeServer for HipServer {
                 .expect("Can't find resource"),
         )
     }
+
+    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+        let ctx = self.get_context();
+        ctx.memory_management.mode(mode);
+    }
 }
 
 fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource {

@@ -10,7 +10,7 @@ members = ["crates/*", "examples/*", "xtask"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-version = "0.6.0"
+version = "0.7.0"
 rust-version = "1.85"
 
 [workspace.dependencies]
@@ -84,6 +84,10 @@ pretty_assertions = "1.4"
 embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
+# CubeCL-CPU
+sysinfo = "0.36.1"
+libc = "0.2.172"
+
 [profile.dev]
-debug = 0     # Speed up compilation time and not necessary.
+debug = 0 # Speed up compilation time and not necessary.
 opt-level = 0

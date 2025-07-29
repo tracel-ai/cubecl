@@ -77,9 +77,9 @@ matmul_tests_all = [
 conv_tests = ["cubecl-convolution/conv_tests"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.6.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.6.0", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.6.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false, features = [
     "channel-mutex",
 ] }
 derive_more = { workspace = true }
@@ -89,10 +89,10 @@ tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { version = "0.38", optional = true }
-cubecl-spirv = { path = "../cubecl-spirv", version = "0.6.0", optional = true }
+cubecl-spirv = { path = "../cubecl-spirv", version = "0.7.0", optional = true }
 
 # Metal
-cubecl-cpp = { path = "../cubecl-cpp", version = "0.6.0", features = [
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.7.0", features = [
     "metal",
 ], optional = true }
 
@@ -125,25 +125,25 @@ wgpu = { version = "25.0.0", features = [
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.6.0", features = [
+cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [
     "export_tests",
 ] }
-cubecl-matmul = { path = "../cubecl-matmul", version = "0.6.0", features = [
+cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", features = [
     "export_tests",
 ] }
-cubecl-attention = { path = "../cubecl-attention", version = "0.6.0", features = [
+cubecl-attention = { path = "../cubecl-attention", version = "0.7.0", features = [
     "export_tests",
 ] }
-cubecl-convolution = { path = "../cubecl-convolution", version = "0.6.0", features = [
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [
     "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.6.0", features = [
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
     "export_tests",
 ] }
-cubecl-random = { path = "../cubecl-random", version = "0.6.0", features = [
+cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "0.6.0", features = [
+cubecl-std = { path = "../cubecl-std", version = "0.7.0", features = [
     "export_tests",
 ] }
 half = { workspace = true }

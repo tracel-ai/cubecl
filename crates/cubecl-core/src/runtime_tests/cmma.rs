@@ -9,7 +9,7 @@ use half::{bf16, f16};
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         16,
@@ -420,7 +420,7 @@ pub fn test_simple_1<R: Runtime>(
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
-        kernel_simple_1::launch::<R>(
+        kernel_simple_f16_m16n16k16_gmem::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,

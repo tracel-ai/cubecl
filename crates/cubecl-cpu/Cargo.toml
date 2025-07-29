@@ -1,0 +1,65 @@
+[package]
+authors = ["marcantoinem <marc-antoine.m@outlook.com>"]
+categories = ["science"]
+description = "CPU runtime for CubeCL"
+edition.workspace = true
+keywords = ["cpu"]
+license.workspace = true
+name = "cubecl-cpu"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpu"
+version.workspace = true
+
+[features]
+mlir-dump = []
+default = [
+    "std",
+    "cubecl-runtime/default",
+    "cubecl-common/default",
+    "cubecl-core/default",
+]
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+
+[dependencies]
+cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false, features = [
+    "channel-mutex",
+] }
+cubecl-opt = { path = "../cubecl-opt", version = "0.7.0", default-features = false }
+cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", features = [
+    "export_tests",
+] }
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [
+    "export_tests",
+] }
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
+    "export_tests",
+] }
+
+bytemuck = { workspace = true }
+derive-new = { workspace = true }
+half = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+sysinfo = { workspace = true }
+libc = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "a5800d4c2886949ad38332e0f14f004df8f9f645" }
+
+[dev-dependencies]
+cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [
+    "export_tests",
+] }
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
+    "export_tests",
+] }
+cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
+    "export_tests",
+] }
+cubecl-std = { path = "../cubecl-std", version = "0.7.0", features = [
+    "export_tests",
+] }
+paste = { workspace = true }
+pretty_assertions = { workspace = true }

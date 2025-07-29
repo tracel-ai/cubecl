@@ -9,7 +9,7 @@ use cubecl_common::{
 use super::ComputeChannel;
 use crate::{
     logging::ServerLogger,
-    memory_management::MemoryUsage,
+    memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
         Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
         ProfilingToken,
@@ -69,6 +69,7 @@ where
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
+    AllocationMode(MemoryAllocationMode),
     StartProfile(Callback<ProfilingToken>),
     StopMeasure(
         Callback<Result<ProfileDuration, ProfileError>>,
@@ -140,6 +141,9 @@ where
                     }
                     Message::StopMeasure(callback, token) => {
                         callback.send(server.end_profile(token)).await.unwrap();
+                    }
+                    Message::AllocationMode(mode) => {
+                        server.allocation_mode(mode);
                     }
                 };
             }
@@ -328,6 +332,13 @@ where
             .send_blocking(Message::StopMeasure(callback, token))
             .unwrap();
         handle_response(response.recv_blocking())
+    }
+
+    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
+        self.state
+            .sender
+            .send_blocking(Message::AllocationMode(mode))
+            .unwrap()
     }
 }
 

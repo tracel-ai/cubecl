@@ -1,6 +1,7 @@
 pub use cubecl_core::*;
 
 pub use cubecl_runtime::config;
+pub use cubecl_runtime::memory_management::MemoryAllocationMode;
 
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
@@ -25,3 +26,6 @@ pub use cubecl_reduce as reduce;
 
 #[cfg(feature = "random")]
 pub use cubecl_random as random;
+
+#[cfg(feature = "cpu")]
+pub use cubecl_cpu as cpu;

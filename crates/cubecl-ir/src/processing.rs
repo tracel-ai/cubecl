@@ -1,5 +1,6 @@
 use core::fmt::Display;
 
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use crate::{Allocator, AtomicOp, Bitwise, Comparison, Operator};
@@ -23,10 +24,14 @@ pub struct ScopeProcessing {
 
 impl Display for ScopeProcessing {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        for inst in self.instructions.iter() {
-            f.write_fmt(format_args!("{inst}\n"))?;
+        writeln!(f, "{{")?;
+        for instruction in self.instructions.iter() {
+            let instruction_str = instruction.to_string();
+            if !instruction_str.is_empty() {
+                writeln!(f, "    {instruction_str}")?;
+            }
         }
-
+        write!(f, "}}")?;
         Ok(())
     }
 }

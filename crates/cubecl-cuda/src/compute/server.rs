@@ -541,6 +541,10 @@ impl ComputeServer for CudaServer {
     fn memory_cleanup(&mut self) {
         self.ctx.memory_management.cleanup(true);
     }
+
+    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+        self.ctx.memory_management.mode(mode);
+    }
 }
 
 fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResource {
