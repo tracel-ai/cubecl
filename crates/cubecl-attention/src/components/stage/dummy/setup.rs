@@ -8,12 +8,9 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError,
     stage::{
-        AttentionTilingLayout, StageAttentionFamily,
-        dummy::{DummyStageAttention, config::DummyStageConfig},
-    },
+        dummy::{config::DummyStageConfig, DummyStageAttention}, AttentionTilingLayout, StageAttentionFamily
+    }, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection, AttentionSetupError
 };
 
 pub struct DummyStageAttentionFamily<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily>
