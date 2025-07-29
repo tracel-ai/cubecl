@@ -4,7 +4,7 @@ use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
 use crate::components::{
-    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, StageIdent, TilingScheme
 };
 use crate::components::{
     global::{GlobalConfig, global_memory::TensorReader},
@@ -33,7 +33,7 @@ pub struct SyncFullTilewiseLoading<T: TilingOrder> {
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
-        ident: InputIdent,
+        ident: MatmulIdent,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -42,7 +42,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
 }
 
 impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
@@ -79,22 +79,22 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
     type Job<MP: MatmulPrecision> = SyncFullTilewiseJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let line_size = config.global_line_size(input_ident);
-        let num_planes = config.num_loading_planes(input_ident);
-        let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
+        let line_size = config.global_line_size(ident);
+        let num_planes = config.num_loading_planes(ident);
+        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
         let num_lines_per_tile =
-            comptime!(config.tiling_scheme().elements_in_tile(input_ident) / line_size);
+            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
         let num_tiles_to_skip = RoleRule::new(config.role_rule_config())
-            .load_index(input_ident, config.specialized_loading_sides())
+            .load_index(ident, config.specialized_loading_sides())
             * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
@@ -105,7 +105,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
             num_lines_per_unit,
             plane_dim: config.plane_dim(),
             line_size,
-            input_ident,
+            ident,
         }
     }
 }
@@ -124,7 +124,7 @@ pub struct SyncFullTilewiseJob {
     #[cube(comptime)]
     pub line_size: u32,
     #[cube(comptime)]
-    pub input_ident: InputIdent,
+    pub ident: MatmulIdent,
 }
 
 #[cube]
@@ -146,7 +146,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let nth_tile_global = nth_tile_for_this_plane + this.num_tiles_to_skip;
         let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
             nth_tile_global,
-            comptime!(this.input_ident.as_ident()),
+            comptime!(StageIdent::from_matmul(this.ident)),
             config.stage_config(),
         );
 
@@ -184,14 +184,14 @@ impl SyncFullTilewiseJob {
             tile.0,
             tile.1,
             line_index_within_tile * this.line_size,
-            this.input_ident,
+            this.ident,
             config,
         );
 
         let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;
 
         stage.as_slice_mut(this.line_size)[offset] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
+            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.ident),
             CubeOption::None => Line::cast_from(line_read),
         };
     }

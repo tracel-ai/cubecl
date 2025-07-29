@@ -1,4 +1,4 @@
-use crate::components::Ident;
+use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::global_memory::TensorWriter;
 use cubecl_core as cubecl;
@@ -39,7 +39,7 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
         #[comptime] config: G,
     ) {
         let tile_size = config.tiling_scheme().elements_in_tile_mn();
-        let output_line_size = config.global_line_size(Ident::Out);
+        let output_line_size = config.global_line_size(MatmulIdent::Out);
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let unit_step = config.plane_dim() * output_line_size;

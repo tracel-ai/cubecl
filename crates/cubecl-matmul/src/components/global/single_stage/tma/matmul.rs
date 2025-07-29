@@ -1,4 +1,4 @@
-use crate::components::InputIdent;
+use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::ZeroAccumulatorLoader;
@@ -99,7 +99,7 @@ where
             y_offset,
             nth_batch,
             quantization,
-            InputIdent::Lhs,
+            MatmulIdent::Lhs,
             config,
         )
     }
@@ -119,7 +119,7 @@ where
             y_offset,
             nth_batch,
             quantization,
-            InputIdent::Rhs,
+            MatmulIdent::Rhs,
             config,
         )
     }

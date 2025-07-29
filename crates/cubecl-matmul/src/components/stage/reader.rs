@@ -1,5 +1,5 @@
-use crate::components::InputIdent;
-use crate::components::global::load::StageIdent;
+use crate::components::StageIdent;
+use crate::components::global::load::StageBuffer;
 use crate::components::stage::ReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMemory;
@@ -20,7 +20,7 @@ pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {
 
     #[cube(comptime)]
     /// Ident of the stage memory
-    pub input_ident: InputIdent,
+    pub stage_ident: StageIdent,
 }
 
 impl ReaderFamily for FullReaderFamily {
@@ -30,10 +30,10 @@ impl ReaderFamily for FullReaderFamily {
 #[cube]
 impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
     /// Create a new FullStageToTileReader
-    pub fn new(stage_memory: StageMemory<ES, T>, #[comptime] input_ident: InputIdent) -> Self {
+    pub fn new(stage_memory: StageMemory<ES, T>, #[comptime] stage_ident: StageIdent) -> Self {
         FullStageToTileReader::<ES, T> {
             stage_memory,
-            input_ident,
+            stage_ident,
         }
     }
 }
@@ -50,7 +50,7 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileRead
             row,
             col,
             0u32,
-            comptime!(this.input_ident.as_ident()),
+            comptime!(this.stage_ident.as_ident()),
             config,
         )
     }
@@ -64,9 +64,9 @@ pub struct PartialReaderFamily;
 pub struct PartialStageToTileReader<ES: Numeric, T: TilingLayout> {
     pub stage_memory: StageMemory<ES, T>,
     #[cube(comptime)]
-    pub stage_ident: StageIdent,
+    pub stage_buffer: StageBuffer,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    stage_ident: StageIdent,
 }
 
 impl ReaderFamily for PartialReaderFamily {
@@ -78,13 +78,13 @@ impl<ES: Numeric, T: TilingLayout> PartialStageToTileReader<ES, T> {
     /// Create a new PartialStageToTileReader
     pub fn new(
         stage_memory: StageMemory<ES, T>,
+        #[comptime] stage_buffer: StageBuffer,
         #[comptime] stage_ident: StageIdent,
-        #[comptime] input_ident: InputIdent,
     ) -> PartialStageToTileReader<ES, T> {
         PartialStageToTileReader::<ES, T> {
             stage_memory,
+            stage_buffer,
             stage_ident,
-            input_ident,
         }
     }
 }
@@ -100,8 +100,8 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for PartialStageToTileR
         this.stage_memory.get_tile::<S>(
             row,
             col,
-            comptime!(this.stage_ident.to_index()),
-            comptime!(this.input_ident.as_ident()),
+            comptime!(this.stage_buffer.to_index()),
+            comptime!(this.stage_ident.as_ident()),
             config,
         )
     }

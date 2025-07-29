@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::StageIdent;
+use crate::components::global::load::StageBuffer;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageConfig, TilingLayout};
 use crate::components::tile::Tile;
-use crate::components::{Ident, InputIdent, MatrixLayout};
+use crate::components::{MatrixLayout, StageIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -28,7 +28,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     /// Instantiate a new stage memory for the given identifier
     pub fn new<S: StageConfig>(
         #[comptime] num_stages: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> StageMemory<ES, T> {
         let line_size = config.stage_line_size(ident);
@@ -43,14 +43,19 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
 
     /// Instantiate a new stage memory for the given identifier, with shared memory alignment
     pub fn new_aligned<S: StageConfig>(
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] alignment: u32,
         #[comptime] config: S,
     ) -> StageMemory<ES, T> {
         let line_size = config.stage_line_size(ident);
 
         let smem = SharedMemory::new_aligned(
-            comptime!(config.tiling_scheme().elements_in_stage(ident) / line_size),
+            comptime!(
+                config
+                    .tiling_scheme()
+                    .elements_in_stage(config.stage_to_matmul_ident(ident))
+                    / line_size
+            ),
             line_size,
             alignment,
         );
@@ -76,7 +81,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         row: u32,
         col: u32,
         #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> Tile<ES> {
         T::get_tile::<ES, S>(self, row, col, buffer_index, ident, config)
@@ -95,16 +100,21 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     /// Zero out the shared memory
     pub fn clear_all<G: GlobalConfig>(
         &mut self,
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: StageIdent,
         #[comptime] config: G,
     ) {
         // TODO: this assumes the stage was created with new
+        let stage_config = config.stage_config();
+        let tensor_ident = stage_config.stage_to_matmul_ident(ident);
         let smem_length = comptime!(
-            self.num_stages * config.tiling_scheme().elements_in_stage(ident)
-                / config.stage_config().stage_line_size(ident)
+            self.num_stages
+                * config
+                    .tiling_scheme()
+                    .elements_in_stage(stage_config.stage_to_matmul_ident(ident))
+                / stage_config.stage_line_size(ident)
         );
 
-        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
+        let unit_count = config.num_loading_planes(tensor_ident) * config.plane_dim();
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
         let unit_base_position = RoleRule::new(config.role_rule_config())
@@ -129,16 +139,20 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     /// Zero out the shared memory for only one stage
     pub fn clear_stage<G: GlobalConfig>(
         &mut self,
-        #[comptime] stage_ident: StageIdent,
-        #[comptime] ident: InputIdent,
+        #[comptime] stage_buffer: StageBuffer,
+        #[comptime] ident: StageIdent,
         #[comptime] config: G,
     ) {
         // TODO: this assumes the stage was created with new
         // Also assumes two buffers
         let tiling_scheme = config.tiling_scheme();
-        let line_size = config.stage_config().stage_line_size(ident.as_ident());
+        let line_size = config.stage_config().stage_line_size(ident);
         let smem_length = comptime!(
-            self.num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size
+            self.num_stages
+                * config
+                    .tiling_scheme()
+                    .elements_in_stage(config.tensor_ident(ident))
+                / line_size
         );
         let buffer_length = smem_length / 2;
 
@@ -156,19 +170,19 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
             let unit_position = unit_base_position + i * unit_count;
 
             let smem_position = match (ident, matrix_layout) {
-                (InputIdent::Lhs, MatrixLayout::ColMajor)
-                | (InputIdent::Rhs, MatrixLayout::RowMajor) => {
-                    stage_ident.to_index() * buffer_length + unit_position
+                (StageIdent::Lhs, MatrixLayout::ColMajor)
+                | (StageIdent::Rhs, MatrixLayout::RowMajor) => {
+                    stage_buffer.to_index() * buffer_length + unit_position
                 }
-                (InputIdent::Lhs, MatrixLayout::RowMajor) => {
+                (StageIdent::Lhs, MatrixLayout::RowMajor) => {
                     let buffer_width = tiling_scheme.elements_in_tile_col(ident) / line_size;
-                    stage_ident.to_index() * buffer_width
+                    stage_buffer.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width
                 }
-                (InputIdent::Rhs, MatrixLayout::ColMajor) => {
+                (StageIdent::Rhs, MatrixLayout::ColMajor) => {
                     let buffer_height = tiling_scheme.elements_in_tile_row(ident) / line_size;
-                    stage_ident.to_index() * buffer_height
+                    stage_buffer.to_index() * buffer_height
                         + unit_position
                         + (unit_position / buffer_height) * buffer_height
                 }

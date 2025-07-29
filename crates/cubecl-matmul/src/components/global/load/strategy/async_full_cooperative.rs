@@ -1,11 +1,7 @@
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig,
-        global_memory::{TensorReader, Window},
-        load::AsyncFullLoadingStrategy,
-    },
-    stage::{StageMemory, StridedTilingLayout},
+        global_memory::{TensorReader, Window}, load::AsyncFullLoadingStrategy, CopyMechanism, GlobalConfig
+    }, stage::{StageMemory, StridedTilingLayout}, InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -20,7 +16,7 @@ use super::{AsyncLoadingJob, LoadingValidation};
 pub struct AsyncFullCooperativeLoading {}
 
 impl LoadingValidation for AsyncFullCooperativeLoading {
-    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
@@ -31,19 +27,19 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
     type Job<MP: MatmulPrecision> = AsyncFullCooperativeJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullCooperativeJob {
-        let matrix_layout = config.matrix_layout(input_ident);
+        let matrix_layout = config.matrix_layout(ident);
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(input_ident),
-            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(input_ident),
+            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
+            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
         };
 
         AsyncFullCooperativeJob {
             num_slices,
-            input_ident,
+            ident,
         }
     }
 
@@ -57,7 +53,7 @@ pub struct AsyncFullCooperativeJob {
     #[cube(comptime)]
     num_slices: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
 }
 
 #[cube]
@@ -71,12 +67,12 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for AsyncFull
         #[comptime] config: G,
     ) {
         let window: Window<MP::EI> =
-            tensor_reader.load_window_in_stage::<G>(task_id, this.input_ident, config);
+            tensor_reader.load_window_in_stage::<G>(task_id, this.ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 task_id,
-                comptime!(this.input_ident.as_ident()),
+                comptime!(StageIdent::from_matmul(this.ident)),
                 config.stage_config(),
             );
 

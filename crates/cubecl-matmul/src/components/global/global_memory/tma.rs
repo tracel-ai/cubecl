@@ -1,7 +1,7 @@
-use crate::components::Ident;
-use crate::components::InputIdent;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+
+use crate::components::MatmulIdent;
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
@@ -29,14 +29,15 @@ impl<EG: Numeric> MappedTensorReader<EG> {
     }
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
-    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
-        match ident.as_input_ident() {
-            InputIdent::Lhs => {
+    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: MatmulIdent) {
+        match ident {
+            MatmulIdent::Lhs => {
                 self.tile_y += k_offset;
             }
-            InputIdent::Rhs => {
+            MatmulIdent::Rhs => {
                 self.tile_x += k_offset;
             }
+            MatmulIdent::Out => comptime!(unreachable!()),
         }
     }
 }

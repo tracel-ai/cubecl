@@ -3,7 +3,7 @@ use std::any::TypeId;
 use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
 
 use crate::components::{
-    Ident, InputIdent, LoadingPrecomputeStrategy, MatmulPrecision, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent,
     error::{MatmulAvailabilityError, MatmulSetupError},
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
@@ -34,31 +34,33 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
         self.stage_config
     }
 
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        self.stage_config.global_line_size(ident)
+    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+        self.stage_config
+            .global_line_size(StageIdent::from_matmul(ident))
     }
 
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        self.stage_config.matrix_layout(ident)
+    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+        self.stage_config
+            .matrix_layout(StageIdent::from_matmul(ident))
     }
 
     fn plane_dim(&self) -> u32 {
         self.stage_config.plane_dim()
     }
 
-    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
         match ident.into() {
-            Ident::Lhs => self.check_m_bounds,
-            Ident::Rhs => self.check_k_bounds,
-            Ident::Out => self.check_m_bounds,
+            MatmulIdent::Lhs => self.check_m_bounds,
+            MatmulIdent::Rhs => self.check_k_bounds,
+            MatmulIdent::Out => self.check_m_bounds,
         }
     }
 
-    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
         match ident.into() {
-            Ident::Lhs => self.check_k_bounds,
-            Ident::Rhs => self.check_n_bounds,
-            Ident::Out => self.check_n_bounds,
+            MatmulIdent::Lhs => self.check_k_bounds,
+            MatmulIdent::Rhs => self.check_n_bounds,
+            MatmulIdent::Out => self.check_n_bounds,
         }
     }
 
@@ -66,7 +68,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
         self.check_k_bounds
     }
 
-    fn num_stages(&self, _ident: InputIdent) -> u32 {
+    fn num_stages(&self, _ident: MatmulIdent) -> u32 {
         1
     }
 
@@ -78,7 +80,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
         self.loader_mode
     }
 
-    fn event_loading_mode(&self, _ident: InputIdent) -> EventLoadingMode {
+    fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
         EventLoadingMode::Relaxed
     }
 
@@ -86,7 +88,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
         self.stage_config.plane_role_config()
     }
 
-    fn num_loading_planes<I: Into<Ident>>(&self, _ident: I) -> u32 {
+    fn num_loading_planes(&self, _ident: MatmulIdent) -> u32 {
         // Specialized is not available
         self.stage_config().num_main_flow_planes()
     }
@@ -140,8 +142,8 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     fn validate<LL: LoadingValidation, RL: LoadingValidation>(
         self,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check(&self, Ident::Lhs)?;
-        RL::check(&self, Ident::Rhs)?;
+        LL::check(&self, MatmulIdent::Lhs)?;
+        RL::check(&self, MatmulIdent::Rhs)?;
         shared_global_config_validation(self)?;
 
         Ok(self)

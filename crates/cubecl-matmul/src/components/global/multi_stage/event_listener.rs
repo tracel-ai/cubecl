@@ -1,10 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::load::StageIdent;
+use crate::components::global::load::StageBuffer;
 use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
-use crate::components::{InputIdent, TilingScheme};
+use crate::components::{MatmulIdent, TilingScheme};
 
 #[derive(Copy, Clone)]
 /// For a tensor, whether it is constrained to be loaded respecting order
@@ -23,7 +23,7 @@ pub enum EventLoadingMode {
 /// allowing data for the next tile to be loaded while the current tile is being computed.
 pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
-    stage_ident: StageIdent,
+    stage_buffer: StageBuffer,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
@@ -65,14 +65,14 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
 {
     /// Create a new DoubleBufferingEventListener
     pub fn new(
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
         #[comptime] event_loading_side: LoadingSides,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
-            stage_ident,
+            stage_buffer,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
             config,
@@ -191,7 +191,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
         if comptime!(self.event_loading_side.includes_lhs()) {
             self.state_lhs.push(L::create_job_iterator(
                 &self.loader_lhs,
-                self.stage_ident,
+                self.stage_buffer,
                 self.config,
             ));
         }
@@ -199,7 +199,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
         if comptime!(self.event_loading_side.includes_rhs()) {
             self.state_rhs.push(R::create_job_iterator(
                 &self.loader_rhs,
-                self.stage_ident,
+                self.stage_buffer,
                 self.config,
             ));
         }
@@ -245,8 +245,8 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
                 true
             };
 
-            let lhs_can_start = lhs_len > 0 && can_start(self.config.event_loading_mode(InputIdent::Lhs));
-            let rhs_can_start = rhs_len > 0 && can_start(self.config.event_loading_mode(InputIdent::Rhs));
+            let lhs_can_start = lhs_len > 0 && can_start(self.config.event_loading_mode(MatmulIdent::Lhs));
+            let rhs_can_start = rhs_len > 0 && can_start(self.config.event_loading_mode(MatmulIdent::Rhs));
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);
@@ -276,7 +276,7 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     /// Create the job to execute
     fn create_job_iterator(
         this: &Self,
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator;
 
@@ -293,7 +293,7 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     /// Create a job and execute all its tasks at once
     fn execute_whole_job(
         this: &mut Self,
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     );
 }
@@ -319,7 +319,7 @@ pub trait LoadMaxRoundPlaneCount {
     /// Returns the largest number of planes that evenly divides the tasks.
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
-        ident: InputIdent,
+        ident: MatmulIdent,
         line_size: u8,
         plane_dim: u32,
     ) -> u32;

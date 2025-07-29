@@ -6,9 +6,11 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::NumStages;
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection};
 use crate::components::{
-    Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
+    AvailableLineSizes, MatmulIdent, MatmulLineSizes, MatmulSelection, StageIdent,
+};
+use crate::components::{
+    MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
@@ -166,13 +168,13 @@ pub trait StageConfig:
     fn tile_config(self) -> Self::TileConfig;
 
     /// Returns the line size for the given ident
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn stage_line_size(&self, ident: StageIdent) -> u32;
 
     /// Returns the line size for the given ident
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn global_line_size(&self, ident: StageIdent) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
 
     /// Returns how many units are in a plane
     fn plane_dim(&self) -> u32;
@@ -181,7 +183,7 @@ pub trait StageConfig:
     fn partition_buffering(&self) -> PartitionBuffering;
 
     /// Returns the number of stages for the given input
-    fn num_stages(&self, ident: InputIdent) -> u32;
+    fn num_stages(&self, ident: StageIdent) -> u32;
 
     /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme;

@@ -3,7 +3,7 @@ use crate::components::global::LoadingSides;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
 use crate::components::global::SpecializerKind;
-use crate::components::global::load::StageIdent;
+use crate::components::global::load::StageBuffer;
 use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::{MatmulPrecision, stage};
@@ -24,7 +24,7 @@ pub fn load_first<
     lhs_loader: &mut LJ,
     rhs_loader: &mut RJ,
     specializer: &Specializer,
-    #[comptime] stage_to_load: StageIdent,
+    #[comptime] stage_to_load: StageBuffer,
     #[comptime] config: G,
 ) {
     match comptime!(specializer.kind) {
@@ -76,7 +76,7 @@ pub fn execute_current_and_load_next<
     lhs_loader: &mut LJ,
     rhs_loader: &mut RJ,
     specializer: &Specializer,
-    #[comptime] stage_to_load: StageIdent,
+    #[comptime] stage_to_load: StageBuffer,
     #[comptime] config: G,
 ) {
     match comptime!(specializer.kind) {

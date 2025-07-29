@@ -1,11 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::components::StageIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
 use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
-use crate::components::global::load::StageIdent;
+use crate::components::global::load::StageBuffer;
 use crate::components::global::load::TaskCounter;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
@@ -13,7 +14,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
-use crate::components::{InputIdent, MatmulPrecision};
+use crate::components::{MatmulIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -32,7 +33,7 @@ pub trait SyncFullLoadingStrategy:
 
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP>;
 }
@@ -48,7 +49,7 @@ pub struct SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadi
     loading_job: CubeOption<L::Job<MP>>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     _phantom: PhantomData<(G, L)>,
 }
@@ -62,15 +63,18 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         y_offset: u32,
         batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory =
-            StageMemory::new::<G::StageConfig>(1u32, input_ident.as_ident(), config.stage_config());
+        let stage_memory = StageMemory::new::<G::StageConfig>(
+            1u32,
+            comptime!(StageIdent::from_matmul(ident)),
+            config.stage_config(),
+        );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<MP, G>(input_ident, config)),
+            true => CubeOption::new_Some(L::new_job::<MP, G>(ident, config)),
             false => CubeOption::new_None(),
         };
 
@@ -79,26 +83,29 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
             stage_memory,
             loading_job,
             quantization,
-            input_ident,
+            ident,
             _phantom: PhantomData::<(G, L)>,
         }
     }
 
     /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
-        FullStageToTileReader::new(this.stage_memory, this.input_ident)
+        FullStageToTileReader::new(
+            this.stage_memory,
+            comptime!(StageIdent::from_matmul(this.ident)),
+        )
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_reader.update_view(k_offset, this.input_ident);
+        this.tensor_reader.update_view(k_offset, this.ident);
     }
 
     /// Accomplish the entire job of filling the stage memory
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<MP, G>(this.input_ident, config),
+            CubeOption::None => L::new_job::<MP, G>(this.ident, config),
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -128,12 +135,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
 
     fn create_job_iterator(
         this: &Self,
-        #[comptime] _stage_ident: StageIdent,
+        #[comptime] _stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator {
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<MP, G>(this.input_ident, config),
+            CubeOption::None => L::new_job::<MP, G>(this.ident, config),
         };
 
         let num_tasks = L::Job::task_count(&job);
@@ -196,12 +203,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
 
     fn execute_whole_job(
         this: &mut Self,
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) {
         Self::execute_all_remaining_tasks(
             this,
-            &mut Self::create_job_iterator(this, stage_ident, config),
+            &mut Self::create_job_iterator(this, stage_buffer, config),
             config,
         );
     }

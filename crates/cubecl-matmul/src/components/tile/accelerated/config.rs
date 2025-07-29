@@ -4,7 +4,7 @@ use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
+use crate::components::{MatmulPrecision, MatrixLayout, TileIdent, TileSize, TilingScheme};
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -26,27 +26,27 @@ impl TileConfig for AcceleratedConfig {
         self.plane_dim
     }
 
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
+    fn matrix_layout(&self, ident: TileIdent) -> MatrixLayout {
         match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => MatrixLayout::RowMajor,
+            TileIdent::Lhs => self.lhs_layout,
+            TileIdent::Rhs => self.rhs_layout,
+            TileIdent::Acc => MatrixLayout::RowMajor,
         }
     }
 
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+    fn stage_line_size(&self, ident: TileIdent) -> u32 {
         match ident.into() {
-            Ident::Lhs => self.lhs_stage_line_size,
-            Ident::Rhs => self.rhs_stage_line_size,
-            Ident::Out => self.out_global_line_size,
+            TileIdent::Lhs => self.lhs_stage_line_size,
+            TileIdent::Rhs => self.rhs_stage_line_size,
+            TileIdent::Acc => self.out_global_line_size,
         }
     }
 
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+    fn global_line_size(&self, ident: TileIdent) -> u32 {
         match ident.into() {
-            Ident::Lhs => self.lhs_global_line_size,
-            Ident::Rhs => self.rhs_global_line_size,
-            Ident::Out => self.out_global_line_size,
+            TileIdent::Lhs => self.lhs_global_line_size,
+            TileIdent::Rhs => self.rhs_global_line_size,
+            TileIdent::Acc => self.out_global_line_size,
         }
     }
 
