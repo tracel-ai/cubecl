@@ -1,8 +1,10 @@
 use cubecl_core::{CubeDim, ir::Builtin};
 
+const NB_PASSED_BUILTIN: usize = 9;
+
 #[derive(Default, Debug, Clone)]
 pub struct BuiltinArray {
-    pub dims: [u32; 9],
+    pub dims: [u32; NB_PASSED_BUILTIN],
     //[
     //  cube_dim_x
     //  cube_dim_y
@@ -45,7 +47,7 @@ impl BuiltinArray {
         self.dims[7] = unit_pos[1];
         self.dims[8] = unit_pos[2];
     }
-    pub(crate) const fn len(&self) -> usize {
-        self.dims.len()
+    pub(crate) const fn len() -> usize {
+        NB_PASSED_BUILTIN
     }
 }

@@ -1,6 +1,8 @@
 use crate::compiler::mlir_data::MlirData;
 
-use super::external_function::register_external_function;
+use super::{
+    external_function::register_external_function, passes::shared_memories::SharedMemories,
+};
 use cubecl_opt::Optimizer;
 
 use std::{
@@ -16,10 +18,13 @@ use tracel_llvm::melior::{
     utility::{register_all_dialects, register_all_llvm_translations, register_all_passes},
 };
 
-#[derive(Clone)]
-pub struct MlirEngine {
-    execution_engine: Arc<ExecutionEngine>,
+pub struct MlirKernel {
+    execution_engine: ExecutionEngine,
+    pub shared_memories: SharedMemories,
 }
+
+#[derive(Clone)]
+pub struct MlirEngine(pub Arc<MlirKernel>);
 
 impl Debug for MlirEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,7 +39,11 @@ impl Display for MlirEngine {
 }
 
 impl MlirEngine {
-    pub fn from_cubecl_ir(kernel: KernelDefinition, opt: &Optimizer) -> Self {
+    pub fn from_cubecl_ir(
+        kernel: KernelDefinition,
+        opt: &Optimizer,
+        shared_memories: SharedMemories,
+    ) -> Self {
         let registry = DialectRegistry::new();
         register_all_dialects(&registry);
         register_all_passes();
@@ -47,18 +56,22 @@ impl MlirEngine {
 
         let mut module = Module::new(&context);
 
-        module.visit_kernel(&kernel, opt);
+        module.visit_kernel(&kernel, opt, &shared_memories);
 
         module.run_pass();
 
         let execution_engine = module.into_execution_engine();
         register_external_function(&execution_engine);
-        let execution_engine = Arc::new(execution_engine);
-        Self { execution_engine }
+        let kernel = MlirKernel {
+            execution_engine,
+            shared_memories,
+        };
+        let mlir_kernel = Arc::new(kernel);
+        Self(mlir_kernel)
     }
 
     pub fn dump_object(&self, path: &str) {
-        self.execution_engine.dump_to_object_file(path);
+        self.0.execution_engine.dump_to_object_file(path);
     }
 
     /// # Safety
@@ -66,7 +79,8 @@ impl MlirEngine {
     #[inline(always)]
     pub unsafe fn run_kernel(&mut self, mlir_data: &mut MlirData) {
         unsafe {
-            self.execution_engine
+            self.0
+                .execution_engine
                 .invoke_packed("kernel", &mut mlir_data.args_second_indirection)
                 .unwrap()
         }

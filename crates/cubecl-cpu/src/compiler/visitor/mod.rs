@@ -9,7 +9,7 @@ pub(super) mod variables;
 
 use std::collections::HashMap;
 
-use args_manager::ArgsManager;
+use args_manager::{ArgsManager, ArgsManagerBuilder};
 use cubecl_core::{ir::Builtin, prelude::KernelDefinition};
 use cubecl_opt::{NodeIndex, Optimizer};
 use tracel_llvm::melior::{
@@ -34,7 +34,9 @@ use tracel_llvm::melior::{
 use prelude::*;
 use variables::Variables;
 
-use super::external_function::add_external_function_to_module;
+use super::{
+    external_function::add_external_function_to_module, passes::shared_memories::SharedMemories,
+};
 
 pub struct Visitor<'a> {
     pub block: BlockRef<'a, 'a>,
@@ -68,6 +70,7 @@ impl<'a> Visitor<'a> {
         let blocks_args = HashMap::new();
         let str_counter = 0;
         let variables = Variables::new(opt);
+
         Self {
             block: current_block,
             last_block,
@@ -146,6 +149,7 @@ impl<'a> Visitor<'a> {
         kernel: &'b KernelDefinition,
         module: &tracel_llvm::melior::ir::Module<'a>,
         opt: &Optimizer,
+        shared_memories: &SharedMemories,
     ) {
         let name = StringAttribute::new(context, "kernel");
 
@@ -154,7 +158,7 @@ impl<'a> Visitor<'a> {
             Attribute::unit(context),
         )];
 
-        let mut args = ArgsManager::new(kernel, context, location);
+        let args = ArgsManagerBuilder::new(kernel, context, location, shared_memories);
 
         let func_type = TypeAttribute::new(args.get_fn_type(context).into());
         for const_array in opt.const_arrays() {
@@ -192,7 +196,7 @@ impl<'a> Visitor<'a> {
             func_type,
             {
                 let region = Region::new();
-                region.append_block(args.create_top_block());
+                let args = args.create_top_block(&region);
                 let block = region.first_block().unwrap();
 
                 Self::insert_builtin_loop(block, module, opt, context, location, args).unwrap();

@@ -70,29 +70,11 @@ impl Scheduler {
             }
         }
 
-        let Bindings {
-            buffers,
-            scalars,
-            metadata,
-            ..
-        } = bindings;
-
-        let handles: Vec<_> = buffers
-            .into_iter()
-            .map(|b| {
-                memory_management
-                    .get_resource(b.memory, b.offset_start, b.offset_end)
-                    .expect("Failed to find resource")
-            })
-            .collect();
-
-        let scalars: Vec<_> = scalars.into_values().collect();
-
-        let mut mlir_data = MlirData::new(handles, scalars, metadata);
+        let mlir_engine = kernel.repr.clone().unwrap();
+        let mut mlir_data =
+            MlirData::new(bindings, &mlir_engine.0.shared_memories, memory_management);
         mlir_data.builtin.set_cube_dim(cube_dim);
         mlir_data.builtin.set_cube_count(cube_count);
-
-        let mlir_engine = kernel.repr.clone().unwrap();
 
         let (send, receive) = mpsc::channel();
         let mut msg_count = 0;
