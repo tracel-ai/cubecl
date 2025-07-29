@@ -11,22 +11,23 @@ use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
 static NB_CUBE_TO_SYNC: AtomicI32 = AtomicI32::new(-1);
 
 pub fn sync_cube(cube_dim: u32) {
-    if NB_CUBE_TO_SYNC.load(Ordering::Acquire) == -1 {
-        NB_CUBE_TO_SYNC.store((cube_dim as i64 - 1) as i32, Ordering::Release);
-    } else {
-        NB_CUBE_TO_SYNC.fetch_sub(-1, Ordering::Release);
-    }
+    let _ = NB_CUBE_TO_SYNC.compare_exchange_weak(
+        -1,
+        cube_dim as i32,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
+    NB_CUBE_TO_SYNC.fetch_sub(1, Ordering::SeqCst);
+
     loop {
-        let val = NB_CUBE_TO_SYNC.load(Ordering::Acquire);
-        if val == 0 {
-            NB_CUBE_TO_SYNC.store(-1, Ordering::Release);
-            break;
-        }
-        if val == -1 {
+        let val = NB_CUBE_TO_SYNC.load(Ordering::SeqCst);
+        if val == 0 || val == -1 {
             break;
         }
         std::hint::spin_loop();
     }
+
+    let _ = NB_CUBE_TO_SYNC.compare_exchange_weak(0, -1, Ordering::SeqCst, Ordering::SeqCst);
 }
 
 pub enum Message {
