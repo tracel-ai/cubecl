@@ -18,7 +18,7 @@ pub mod minifloat;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
-pub mod sync_plane;
+pub mod synchronization;
 pub mod tensor;
 pub mod tensormap;
 pub mod topology;
