@@ -105,7 +105,7 @@ pub struct ConstArray {
 }
 
 #[derive(Default, Debug, Clone)]
-struct Program {
+pub struct Program {
     pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<Id, Item>,
     pub graph: StableDiGraph<BasicBlock, u32>,
@@ -132,7 +132,7 @@ type VarId = (Id, u16);
 #[derive(Debug, Clone)]
 pub struct Optimizer {
     /// The overall program state
-    program: Program,
+    pub program: Program,
     /// Allocator for kernel
     pub allocator: Allocator,
     /// Analyses with persistent state

@@ -124,6 +124,11 @@ impl<'a> Visitor<'a> {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
                 self.args_manager.buffers[id as usize]
             }
+            VariableKind::SharedMemory { id, .. } => *self
+                .args_manager
+                .shared_memory_values
+                .get(&id)
+                .expect("Variable should have been declared before"),
             VariableKind::LocalMut { id } => *self
                 .variables
                 .mutable
@@ -158,6 +163,7 @@ impl<'a> Visitor<'a> {
                 | VariableKind::GlobalOutputArray(_)
                 | VariableKind::LocalMut { .. }
                 | VariableKind::ConstantArray { .. }
+                | VariableKind::SharedMemory { .. }
         )
     }
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {

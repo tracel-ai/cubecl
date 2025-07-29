@@ -51,8 +51,20 @@ impl<'a> Visitor<'a> {
                     self.get_index(index_assign.index, index_assign.value.item);
                 self.visit_index_assign(index_assign, index_assign_value, out)
             }
-            Operator::InitLine(_init_line) => {
-                todo!("init_line is not implemented {}", operator)
+            Operator::InitLine(init_line) => {
+                let inputs: Vec<_> = init_line
+                    .inputs
+                    .iter()
+                    .map(|input| self.get_variable(*input))
+                    .collect();
+                let result = out.item.to_type(self.context);
+                let init_line = self.append_operation_with_result(vector::from_elements(
+                    self.context,
+                    result,
+                    &inputs,
+                    self.location,
+                ));
+                self.insert_variable(out, init_line);
             }
             Operator::Not(not) => {
                 let lhs = self.get_variable(not.input);

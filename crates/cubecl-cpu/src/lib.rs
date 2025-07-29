@@ -15,12 +15,12 @@ mod tests {
     cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
     cubecl_random::testgen_random!();
     cubecl_matmul::testgen_matmul_simple!([f16, f32]);
+    cubecl_matmul::testgen_matmul_unit!();
+    cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, f32: f32]);
+    cubecl_reduce::testgen_shared_sum!([f16, f32, f64]);
 
-    // TODO: Failing test that needs to be debugged
-    // cubecl_matmul::testgen_matmul_unit!();
-    // cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, bf16: bf16, f32: f32]);
-    // cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
-    // cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
+    // TODO: Failing test that needs to be debugged probably relied to sync_cube
+    // cubecl_reduce::testgen_reduce!([f16, f32, f64]);
 }
 
 pub mod compiler;

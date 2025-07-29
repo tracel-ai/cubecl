@@ -104,6 +104,34 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
     }
 }
 
+#[cube(launch_unchecked)]
+pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
+    let mut smem1 = SharedMemory::<F>::new_lined(8, output.line_size());
+    smem1[0] = Line::new(F::new(42.0));
+    output[0] = smem1[0];
+}
+
+pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    for line_size in R::line_size_elem(&F::as_elem_native().unwrap()) {
+        let output = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        unsafe {
+            kernel_shared_memory::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                ArrayArg::from_raw_parts::<F>(&output, 1, line_size),
+            );
+        }
+
+        let actual = client.read_one(output.binding());
+        let actual = F::from_bytes(&actual);
+
+        assert_eq!(actual[0], F::new(42.0));
+    }
+}
+
 macro_rules! impl_line_comparison {
     ($cmp:ident, $expected:expr) => {
         ::paste::paste! {
@@ -178,6 +206,12 @@ macro_rules! testgen_line {
             cubecl_core::runtime_tests::line::test_line_loop_unroll::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[test]
+        fn test_shared_memory() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_shared_memory::<TestRuntime, FloatType>(client);
         }
 
         #[test]

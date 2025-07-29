@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use cubecl_core::server::{MetadataBinding, ScalarBinding};
-use cubecl_runtime::storage::BytesResource;
+use cubecl_core::server::{Bindings, Handle, ScalarBinding};
+use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
 use crate::compiler::{builtin::BuiltinArray, memref::LineMemRef};
+
+use super::passes::shared_memories::SharedMemories;
 
 struct SharedMlirData {
     args_zero_indirection: Vec<LineMemRef>,
@@ -35,18 +37,28 @@ impl Clone for MlirData {
 
 impl MlirData {
     pub fn new(
-        handles: Vec<BytesResource>,
-        scalars_binding: Vec<ScalarBinding>,
-        metadata_binding: MetadataBinding,
+        bindings: Bindings,
+        shared_memories: &SharedMemories,
+        memory_management: &mut MemoryManagement<BytesStorage>,
     ) -> Self {
+        let Bindings {
+            buffers,
+            scalars,
+            metadata,
+            ..
+        } = bindings;
+
+        let scalars_binding: Vec<_> = scalars.into_values().collect();
+
         let builtin = BuiltinArray::default();
-        let max_buffer_size = handles.len() + scalars_binding.len() + builtin.len();
+        let max_buffer_size = buffers.len() + scalars_binding.len() + BuiltinArray::len();
 
         let args_zero_indirection = Vec::with_capacity(max_buffer_size);
         let args_first_indirection = Vec::with_capacity(max_buffer_size);
         let mut args_second_indirection = Vec::with_capacity(max_buffer_size);
         let scalars: Vec<ScalarBinding> = Vec::with_capacity(max_buffer_size);
-        let metadata = metadata_binding.data;
+        let metadata = metadata.data;
+
         let mut shared_mlir_data = SharedMlirData {
             args_zero_indirection,
             args_first_indirection,
@@ -67,7 +79,10 @@ impl MlirData {
             args_second_indirection.push(undirected as *mut ());
         };
 
-        for handle in handles {
+        for b in buffers {
+            let handle = memory_management
+                .get_resource(b.memory, b.offset_start, b.offset_end)
+                .expect("Failed to find resource");
             let ptr = handle.write();
             let line_memref = LineMemRef::new(ptr);
             push_undirected(line_memref);
@@ -77,7 +92,7 @@ impl MlirData {
         let line_memref = LineMemRef::new(ptr);
         push_undirected(line_memref);
 
-        for scalar in scalars_binding.into_iter() {
+        for scalar in scalars_binding {
             shared_mlir_data.scalars.push(scalar);
             let data = shared_mlir_data
                 .scalars
@@ -86,6 +101,17 @@ impl MlirData {
                 .data
                 .as_mut_slice();
             let line_memref = LineMemRef::new(data);
+            push_undirected(line_memref);
+        }
+        for shared_memory in shared_memories.0.iter() {
+            let length = (shared_memory.elem.size() * shared_memory.length as usize) as u64;
+            let handle = memory_management.reserve(length, None);
+            let b = Handle::new(handle, None, None, length).binding();
+            let handle = memory_management
+                .get_resource(b.memory, b.offset_start, b.offset_end)
+                .expect("Failed to find resource");
+            let ptr = handle.write();
+            let line_memref = LineMemRef::new(ptr);
             push_undirected(line_memref);
         }
 

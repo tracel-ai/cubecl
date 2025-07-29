@@ -7,34 +7,37 @@ use cubecl_core::{
     prelude::KernelDefinition,
 };
 use tracel_llvm::melior::ir::{
-    Block, BlockRef, Location,
+    Block, BlockRef, Location, Region,
     r#type::{FunctionType, IntegerType, MemRefType},
 };
 
-use crate::compiler::builtin::BuiltinArray;
+use crate::compiler::{builtin::BuiltinArray, passes::shared_memories::SharedMemories};
 
 use super::prelude::*;
 
 const NB_BUILTIN: usize = 30;
 
-pub(super) struct ArgsManager<'a> {
-    pub buffers: Vec<Value<'a, 'a>>,
-    pub scalars_memref: HashMap<Elem, Value<'a, 'a>>,
-    pub metadata_memref: Option<Value<'a, 'a>>,
-    pub ext_meta_positions: Vec<u32>,
-    pub metadata: Metadata,
+pub(super) struct ArgsManagerBuilder<'a, 'b> {
     scalars: Vec<ScalarBinding>,
     buffers_len: usize,
-    builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
     function_types: Vec<Type<'a>>,
+    metadata: Metadata,
+    ext_meta_positions: Vec<u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
+    shared_memories: &'b SharedMemories,
 }
 
-const NB_PASSED_BUILTIN: usize = 9;
-
-impl<'a> ArgsManager<'a> {
-    pub fn new(kernel: &KernelDefinition, context: &'a Context, location: Location<'a>) -> Self {
-        let total_arg_len = kernel.buffers.len() + kernel.scalars.len() + NB_PASSED_BUILTIN;
+impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
+    pub fn new(
+        kernel: &KernelDefinition,
+        context: &'a Context,
+        location: Location<'a>,
+        shared_memories: &'b SharedMemories,
+    ) -> Self {
+        let total_arg_len = kernel.buffers.len()
+            + kernel.scalars.len()
+            + NB_PASSED_BUILTIN
+            + shared_memories.0.len();
 
         let mut num_ext = 0;
         let mut ext_meta_positions = vec![];
@@ -59,22 +62,27 @@ impl<'a> ArgsManager<'a> {
         let metadata = Metadata::new(num_meta as u32, num_ext);
         let scalars = kernel.scalars.clone();
 
-        let mut args = ArgsManager {
-            buffers: Vec::with_capacity(kernel.buffers.len()),
+        let mut args = Self {
             buffers_len: kernel.buffers.len(),
-            scalars_memref: HashMap::with_capacity(kernel.scalars.len()),
             scalars,
-            metadata_memref: None,
-            builtin: [None; NB_BUILTIN],
-            metadata,
-            ext_meta_positions,
             function_types: Vec::with_capacity(total_arg_len),
             block_inputs: Vec::with_capacity(total_arg_len),
+            ext_meta_positions,
+            shared_memories,
+            metadata,
         };
 
         for binding in kernel.buffers.iter() {
             let inner_type = binding.item.elem.to_type(context);
             let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
+            args.function_types.push(memref);
+            args.block_inputs.push((memref, location));
+        }
+
+        for shared_memory in args.shared_memories.0.iter() {
+            let inner_type = shared_memory.elem.to_type(context);
+            let memref =
+                MemRefType::new(inner_type, &[shared_memory.length as i64], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
         }
@@ -101,43 +109,76 @@ impl<'a> ArgsManager<'a> {
         args
     }
 
-    pub fn ext_meta_position(&self, var: Variable) -> u32 {
-        let id = var.index().expect("Variable should have index");
-        self.ext_meta_positions[id as usize]
-    }
-
     pub fn get_fn_type(&self, context: &'a Context) -> FunctionType<'a> {
         FunctionType::new(context, &self.function_types, &[])
     }
 
-    pub fn create_top_block(&mut self) -> Block {
+    pub fn create_top_block(self, region: &Region<'a>) -> ArgsManager<'a> {
+        let mut args = ArgsManager {
+            buffers: Vec::with_capacity(self.buffers_len),
+            scalars_memref: HashMap::with_capacity(self.scalars.len()),
+            metadata_memref: None,
+            builtin: [None; NB_BUILTIN],
+            metadata: self.metadata.clone(),
+            shared_memory_values: HashMap::with_capacity(self.shared_memories.0.len()),
+            ext_meta_positions: self.ext_meta_positions.clone(),
+        };
+
         let block = Block::new(&self.block_inputs);
 
+        let mut total_len = 0;
         for i in 0..self.buffers_len {
-            self.buffers.push(block.argument(i).unwrap().into());
+            args.buffers.push(block.argument(i).unwrap().into());
         }
 
-        self.metadata_memref = Some(block.argument(self.buffers_len).unwrap().into());
+        total_len += self.buffers_len;
+
+        for (i, shared_memory) in self.shared_memories.0.iter().enumerate() {
+            let i = i + total_len;
+            args.shared_memory_values
+                .insert(shared_memory.id, block.argument(i).unwrap().into());
+        }
+
+        total_len += self.shared_memories.0.len();
+
+        args.metadata_memref = Some(block.argument(total_len).unwrap().into());
+        total_len += 1;
 
         for i in 0..self.scalars.len() {
             let binding = &self.scalars[i];
-            self.scalars_memref.insert(
-                binding.elem,
-                block.argument(i + self.buffers_len + 1).unwrap().into(),
-            );
+            let i = i + total_len;
+            args.scalars_memref
+                .insert(binding.elem, block.argument(i).unwrap().into());
         }
+
+        total_len += self.scalars.len();
 
         for (i, builtin) in BuiltinArray::builtin_order().into_iter().enumerate() {
-            self.set(
-                builtin,
-                block
-                    .argument(self.buffers_len + self.scalars.len() + 1 + i)
-                    .unwrap()
-                    .into(),
-            );
+            let i = i + total_len;
+            args.set(builtin, block.argument(i).unwrap().into());
         }
 
-        block
+        region.append_block(block);
+        args
+    }
+}
+
+pub(super) struct ArgsManager<'a> {
+    pub buffers: Vec<Value<'a, 'a>>,
+    pub scalars_memref: HashMap<Elem, Value<'a, 'a>>,
+    pub metadata_memref: Option<Value<'a, 'a>>,
+    pub ext_meta_positions: Vec<u32>,
+    pub metadata: Metadata,
+    pub shared_memory_values: HashMap<u32, Value<'a, 'a>>,
+    pub builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
+}
+
+const NB_PASSED_BUILTIN: usize = 9;
+
+impl<'a> ArgsManager<'a> {
+    pub fn ext_meta_position(&self, var: Variable) -> u32 {
+        let id = var.index().expect("Variable should have index");
+        self.ext_meta_positions[id as usize]
     }
 
     pub fn compute_derived_args_builtin(
