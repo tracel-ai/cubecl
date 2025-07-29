@@ -9,12 +9,23 @@ pub struct DummyGlobalConfig<S: StageConfig> {
 }
 
 impl<S: StageConfig> GlobalConfig for DummyGlobalConfig<S> {
+    type StageConfig = S;
+
+    fn stage_config(&self) -> S {
+        self.stage_config
+    }
+
     fn cube_dim(&self) -> CubeDim {
         CubeDim::new_2d(self.plane_dim(), self.num_planes)
     }
 
     fn plane_dim(&self) -> u32 {
         self.stage_config.plane_dim()
+    }
+
+    fn tc(&self) -> u32 {
+        // Number of stage iterations = ceil(N/Bc)
+        todo!()
     }
 }
 

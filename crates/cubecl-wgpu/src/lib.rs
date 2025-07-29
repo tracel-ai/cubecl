@@ -37,6 +37,7 @@ mod tests {
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
+    cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_shared_sum!([f32]);
 }
 

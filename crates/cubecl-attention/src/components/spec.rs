@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::MatmulPrecision;
 use half::{bf16, f16};
 
 use crate::components::args::{AttentionArgs, TensorArgs};
@@ -27,16 +28,18 @@ impl<AP: AttentionPrecision> AttentionSpec for AP {
 /// Matrix multiplication precisions.
 pub trait AttentionPrecision: Send + Sync + Copy + 'static {
     /// Element type of each input tensors of the kernel.
-    type EI: Numeric;
+    type EI: Float;
     /// Element of mask
     type EM: Numeric;
     /// Element type for the shared memories used to read inputs.
-    type ES: Numeric;
+    type ES: Float;
     /// Element type for the shared memories or fragments used to accumulate
     /// smaller matmul results before writing to the output tensor.
-    type EA: Numeric;
+    type EA: Float;
     /// Element type of the output tensor of the kernel.
-    type EO: Numeric;
+    type EO: Float;
+
+    type MatmulPrecision: MatmulPrecision<EI = Self::EI, ES = Self::ES, EA = Self::EA, EO = Self::EO>;
 }
 
 impl AttentionPrecision for f16 {
@@ -48,6 +51,8 @@ impl AttentionPrecision for f16 {
     #[cfg(not(target_os = "macos"))]
     type EA = f32;
     type EO = f16;
+
+    type MatmulPrecision = Self;
 }
 
 impl AttentionPrecision for flex32 {
@@ -56,6 +61,7 @@ impl AttentionPrecision for flex32 {
     type ES = f16;
     type EA = f32;
     type EO = f32;
+    type MatmulPrecision = Self;
 }
 
 impl AttentionPrecision for bf16 {
@@ -67,6 +73,7 @@ impl AttentionPrecision for bf16 {
     #[cfg(not(target_os = "macos"))]
     type EA = f32;
     type EO = bf16;
+    type MatmulPrecision = Self;
 }
 
 impl AttentionPrecision for f32 {
@@ -75,6 +82,7 @@ impl AttentionPrecision for f32 {
     type ES = f32;
     type EA = f32;
     type EO = f32;
+    type MatmulPrecision = Self;
 }
 
 impl AttentionPrecision for f64 {
@@ -83,22 +91,24 @@ impl AttentionPrecision for f64 {
     type ES = f32;
     type EA = f32;
     type EO = f64;
+    type MatmulPrecision = Self;
 }
 
 #[derive(Clone, Copy)]
-pub struct ReplaceES<MP: AttentionPrecision, ES: Numeric> {
+pub struct ReplaceES<MP: AttentionPrecision, ES: Float> {
     _phantom: PhantomData<(ES, MP)>,
 }
 
-impl<MP: AttentionPrecision, ES: Numeric> AttentionPrecision for ReplaceES<MP, ES> {
-    type EI = MP::EI;
-    type EM = MP::EM;
+impl<AP: AttentionPrecision, ES: Float> AttentionPrecision for ReplaceES<AP, ES> {
+    type EI = AP::EI;
+    type EM = AP::EM;
     type ES = ES;
-    type EA = MP::EA;
-    type EO = MP::EO;
+    type EA = AP::EA;
+    type EO = AP::EO;
+    type MatmulPrecision = (Self::EI, ES, Self::EA, Self::EO);
 }
 
-impl<EI: Numeric, EM: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> AttentionPrecision
+impl<EI: Float, EM: Numeric, ES: Float, EA: Float, EO: Float> AttentionPrecision
     for (EI, EM, ES, EA, EO)
 {
     type EI = EI;
@@ -106,6 +116,7 @@ impl<EI: Numeric, EM: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> AttentionP
     type ES = ES;
     type EA = EA;
     type EO = EO;
+    type MatmulPrecision = (EI, ES, EA, EO);
 }
 
 /// Input argument

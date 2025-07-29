@@ -13,6 +13,7 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
+use crate::components::tile::TileSetupInfo;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -40,7 +41,10 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
+        let tile_config = TMM::setup::<MP, R>(
+            client,
+            TileSetupInfo::from_matmul(problem, selection, line_sizes),
+        )?;
 
         let compute_resources =
             if let ComputeResources::Planes(planes) = TMM::computation_resources()? {

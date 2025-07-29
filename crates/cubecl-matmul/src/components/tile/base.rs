@@ -3,10 +3,10 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::{
-    AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
-    TileSize, resource::ComputeResources, tile::tile_data::Tile,
+    AvailableLineSizes, Ident, InvalidConfigError, MatmulPrecision, MatrixLayout, TileSize,
+    resource::ComputeResources, tile::tile_data::Tile,
 };
-use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{MatmulLineSizes, MatmulProblem, MatmulSelection};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -28,9 +28,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        problem: &MatmulProblem,
-        selection: &MatmulSelection,
-        line_sizes: &MatmulLineSizes,
+        tile_setup_info: TileSetupInfo,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.
@@ -136,4 +134,32 @@ pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync
 
     /// Returns the (m,n,k) shape of the tiles
     fn tile_size(&self) -> &TileSize;
+}
+
+pub struct TileSetupInfo {
+    pub tile_size: TileSize,
+    pub plane_dim: u32,
+    pub lhs_layout: MatrixLayout,
+    pub rhs_layout: MatrixLayout,
+    pub lhs_line_size: u32,
+    pub rhs_line_size: u32,
+    pub out_line_size: u32,
+}
+
+impl TileSetupInfo {
+    pub fn from_matmul(
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        line_sizes: &MatmulLineSizes,
+    ) -> Self {
+        Self {
+            tile_size: selection.tiling_scheme.tile_size,
+            plane_dim: selection.plane_dim,
+            lhs_layout: problem.lhs_layout,
+            rhs_layout: problem.rhs_layout,
+            lhs_line_size: line_sizes.lhs as u32,
+            rhs_line_size: line_sizes.rhs as u32,
+            out_line_size: line_sizes.out as u32,
+        }
+    }
 }

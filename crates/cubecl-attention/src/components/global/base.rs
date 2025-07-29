@@ -1,8 +1,9 @@
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes,
+    AttentionSetupError, AvailableLineSizes, stage::StageConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -34,14 +35,46 @@ pub trait GlobalAttentionFamily: Send + Sync + 'static {
 
 #[cube]
 pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
+    /// Simply loads to registers once before loop
+    type QueryLoader: CubeType;
+    /// Writes to Out at the same offset it loaded Query
+    type Writer: CubeType;
+    /// Holds out tmp accumulated
+    type Accumulator: CubeType;
+
+    /// Loads to SMEM transposed
+    type KeyLoader: CubeType;
+    /// Loads to SMEM as is
+    type ValueLoader: CubeType;
+
     /// The configuration type associated with this Attention.
     type Config: GlobalConfig;
+
+    fn execute(
+        query_loader: Self::QueryLoader,
+        key_loader: Self::KeyLoader,
+        value_loader: Self::ValueLoader,
+        writer: Self::Writer,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
+
+    fn init_query_loader() -> Self::QueryLoader;
+    fn init_key_loader() -> Self::KeyLoader;
+    fn init_value_loader() -> Self::ValueLoader;
+    fn init_writer() -> Self::Writer;
+    fn init_accumulator() -> Self::Accumulator;
 }
 
 /// Configuration for the Global Attention level
 pub trait GlobalConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
+    type StageConfig: StageConfig;
+
+    fn stage_config(&self) -> Self::StageConfig;
+
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
+    fn tc(&self) -> u32;
 }

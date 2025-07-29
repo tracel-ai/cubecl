@@ -1,4 +1,5 @@
 use cubecl_core::{Runtime, client::ComputeClient};
+use cubecl_matmul::components::TileSize;
 
 use crate::{
     components::{AttentionProblem, AttentionSelection, batch::HypercubeSelection},
@@ -8,16 +9,19 @@ use crate::{
 
 pub fn attention_first_test<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let problem = AttentionProblem {
-        batch: 1,
-        seq_q: 1,
-        seq_k: 1,
+        batch: 10,
+        seq_q: 10,
+        seq_k: 10,
         num_heads: 1,
-        head_dim: 1,
+        head_dim: 2,
         masked: false,
     };
 
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection {},
+        score_tile_size: TileSize { m: 8, n: 8, k: 8 },
+        value_tile_size: TileSize { m: 8, n: 8, k: 8 },
+        plane_dim: 32,
     };
 
     test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);

@@ -4,13 +4,13 @@ use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
+use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize};
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
 pub struct AcceleratedConfig {
-    tiling_scheme: TilingScheme,
+    tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -51,7 +51,7 @@ impl TileConfig for AcceleratedConfig {
     }
 
     fn tile_size(&self) -> &TileSize {
-        &self.tiling_scheme.tile_size
+        &self.tile_size
     }
 }
 
@@ -64,7 +64,7 @@ impl AcceleratedConfig {
     /// - cmma is unavailable for given types
     pub fn new<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        tiling_scheme: TilingScheme,
+        tile_size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
@@ -75,7 +75,7 @@ impl AcceleratedConfig {
         rhs_stage_line_size: u32,
     ) -> Result<Self, MatmulSetupError> {
         Self {
-            tiling_scheme,
+            tile_size,
             plane_dim,
             lhs_layout,
             rhs_layout,

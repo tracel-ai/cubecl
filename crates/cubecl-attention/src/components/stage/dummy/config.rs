@@ -1,25 +1,38 @@
-use crate::components::{AttentionSetupError, stage::StageConfig, tile::TileConfig};
+use cubecl_matmul::components::tile::TileConfig;
+
+use crate::components::{AttentionSetupError, stage::StageConfig};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyStageConfig<T: TileConfig> {
-    tile_config: T,
+pub struct DummyStageConfig<ST: TileConfig, VT: TileConfig> {
+    score_tile_config: ST,
+    value_tile_config: VT,
     num_planes: u32,
 }
 
-impl<T: TileConfig> StageConfig for DummyStageConfig<T> {
+impl<ST: TileConfig, VT: TileConfig> StageConfig for DummyStageConfig<ST, VT> {
     fn plane_dim(&self) -> u32 {
-        self.tile_config.plane_dim()
+        self.score_tile_config.plane_dim()
     }
 
     fn num_planes(&self) -> u32 {
         self.num_planes
     }
+
+    fn rows_per_plane(&self) -> u32 {
+        // self.tiling_scheme...
+        8
+    }
 }
 
-impl<T: TileConfig> DummyStageConfig<T> {
-    pub fn new(tile_config: T, num_planes: u32) -> Result<Self, AttentionSetupError> {
+impl<ST: TileConfig, VT: TileConfig> DummyStageConfig<ST, VT> {
+    pub fn new(
+        score_tile_config: ST,
+        value_tile_config: VT,
+        num_planes: u32,
+    ) -> Result<Self, AttentionSetupError> {
         Self {
-            tile_config,
+            score_tile_config,
+            value_tile_config,
             num_planes,
         }
         .validate()

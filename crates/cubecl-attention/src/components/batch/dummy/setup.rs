@@ -34,6 +34,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
             selection
                 .hypercube_selection
                 .to_hypercube_config(problem, client.properties().hardware.max_cube_count.clone()),
+            problem.seq_k as u32,
         )
         .validate(problem)
     }
@@ -55,7 +56,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
         config: Self::Config,
     ) {
         unsafe {
-            attention::launch_unchecked::<Args<AS>, EI<AS>, ES<AS>, EM<AS>, EA<AS>, EO<AS>, Self, R>(
+            attention::launch_unchecked::<Args<AS>, EI<AS>, EM<AS>, ES<AS>, EA<AS>, EO<AS>, Self, R>(
                 client,
                 cube_count,
                 cube_dim,

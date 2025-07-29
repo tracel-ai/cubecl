@@ -1,5 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
+use cubecl_matmul::components::TileSize;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
@@ -83,6 +84,9 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection {},
+        score_tile_size: TileSize { m: 8, n: 8, k: 8 },
+        value_tile_size: TileSize { m: 8, n: 8, k: 8 },
+        plane_dim: 32,
     };
 
     let config = DummyAlgorithm::setup::<AP, R>(&client, &problem, &selection, &line_sizes)?;
