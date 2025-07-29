@@ -1,4 +1,3 @@
-use crate::components::StageIdent;
 use crate::components::{
     InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
@@ -125,7 +124,7 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::StageConfig>(
         stage,
         nth_slice,
-        comptime!(StageIdent::from_matmul(ident)),
+        comptime!(ident.into_stage()),
         config.stage_config(),
     );
 

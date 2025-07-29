@@ -5,8 +5,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, StageIdent,
-    TilingScheme,
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, global_memory::TensorReader},
@@ -201,7 +200,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             nth_tile_global,
             total_tile_count_row,
             total_tile_count_col,
-            comptime!(StageIdent::from_matmul(this.ident)),
+            comptime!(this.ident.into_stage()),
             config.stage_config(),
         );
 

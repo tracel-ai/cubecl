@@ -50,7 +50,7 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileRead
             row,
             col,
             0u32,
-            comptime!(this.stage_ident.as_ident()),
+            this.stage_ident,
             config,
         )
     }
@@ -101,7 +101,7 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for PartialStageToTileR
             row,
             col,
             comptime!(this.stage_buffer.to_index()),
-            comptime!(this.stage_ident.as_ident()),
+            this.stage_ident,
             config,
         )
     }

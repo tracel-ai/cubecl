@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent,
+    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         global_memory::{TensorReader, Window},
@@ -36,7 +36,7 @@ impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
         let matrix_layout = config.matrix_layout(ident);
         let line_size = config
             .stage_config()
-            .stage_line_size(comptime!(StageIdent::from_matmul(ident)));
+            .stage_line_size(comptime!(ident.into_stage()));
         let num_stages = 2;
 
         let total_row = config.tiling_scheme().elements_in_stage_row(ident);
@@ -129,7 +129,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
             StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 nth_slice,
-                comptime!(StageIdent::from_matmul(this.ident)),
+                comptime!(this.ident.into_stage()),
                 config.stage_config(),
             );
 

@@ -5,7 +5,7 @@ use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
-use crate::components::{InvalidConfigError, MatmulIdent, StageIdent};
+use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -171,7 +171,7 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
 
     let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
         nth_tile,
-        comptime!(StageIdent::from_matmul(job.ident)),
+        comptime!(job.ident.into_stage()),
         comptime!(config.stage_config()),
     );
 

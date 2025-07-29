@@ -7,7 +7,7 @@ use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
-use crate::components::{MatmulIdent, MatmulPrecision, StageIdent};
+use crate::components::{MatmulIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -78,10 +78,12 @@ impl<
                 todo!();
             }
         }
-        let stage_ident = comptime!(StageIdent::from_matmul(ident));
 
-        let mut stage_memory =
-            StageMemory::new::<G::StageConfig>(1u32, stage_ident, config.stage_config());
+        let mut stage_memory = StageMemory::new::<G::StageConfig>(
+            1u32,
+            comptime!(ident.into_stage()),
+            config.stage_config(),
+        );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
@@ -97,7 +99,7 @@ impl<
                     if tensor_reader.x_offset.read()
                         > tensor_reader.shape_x - config.tiling_scheme().elements_in_stage_m()
                     {
-                        stage_memory.clear_all::<G>(stage_ident, config);
+                        stage_memory.clear_all::<G>(ident, config);
                     }
                 }
             }
@@ -108,7 +110,7 @@ impl<
                     if tensor_reader.y_offset.read()
                         > tensor_reader.shape_y - config.tiling_scheme().elements_in_stage_n()
                     {
-                        stage_memory.clear_all::<G>(stage_ident, config);
+                        stage_memory.clear_all::<G>(ident, config);
                     }
                 }
             }
@@ -146,16 +148,12 @@ impl<
 
     /// Zero out the stage memory
     pub fn clear_stage(this: &mut Self, #[comptime] config: G) {
-        this.stage_memory
-            .clear_all::<G>(comptime!(StageIdent::from_matmul(this.ident)), config)
+        this.stage_memory.clear_all::<G>(this.ident, config)
     }
 
     /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
-        FullStageToTileReader::new(
-            this.stage_memory,
-            comptime!(StageIdent::from_matmul(this.ident)),
-        )
+        FullStageToTileReader::new(this.stage_memory, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

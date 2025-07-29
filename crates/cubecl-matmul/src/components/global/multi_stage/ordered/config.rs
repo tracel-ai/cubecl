@@ -33,13 +33,12 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
     }
 
     fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-        self.stage_config
-            .global_line_size(StageIdent::from_matmul(ident))
+        self.stage_config.global_line_size(ident.into_stage())
     }
 
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
         self.stage_config
-            .matrix_layout(StageIdent::from_matmul(ident))
+            .matrix_layout(ident.into_stage())
     }
 
     fn plane_dim(&self) -> u32 {

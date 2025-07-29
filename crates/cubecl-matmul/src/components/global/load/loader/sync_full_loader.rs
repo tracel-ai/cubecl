@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::StageIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
 use crate::components::global::global_memory::TensorReader;
@@ -68,7 +67,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
     ) -> Self {
         let stage_memory = StageMemory::new::<G::StageConfig>(
             1u32,
-            comptime!(StageIdent::from_matmul(ident)),
+            comptime!(ident.into_stage()),
             config.stage_config(),
         );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -90,10 +89,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
 
     /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
-        FullStageToTileReader::new(
-            this.stage_memory,
-            comptime!(StageIdent::from_matmul(this.ident)),
-        )
+        FullStageToTileReader::new(this.stage_memory, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

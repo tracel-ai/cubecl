@@ -4,7 +4,7 @@ use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{Quantization, RoleRule};
 use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, StageIdent, TilingScheme
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, global_memory::TensorReader},
@@ -146,7 +146,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let nth_tile_global = nth_tile_for_this_plane + this.num_tiles_to_skip;
         let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
             nth_tile_global,
-            comptime!(StageIdent::from_matmul(this.ident)),
+            comptime!(this.ident.into_stage()),
             config.stage_config(),
         );
 

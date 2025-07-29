@@ -17,7 +17,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> (u32, u32);
 
@@ -28,7 +28,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> u32;
 
@@ -281,7 +281,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
         let matrix_layout = config.matrix_layout(ident);
 
         let (row_buffer_offset, col_buffer_offset, total_tile_count_row, total_tile_count_col) =
-            match ident.as_input_ident() {
+            match ident {
                 StageIdent::Lhs => {
                     let x_tile_offset = 0;
                     let y_tile_offset = tiling_scheme.tiles_in_stage_col(ident) * buffer_index;
@@ -308,6 +308,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                         total_tile_count_y,
                     )
                 }
+                StageIdent::Acc => comptime!(unreachable!()),
             };
 
         let (tile_size_x, tile_size_y, tile_slice_length) = match matrix_layout {
@@ -384,7 +385,7 @@ impl TilingLayout for StridedTilingLayout {
         #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        if comptime!(config.num_stages(ident.as_input_ident()) > 1) {
+        if comptime!(config.num_stages(ident) > 1) {
             unimplemented!()
         }
 

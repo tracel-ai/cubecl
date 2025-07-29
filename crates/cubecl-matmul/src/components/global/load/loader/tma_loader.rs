@@ -113,7 +113,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
         }
 
         let stage = StageMemory::new_aligned::<G::StageConfig>(
-            comptime!(StageIdent::from_matmul(ident)),
+            comptime!(ident.into_stage()),
             128u32,
             config.stage_config(),
         );
@@ -132,6 +132,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
     pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: G) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident);
+            let stage_ident = comptime!(ident.into_stage());
             // The tensor map is encoded as the transposed shape, so we need to swap coordinates
             let (row, col) = match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
@@ -139,16 +140,16 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
             };
 
             let size_row = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
-                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
+                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(stage_ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(stage_ident),
             };
             let size_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_tile_col(ident),
-                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_tile_row(ident),
+                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_tile_col(stage_ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_tile_row(stage_ident),
             };
             let tile_count_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => config.tiling_scheme().tiles_in_stage_col(ident),
-                MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(ident),
+                MatrixLayout::RowMajor => config.tiling_scheme().tiles_in_stage_col(stage_ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(stage_ident),
             };
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
@@ -169,7 +170,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
 
     /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> TmaReader<MP> {
-        TmaReader::<MP>::new(this.stage, comptime!(StageIdent::from_matmul(this.ident)))
+        TmaReader::<MP>::new(this.stage, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

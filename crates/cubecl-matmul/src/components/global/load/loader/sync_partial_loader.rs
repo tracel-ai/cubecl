@@ -4,7 +4,6 @@ use super::StageBuffer;
 use super::TaskCounter;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
-use crate::components::StageIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
 use crate::components::global::global_memory::TensorReader;
@@ -72,7 +71,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     ) -> Self {
         let stage_memory = StageMemory::new::<G::StageConfig>(
             2u32,
-            comptime!(StageIdent::from_matmul(ident)),
+            comptime!(ident.into_stage()),
             config.stage_config(),
         );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -103,7 +102,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
         PartialStageToTileReader::new(
             this.stage_memory,
             stage_buffer,
-            comptime!(StageIdent::from_matmul(this.ident)),
+            comptime!(this.ident.into_stage()),
         )
     }
 

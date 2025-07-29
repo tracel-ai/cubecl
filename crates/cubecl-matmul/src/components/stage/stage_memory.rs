@@ -4,7 +4,7 @@ use crate::components::global::load::StageBuffer;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageConfig, TilingLayout};
 use crate::components::tile::Tile;
-use crate::components::{MatrixLayout, StageIdent};
+use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -50,12 +50,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         let line_size = config.stage_line_size(ident);
 
         let smem = SharedMemory::new_aligned(
-            comptime!(
-                config
-                    .tiling_scheme()
-                    .elements_in_stage(config.stage_to_matmul_ident(ident))
-                    / line_size
-            ),
+            comptime!(config.tiling_scheme().elements_in_stage(ident) / line_size),
             line_size,
             alignment,
         );
@@ -98,23 +93,20 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     }
 
     /// Zero out the shared memory
+    /// Available for matmul only
     pub fn clear_all<G: GlobalConfig>(
         &mut self,
-        #[comptime] ident: StageIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) {
         // TODO: this assumes the stage was created with new
         let stage_config = config.stage_config();
-        let tensor_ident = stage_config.stage_to_matmul_ident(ident);
         let smem_length = comptime!(
-            self.num_stages
-                * config
-                    .tiling_scheme()
-                    .elements_in_stage(stage_config.stage_to_matmul_ident(ident))
-                / stage_config.stage_line_size(ident)
+            self.num_stages * config.tiling_scheme().elements_in_stage(ident)
+                / stage_config.stage_line_size(ident.into())
         );
 
-        let unit_count = config.num_loading_planes(tensor_ident) * config.plane_dim();
+        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
         let unit_base_position = RoleRule::new(config.role_rule_config())
@@ -137,26 +129,23 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     }
 
     /// Zero out the shared memory for only one stage
+    /// Available for matmul only
     pub fn clear_stage<G: GlobalConfig>(
         &mut self,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] ident: StageIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) {
         // TODO: this assumes the stage was created with new
         // Also assumes two buffers
         let tiling_scheme = config.tiling_scheme();
-        let line_size = config.stage_config().stage_line_size(ident);
+        let line_size = config.stage_config().stage_line_size(ident.into());
         let smem_length = comptime!(
-            self.num_stages
-                * config
-                    .tiling_scheme()
-                    .elements_in_stage(config.tensor_ident(ident))
-                / line_size
+            self.num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size
         );
         let buffer_length = smem_length / 2;
 
-        let matrix_layout = config.matrix_layout(ident.as_ident());
+        let matrix_layout = config.matrix_layout(ident);
 
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_writes_per_unit = buffer_length.div_ceil(unit_count);
@@ -170,22 +159,23 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
             let unit_position = unit_base_position + i * unit_count;
 
             let smem_position = match (ident, matrix_layout) {
-                (StageIdent::Lhs, MatrixLayout::ColMajor)
-                | (StageIdent::Rhs, MatrixLayout::RowMajor) => {
+                (MatmulIdent::Lhs, MatrixLayout::ColMajor)
+                | (MatmulIdent::Rhs, MatrixLayout::RowMajor) => {
                     stage_buffer.to_index() * buffer_length + unit_position
                 }
-                (StageIdent::Lhs, MatrixLayout::RowMajor) => {
+                (MatmulIdent::Lhs, MatrixLayout::RowMajor) => {
                     let buffer_width = tiling_scheme.elements_in_tile_col(ident) / line_size;
                     stage_buffer.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width
                 }
-                (StageIdent::Rhs, MatrixLayout::ColMajor) => {
+                (MatmulIdent::Rhs, MatrixLayout::ColMajor) => {
                     let buffer_height = tiling_scheme.elements_in_tile_row(ident) / line_size;
                     stage_buffer.to_index() * buffer_height
                         + unit_position
                         + (unit_position / buffer_height) * buffer_height
                 }
+                (MatmulIdent::Out, _) => comptime!(unreachable!()),
             };
 
             #[allow(clippy::collapsible_else_if)]

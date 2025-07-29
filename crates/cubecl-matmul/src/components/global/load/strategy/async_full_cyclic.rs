@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent,
+    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout, 
     global::{
         CopyMechanism, GlobalConfig, RoleRule, global_memory::TensorReader,
         load::AsyncFullLoadingStrategy,
@@ -123,7 +123,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         let nth_tile = slice_index / this.num_slices_per_tile;
         let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
             nth_tile,
-            comptime!(StageIdent::from_matmul(this.ident)),
+            comptime!(this.ident.into_stage()),
             config.stage_config(),
         );
         let nth_slice = slice_index % this.num_slices_per_tile;

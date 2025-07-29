@@ -1,7 +1,11 @@
 use crate::components::{
+    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
-        global_memory::{TensorReader, Window}, load::AsyncFullLoadingStrategy, CopyMechanism, GlobalConfig
-    }, stage::{StageMemory, StridedTilingLayout}, InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent
+        CopyMechanism, GlobalConfig,
+        global_memory::{TensorReader, Window},
+        load::AsyncFullLoadingStrategy,
+    },
+    stage::{StageMemory, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -37,10 +41,7 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
             MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
         };
 
-        AsyncFullCooperativeJob {
-            num_slices,
-            ident,
-        }
+        AsyncFullCooperativeJob { num_slices, ident }
     }
 
     fn barrier_level() -> BarrierLevel {
@@ -72,7 +73,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for AsyncFull
             StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
                 stage,
                 task_id,
-                comptime!(StageIdent::from_matmul(this.ident)),
+                comptime!(this.ident.into_stage()),
                 config.stage_config(),
             );
 

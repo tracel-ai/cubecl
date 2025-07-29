@@ -6,7 +6,7 @@ use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources, tile::tile_data::Tile,
 };
-use crate::components::{MatmulLineSizes, MatmulSelection, TileIdent};
+use crate::components::{MatmulLineSizes, MatmulSelection, StageIdent};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -126,13 +126,13 @@ pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync
     fn plane_dim(&self) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: TileIdent) -> MatrixLayout;
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
 
     /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: TileIdent) -> u32;
+    fn stage_line_size(&self, ident: StageIdent) -> u32;
 
     /// Returns the line size for the given ident
-    fn global_line_size(&self, ident: TileIdent) -> u32;
+    fn global_line_size(&self, ident: StageIdent) -> u32;
 
     /// Returns the (m,n,k) shape of the tiles
     fn tile_size(&self) -> &TileSize;

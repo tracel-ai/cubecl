@@ -73,11 +73,8 @@ impl<
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
-        let stage_memory = StageMemory::new::<S>(
-            2u32,
-            comptime!(StageIdent::from_matmul(ident)),
-            config.stage_config(),
-        );
+        let stage_memory =
+            StageMemory::new::<S>(2u32, comptime!(ident.into_stage()), config.stage_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         comptime! {
@@ -111,7 +108,10 @@ impl<
         PartialStageToTileReader::new(
             this.stage_memory,
             stage_buffer,
-            comptime!(StageIdent::from_matmul(this.ident)),
+            comptime! {
+                let stage_ident: StageIdent = this.ident.into();
+                stage_ident
+            },
         )
     }
 
@@ -162,10 +162,6 @@ impl<
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
         this.stage_memory
-            .clear_stage::<DoubleBufferingGlobalConfig<S>>(
-                stage_buffer,
-                comptime!(StageIdent::from_matmul(this.ident)),
-                config,
-            )
+            .clear_stage::<DoubleBufferingGlobalConfig<S>>(stage_buffer, this.ident, config)
     }
 }

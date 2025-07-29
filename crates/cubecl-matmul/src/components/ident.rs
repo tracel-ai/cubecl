@@ -8,6 +8,13 @@ pub enum MatmulIdent {
     Out,
 }
 
+impl MatmulIdent {
+    /// Equivalent to into, but type inference works better within Cube functions
+    pub fn into_stage(self) -> StageIdent {
+        self.into()
+    }
+}
+
 // #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 // /// Identifier for all three tensors in a matmul
 // ///
@@ -20,21 +27,14 @@ pub enum MatmulIdent {
 // }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum TileIdent {
-    Lhs,
-    Rhs,
-    Acc,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StageIdent {
     Lhs,
     Rhs,
     Acc,
 }
 
-impl StageIdent {
-    pub fn from_matmul(matmul_ident: MatmulIdent) -> Self {
+impl From<MatmulIdent> for StageIdent {
+    fn from(matmul_ident: MatmulIdent) -> Self {
         match matmul_ident {
             MatmulIdent::Lhs => StageIdent::Lhs,
             MatmulIdent::Rhs => StageIdent::Rhs,
