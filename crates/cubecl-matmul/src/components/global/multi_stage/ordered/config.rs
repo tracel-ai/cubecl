@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent,
+    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
     error::MatmulSetupError,
     global::{
         GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
@@ -37,8 +37,7 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
     }
 
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-        self.stage_config
-            .matrix_layout(ident.into_stage())
+        self.stage_config.matrix_layout(ident.into_stage())
     }
 
     fn plane_dim(&self) -> u32 {

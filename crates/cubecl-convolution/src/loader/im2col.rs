@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use cubecl_matmul::components::global::load::LoaderMode;
+use cubecl_matmul::components::{MatmulIdent, StageIdent};
 use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
@@ -9,7 +10,7 @@ use std::marker::PhantomData;
 use crate::base::RuntimeArgs;
 use crate::{ConvGemmConfig, reader::im2col::Im2colReader};
 use cubecl_matmul::components::{
-    Ident, InputIdent, MatmulPrecision,
+    MatmulPrecision,
     stage::{ContiguousTilingLayout, FullStageToTileReader, RowMajorTilingOrder, StageMemory},
 };
 
@@ -31,7 +32,8 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage = StageMemory::new::<G::StageConfig>(1u32, Ident::Lhs, config.stage_config());
+        let stage =
+            StageMemory::new::<G::StageConfig>(1u32, StageIdent::Lhs, config.stage_config());
 
         let shape_m = runtime_args.size_m;
         let shape_k = runtime_args.size_k;
@@ -59,15 +61,15 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     pub fn reader(
         this: &Self,
     ) -> FullStageToTileReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
-        FullStageToTileReader::new(this.stage, InputIdent::Lhs)
+        FullStageToTileReader::new(this.stage, StageIdent::Lhs)
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
-        let line_size = config.global_line_size(Ident::Lhs);
+        let line_size = config.global_line_size(MatmulIdent::Lhs);
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(line_size),
-            Ident::Lhs,
+            MatmulIdent::Lhs,
             config,
         );
     }
@@ -83,7 +85,7 @@ impl SimpleIm2col {
     pub fn load_to_slice<MP: MatmulPrecision, G: ConvGemmConfig>(
         tensor_reader: &Im2colReader<MP::EI>,
         slice: &mut SliceMut<Line<MP::ES>>,
-        #[comptime] ident: Ident,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) {
         let line_size = config.global_line_size(ident);
@@ -132,7 +134,7 @@ fn load_at_position<MP: MatmulPrecision, G: ConvGemmConfig>(
     tensor_reader: &Im2colReader<MP::EI>,
     slice: &mut SliceMut<Line<MP::ES>>,
     unit_position: u32,
-    #[comptime] ident: Ident,
+    #[comptime] ident: MatmulIdent,
     #[comptime] config: G,
 ) {
     let line_size = config.global_line_size(ident);
@@ -142,7 +144,7 @@ fn load_at_position<MP: MatmulPrecision, G: ConvGemmConfig>(
 
     let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<G::StageConfig>(
         nth_tile,
-        ident,
+        ident.into_stage(),
         config.stage_config(),
     );
 

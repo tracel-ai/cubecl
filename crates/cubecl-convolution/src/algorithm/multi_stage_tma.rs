@@ -13,7 +13,7 @@ use crate::{
 };
 
 use cubecl_matmul::components::{
-    InputIdent, MatmulSelection,
+    MatmulIdent, MatmulSelection,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
     tile::TileMatmulFamily,
@@ -40,7 +40,7 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
-        ident: InputIdent,
+        ident: MatmulIdent,
     ) -> TensorHandle<R, E> {
         into_tensor_handle_tma(client, handle, ident)
     }

@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent,
+    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
     error::MatmulSetupError,
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,

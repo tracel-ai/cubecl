@@ -3,7 +3,7 @@ use std::any::TypeId;
 use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout, StageIdent,
+    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
     error::{MatmulAvailabilityError, MatmulSetupError},
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,

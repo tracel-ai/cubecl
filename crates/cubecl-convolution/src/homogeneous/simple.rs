@@ -10,7 +10,7 @@ use crate::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+    AvailableLineSizes, EA, EI, EO, ES, MatmulIdent, InputRuntimeArg, MatmulLineSizes,
     MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg,
     global::{
         AccumulatorLoader, GlobalConfig,
@@ -139,7 +139,7 @@ where
             y_offset,
             0,
             CubeOption::new_None(),
-            InputIdent::Rhs,
+            MatmulIdent::Rhs,
             config,
         )
     }

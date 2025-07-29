@@ -5,7 +5,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor}
 use crate::homogeneous::simple::ConvTilingLayout;
 use crate::reader::bias::BiasReader;
 use cubecl_matmul::components::{
-    Ident, MatmulPrecision,
+    MatmulIdent, MatmulPrecision, StageIdent,
     global::{AccumulatorLoader, GlobalConfig},
     stage::{StageConfig, StageMemory},
     tile::{Tile, TileConfig, TileMatmul},
@@ -26,7 +26,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
     fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G) {
         match this {
             BiasLoader::Some { tensor_view, stage } => {
-                let line_size = config.global_line_size(Ident::Out);
+                let line_size = config.global_line_size(MatmulIdent::Out);
                 let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
 
                 let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
@@ -52,13 +52,13 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
     ) {
         match this {
             BiasLoader::Some { stage, .. } => {
-                let line_size = config.stage_line_size(Ident::Out);
+                let line_size = config.stage_line_size(StageIdent::Acc);
                 let tile_elems = config.tile_size().n() / line_size;
                 let start = tile_n * tile_elems;
                 let slice = stage
                     .as_slice_mut(line_size)
                     .slice(start, start + tile_elems);
-                let tile = Tile::new_strided(slice, 0, config.matrix_layout(Ident::Out));
+                let tile = Tile::new_strided(slice, 0, config.matrix_layout(StageIdent::Acc));
                 TMM::fill_accumulator(&tile, acc, config);
             }
             BiasLoader::None => {
@@ -92,7 +92,7 @@ impl<MP: MatmulPrecision> BiasLoader<MP> {
 fn init_stage<ES: Numeric, G: GlobalConfig>(
     #[comptime] config: G,
 ) -> StageMemory<ES, ConvTilingLayout> {
-    let line_size = config.stage_config().stage_line_size(Ident::Out);
+    let line_size = config.stage_config().stage_line_size(StageIdent::Acc);
 
     let smem = SharedMemory::new_lined(
         comptime!(config.tiling_scheme().elements_in_stage_n() / line_size),

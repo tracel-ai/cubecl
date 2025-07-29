@@ -14,7 +14,7 @@ use crate::{
 };
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    InputIdent,
+    MatmulIdent,
     global::args::TensorArgs,
     stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,
@@ -39,7 +39,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
-        ident: cubecl_matmul::components::InputIdent,
+        ident: MatmulIdent,
     ) -> TensorHandle<R, E> {
         let rank = handle.shape.len();
         let dim_c = rank - 1;
@@ -49,13 +49,14 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
             into_contiguous(client, handle)
         };
         match ident {
-            InputIdent::Lhs => handle,
-            InputIdent::Rhs => {
+            MatmulIdent::Lhs => handle,
+            MatmulIdent::Rhs => {
                 // Reshape to (K, N) so the loader knows how to handle it
                 handle.shape = vec![handle.shape[1..].iter().product(), handle.shape[0]];
                 handle.strides = vec![handle.strides[dim_c], handle.strides[0]];
                 handle
             }
+            MatmulIdent::Out => unreachable!(),
         }
     }
 
@@ -75,12 +76,12 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     }
 }
 
-fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {
+fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: MatmulIdent) -> bool {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
     match ident {
-        InputIdent::Lhs => handle.strides[dim_c] == 1,
-        InputIdent::Rhs => {
+        MatmulIdent::Lhs => handle.strides[dim_c] == 1,
+        MatmulIdent::Rhs => {
             let mut strides = handle.strides.to_vec();
             strides.sort();
             let ordered = handle.strides == strides;
@@ -90,5 +91,6 @@ fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIde
             }
             ordered && contiguous_k
         }
+        MatmulIdent::Out => unreachable!(),
     }
 }
