@@ -1,10 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder};
+use cubecl_matmul::components::{
+    stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder},
+    tile::TileConfig,
+};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::dummy::GlobalToTileReader,
+    AttentionSetupError, AvailableLineSizes, global::dummy::RegisterToTileReader,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -24,7 +27,7 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
         >;
 
     /// The configuration type associated with this Attention family.
-    type Config: StageConfig;
+    type Config: StageAttentionConfig;
 
     type KeyReader: ReaderFamily;
     type ValueReader: ReaderFamily;
@@ -55,7 +58,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Writer: CubeType;
 
     /// The configuration type associated with this Attention.
-    type Config: StageConfig;
+    type Config: StageAttentionConfig;
 
     type State: CubeType;
 
@@ -63,7 +66,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn execute(
-        query_reader: &GlobalToTileReader,
+        query_reader: &RegisterToTileReader,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,
@@ -77,9 +80,12 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Stage Attention level
-pub trait StageConfig:
+pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
+    type ScoreConfig: TileConfig;
+    type ValueConfig: TileConfig;
+
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
     fn rows_per_plane(&self) -> u32;

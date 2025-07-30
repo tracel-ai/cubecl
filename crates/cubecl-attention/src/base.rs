@@ -12,7 +12,7 @@ use crate::{
 };
 
 use crate::components::batch::BatchAttentionFamily;
-use crate::components::batch::BatchConfig;
+use crate::components::batch::BatchAttentionConfig;
 use cubecl_core::frontend::CubePrimitive;
 
 pub enum Strategy {

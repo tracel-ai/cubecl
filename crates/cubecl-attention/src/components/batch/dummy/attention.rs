@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
-    batch::{BatchAttention, BatchConfig, CubeCountInput, dummy::config::DummyBatchConfig},
+    batch::{BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig},
     global::GlobalAttention,
 };
 
@@ -33,7 +33,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         // But for now we assume every parameter = 8 so it's only one time the calls to tile matmul
 
         GA::execute(
-            GA::init_query_loader(),
+            GA::init_query_loader(query),
             GA::init_key_loader(),
             GA::init_value_loader(),
             GA::init_writer(),

@@ -10,7 +10,7 @@ use crate::components::{
         GlobalAttentionFamily,
         dummy::{DummyGlobalAttention, config::DummyGlobalConfig},
     },
-    stage::{StageAttentionFamily, StageConfig as _},
+    stage::{StageAttentionFamily, StageAttentionConfig as _},
 };
 
 pub struct DummyGlobalAttentionFamily<SA: StageAttentionFamily> {

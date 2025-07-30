@@ -2,18 +2,18 @@ use cubecl_core::CubeDim;
 
 use crate::components::{
     AttentionProblem, AttentionSetupError,
-    batch::{BatchConfig, HypercubeConfig},
-    global::GlobalConfig,
+    batch::{BatchAttentionConfig, HypercubeConfig},
+    global::GlobalAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyBatchConfig<G: GlobalConfig> {
+pub struct DummyBatchConfig<G: GlobalAttentionConfig> {
     global_config: G,
     hypercube_config: HypercubeConfig,
     seq_k: u32,
 }
 
-impl<G: GlobalConfig> BatchConfig for DummyBatchConfig<G> {
+impl<G: GlobalAttentionConfig> BatchAttentionConfig for DummyBatchConfig<G> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
@@ -33,7 +33,7 @@ impl<G: GlobalConfig> BatchConfig for DummyBatchConfig<G> {
     }
 }
 
-impl<G: GlobalConfig> DummyBatchConfig<G> {
+impl<G: GlobalAttentionConfig> DummyBatchConfig<G> {
     pub fn new(global_config: G, hypercube_config: HypercubeConfig, seq_k: u32) -> Self {
         Self {
             global_config,

@@ -3,7 +3,7 @@ use cubecl_core::{CubeElement, server};
 
 use crate::components::args::TensorInputsLaunch;
 use crate::components::batch::BatchAttentionFamily;
-use crate::components::batch::BatchConfig;
+use crate::components::batch::BatchAttentionConfig;
 use crate::components::{AttentionProblem, AttentionSelection};
 use crate::components::{AvailableLineSizes, Ident};
 use crate::kernels::Algorithm;

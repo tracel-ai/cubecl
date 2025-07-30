@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
-    global::dummy::{DummyAccumulator, DummyWriter, GlobalToTileReader},
-    stage::{StageAttention, StageConfig as _, dummy::config::DummyStageConfig},
+    global::dummy::{DummyAccumulator, DummyWriter, RegisterToTileReader},
+    stage::{StageAttention, StageAttentionConfig as _, dummy::config::DummyStageConfig},
 };
 
 pub struct DummyStageAttention<
@@ -38,7 +38,7 @@ impl<
     // Tc times, each call is at an index j
     // Return (m_ij, l_ij) [new]
     fn execute(
-        query_reader: &GlobalToTileReader,
+        query_reader: &RegisterToTileReader,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,

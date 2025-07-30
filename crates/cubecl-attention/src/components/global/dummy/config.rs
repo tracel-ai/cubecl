@@ -1,14 +1,16 @@
 use cubecl_core::CubeDim;
 
-use crate::components::{AttentionSetupError, global::GlobalConfig, stage::StageConfig};
+use crate::components::{
+    AttentionSetupError, global::GlobalAttentionConfig, stage::StageAttentionConfig,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyGlobalConfig<S: StageConfig> {
+pub struct DummyGlobalConfig<S: StageAttentionConfig> {
     stage_config: S,
     num_planes: u32,
 }
 
-impl<S: StageConfig> GlobalConfig for DummyGlobalConfig<S> {
+impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     type StageConfig = S;
 
     fn stage_config(&self) -> S {
@@ -29,7 +31,7 @@ impl<S: StageConfig> GlobalConfig for DummyGlobalConfig<S> {
     }
 }
 
-impl<S: StageConfig> DummyGlobalConfig<S> {
+impl<S: StageAttentionConfig> DummyGlobalConfig<S> {
     pub fn new(stage_config: S, num_planes: u32) -> Result<Self, AttentionSetupError> {
         Self {
             stage_config,

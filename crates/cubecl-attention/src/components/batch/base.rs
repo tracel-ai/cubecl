@@ -6,7 +6,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionSpec, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
-    global::GlobalConfig,
+    global::GlobalAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -16,7 +16,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: BatchAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this Attention family.
-    type Config: BatchConfig;
+    type Config: BatchAttentionConfig;
 
     /// Entry point
     ///
@@ -54,7 +54,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
 #[cube]
 pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
-    type Config: BatchConfig;
+    type Config: BatchAttentionConfig;
 
     fn execute(
         query: VirtualTensor<AP::EI>,
@@ -67,10 +67,10 @@ pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Batch Attention level
-pub trait BatchConfig:
+pub trait BatchAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type GlobalConfig: GlobalConfig;
+    type GlobalConfig: GlobalAttentionConfig;
 
     fn global_config(&self) -> Self::GlobalConfig;
 

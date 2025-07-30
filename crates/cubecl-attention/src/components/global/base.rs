@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, stage::StageConfig,
+    stage::StageAttentionConfig, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection, AttentionSetupError, AvailableLineSizes
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -13,7 +13,7 @@ pub trait GlobalAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: GlobalAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this Attention family.
-    type Config: GlobalConfig;
+    type Config: GlobalAttentionConfig;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -48,7 +48,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type ValueLoader: CubeType;
 
     /// The configuration type associated with this Attention.
-    type Config: GlobalConfig;
+    type Config: GlobalAttentionConfig;
 
     fn execute(
         query_loader: Self::QueryLoader,
@@ -59,7 +59,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    fn init_query_loader() -> Self::QueryLoader;
+    fn init_query_loader(query: VirtualTensor<AP::EI>) -> Self::QueryLoader;
     fn init_key_loader() -> Self::KeyLoader;
     fn init_value_loader() -> Self::ValueLoader;
     fn init_writer() -> Self::Writer;
@@ -67,10 +67,10 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Global Attention level
-pub trait GlobalConfig:
+pub trait GlobalAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type StageConfig: StageConfig;
+    type StageConfig: StageAttentionConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
 
