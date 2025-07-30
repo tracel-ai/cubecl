@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout, 
+    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, RoleRule, global_memory::TensorReader,
         load::AsyncFullLoadingStrategy,

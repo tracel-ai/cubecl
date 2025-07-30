@@ -46,13 +46,8 @@ impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileRead
         col: u32,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        this.stage_memory.get_tile::<S>(
-            row,
-            col,
-            0u32,
-            this.stage_ident,
-            config,
-        )
+        this.stage_memory
+            .get_tile::<S>(row, col, 0u32, this.stage_ident, config)
     }
 }
 

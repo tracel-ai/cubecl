@@ -1,5 +1,9 @@
 use crate::components::{
-    error::MatmulSetupError, global::{PlaneRoleConfig, RoleRuleConfig}, stage::{NumStages, PartitionBuffering, StageConfig}, tile::TileConfig, MatrixLayout, StageIdent, TilingScheme
+    MatrixLayout, StageIdent, TilingScheme,
+    error::MatmulSetupError,
+    global::{PlaneRoleConfig, RoleRuleConfig},
+    stage::{NumStages, PartitionBuffering, StageConfig},
+    tile::TileConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

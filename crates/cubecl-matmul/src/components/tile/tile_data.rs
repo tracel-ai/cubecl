@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{tile::TileConfig, MatrixLayout, StageIdent};
+use crate::components::{MatrixLayout, StageIdent, tile::TileConfig};
 
 #[derive(CubeType, Clone)]
 /// Data to be handed to the Tile Matmul

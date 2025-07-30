@@ -1,5 +1,5 @@
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulIdent, LoadingPrecomputeStrategy, MatmulLineSizes, MatmulPrecision,
+    AvailableLineSizes, LoadingPrecomputeStrategy, MatmulIdent, MatmulLineSizes, MatmulPrecision,
     MatmulSelection, MatmulSetupError, MultiRowStrategy,
     global::{LoadSpecializationConfig, args::MatmulArgs, load::LoaderMode},
     stage::{NumStages, PartitionBuffering, StageMatmulFamily},

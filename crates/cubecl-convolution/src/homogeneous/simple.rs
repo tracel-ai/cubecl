@@ -10,7 +10,7 @@ use crate::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    AvailableLineSizes, EA, EI, EO, ES, MatmulIdent, InputRuntimeArg, MatmulLineSizes,
+    AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulIdent, MatmulLineSizes,
     MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg,
     global::{
         AccumulatorLoader, GlobalConfig,

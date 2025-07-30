@@ -1,4 +1,5 @@
 use crate::components::MatmulPrecision;
+use crate::components::StageIdent;
 use crate::components::global::AccumulatorLoader;
 use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
@@ -6,7 +7,6 @@ use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::{NoEvent, StageEventListener};
-use crate::components::StageIdent;
 use crate::components::{global, tile};
 use core::marker::PhantomData;
 use cubecl::prelude::*;

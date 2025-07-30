@@ -1,5 +1,5 @@
-use crate::components::{global::GlobalConfig, MatmulIdent};
 use crate::components::global::global_memory::TensorWriter;
+use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
