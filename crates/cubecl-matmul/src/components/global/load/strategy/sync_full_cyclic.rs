@@ -169,10 +169,10 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
+    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
         nth_tile,
         comptime!(job.ident.into_stage()),
-        comptime!(config.stage_config()),
+        comptime!(config.stage_memory_config()),
     );
 
     let line_read = tensor_reader.load_coalesced_in_tile::<G>(

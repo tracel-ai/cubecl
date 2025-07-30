@@ -159,7 +159,12 @@ where
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
-                let tile_lhs = RL::read_tile::<S>(lhs_reader, start_m + m_iter, k_iter, config);
+                let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
+                    lhs_reader,
+                    start_m + m_iter,
+                    k_iter,
+                    config.stage_memory_config(),
+                );
                 TMM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -183,8 +188,12 @@ where
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..n_iterations {
-                let rhs_tile_next =
-                    RR::read_tile::<S>(rhs_reader, k_iter, start_n + n_iter, config);
+                let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
+                    rhs_reader,
+                    k_iter,
+                    start_n + n_iter,
+                    config.stage_memory_config(),
+                );
                 TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
@@ -272,7 +281,12 @@ where
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
-                let tile_lhs = RL::read_tile::<S>(lhs_reader, start_m + m_iter, k_iter, config);
+                let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
+                    lhs_reader,
+                    start_m + m_iter,
+                    k_iter,
+                    config.stage_memory_config(),
+                );
                 TMM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -293,7 +307,12 @@ where
 
             let mut n_iter = comptime![0u32];
 
-            let rhs_tile_first = RR::read_tile::<S>(rhs_reader, k_iter, start_n + n_iter, config);
+            let rhs_tile_first = RR::read_tile::<S::StageMemoryConfig>(
+                rhs_reader,
+                k_iter,
+                start_n + n_iter,
+                config.stage_memory_config(),
+            );
             TMM::fill_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
@@ -314,8 +333,12 @@ where
                     (&mut rhs_fragments.1, &mut rhs_fragments.0)
                 };
 
-                let rhs_tile_next =
-                    RR::read_tile::<S>(rhs_reader, k_iter, start_n + comptime![n_iter + 1], config);
+                let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
+                    rhs_reader,
+                    k_iter,
+                    start_n + comptime![n_iter + 1],
+                    config.stage_memory_config(),
+                );
                 TMM::fill_rhs(&rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,

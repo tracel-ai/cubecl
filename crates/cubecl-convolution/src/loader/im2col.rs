@@ -32,8 +32,11 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage =
-            StageMemory::new::<G::StageConfig>(1u32, StageIdent::Lhs, config.stage_config());
+        let stage = StageMemory::new::<G::StageMemoryConfig>(
+            1u32,
+            StageIdent::Lhs,
+            config.stage_memory_config(),
+        );
 
         let shape_m = runtime_args.size_m;
         let shape_k = runtime_args.size_k;
@@ -142,11 +145,9 @@ fn load_at_position<MP: MatmulPrecision, G: ConvGemmConfig>(
     let nth_tile = unit_position / tile_num_elements;
     let pos_within_tile = unit_position % tile_num_elements;
 
-    let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<G::StageConfig>(
-        nth_tile,
-        ident.into_stage(),
-        config.stage_config(),
-    );
+    let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<
+        G::StageMemoryConfig,
+    >(nth_tile, ident.into_stage(), config.stage_memory_config());
 
     let line_read = tensor_reader.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 

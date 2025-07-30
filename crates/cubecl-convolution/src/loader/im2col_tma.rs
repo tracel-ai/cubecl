@@ -42,10 +42,10 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::StageConfig>(
+            stages.push(StageMemory::new_aligned::<G::StageMemoryConfig>(
                 StageIdent::Lhs,
                 128u32,
-                config.stage_config(),
+                config.stage_memory_config(),
             ))
         }
 

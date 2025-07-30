@@ -79,10 +79,10 @@ impl<
             }
         }
 
-        let mut stage_memory = StageMemory::new::<G::StageConfig>(
+        let mut stage_memory = StageMemory::new::<G::StageMemoryConfig>(
             1u32,
             comptime!(ident.into_stage()),
-            config.stage_config(),
+            config.stage_memory_config(),
         );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 

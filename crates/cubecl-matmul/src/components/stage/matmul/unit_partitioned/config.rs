@@ -2,7 +2,7 @@ use crate::components::{
     MatrixLayout, StageIdent, TilingScheme,
     error::MatmulSetupError,
     global::{PlaneRoleConfig, RoleRuleConfig},
-    stage::{NumStages, PartitionBuffering, StageConfig},
+    stage::{NumStages, PartitionBuffering, StageConfig, StageMemoryConfig},
     tile::TileConfig,
 };
 
@@ -20,9 +20,14 @@ pub struct UnitPartitionedStageConfig<T: TileConfig> {
 
 impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
     type TileConfig = T;
+    type StageMemoryConfig = Self;
 
     fn tile_config(self) -> Self::TileConfig {
         self.tile_config
+    }
+
+    fn stage_memory_config(self) -> Self::StageMemoryConfig {
+        self
     }
 
     fn stage_line_size(&self, ident: StageIdent) -> u32 {
@@ -43,14 +48,6 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
 
     fn partition_buffering(&self) -> PartitionBuffering {
         self.partition_buffering
-    }
-
-    fn num_stages(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => self.num_stages.lhs,
-            StageIdent::Rhs => self.num_stages.rhs,
-            StageIdent::Acc => unreachable!(),
-        }
     }
 
     fn tiling_scheme(&self) -> TilingScheme {
@@ -85,6 +82,38 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
             }
         };
         !execution_is_sync && self.ordered
+    }
+}
+
+impl<T: TileConfig> StageMemoryConfig for UnitPartitionedStageConfig<T> {
+    type TileConfig = T;
+
+    fn tile_config(self) -> Self::TileConfig {
+        <Self as StageConfig>::tile_config(self)
+    }
+
+    fn num_main_flow_planes(&self) -> u32 {
+        <Self as StageConfig>::num_main_flow_planes(&self)
+    }
+
+    fn tiling_scheme(&self) -> TilingScheme {
+        <Self as StageConfig>::tiling_scheme(&self)
+    }
+
+    fn stage_line_size(&self, ident: StageIdent) -> u32 {
+        <Self as StageConfig>::stage_line_size(&self, ident)
+    }
+
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
+        <Self as StageConfig>::matrix_layout(&self, ident)
+    }
+
+    fn num_stages(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.num_stages.lhs,
+            StageIdent::Rhs => self.num_stages.rhs,
+            StageIdent::Acc => unreachable!(),
+        }
     }
 }
 
@@ -126,8 +155,11 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
         eo_size: u32,
         smem_limit: u32,
     ) -> Result<Self, MatmulSetupError> {
-        let num_units_needed = self.tiling_scheme().stage_partitions_in_stage_mn();
-        let num_units = self.plane_dim() * self.num_main_flow_planes();
+        let tiling_scheme = <Self as StageConfig>::tiling_scheme(&self);
+        let num_main_flow_planes = <Self as StageConfig>::num_main_flow_planes(&self);
+
+        let num_units_needed = tiling_scheme.stage_partitions_in_stage_mn();
+        let num_units = self.plane_dim() * num_main_flow_planes;
 
         if num_units != num_units_needed {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
@@ -136,7 +168,7 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
         }
 
         if self.partition_buffering() == PartitionBuffering::Double
-            && self.tiling_scheme().tiles_in_stage_partition_n() < 2
+            && tiling_scheme.tiles_in_stage_partition_n() < 2
         {
             return Err(MatmulSetupError::InvalidConfig(Box::new(
                 "Error: Tried doing partition double buffering with only one tile to compute.",
@@ -145,8 +177,7 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
 
         let lhs_smem_size = self.tiling_scheme.elements_in_stage_mk() * self.num_stages.lhs;
         let rhs_smem_size = self.tiling_scheme.elements_in_stage_nk() * self.num_stages.rhs;
-        let num_primitives = self.num_main_flow_planes() * self.plane_dim();
-        let out_smem_size = self.tiling_scheme.elements_in_tile_mn() * num_primitives;
+        let out_smem_size = self.tiling_scheme.elements_in_tile_mn() * num_units;
         let smem_total_size = es_size * (lhs_smem_size + rhs_smem_size) + eo_size * out_smem_size;
 
         if smem_total_size > smem_limit {

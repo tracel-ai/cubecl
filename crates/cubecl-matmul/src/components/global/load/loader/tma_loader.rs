@@ -4,12 +4,14 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
-use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder, TilingOrderEnum};
+use crate::components::stage::{
+    FullStageToTileReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
+};
 use crate::components::{MatmulIdent, StageIdent};
 use crate::components::{MatmulPrecision, MatrixLayout, global::Quantization};
 use crate::components::{
     global::{GlobalConfig, global_memory::MappedTensorReader},
-    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder},
+    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 
 /// TMA uses contiguous tiling, but with a special tiling order
@@ -25,7 +27,7 @@ pub struct TmaTilingOrder;
 
 #[cube]
 impl TilingOrder for TmaTilingOrder {
-    fn to_row_col<C: StageConfig>(
+    fn to_row_col<C: StageMemoryConfig>(
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
@@ -50,7 +52,7 @@ impl TilingOrder for TmaTilingOrder {
         }
     }
 
-    fn to_nth_tile<C: StageConfig>(
+    fn to_nth_tile<C: StageMemoryConfig>(
         row: u32,
         col: u32,
         #[comptime] tile_count_rows: u32,
@@ -112,10 +114,10 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
             }
         }
 
-        let stage = StageMemory::new_aligned::<G::StageConfig>(
+        let stage = StageMemory::new_aligned::<G::StageMemoryConfig>(
             comptime!(ident.into_stage()),
             128u32,
-            config.stage_config(),
+            config.stage_memory_config(),
         );
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
