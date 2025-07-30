@@ -208,12 +208,12 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         MatmulIdent::Out => comptime!(unreachable!()),
     };
 
-    let (tile_x_within_stage, tile_y_within_stage) = TO::to_row_col::<G::StageConfig>(
+    let (tile_x_within_stage, tile_y_within_stage) = TO::to_row_col::<G::StageMemoryConfig>(
         tile_index,
         tile_count_row,
         tile_count_col,
         stage_ident,
-        comptime!(config.stage_config()),
+        comptime!(config.stage_memory_config()),
     );
 
     let (tile_x, tile_y) = match comptime!(job.ident) {
@@ -236,13 +236,13 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         config,
     );
 
-    let nth_tile_in_stage = TO::to_nth_tile::<G::StageConfig>(
+    let nth_tile_in_stage = TO::to_nth_tile::<G::StageMemoryConfig>(
         tile_x,
         tile_y,
         total_tile_count_row,
         total_tile_count_col,
         stage_ident,
-        config.stage_config(),
+        config.stage_memory_config(),
     );
 
     let tile_start = nth_tile_in_stage * job.num_lines_per_tile;

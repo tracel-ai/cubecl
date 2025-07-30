@@ -144,10 +144,10 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let line_index_within_tile = pos_across_tiles % this.num_lines_per_tile;
 
         let nth_tile_global = nth_tile_for_this_plane + this.num_tiles_to_skip;
-        let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
+        let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
             nth_tile_global,
             comptime!(this.ident.into_stage()),
-            config.stage_config(),
+            config.stage_memory_config(),
         );
 
         SyncFullTilewiseJob::load_and_store_line::<MP, TO, G>(

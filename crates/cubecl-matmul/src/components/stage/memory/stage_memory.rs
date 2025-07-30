@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use crate::components::global::load::StageBuffer;
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::{StageConfig, TilingLayout};
+use crate::components::stage::base::StageConfig;
+use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::Tile;
 use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
 use cubecl_core as cubecl;
@@ -26,7 +27,7 @@ pub struct StageMemory<ES: Numeric, T: TilingLayout> {
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     /// Instantiate a new stage memory for the given identifier
-    pub fn new<S: StageConfig>(
+    pub fn new<S: StageMemoryConfig>(
         #[comptime] num_stages: u32,
         #[comptime] ident: StageIdent,
         #[comptime] config: S,
@@ -42,7 +43,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     }
 
     /// Instantiate a new stage memory for the given identifier, with shared memory alignment
-    pub fn new_aligned<S: StageConfig>(
+    pub fn new_aligned<S: StageMemoryConfig>(
         #[comptime] ident: StageIdent,
         #[comptime] alignment: u32,
         #[comptime] config: S,
@@ -71,7 +72,7 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     }
 
     /// Get the tile at position (row, col)
-    pub fn get_tile<S: StageConfig>(
+    pub fn get_tile<S: StageMemoryConfig>(
         &self,
         row: u32,
         col: u32,

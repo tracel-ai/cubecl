@@ -73,8 +73,11 @@ impl<
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
-        let stage_memory =
-            StageMemory::new::<S>(2u32, comptime!(ident.into_stage()), config.stage_config());
+        let stage_memory = StageMemory::new::<S::StageMemoryConfig>(
+            2u32,
+            comptime!(ident.into_stage()),
+            config.stage_memory_config(),
+        );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         comptime! {

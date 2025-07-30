@@ -3,10 +3,11 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
+use crate::components::stage::StageMemoryConfig;
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
-    stage::{self, StageConfig},
+    stage::StageConfig,
 };
 use crate::components::{MatmulIdent, MatmulLineSizes, MatmulSelection};
 use cubecl_std::{
@@ -125,10 +126,13 @@ pub trait GlobalConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     /// Underlying Stage matmul config
-    type StageConfig: stage::StageConfig;
+    type StageConfig: StageConfig;
+    type StageMemoryConfig: StageMemoryConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
+
+    fn stage_memory_config(&self) -> Self::StageMemoryConfig;
 
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size(&self, ident: MatmulIdent) -> u32;

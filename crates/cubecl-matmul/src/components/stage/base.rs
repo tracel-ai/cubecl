@@ -4,7 +4,7 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
-use crate::components::stage::NumStages;
+use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
 use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection, StageIdent};
 use crate::components::{
@@ -161,9 +161,13 @@ pub trait StageConfig:
 {
     /// Underlying Tile matmul config
     type TileConfig: TileConfig;
+    type StageMemoryConfig: StageMemoryConfig;
 
     /// Converts itself to the underlying Tile Matmul config
     fn tile_config(self) -> Self::TileConfig;
+
+    /// Converts itself to the underlying Stage Memory config
+    fn stage_memory_config(self) -> Self::StageMemoryConfig;
 
     /// Returns the line size for the given ident
     fn stage_line_size(&self, ident: StageIdent) -> u32;
@@ -179,9 +183,6 @@ pub trait StageConfig:
 
     /// Returns whether we must perform partition buffering
     fn partition_buffering(&self) -> PartitionBuffering;
-
-    /// Returns the number of stages for the given input
-    fn num_stages(&self, ident: StageIdent) -> u32;
 
     /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme;
@@ -213,7 +214,7 @@ pub enum PartitionBuffering {
 #[cube]
 /// Read the tile at (row, col) from stage memory
 pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn read_tile<S: StageConfig>(
+    fn read_tile<S: StageMemoryConfig>(
         this: &Self,
         row: u32,
         col: u32,

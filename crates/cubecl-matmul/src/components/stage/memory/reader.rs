@@ -1,8 +1,8 @@
 use crate::components::StageIdent;
 use crate::components::global::load::StageBuffer;
 use crate::components::stage::ReaderFamily;
-use crate::components::stage::StageConfig;
 use crate::components::stage::StageMemory;
+use crate::components::stage::StageMemoryConfig;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::tile::Tile;
@@ -40,7 +40,7 @@ impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for FullStageToTileReader<ES, T> {
-    fn read_tile<S: StageConfig>(
+    fn read_tile<S: StageMemoryConfig>(
         this: &Self,
         row: u32,
         col: u32,
@@ -86,7 +86,7 @@ impl<ES: Numeric, T: TilingLayout> PartialStageToTileReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StageToTileReader<ES> for PartialStageToTileReader<ES, T> {
-    fn read_tile<S: StageConfig>(
+    fn read_tile<S: StageMemoryConfig>(
         this: &Self,
         row: u32,
         col: u32,

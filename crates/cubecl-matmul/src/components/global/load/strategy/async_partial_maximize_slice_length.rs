@@ -126,11 +126,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(nth_slice, this.ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
                 stage,
                 nth_slice,
                 comptime!(this.ident.into_stage()),
-                config.stage_config(),
+                config.stage_memory_config(),
             );
 
         let start = this.slice_stage_offset;

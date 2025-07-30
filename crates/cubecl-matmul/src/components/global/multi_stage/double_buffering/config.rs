@@ -9,12 +9,12 @@ use crate::components::{
         multi_stage::EventLoadingMode,
         shared::shared_global_config_validation,
     },
-    stage::{self},
+    stage::StageConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the double buffering global matmul
-pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
+pub struct DoubleBufferingGlobalConfig<S: StageConfig> {
     pub stage_config: S,
     num_planes: u32,
     pub check_m_bounds: bool,
@@ -25,8 +25,13 @@ pub struct DoubleBufferingGlobalConfig<S: stage::StageConfig> {
     specialized_loading_sides: SpecializedLoadingSides,
 }
 
-impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
+impl<S: StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     type StageConfig = S;
+    type StageMemoryConfig = S::StageMemoryConfig;
+
+    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
+        self.stage_config.stage_memory_config()
+    }
 
     fn stage_config(&self) -> Self::StageConfig {
         self.stage_config
@@ -101,7 +106,7 @@ impl<S: stage::StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     }
 }
 
-impl<S: stage::StageConfig> DoubleBufferingGlobalConfig<S> {
+impl<S: StageConfig> DoubleBufferingGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
     /// Create a new config for double buffering global matmul
     ///

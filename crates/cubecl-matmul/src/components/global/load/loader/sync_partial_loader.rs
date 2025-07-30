@@ -69,10 +69,10 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StageMemory::new::<G::StageConfig>(
+        let stage_memory = StageMemory::new::<G::StageMemoryConfig>(
             2u32,
             comptime!(ident.into_stage()),
-            config.stage_config(),
+            config.stage_memory_config(),
         );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 

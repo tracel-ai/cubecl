@@ -98,6 +98,7 @@ pub mod config {
             GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
             multi_stage::EventLoadingMode,
         },
+        stage::StageConfig,
     };
 
     use super::*;
@@ -123,6 +124,11 @@ pub mod config {
 
     impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         type StageConfig = M::StageConfig;
+        type StageMemoryConfig = <M::StageConfig as StageConfig>::StageMemoryConfig;
+
+        fn stage_memory_config(&self) -> Self::StageMemoryConfig {
+            todo!()
+        }
 
         fn stage_config(&self) -> Self::StageConfig {
             self.matmul.stage_config()

@@ -118,11 +118,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
         #[comptime] config: G,
     ) {
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
                 stage,
                 this.nth_slice,
                 comptime!(this.ident.into_stage()),
-                config.stage_config(),
+                config.stage_memory_config(),
             );
 
         let window: Window<MP::EI> =

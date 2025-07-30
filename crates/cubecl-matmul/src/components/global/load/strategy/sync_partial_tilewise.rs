@@ -196,12 +196,12 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             MatmulIdent::Out => comptime!(unreachable!()),
         };
 
-        let tile = TO::to_row_col::<G::StageConfig>(
+        let tile = TO::to_row_col::<G::StageMemoryConfig>(
             nth_tile_global,
             total_tile_count_row,
             total_tile_count_col,
             comptime!(this.ident.into_stage()),
-            config.stage_config(),
+            config.stage_memory_config(),
         );
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;

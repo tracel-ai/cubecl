@@ -70,11 +70,11 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for AsyncFull
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(task_id, this.ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
                 stage,
                 task_id,
                 comptime!(this.ident.into_stage()),
-                config.stage_config(),
+                config.stage_memory_config(),
             );
 
         CM::memcpy_async(

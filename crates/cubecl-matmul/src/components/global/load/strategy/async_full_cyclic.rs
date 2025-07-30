@@ -121,10 +121,10 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         let slice_index = this.unit_id + this.total_units * task_id;
 
         let nth_tile = slice_index / this.num_slices_per_tile;
-        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
+        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
             nth_tile,
             comptime!(this.ident.into_stage()),
-            config.stage_config(),
+            config.stage_memory_config(),
         );
         let nth_slice = slice_index % this.num_slices_per_tile;
 

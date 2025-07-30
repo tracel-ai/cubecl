@@ -27,6 +27,11 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
     type StageConfig = S;
+    type StageMemoryConfig = S::StageMemoryConfig;
+
+    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
+        self.stage_config.stage_memory_config()
+    }
 
     fn stage_config(&self) -> Self::StageConfig {
         self.stage_config
