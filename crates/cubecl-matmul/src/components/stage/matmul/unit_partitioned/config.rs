@@ -1,5 +1,5 @@
 use crate::components::{
-    Ident, InputIdent, MatrixLayout, TilingScheme,
+    MatrixLayout, StageIdent, TilingScheme,
     error::MatmulSetupError,
     global::{PlaneRoleConfig, RoleRuleConfig},
     stage::{NumStages, PartitionBuffering, StageConfig},
@@ -25,15 +25,15 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         self.tile_config
     }
 
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+    fn stage_line_size(&self, ident: StageIdent) -> u32 {
         self.tile_config.stage_line_size(ident)
     }
 
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+    fn global_line_size(&self, ident: StageIdent) -> u32 {
         self.tile_config.global_line_size(ident)
     }
 
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
         self.tile_config.matrix_layout(ident)
     }
 
@@ -45,10 +45,11 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         self.partition_buffering
     }
 
-    fn num_stages(&self, ident: InputIdent) -> u32 {
+    fn num_stages(&self, ident: StageIdent) -> u32 {
         match ident {
-            InputIdent::Lhs => self.num_stages.lhs,
-            InputIdent::Rhs => self.num_stages.rhs,
+            StageIdent::Lhs => self.num_stages.lhs,
+            StageIdent::Rhs => self.num_stages.rhs,
+            StageIdent::Acc => unreachable!(),
         }
     }
 

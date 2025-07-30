@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::InputIdent;
+use crate::components::MatmulIdent;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::specialization::config::{
@@ -149,7 +149,7 @@ impl RoleRule {
     /// ignoring any plane that does not participate for this `ident`.
     pub fn load_index(
         self,
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] specialized_loading_sides: SpecializedLoadingSides,
     ) -> u32 {
         match self {

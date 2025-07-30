@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use super::StageIdent;
+use super::StageBuffer;
 use super::TaskCounter;
-use crate::components::InputIdent;
+use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
@@ -34,7 +34,7 @@ pub trait SyncPartialLoadingStrategy:
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP>;
 }
@@ -50,7 +50,7 @@ pub struct SyncPartialLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartia
     loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
@@ -66,17 +66,20 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
         y_offset: u32,
         batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory =
-            StageMemory::new::<G::StageConfig>(2u32, input_ident.as_ident(), config.stage_config());
+        let stage_memory = StageMemory::new::<G::StageConfig>(
+            2u32,
+            comptime!(ident.into_stage()),
+            config.stage_config(),
+        );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
-                L::new_job::<MP, G>(0u32, input_ident, config),
-                L::new_job::<MP, G>(1u32, input_ident, config),
+                L::new_job::<MP, G>(0u32, ident, config),
+                L::new_job::<MP, G>(1u32, ident, config),
             )),
             false => CubeOption::new_None(),
         };
@@ -86,7 +89,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             stage_memory,
             loading_job,
             quantization,
-            input_ident,
+            ident,
             _config: PhantomData::<G>,
         }
     }
@@ -94,26 +97,34 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     /// Give a reader to the loaded stage memory.
     pub fn reader(
         this: &Self,
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
     ) -> PartialStageToTileReader<MP::ES, L::TilingLayout> {
-        PartialStageToTileReader::new(this.stage_memory, stage_ident, this.input_ident)
+        PartialStageToTileReader::new(
+            this.stage_memory,
+            stage_buffer,
+            comptime!(this.ident.into_stage()),
+        )
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_reader.update_view(k_offset, this.input_ident);
+        this.tensor_reader.update_view(k_offset, this.ident);
     }
 
     /// Accomplish the entire job of filling the stage memory
-    pub fn fill_stage(this: &mut Self, #[comptime] stage_ident: StageIdent, #[comptime] config: G) {
+    pub fn fill_stage(
+        this: &mut Self,
+        #[comptime] stage_buffer: StageBuffer,
+        #[comptime] config: G,
+    ) {
         let mut loading_job = match this.loading_job {
-            CubeOption::Some(job) => match stage_ident {
-                StageIdent::A => job.0,
-                StageIdent::B => job.1,
+            CubeOption::Some(job) => match stage_buffer {
+                StageBuffer::A => job.0,
+                StageBuffer::B => job.1,
             },
-            CubeOption::None => match stage_ident {
-                StageIdent::A => L::new_job::<MP, G>(0u32, this.input_ident, config),
-                StageIdent::B => L::new_job::<MP, G>(1u32, this.input_ident, config),
+            CubeOption::None => match stage_buffer {
+                StageBuffer::A => L::new_job::<MP, G>(0u32, this.ident, config),
+                StageBuffer::B => L::new_job::<MP, G>(1u32, this.ident, config),
             },
         };
 
@@ -145,17 +156,17 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
 
     fn create_job_iterator(
         this: &Self,
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator {
         let job = match this.loading_job {
-            CubeOption::Some(job) => match stage_ident {
-                StageIdent::A => job.0,
-                StageIdent::B => job.1,
+            CubeOption::Some(job) => match stage_buffer {
+                StageBuffer::A => job.0,
+                StageBuffer::B => job.1,
             },
-            CubeOption::None => match stage_ident {
-                StageIdent::A => L::new_job::<MP, G>(0u32, this.input_ident, config),
-                StageIdent::B => L::new_job::<MP, G>(1u32, this.input_ident, config),
+            CubeOption::None => match stage_buffer {
+                StageBuffer::A => L::new_job::<MP, G>(0u32, this.ident, config),
+                StageBuffer::B => L::new_job::<MP, G>(1u32, this.ident, config),
             },
         };
 
@@ -219,12 +230,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
 
     fn execute_whole_job(
         this: &mut Self,
-        #[comptime] stage_ident: StageIdent,
+        #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) {
         Self::execute_all_remaining_tasks(
             this,
-            &mut Self::create_job_iterator(this, stage_ident, config),
+            &mut Self::create_job_iterator(this, stage_buffer, config),
             config,
         );
     }

@@ -4,7 +4,7 @@ use cubecl_core::ir::{Elem, FloatKind};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize};
+use crate::components::{MatmulPrecision, MatrixLayout, StageIdent, TileSize};
 use cubecl_core::frontend::CubePrimitive;
 
 /// Execution mode for the RegisterMatmul
@@ -40,27 +40,27 @@ impl TileConfig for RegisterConfig {
         self.plane_dim
     }
 
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => MatrixLayout::RowMajor,
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
+        match ident {
+            StageIdent::Lhs => self.lhs_layout,
+            StageIdent::Rhs => self.rhs_layout,
+            StageIdent::Acc => MatrixLayout::RowMajor,
         }
     }
 
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_stage_line_size,
-            Ident::Rhs => self.rhs_stage_line_size,
-            Ident::Out => self.out_global_line_size,
+    fn stage_line_size(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.lhs_stage_line_size,
+            StageIdent::Rhs => self.rhs_stage_line_size,
+            StageIdent::Acc => self.out_global_line_size,
         }
     }
 
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_global_line_size,
-            Ident::Rhs => self.rhs_global_line_size,
-            Ident::Out => self.out_global_line_size,
+    fn global_line_size(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.lhs_global_line_size,
+            StageIdent::Rhs => self.rhs_global_line_size,
+            StageIdent::Acc => self.out_global_line_size,
         }
     }
 
@@ -113,11 +113,11 @@ impl RegisterConfig {
         let n = self.tile_size().n();
         let k = self.tile_size().k();
 
-        let lhs = self.stage_line_size(Ident::Lhs);
-        let rhs = self.stage_line_size(Ident::Rhs);
-        let out = self.global_line_size(Ident::Out);
+        let lhs = self.lhs_stage_line_size;
+        let rhs = self.rhs_stage_line_size;
+        let out = self.out_global_line_size;
 
-        match self.matrix_layout(Ident::Lhs) {
+        match self.matrix_layout(StageIdent::Lhs) {
             MatrixLayout::RowMajor => {
                 if k % lhs != 0 {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
@@ -133,7 +133,7 @@ impl RegisterConfig {
                 }
             }
         }
-        match self.matrix_layout(Ident::Rhs) {
+        match self.matrix_layout(StageIdent::Rhs) {
             MatrixLayout::RowMajor => {
                 if n % rhs != 0 {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(

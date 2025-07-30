@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::tile::Tile;
-use crate::components::{Ident, InputIdent, MatrixLayout};
+use crate::components::{MatrixLayout, StageIdent};
 
 use super::{StageConfig, StageMemory};
 
@@ -17,7 +17,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> (u32, u32);
 
@@ -28,7 +28,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> u32;
 
@@ -124,7 +124,7 @@ impl TilingOrder for RowMajorTilingOrder {
         nth: u32,
         #[comptime] _tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] _ident: Ident,
+        #[comptime] _ident: StageIdent,
         #[comptime] _config: C,
     ) -> (u32, u32) {
         (nth / tile_count_cols, nth % tile_count_cols)
@@ -134,7 +134,7 @@ impl TilingOrder for RowMajorTilingOrder {
         col: u32,
         #[comptime] _tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] _ident: Ident,
+        #[comptime] _ident: StageIdent,
         #[comptime] _config: C,
     ) -> u32 {
         row * tile_count_cols + col
@@ -151,7 +151,7 @@ impl TilingOrder for ColMajorTilingOrder {
         nth: u32,
         #[comptime] num_rows: u32,
         #[comptime] _num_cols: u32,
-        #[comptime] _ident: Ident,
+        #[comptime] _ident: StageIdent,
         #[comptime] _config: C,
     ) -> (u32, u32) {
         (nth % num_rows, nth / num_rows)
@@ -161,7 +161,7 @@ impl TilingOrder for ColMajorTilingOrder {
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] _tile_count_cols: u32,
-        #[comptime] _ident: Ident,
+        #[comptime] _ident: StageIdent,
         #[comptime] _config: C,
     ) -> u32 {
         col * tile_count_rows + row
@@ -178,10 +178,10 @@ impl TilingOrder for OrderedTilingOrder {
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> (u32, u32) {
-        if Ident::Lhs != ident {
+        if StageIdent::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
 
@@ -203,10 +203,10 @@ impl TilingOrder for OrderedTilingOrder {
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> u32 {
-        if Ident::Lhs != ident {
+        if StageIdent::Lhs != ident {
             panic!("Ordered tiling order should be used only on Lhs")
         }
 
@@ -234,7 +234,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
         row: u32,
         col: u32,
         #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> Tile<ES>;
 }
@@ -256,7 +256,7 @@ impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
     pub fn to_x_y<S: StageConfig>(
         nth: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> (u32, u32) {
         let num_x = config.tiling_scheme().tiles_in_stage_row(ident);
@@ -273,7 +273,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
         row: u32,
         col: u32,
         #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> Tile<ES> {
         let stage_line_size = config.stage_line_size(ident);
@@ -281,13 +281,13 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
         let matrix_layout = config.matrix_layout(ident);
 
         let (row_buffer_offset, col_buffer_offset, total_tile_count_row, total_tile_count_col) =
-            match ident.as_input_ident() {
-                InputIdent::Lhs => {
+            match ident {
+                StageIdent::Lhs => {
                     let x_tile_offset = 0;
                     let y_tile_offset = tiling_scheme.tiles_in_stage_col(ident) * buffer_index;
                     let total_tile_count_x = tiling_scheme.tiles_in_stage_row(ident);
                     let total_tile_count_y = tiling_scheme.tiles_in_stage_col(ident)
-                        * config.num_stages(InputIdent::Lhs);
+                        * config.num_stages(StageIdent::Lhs);
                     (
                         x_tile_offset,
                         y_tile_offset,
@@ -295,11 +295,11 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                         total_tile_count_y,
                     )
                 }
-                InputIdent::Rhs => {
+                StageIdent::Rhs => {
                     let x_tile_offset = tiling_scheme.tiles_in_stage_row(ident) * buffer_index;
                     let y_tile_offset = 0;
                     let total_tile_count_x = tiling_scheme.tiles_in_stage_row(ident)
-                        * config.num_stages(InputIdent::Rhs);
+                        * config.num_stages(StageIdent::Rhs);
                     let total_tile_count_y = tiling_scheme.tiles_in_stage_col(ident);
                     (
                         x_tile_offset,
@@ -308,6 +308,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                         total_tile_count_y,
                     )
                 }
+                StageIdent::Acc => comptime!(unreachable!()),
             };
 
         let (tile_size_x, tile_size_y, tile_slice_length) = match matrix_layout {
@@ -356,7 +357,7 @@ impl StridedTilingLayout {
     pub fn nth_slice<ES: Numeric, S: StageConfig>(
         stage: &mut StageMemory<ES, Self>,
         nth: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> SliceMut<Line<ES>> {
         let matrix_layout = config.matrix_layout(ident);
@@ -381,10 +382,10 @@ impl TilingLayout for StridedTilingLayout {
         x: u32,
         y: u32,
         #[comptime] _buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        if comptime!(config.num_stages(ident.as_input_ident()) > 1) {
+        if comptime!(config.num_stages(ident) > 1) {
             unimplemented!()
         }
 

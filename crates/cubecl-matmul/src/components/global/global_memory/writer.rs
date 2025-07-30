@@ -1,5 +1,4 @@
-use crate::components::Ident;
-use crate::components::global;
+use crate::components::{MatmulIdent, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -67,11 +66,11 @@ impl<EG: Numeric> TensorWriter<EG> {
         let view_y = tile_y * tile_size_n + unit_id % tile_size_n + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
-            / config.global_line_size(Ident::Out);
+            / config.global_line_size(MatmulIdent::Out);
 
         match comptime!((
-            config.check_row_bounds(Ident::Out),
-            config.check_col_bounds(Ident::Out)
+            config.check_row_bounds(MatmulIdent::Out),
+            config.check_col_bounds(MatmulIdent::Out)
         )) {
             (true, true) => {
                 if view_x < self.shape_x && view_y < self.shape_y {

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, RoleRule, global_memory::TensorReader,
         load::AsyncFullLoadingStrategy,
@@ -22,7 +22,7 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let total_units = config.num_loading_planes(ident) * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
             * config.tiling_scheme().tiles_in_stage(ident);
@@ -43,29 +43,29 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type Job<MP: MatmulPrecision> = AsyncFullCyclicJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullCyclicJob {
-        let total_units = config.plane_dim() * config.num_loading_planes(input_ident);
-        let line_size = config.global_line_size(input_ident);
+        let total_units = config.plane_dim() * config.num_loading_planes(ident);
+        let line_size = config.global_line_size(ident);
 
-        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(input_ident) {
+        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => (
-                config.tiling_scheme().elements_in_tile_row(input_ident),
-                config.tiling_scheme().elements_in_tile_col(input_ident) / line_size,
+                config.tiling_scheme().elements_in_tile_row(ident),
+                config.tiling_scheme().elements_in_tile_col(ident) / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.tiling_scheme().elements_in_tile_col(input_ident),
-                config.tiling_scheme().elements_in_tile_row(input_ident) / line_size,
+                config.tiling_scheme().elements_in_tile_col(ident),
+                config.tiling_scheme().elements_in_tile_row(ident) / line_size,
             ),
         };
 
         let num_slices =
-            comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(input_ident));
+            comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(ident));
         let num_tasks_per_unit = num_slices.div_ceil(total_units);
 
         let unit_id = RoleRule::new(config.role_rule_config())
-            .load_index(input_ident, config.specialized_loading_sides())
+            .load_index(ident, config.specialized_loading_sides())
             * config.plane_dim()
             + UNIT_POS_X;
 
@@ -74,7 +74,7 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
             num_tasks_per_unit,
             total_units,
             num_slices,
-            input_ident,
+            ident,
             num_slices_per_tile,
             slice_length_in_lines,
             line_size,
@@ -97,7 +97,7 @@ pub struct AsyncFullCyclicJob {
     #[cube(comptime)]
     num_slices: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     num_slices_per_tile: u32,
     #[cube(comptime)]
@@ -123,7 +123,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         let nth_tile = slice_index / this.num_slices_per_tile;
         let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageConfig>(
             nth_tile,
-            comptime!(this.input_ident.as_ident()),
+            comptime!(this.ident.into_stage()),
             config.stage_config(),
         );
         let nth_slice = slice_index % this.num_slices_per_tile;
@@ -133,7 +133,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
             let window = tensor_reader.load_window_in_tile::<G>(
                 (tile_x, tile_y),
                 nth_slice,
-                this.input_ident,
+                this.ident,
                 config,
             );
 

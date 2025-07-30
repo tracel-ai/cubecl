@@ -5,7 +5,7 @@ use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
-use crate::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
@@ -21,7 +21,7 @@ pub struct SyncPartialCyclicLoading<T: TilingOrder> {
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
             let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
@@ -52,7 +52,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
-        ident: InputIdent,
+        ident: MatmulIdent,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
@@ -70,18 +70,18 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> SyncPartialCyclicJob {
-        let line_size = config.global_line_size(input_ident);
-        let num_stage_elements = config.tiling_scheme().elements_in_stage(input_ident);
+        let line_size = config.global_line_size(ident);
+        let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
-        let tile_size = config.tiling_scheme().elements_in_tile(input_ident);
-        let tile_count_row = config.tiling_scheme().tiles_in_stage_row(input_ident);
-        let tile_count_col = config.tiling_scheme().tiles_in_stage_col(input_ident);
+        let tile_size = config.tiling_scheme().elements_in_tile(ident);
+        let tile_count_row = config.tiling_scheme().tiles_in_stage_row(ident);
+        let tile_count_col = config.tiling_scheme().tiles_in_stage_col(ident);
 
         let num_lines_per_tile = tile_size / line_size;
-        let total_units = config.plane_dim() * config.num_loading_planes(input_ident);
+        let total_units = config.plane_dim() * config.num_loading_planes(ident);
 
         let num_tiles_in_stage = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
@@ -90,7 +90,7 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
         let jump_length = total_units * line_size;
 
         let plane_id = RoleRule::new(config.role_rule_config())
-            .load_index(input_ident, config.specialized_loading_sides());
+            .load_index(ident, config.specialized_loading_sides());
         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
@@ -100,7 +100,7 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
             stage_index,
             jump_length,
             num_lines_per_tile,
-            input_ident,
+            ident,
             balanced_workload,
             num_stage_elements,
             loader_mode: comptime!(config.loader_mode()),
@@ -121,7 +121,7 @@ pub struct SyncPartialCyclicJob {
     #[cube(comptime)]
     num_lines_per_tile: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     balanced_workload: bool,
     #[cube(comptime)]
@@ -182,53 +182,57 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
     quantization: &CubeOption<Quantization<MP>>,
     #[comptime] config: G,
 ) {
+    let stage_ident = comptime!(job.ident.into_stage());
+
     let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
         (
-            config.global_line_size(job.input_ident),
-            config.tiling_scheme().elements_in_tile(job.input_ident),
-            config.tiling_scheme().tiles_in_stage_row(job.input_ident),
-            config.tiling_scheme().tiles_in_stage_col(job.input_ident),
+            config.global_line_size(job.ident),
+            config.tiling_scheme().elements_in_tile(job.ident),
+            config.tiling_scheme().tiles_in_stage_row(job.ident),
+            config.tiling_scheme().tiles_in_stage_col(job.ident),
         )
     };
 
     let tile_index = unit_position / tile_size;
     let pos_within_tile = unit_position % tile_size;
 
-    let (total_tile_count_row, total_tile_count_col) = match comptime!(job.input_ident) {
-        InputIdent::Lhs => (
+    let (total_tile_count_row, total_tile_count_col) = match comptime!(job.ident) {
+        MatmulIdent::Lhs => (
             comptime!(tile_count_row),
-            comptime!(tile_count_col * config.num_stages(InputIdent::Lhs)),
+            comptime!(tile_count_col * config.num_stages(MatmulIdent::Lhs)),
         ),
-        InputIdent::Rhs => (
-            comptime!(tile_count_row * config.num_stages(InputIdent::Rhs)),
+        MatmulIdent::Rhs => (
+            comptime!(tile_count_row * config.num_stages(MatmulIdent::Rhs)),
             comptime!(tile_count_col),
         ),
+        MatmulIdent::Out => comptime!(unreachable!()),
     };
 
     let (tile_x_within_stage, tile_y_within_stage) = TO::to_row_col::<G::StageConfig>(
         tile_index,
         tile_count_row,
         tile_count_col,
-        comptime!(job.input_ident.as_ident()),
+        stage_ident,
         comptime!(config.stage_config()),
     );
 
-    let (tile_x, tile_y) = match comptime!(job.input_ident) {
-        InputIdent::Lhs => (
+    let (tile_x, tile_y) = match comptime!(job.ident) {
+        MatmulIdent::Lhs => (
             tile_x_within_stage,
             job.stage_index * tile_count_col + tile_y_within_stage,
         ),
-        InputIdent::Rhs => (
+        MatmulIdent::Rhs => (
             job.stage_index * tile_count_row + tile_x_within_stage,
             tile_y_within_stage,
         ),
+        MatmulIdent::Out => comptime!(unreachable!()),
     };
 
     let line_read = tensor_reader.load_coalesced_in_tile::<G>(
         tile_x,
         tile_y,
         pos_within_tile,
-        job.input_ident,
+        job.ident,
         config,
     );
 
@@ -237,7 +241,7 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         tile_y,
         total_tile_count_row,
         total_tile_count_col,
-        comptime!(job.input_ident.as_ident()),
+        stage_ident,
         config.stage_config(),
     );
 
@@ -248,7 +252,7 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         .slice_mut(tile_start, tile_end);
 
     tile_slice[pos_within_tile / line_size] = match quantization {
-        CubeOption::Some(quantization) => quantization.dequantize(line_read, job.input_ident),
+        CubeOption::Some(quantization) => quantization.dequantize(line_read, job.ident),
         CubeOption::None => Line::cast_from(line_read),
     }
 }

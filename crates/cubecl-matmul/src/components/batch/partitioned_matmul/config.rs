@@ -1,7 +1,7 @@
 use cubecl_core::CubeDim;
 
 use crate::components::{
-    Ident, MatmulLineSizes, MatmulProblem, MatmulSetupError,
+    MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSetupError,
     batch::{BatchConfig, HypercubeConfig},
     global::GlobalConfig,
 };
@@ -30,9 +30,9 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
 
     fn line_sizes(&self) -> MatmulLineSizes {
         MatmulLineSizes {
-            lhs: self.global_config.global_line_size(Ident::Lhs) as u8,
-            rhs: self.global_config.global_line_size(Ident::Rhs) as u8,
-            out: self.global_config.global_line_size(Ident::Out) as u8,
+            lhs: self.global_config.global_line_size(MatmulIdent::Lhs) as u8,
+            rhs: self.global_config.global_line_size(MatmulIdent::Rhs) as u8,
+            out: self.global_config.global_line_size(MatmulIdent::Out) as u8,
         }
     }
 

@@ -3,7 +3,7 @@ use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
-    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision, TilingScheme,
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
 };
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use cubecl_core as cubecl;
@@ -23,8 +23,8 @@ use super::{LoadingValidation, sync_full_tilewise};
 pub struct SyncFullOrderedLoading {}
 
 impl LoadingValidation for SyncFullOrderedLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if ident != Ident::Lhs {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+        if ident != MatmulIdent::Lhs {
             return Err(FormattedConfigError::new(move || {
                 "Ordered loading only available on Lhs".to_string()
             }));
@@ -74,7 +74,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
 impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
-        ident: InputIdent,
+        ident: MatmulIdent,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -88,22 +88,22 @@ impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
     type Job<MP: MatmulPrecision> = sync_full_tilewise::SyncFullTilewiseJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let line_size = config.global_line_size(input_ident);
-        let num_planes = config.num_loading_planes(input_ident);
-        let num_tiles = config.tiling_scheme().tiles_in_stage(input_ident);
+        let line_size = config.global_line_size(ident);
+        let num_planes = config.num_loading_planes(ident);
+        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
         let num_lines_per_tile =
-            comptime!(config.tiling_scheme().elements_in_tile(input_ident) / line_size);
+            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
         let num_tiles_to_skip = RoleRule::new(config.role_rule_config())
-            .load_index(input_ident, config.specialized_loading_sides())
+            .load_index(ident, config.specialized_loading_sides())
             * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
@@ -115,7 +115,7 @@ impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
             num_lines_per_unit,
             plane_dim,
             line_size,
-            input_ident,
+            ident,
         }
     }
 }

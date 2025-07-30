@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::StageIdent;
 use cubecl_matmul::components::stage::FullStageToTileReader;
 use std::marker::PhantomData;
 
@@ -126,7 +127,7 @@ impl<AP: AttentionPrecision> DummyKeyLoader<AP> {
     fn reader(&self) -> FullStageToTileReader<AP::ES, AttentionTilingLayout> {
         FullStageToTileReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: todo!(),
-            input_ident: todo!(),
+            stage_ident: StageIdent::Rhs,
         }
     }
 
@@ -138,7 +139,7 @@ impl<AP: AttentionPrecision> DummyValueLoader<AP> {
     fn reader(&self) -> FullStageToTileReader<AP::ES, AttentionTilingLayout> {
         FullStageToTileReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: todo!(),
-            input_ident: todo!(),
+            stage_ident: StageIdent::Rhs,
         }
     }
 

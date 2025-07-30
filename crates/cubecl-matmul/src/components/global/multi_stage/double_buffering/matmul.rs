@@ -1,5 +1,4 @@
-use crate::components::global;
-use crate::components::global::load::{StageIdent, SyncPartialLoader, SyncPartialLoadingStrategy};
+use crate::components::global::load::{StageBuffer, SyncPartialLoader, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
@@ -7,7 +6,8 @@ use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlo
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::PartialStageToTileReader;
-use crate::components::{InputIdent, MatmulPrecision, stage};
+use crate::components::{MatmulIdent, global};
+use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -68,10 +68,10 @@ where
         SMM::zero_accumulator(acc, config.stage_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
 
-        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, StageIdent::A);
-        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, StageIdent::B);
-        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, StageIdent::A);
-        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, StageIdent::B);
+        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, StageBuffer::A);
+        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, StageBuffer::B);
+        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, StageBuffer::A);
+        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader, StageBuffer::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 
@@ -79,7 +79,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            StageIdent::A,
+            StageBuffer::A,
             config,
         );
 
@@ -95,7 +95,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                StageIdent::B,
+                StageBuffer::B,
                 config,
             );
 
@@ -115,7 +115,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
-                StageIdent::A,
+                StageBuffer::A,
                 config,
             );
 
@@ -131,7 +131,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
-            StageIdent::B,
+            StageBuffer::B,
             config,
         );
 
@@ -164,7 +164,7 @@ where
             y_offset,
             batch_offset,
             quantization,
-            InputIdent::Lhs,
+            MatmulIdent::Lhs,
             config,
         )
     }
@@ -184,7 +184,7 @@ where
             y_offset,
             batch_offset,
             quantization,
-            InputIdent::Rhs,
+            MatmulIdent::Rhs,
             config,
         )
     }

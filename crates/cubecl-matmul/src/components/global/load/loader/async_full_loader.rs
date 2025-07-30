@@ -7,7 +7,7 @@ use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
-use crate::components::{InputIdent, MatmulPrecision};
+use crate::components::{MatmulIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -25,7 +25,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP>;
 
@@ -49,7 +49,7 @@ pub struct AsyncFullLoader<
     stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<MP>>,
     #[cube(comptime)]
-    ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     _phantom: PhantomData<(S, L, CM, G)>,
 }
@@ -70,7 +70,7 @@ impl<
         y_offset: u32,
         batch_offset: u32,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
         comptime! {
@@ -79,8 +79,11 @@ impl<
             }
         }
 
-        let mut stage_memory =
-            StageMemory::new::<G::StageConfig>(1u32, ident.as_ident(), config.stage_config());
+        let mut stage_memory = StageMemory::new::<G::StageConfig>(
+            1u32,
+            comptime!(ident.into_stage()),
+            config.stage_config(),
+        );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
@@ -89,7 +92,7 @@ impl<
         };
 
         match ident {
-            InputIdent::Lhs =>
+            MatmulIdent::Lhs =>
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
@@ -100,7 +103,7 @@ impl<
                     }
                 }
             }
-            InputIdent::Rhs =>
+            MatmulIdent::Rhs =>
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
@@ -111,6 +114,7 @@ impl<
                     }
                 }
             }
+            MatmulIdent::Out => comptime!(unreachable!()),
         }
 
         AsyncFullLoader::<MP, CM, S, L, G> {
@@ -149,7 +153,7 @@ impl<
 
     /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
-        FullStageToTileReader::new(this.stage_memory, this.ident)
+        FullStageToTileReader::new(this.stage_memory, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

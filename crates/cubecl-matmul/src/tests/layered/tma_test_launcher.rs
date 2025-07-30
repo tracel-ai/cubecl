@@ -4,7 +4,7 @@ use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 
 use crate::components::AvailableLineSizes;
-use crate::components::Ident;
+use crate::components::MatmulIdent;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
 use crate::components::MatrixLayout;
@@ -39,9 +39,9 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = TensorHandleRef {
@@ -141,10 +141,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
-    ident: Ident,
+    ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
     match ident {
-        Ident::Lhs => {
+        MatmulIdent::Lhs => {
             let mut shape = problem.shape(ident);
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
@@ -180,7 +180,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params: None,
             }
         }
-        Ident::Rhs => {
+        MatmulIdent::Rhs => {
             let mut shape = problem.shape(ident);
 
             let handle = P::EG::sample::<R>(client, &shape, 5678);
@@ -216,12 +216,12 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params: None,
             }
         }
-        Ident::Out => {
+        MatmulIdent::Out => {
             let zero = P::EG::from_int(0);
 
-            let data = vec![zero; tensor_size(problem, Ident::Out)];
+            let data = vec![zero; tensor_size(problem, MatmulIdent::Out)];
 
-            let shape = problem.shape(Ident::Out);
+            let shape = problem.shape(MatmulIdent::Out);
             let (handle, strides) =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {

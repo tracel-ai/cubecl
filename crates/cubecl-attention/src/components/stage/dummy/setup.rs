@@ -8,9 +8,12 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError,
     stage::{
-        dummy::{config::DummyStageConfig, DummyStageAttention}, AttentionTilingLayout, StageAttentionFamily
-    }, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection, AttentionSetupError
+        AttentionTilingLayout, StageAttentionFamily,
+        dummy::{DummyStageAttention, config::DummyStageConfig},
+    },
 };
 
 pub struct DummyStageAttentionFamily<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily>
@@ -45,7 +48,7 @@ impl<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily> StageAttent
         )?;
         let value_tile_config = VTM::setup::<AP::MatmulPrecision, R>(
             client,
-            score_tile_matmul_setup_info(selection, line_sizes),
+            value_tile_matmul_setup_info(selection, line_sizes),
         )?;
 
         DummyStageConfig::new(score_tile_config, value_tile_config, 1)
@@ -69,17 +72,17 @@ fn score_tile_matmul_setup_info(
 }
 
 fn value_tile_matmul_setup_info(
-    selection: AttentionSelection,
-    line_sizes: AttentionLineSizes,
+    selection: &AttentionSelection,
+    line_sizes: &AttentionLineSizes,
 ) -> TileSetupInfo {
     TileSetupInfo {
         tile_size: selection.value_tile_size,
         plane_dim: selection.plane_dim,
         lhs_layout: MatrixLayout::RowMajor,
         rhs_layout: MatrixLayout::RowMajor,
-        lhs_line_size: line_sizes.query as u32,
-        rhs_line_size: line_sizes.key as u32,
-        // Not sure the out line size
-        out_line_size: line_sizes.key as u32,
+        // Not sure
+        lhs_line_size: line_sizes.value as u32,
+        rhs_line_size: line_sizes.value as u32,
+        out_line_size: line_sizes.value as u32,
     }
 }

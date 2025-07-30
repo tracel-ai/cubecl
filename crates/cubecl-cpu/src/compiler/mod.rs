@@ -7,9 +7,14 @@ pub mod module;
 pub mod passes;
 pub(super) mod visitor;
 
+use passes::shared_memories::SharedMemories;
 pub use visitor::elem::register_supported_types;
 
-use cubecl_core::{Compiler, ExecutionMode, ir, prelude::KernelDefinition};
+use cubecl_core::{
+    Compiler, ExecutionMode,
+    ir::{self},
+    prelude::KernelDefinition,
+};
 use cubecl_opt::OptimizerBuilder;
 use mlir_engine::MlirEngine;
 
@@ -37,9 +42,13 @@ impl Compiler for MlirCompiler {
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .optimize(kernel.body.clone(), kernel.cube_dim, mode);
+
+        let mut shared_memories = SharedMemories::default();
+        shared_memories.visit(&opt);
+
         #[cfg(feature = "mlir-dump")]
         dump_opt(&opt);
-        MlirEngine::from_cubecl_ir(kernel, &opt)
+        MlirEngine::from_cubecl_ir(kernel, &opt, shared_memories)
     }
 
     fn elem_size(&self, elem: ir::Elem) -> usize {
