@@ -27,7 +27,7 @@ impl TileConfig for AcceleratedConfig {
     }
 
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-        match ident.into() {
+        match ident {
             StageIdent::Lhs => self.lhs_layout,
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
@@ -35,7 +35,7 @@ impl TileConfig for AcceleratedConfig {
     }
 
     fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        match ident.into() {
+        match ident {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
             StageIdent::Acc => self.out_global_line_size,
@@ -43,7 +43,7 @@ impl TileConfig for AcceleratedConfig {
     }
 
     fn global_line_size(&self, ident: StageIdent) -> u32 {
-        match ident.into() {
+        match ident {
             StageIdent::Lhs => self.lhs_global_line_size,
             StageIdent::Rhs => self.rhs_global_line_size,
             StageIdent::Acc => self.out_global_line_size,

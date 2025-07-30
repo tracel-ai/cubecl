@@ -47,7 +47,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
     }
 
     fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-        match ident.into() {
+        match ident {
             MatmulIdent::Lhs => self.check_m_bounds,
             MatmulIdent::Rhs => self.check_k_bounds,
             MatmulIdent::Out => self.check_m_bounds,
@@ -55,7 +55,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
     }
 
     fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-        match ident.into() {
+        match ident {
             MatmulIdent::Lhs => self.check_k_bounds,
             MatmulIdent::Rhs => self.check_n_bounds,
             MatmulIdent::Out => self.check_n_bounds,
