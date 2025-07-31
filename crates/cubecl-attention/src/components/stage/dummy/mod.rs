@@ -4,4 +4,4 @@ mod setup;
 
 pub use attention::*;
 pub use setup::DummyStageAttentionFamily;
-
+pub use config::AttentionStageMemoryConfig;

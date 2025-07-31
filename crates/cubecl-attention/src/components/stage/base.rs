@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder},
+    stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder, StageMemoryConfig},
     tile::TileConfig,
 };
 
@@ -84,7 +84,10 @@ pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     type ScoreConfig: TileConfig;
+    type ScoreStageMemoryConfig: StageMemoryConfig;
+
     type ValueConfig: TileConfig;
+    type ValueStageMemoryConfig: StageMemoryConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;

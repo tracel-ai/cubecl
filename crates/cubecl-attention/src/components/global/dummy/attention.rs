@@ -29,8 +29,8 @@ impl<
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
 {
     type QueryLoader = DummyQueryLoader<AP>;
-    type KeyLoader = DummyKeyLoader<AP>;
-    type ValueLoader = DummyValueLoader<AP>;
+    type KeyLoader = DummyKeyLoader<AP, Self::Config>;
+    type ValueLoader = DummyValueLoader<AP, Self::Config>;
 
     type Writer = SA::Writer;
     type Accumulator = SA::Accumulator;
@@ -116,20 +116,20 @@ pub struct DummyQueryLoader<AP: AttentionPrecision> {
     _phantom: PhantomData<AP>,
 }
 #[derive(CubeType)]
-pub struct DummyKeyLoader<AP: AttentionPrecision> {
+pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     tensor_reader: TensorReader<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
     #[cube(comptime)]
-    _phantom: PhantomData<AP>,
+    _phantom: PhantomData<(AP, G)>,
 }
 #[derive(CubeType)]
-pub struct DummyValueLoader<AP: AttentionPrecision> {
+pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     tensor_reader: TensorReader<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
     #[cube(comptime)]
-    _phantom: PhantomData<AP>,
+    _phantom: PhantomData<(AP, G)>,
 }
 
 #[cube]
@@ -151,13 +151,16 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> DummyKeyLoader<AP> {
-    fn new(key: VirtualTensor<AP::EI>) -> Self {
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
+    fn new(key: VirtualTensor<AP::EI>, #[comptime] config: G) -> Self {
         let tensor_reader = TensorReader::new(key, 0, 0, 0);
-        let stage_memory = todo!();
-        //     StageMemory::new::<G::StageConfig>(1u32, StageIdent::Rhs, config.stage_config());
+        let stage_memory = StageMemory::new::<G::ScoreStageMemoryConfig>(
+            1u32,
+            StageIdent::Rhs,
+            config.score_stage_memory_config(),
+        );
 
-        DummyKeyLoader::<AP> {
+        DummyKeyLoader::<AP, G> {
             tensor_reader,
             stage_memory,
             _phantom: PhantomData,
@@ -175,7 +178,22 @@ impl<AP: AttentionPrecision> DummyKeyLoader<AP> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> DummyValueLoader<AP> {
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
+    fn new(value: VirtualTensor<AP::EI>, #[comptime] config: G) -> Self {
+        let tensor_reader = TensorReader::new(value, 0, 0, 0);
+        let stage_memory = StageMemory::new::<G::ValueStageMemoryConfig>(
+            1u32,
+            StageIdent::Rhs,
+            config.value_stage_memory_config(),
+        );
+
+        DummyValueLoader::<AP, G> {
+            tensor_reader,
+            stage_memory,
+            _phantom: PhantomData,
+        }
+    }
+
     fn reader(&self) -> FullStageToTileReader<AP::ES, AttentionTilingLayout> {
         FullStageToTileReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: self.stage_memory,

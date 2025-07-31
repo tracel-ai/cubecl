@@ -7,11 +7,23 @@ use crate::components::{
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct DummyGlobalConfig<S: StageAttentionConfig> {
     stage_config: S,
+    score_stage_memory_config: <Self as GlobalAttentionConfig>::ScoreStageMemoryConfig,
+    value_stage_memory_config: <Self as GlobalAttentionConfig>::ValueStageMemoryConfig,
     num_planes: u32,
 }
 
 impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     type StageConfig = S;
+    type ScoreStageMemoryConfig = S::ScoreStageMemoryConfig;
+    type ValueStageMemoryConfig = S::ValueStageMemoryConfig;
+
+    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig {
+        self.score_stage_memory_config
+    }
+
+    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig {
+        self.value_stage_memory_config
+    }
 
     fn stage_config(&self) -> S {
         self.stage_config
@@ -35,6 +47,8 @@ impl<S: StageAttentionConfig> DummyGlobalConfig<S> {
     pub fn new(stage_config: S, num_planes: u32) -> Result<Self, AttentionSetupError> {
         Self {
             stage_config,
+            score_stage_memory_config,
+            value_stage_memory_config,
             num_planes,
         }
         .validate()
