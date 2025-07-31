@@ -57,6 +57,27 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         cmma::load(lhs, &slice, stride);
     }
 
+    fn allocate_fill_cast_lhs<EI: Numeric>(
+        tile: &Tile<EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs {
+        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
+        let size = config.tile_size();
+        let layout = config.matrix_layout(StageIdent::Lhs);
+        let tmp = unsafe {
+            cmma::Matrix::<EI>::uninitialized(
+                cmma::MatrixIdent::A,
+                size.m(),
+                size.n(),
+                size.k(),
+                as_cmma_layout(layout),
+            )
+        };
+
+        cmma::load(&tmp, &slice, stride);
+        cmma::cast::<EI, MP::ES>(&tmp)
+    }
+
     fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
         let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Rhs, config);
         cmma::load(rhs, &slice, stride);

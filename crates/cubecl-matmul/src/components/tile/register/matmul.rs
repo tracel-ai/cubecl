@@ -149,6 +149,13 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
             acc.data[i] = MP::EA::cast_from(0);
         }
     }
+
+    fn allocate_fill_cast_lhs<EI: Numeric>(
+        tile: &Tile<EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs {
+        comptime!(unimplemented!())
+    }
 }
 
 #[cube]

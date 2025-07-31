@@ -7,7 +7,10 @@ use std::marker::PhantomData;
 use crate::components::{
     AttentionPrecision,
     global::dummy::QueryRegisterReader,
-    stage::{StageAttention, StageAttentionConfig as _, dummy::config::DummyStageConfig},
+    stage::{
+        StageAttention, StageAttentionConfig as _,
+        dummy::{AttentionStageMemoryConfig, config::DummyStageConfig},
+    },
 };
 
 pub struct DummyStageAttention<
@@ -49,6 +52,16 @@ impl<
         comment!("Stage: Execute");
 
         let query_fragment = query_reader.fragment();
+        let query_row = query_reader.row();
+
+        let key = <R as StageToTileReader<AP::ES>>::read_tile::<
+            AttentionStageMemoryConfig<STM::Config>,
+        >(key_reader, 0, 0, config.score_stage_memory_config());
+        let value = <R as StageToTileReader<AP::ES>>::read_tile::<
+            AttentionStageMemoryConfig<VTM::Config>,
+        >(value_reader, 0, 0, config.value_stage_memory_config());
+
+        STM::execute(query_fragment, key, acc, config);
 
         // Not accurate: this does two partition_matmul with computation in between,
         // But there should be a partition attention that computes intermediary stuff at each tile.

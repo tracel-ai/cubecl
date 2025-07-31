@@ -80,6 +80,11 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Fill the container of Lhs with tile data
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
+    fn allocate_fill_cast_lhs<EI: Numeric>(
+        tile: &Tile<EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs;
+
     /// Create the container for Rhs
     ///
     /// # Safety
