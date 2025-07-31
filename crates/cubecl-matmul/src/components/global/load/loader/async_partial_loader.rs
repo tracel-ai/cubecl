@@ -1,6 +1,6 @@
 use super::StageBuffer;
 use crate::components::global::base::GlobalConfig;
-use crate::components::global::global_memory::TensorReader;
+use crate::components::global::memory::TensorReader;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::{CopyMechanism, Quantization};

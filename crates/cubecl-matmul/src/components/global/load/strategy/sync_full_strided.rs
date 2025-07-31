@@ -1,5 +1,5 @@
-use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
@@ -101,10 +101,9 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for SyncFullStride
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 
-        let line_read = tensor_reader.load_coalesced_in_stage::<G>(
+        let line_read = tensor_reader.load_coalesced_in_stage(
             unit_position * this.line_size,
-            this.ident,
-            config,
+            comptime!(config.global_memory_config(this.ident)),
         );
 
         stage.as_slice_mut(this.line_size)[unit_position] = match quantization {
