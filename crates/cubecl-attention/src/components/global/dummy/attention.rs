@@ -74,39 +74,31 @@ impl<
     }
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> Self::QueryLoader {
-        //       Self::LhsLoader::new(
-        //     lhs,
-        //     x_offset,
-        //     y_offset,
-        //     batch_offset,
-        //     quantization,
-        //     MatmulIdent::Lhs,
-        //     config,
-        // )
         DummyQueryLoader::new(query)
     }
 
-    fn init_key_loader() -> Self::KeyLoader {
-        todo!()
+    fn init_key_loader(
+        key: VirtualTensor<AP::EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::KeyLoader {
+        DummyKeyLoader::new(key, config)
     }
 
-    fn init_value_loader() -> Self::ValueLoader {
-        todo!()
+    fn init_value_loader(
+        value: VirtualTensor<AP::EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::ValueLoader {
+        DummyValueLoader::new(value, config)
     }
 
     fn init_writer() -> Self::Writer {
-        todo!()
+        SA::init_writer()
     }
 
     fn init_accumulator() -> Self::Accumulator {
-        todo!()
+        SA::init_accumulator()
     }
 }
-
-#[derive(CubeType)]
-pub struct DummyWriter {}
-#[derive(CubeType)]
-pub struct DummyAccumulator {}
 
 #[derive(CubeType)]
 pub struct DummyQueryLoader<AP: AttentionPrecision> {
@@ -202,11 +194,6 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
     }
 
     fn load(&self) {}
-}
-
-#[cube]
-impl DummyAccumulator {
-    fn init(&self) {}
 }
 
 #[derive(CubeType)]

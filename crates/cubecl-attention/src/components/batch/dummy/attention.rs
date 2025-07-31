@@ -5,7 +5,9 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
-    batch::{BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig},
+    batch::{
+        BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
+    },
     global::GlobalAttention,
 };
 
@@ -34,8 +36,8 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
 
         GA::execute(
             GA::init_query_loader(query),
-            GA::init_key_loader(),
-            GA::init_value_loader(),
+            GA::init_key_loader(key, config.global_config()),
+            GA::init_value_loader(value, config.global_config()),
             GA::init_writer(),
             &mut GA::init_accumulator(),
             config.global_config(),

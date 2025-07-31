@@ -12,7 +12,7 @@ use crate::components::{
     AttentionSetupError,
     stage::{
         AttentionTilingLayout, StageAttentionFamily,
-        dummy::{DummyStageAttention, config::DummyStageConfig},
+        dummy::{AttentionStageMemoryConfig, DummyStageAttention, config::DummyStageConfig},
     },
 };
 
@@ -51,7 +51,11 @@ impl<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily> StageAttent
             value_tile_matmul_setup_info(selection, line_sizes),
         )?;
 
-        DummyStageConfig::new(score_tile_config, value_tile_config, 1)
+        DummyStageConfig::new(
+            AttentionStageMemoryConfig::new(score_tile_config),
+            AttentionStageMemoryConfig::new(value_tile_config),
+            1,
+        )
     }
 }
 

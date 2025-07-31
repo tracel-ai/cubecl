@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
-    global::dummy::{DummyAccumulator, DummyWriter, RegisterToTileReader},
+    global::dummy::RegisterToTileReader,
     stage::{StageAttention, StageAttentionConfig as _, dummy::config::DummyStageConfig},
 };
 
@@ -72,19 +72,32 @@ impl<
 
     fn last_update(acc: &mut Self::Accumulator, prev_state: Self::State) {
         // O_i = 1/diag(l_i_Tc) x O_i_Tc
-        todo!()
+        // todo!()
     }
 
     fn init_state() -> Self::State {
-        todo!()
+        DummyStageState::<AP::EI> {
+            prev_m: Array::new(8),
+            prev_l: Array::new(8),
+        }
     }
 
     fn write(acc: &Self::Accumulator, writer: Self::Writer) {
-        todo!()
+        // todo
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator) {
-        todo!()
+        acc.zero();
+    }
+
+    fn init_writer() -> Self::Writer {
+        DummyWriter::new()
+    }
+
+    fn init_accumulator() -> Self::Accumulator {
+        let acc = DummyAccumulator::new();
+        acc.zero();
+        acc
     }
 }
 
@@ -93,4 +106,25 @@ pub struct DummyStageState<E: Float> {
     // Equal m_i'(j-1)
     prev_m: Array<E>,
     prev_l: Array<E>,
+}
+
+#[derive(CubeType)]
+pub struct DummyWriter {}
+#[derive(CubeType)]
+pub struct DummyAccumulator {}
+
+#[cube]
+impl DummyWriter {
+    fn new() -> DummyWriter {
+        DummyWriter {}
+    }
+}
+
+#[cube]
+impl DummyAccumulator {
+    fn new() -> DummyAccumulator {
+        DummyAccumulator {}
+    }
+
+    fn zero(&self) {}
 }

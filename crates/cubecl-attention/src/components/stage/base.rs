@@ -77,6 +77,9 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn last_update(acc: &mut Self::Accumulator, prev_state: Self::State);
 
     fn write(acc: &Self::Accumulator, writer: Self::Writer);
+
+    fn init_writer() -> Self::Writer;
+    fn init_accumulator() -> Self::Accumulator;
 }
 
 /// Configuration for the Stage Attention level
@@ -92,4 +95,10 @@ pub trait StageAttentionConfig:
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
     fn rows_per_plane(&self) -> u32;
+
+    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
+    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+
+    fn score_config(&self) -> Self::ScoreConfig;
+    fn value_config(&self) -> Self::ValueConfig;
 }

@@ -62,8 +62,14 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     );
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> Self::QueryLoader;
-    fn init_key_loader() -> Self::KeyLoader;
-    fn init_value_loader() -> Self::ValueLoader;
+    fn init_key_loader(
+        key: VirtualTensor<AP::EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::KeyLoader;
+    fn init_value_loader(
+        value: VirtualTensor<AP::EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::ValueLoader;
     fn init_writer() -> Self::Writer;
     fn init_accumulator() -> Self::Accumulator;
 }
