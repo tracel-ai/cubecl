@@ -9,11 +9,11 @@ use crate::{
 
 pub fn attention_first_test<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let problem = AttentionProblem {
-        batch: 10,
-        seq_q: 10,
-        seq_k: 10,
+        batch: 1,
+        seq_q: 8,
+        seq_k: 8,
         num_heads: 1,
-        head_dim: 2,
+        head_dim: 8,
         masked: false,
     };
 

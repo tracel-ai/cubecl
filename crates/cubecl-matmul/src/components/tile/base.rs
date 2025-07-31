@@ -4,9 +4,10 @@ use cubecl_core::{self as cubecl};
 use crate::components::StageIdent;
 use crate::components::error::MatmulSetupError;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatrixLayout, TileSize, resource::ComputeResources, tile::tile_data::Tile,
+    AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout, TileSize,
+    resource::ComputeResources, tile::tile_data::Tile,
 };
+use crate::components::{MatmulLineSizes, MatmulSelection};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).

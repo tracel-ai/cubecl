@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::components::global::Quantization;
-use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
+use crate::components::global::memory::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;

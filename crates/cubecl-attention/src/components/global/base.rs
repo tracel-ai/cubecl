@@ -89,6 +89,4 @@ pub trait GlobalAttentionConfig:
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
     fn tc(&self) -> u32;
-
-    fn global_line_size(&self, ident: FlashIdent) -> u32;
 }
