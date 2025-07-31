@@ -1,7 +1,7 @@
 use crate::components::global::global_memory::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig, Quantization};
 use crate::components::stage::{StageMemory, TilingLayout};
-use crate::components::{Ident, InvalidConfigError, MatmulPrecision};
+use crate::components::{InvalidConfigError, MatmulIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
@@ -51,13 +51,13 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
 /// Allows to verify configs are valid for a loader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a loader, otherwise return an error stating why
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError>;
 }
 
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }

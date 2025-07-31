@@ -1,6 +1,7 @@
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::AvailableLineSizes;
+use cubecl_matmul::components::MatmulIdent;
 use cubecl_matmul::components::MatmulSelection;
 use cubecl_matmul::components::global::GlobalConfig;
 
@@ -9,10 +10,9 @@ use crate::algorithm::Algorithm;
 use crate::args::ConvInputsLaunch;
 use crate::base::ConvolutionLaunch;
 use crate::base::ConvolutionProblem;
-use cubecl_matmul::components::InputIdent;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
+use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
 use cubecl_matmul::tests::test_utils::Sample;
-use cubecl_matmul::{components::Ident, tests::layered::matmul_test_launcher::TensorRawParts};
 
 use super::test_utils::TestPrecision;
 
@@ -43,9 +43,9 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
@@ -84,8 +84,8 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, InputIdent::Lhs);
-    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, InputIdent::Rhs);
+    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, MatmulIdent::Lhs);
+    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, MatmulIdent::Rhs);
 
     let lhs_handle = lhs_handle.as_ref();
     let rhs_handle = rhs_handle.as_ref();
@@ -131,10 +131,10 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &ConvolutionProblem,
-    ident: Ident,
+    ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
     match ident {
-        Ident::Lhs => {
+        MatmulIdent::Lhs => {
             let shape = shape(problem, ident);
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
@@ -152,7 +152,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params: None,
             }
         }
-        Ident::Rhs => {
+        MatmulIdent::Rhs => {
             let shape = shape(problem, ident);
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
@@ -170,12 +170,12 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params: None,
             }
         }
-        Ident::Out => {
+        MatmulIdent::Out => {
             let zero = P::EG::from_int(0);
 
-            let data = vec![zero; tensor_size(problem, Ident::Out)];
+            let data = vec![zero; tensor_size(problem, MatmulIdent::Out)];
 
-            let shape = shape(problem, Ident::Out);
+            let shape = shape(problem, MatmulIdent::Out);
             let (handle, strides) =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
@@ -192,30 +192,30 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 }
 
 /// Returns the total number of elements for the identified tensor, inferred by the problem definition
-pub(crate) fn tensor_size(problem: &ConvolutionProblem, ident: Ident) -> usize {
+pub(crate) fn tensor_size(problem: &ConvolutionProblem, ident: MatmulIdent) -> usize {
     match ident {
-        Ident::Lhs => problem.m * problem.k,
-        Ident::Rhs => problem.k * problem.n,
-        Ident::Out => problem.m * problem.n,
+        MatmulIdent::Lhs => problem.m * problem.k,
+        MatmulIdent::Rhs => problem.k * problem.n,
+        MatmulIdent::Out => problem.m * problem.n,
     }
 }
 
 /// Returns the shape of the identified tensor, inferred by the problem definition
-pub(crate) fn shape(problem: &ConvolutionProblem, ident: Ident) -> Vec<usize> {
+pub(crate) fn shape(problem: &ConvolutionProblem, ident: MatmulIdent) -> Vec<usize> {
     match ident {
-        Ident::Lhs => vec![
+        MatmulIdent::Lhs => vec![
             problem.batches,
             problem.shape[0],
             problem.shape[1],
             problem.channels,
         ],
-        Ident::Rhs => vec![
+        MatmulIdent::Rhs => vec![
             problem.n,
             problem.kernel_size[0] as usize,
             problem.kernel_size[1] as usize,
             problem.channels,
         ],
-        Ident::Out => vec![
+        MatmulIdent::Out => vec![
             problem.batches * problem.out_shape.iter().product::<usize>(),
             problem.n,
         ],

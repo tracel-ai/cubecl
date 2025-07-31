@@ -8,7 +8,7 @@ use crate::ConvGemmConfig;
 use crate::base::ConvolutionLaunch;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::components::{
-    self, AvailableLineSizes, InputIdent, MatmulPrecision, MatmulSelection,
+    self, AvailableLineSizes, MatmulIdent, MatmulPrecision, MatmulSelection,
 };
 
 use super::{
@@ -99,8 +99,8 @@ where
     let kernel_shape = &weight.shape[1..dim_c];
     let out_shape = &out.shape[1..dim_c];
 
-    let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, InputIdent::Lhs);
-    let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, InputIdent::Rhs);
+    let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, MatmulIdent::Lhs);
+    let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, MatmulIdent::Rhs);
 
     let plane_dim = client.properties().hardware.plane_size_max;
 

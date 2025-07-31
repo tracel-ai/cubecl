@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{Ident, InputIdent, MatrixLayout, tile::TileConfig};
+use crate::components::{MatrixLayout, StageIdent, tile::TileConfig};
 
 #[derive(CubeType, Clone)]
 /// Data to be handed to the Tile Matmul
@@ -22,20 +22,21 @@ impl<ES: Numeric> Tile<ES> {
     /// The slice length must exactly match the tile size.
     pub fn new_contiguous<T: TileConfig>(
         slice: Slice<Line<ES>>,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: T,
     ) -> Tile<ES> {
         let layout = config.matrix_layout(ident);
         let stride = comptime! {
-            (match ident.as_input_ident() {
-            InputIdent::Lhs => match layout {
+            (match ident {
+            StageIdent::Lhs => match layout {
                 MatrixLayout::RowMajor => config.tile_size().k(),
                 MatrixLayout::ColMajor => config.tile_size().m(),
             },
-            InputIdent::Rhs => match layout {
+            StageIdent::Rhs => match layout {
                 MatrixLayout::RowMajor => config.tile_size().n(),
                 MatrixLayout::ColMajor => config.tile_size().k(),
             },
+            StageIdent::Acc => unreachable!()
         }) / config.stage_line_size(ident)};
 
         Tile::<ES> {
@@ -67,7 +68,7 @@ impl<ES: Numeric> Tile<ES> {
     /// - The updated stride to account for line width removal
     pub fn as_unlined<T: TileConfig>(
         &self,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: T,
     ) -> (Slice<ES>, u32) {
         (

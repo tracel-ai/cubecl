@@ -1,9 +1,9 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
+use cubecl_matmul::components::MatmulIdent;
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
 use crate::{ConvGemmConfig, loader::im2col_tma::div_mod_seq};
-use cubecl_matmul::components::Ident;
 
 #[derive(CubeType)]
 /// A view of a feature map tensor that starts reading data from a specified offset.
@@ -94,7 +94,7 @@ impl<E: Numeric> Im2colReader<E> {
         tile_x: u32,
         tile_y: u32,
         unit_id: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Line<E> {
         let line_size = config.global_line_size(ident);
@@ -145,8 +145,10 @@ impl<E: Numeric> Im2colReader<E> {
             has_padding
         };
 
-        let m_in_bounds = comptime!(!config.check_row_bounds(Ident::Lhs)) || view_m < self.shape_m;
-        let k_in_bounds = comptime!(!config.check_col_bounds(Ident::Lhs)) || view_k < self.shape_k;
+        let m_in_bounds =
+            comptime!(!config.check_row_bounds(MatmulIdent::Lhs)) || view_m < self.shape_m;
+        let k_in_bounds =
+            comptime!(!config.check_col_bounds(MatmulIdent::Lhs)) || view_k < self.shape_k;
         let mut spatial_in_bounds = true;
 
         if has_padding {

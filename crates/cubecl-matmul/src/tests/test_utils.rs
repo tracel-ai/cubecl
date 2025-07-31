@@ -12,7 +12,7 @@ use cubecl_core::{
 pub use cubecl_std::SymQ8;
 
 use crate::{
-    components::{Ident, MatmulPrecision, MatmulProblem},
+    components::{MatmulIdent, MatmulPrecision, MatmulProblem},
     tests::layered::matmul_test_launcher::strides,
 };
 use cubecl_std::tensor::TensorHandle;
@@ -29,7 +29,7 @@ pub trait TestPrecision {
     type MP: MatmulPrecision;
     const QUANTIZED: bool;
 
-    fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
+    fn quantization_params(ident: MatmulIdent) -> Option<QuantizationParams<Self::EG>>;
 
     #[allow(clippy::too_many_arguments)]
     fn assert_result<R: Runtime>(
@@ -58,7 +58,7 @@ where
     type MP = EG;
     const QUANTIZED: bool = false;
 
-    fn quantization_params(_: Ident) -> Option<QuantizationParams<Self::EG>> {
+    fn quantization_params(_: MatmulIdent) -> Option<QuantizationParams<Self::EG>> {
         None
     }
 
@@ -161,19 +161,19 @@ impl TestPrecision for SymQ8 {
 
     const QUANTIZED: bool = true;
 
-    fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>> {
+    fn quantization_params(ident: MatmulIdent) -> Option<QuantizationParams<Self::EG>> {
         // These are somewhat arbitrary values. I try to use f32 that are exactly representable
         // to avoid some rounding issues.
         Some(match ident {
-            Ident::Lhs => QuantizationParams {
+            MatmulIdent::Lhs => QuantizationParams {
                 scaling: f32::to_be_bytes(0.6).to_vec(),
                 zero_offset: 15,
             },
-            Ident::Rhs => QuantizationParams {
+            MatmulIdent::Rhs => QuantizationParams {
                 scaling: f32::to_be_bytes(0.1).to_vec(),
                 zero_offset: 20,
             },
-            Ident::Out => QuantizationParams {
+            MatmulIdent::Out => QuantizationParams {
                 scaling: f32::to_be_bytes(0.4).to_vec(),
                 zero_offset: 50,
             },
@@ -444,9 +444,9 @@ where
         "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
     );
 
-    let lhs_strides = strides(problem, Ident::Lhs);
-    let rhs_strides = strides(problem, Ident::Rhs);
-    let out_strides = strides(problem, Ident::Out);
+    let lhs_strides = strides(problem, MatmulIdent::Lhs);
+    let rhs_strides = strides(problem, MatmulIdent::Rhs);
+    let out_strides = strides(problem, MatmulIdent::Out);
 
     let mut out = vec![P::EA::from_int(0); m * n * num_batches];
 
@@ -504,9 +504,9 @@ where
         "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
     );
 
-    let lhs_strides = strides(problem, Ident::Lhs);
-    let rhs_strides = strides(problem, Ident::Rhs);
-    let out_strides = strides(problem, Ident::Out);
+    let lhs_strides = strides(problem, MatmulIdent::Lhs);
+    let rhs_strides = strides(problem, MatmulIdent::Rhs);
+    let out_strides = strides(problem, MatmulIdent::Out);
 
     let mut out = vec![0; m * n * num_batches];
 

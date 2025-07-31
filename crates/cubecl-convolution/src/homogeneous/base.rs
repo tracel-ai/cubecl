@@ -8,7 +8,7 @@ use cubecl_std::{
 use crate::base::{Convolution, ConvolutionFamily, RuntimeArgs};
 
 use cubecl_matmul::components::{
-    Ident,
+    MatmulIdent,
     global::{
         GlobalConfig,
         args::{MatmulArgs, TensorInput, TensorInputIdent, TensorOutput},
@@ -93,11 +93,12 @@ pub mod config {
 
     use crate::{ConvGemmConfig, base::Dimensionality};
     use cubecl_matmul::components::{
-        InputIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
+        MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
         global::{
             GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
             multi_stage::EventLoadingMode,
         },
+        stage::StageConfig,
     };
 
     use super::*;
@@ -123,20 +124,25 @@ pub mod config {
 
     impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         type StageConfig = M::StageConfig;
+        type StageMemoryConfig = <M::StageConfig as StageConfig>::StageMemoryConfig;
+
+        fn stage_memory_config(&self) -> Self::StageMemoryConfig {
+            todo!()
+        }
 
         fn stage_config(&self) -> Self::StageConfig {
             self.matmul.stage_config()
         }
 
-        fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+        fn global_line_size(&self, ident: MatmulIdent) -> u32 {
             self.matmul.global_line_size(ident)
         }
 
-        fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
+        fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
             self.matmul.matrix_layout(ident)
         }
 
-        fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
+        fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
             self.matmul.num_loading_planes(ident)
         }
 
@@ -144,11 +150,11 @@ pub mod config {
             self.matmul.plane_dim()
         }
 
-        fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+        fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
             self.matmul.check_row_bounds(ident)
         }
 
-        fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+        fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
             self.matmul.check_col_bounds(ident)
         }
 
@@ -160,7 +166,7 @@ pub mod config {
             self.matmul.precompute_job()
         }
 
-        fn num_stages(&self, _ident: InputIdent) -> u32 {
+        fn num_stages(&self, _ident: MatmulIdent) -> u32 {
             self.num_stages
         }
 
@@ -172,7 +178,7 @@ pub mod config {
             self.matmul.tiling_scheme()
         }
 
-        fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode {
+        fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
             self.matmul.event_loading_mode(ident)
         }
 
@@ -212,9 +218,9 @@ pub mod config {
 
         fn line_sizes(&self) -> cubecl_matmul::components::MatmulLineSizes {
             MatmulLineSizes {
-                lhs: self.global_line_size(Ident::Lhs) as u8,
-                rhs: self.global_line_size(Ident::Rhs) as u8,
-                out: self.global_line_size(Ident::Out) as u8,
+                lhs: self.global_line_size(MatmulIdent::Lhs) as u8,
+                rhs: self.global_line_size(MatmulIdent::Rhs) as u8,
+                out: self.global_line_size(MatmulIdent::Out) as u8,
             }
         }
     }

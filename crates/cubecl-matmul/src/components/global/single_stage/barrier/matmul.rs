@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::InputIdent;
+use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::GlobalMatmul;
@@ -120,7 +120,7 @@ where
             y_offset,
             batch_offset,
             quantization,
-            InputIdent::Lhs,
+            MatmulIdent::Lhs,
             config,
         )
     }
@@ -140,7 +140,7 @@ where
             y_offset,
             batch_offset,
             quantization,
-            InputIdent::Rhs,
+            MatmulIdent::Rhs,
             config,
         )
     }

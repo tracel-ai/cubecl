@@ -4,7 +4,7 @@ use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{Ident, MatmulPrecision, MatrixLayout, TileSize, TilingScheme};
+use crate::components::{MatmulPrecision, MatrixLayout, StageIdent, TileSize, TilingScheme};
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -26,27 +26,27 @@ impl TileConfig for AcceleratedConfig {
         self.plane_dim
     }
 
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        match ident.into() {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => MatrixLayout::RowMajor,
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
+        match ident {
+            StageIdent::Lhs => self.lhs_layout,
+            StageIdent::Rhs => self.rhs_layout,
+            StageIdent::Acc => MatrixLayout::RowMajor,
         }
     }
 
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_stage_line_size,
-            Ident::Rhs => self.rhs_stage_line_size,
-            Ident::Out => self.out_global_line_size,
+    fn stage_line_size(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.lhs_stage_line_size,
+            StageIdent::Rhs => self.rhs_stage_line_size,
+            StageIdent::Acc => self.out_global_line_size,
         }
     }
 
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.lhs_global_line_size,
-            Ident::Rhs => self.rhs_global_line_size,
-            Ident::Out => self.out_global_line_size,
+    fn global_line_size(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.lhs_global_line_size,
+            StageIdent::Rhs => self.rhs_global_line_size,
+            StageIdent::Acc => self.out_global_line_size,
         }
     }
 

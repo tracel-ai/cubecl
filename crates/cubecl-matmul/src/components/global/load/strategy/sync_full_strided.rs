@@ -3,7 +3,7 @@ use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
-use crate::components::{Ident, InputIdent, InvalidConfigError};
+use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -17,7 +17,7 @@ use super::{LoadingJob, LoadingValidation};
 pub struct SyncFullStridedLoading {}
 
 impl LoadingValidation for SyncFullStridedLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
 
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
@@ -37,7 +37,7 @@ impl LoadingValidation for SyncFullStridedLoading {
 impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
-        ident: InputIdent,
+        ident: MatmulIdent,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
@@ -52,16 +52,16 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type Job<MP: MatmulPrecision> = SyncFullStridedJob;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
-        let line_size = config.global_line_size(input_ident);
-        let num_stage_lines = config.tiling_scheme().elements_in_stage(input_ident) / line_size;
-        let unit_count = config.num_loading_planes(input_ident) * config.plane_dim();
+        let line_size = config.global_line_size(ident);
+        let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
+        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 
         let unit_position_base = RoleRule::new(config.role_rule_config())
-            .load_index(input_ident, config.specialized_loading_sides())
+            .load_index(ident, config.specialized_loading_sides())
             * config.plane_dim()
             + UNIT_POS_X;
 
@@ -70,7 +70,7 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
             num_tasks_per_unit,
             unit_count,
             line_size,
-            input_ident,
+            ident,
         }
     }
 }
@@ -86,7 +86,7 @@ pub struct SyncFullStridedJob {
     #[cube(comptime)]
     line_size: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
 }
 
 #[cube]
@@ -103,12 +103,12 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for SyncFullStride
 
         let line_read = tensor_reader.load_coalesced_in_stage::<G>(
             unit_position * this.line_size,
-            this.input_ident,
+            this.ident,
             config,
         );
 
         stage.as_slice_mut(this.line_size)[unit_position] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.input_ident),
+            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.ident),
             CubeOption::None => Line::cast_from(line_read),
         }
     }

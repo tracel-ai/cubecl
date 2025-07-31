@@ -3,13 +3,13 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
+use crate::components::stage::StageMemoryConfig;
 use crate::components::{
-    AvailableLineSizes, Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout,
-    TilingScheme,
+    AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
-    stage::{self, StageConfig},
+    stage::StageConfig,
 };
-use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{MatmulIdent, MatmulLineSizes, MatmulSelection};
 use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
@@ -126,13 +126,16 @@ pub trait GlobalConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     /// Underlying Stage matmul config
-    type StageConfig: stage::StageConfig;
+    type StageConfig: StageConfig;
+    type StageMemoryConfig: StageMemoryConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
 
+    fn stage_memory_config(&self) -> Self::StageMemoryConfig;
+
     /// Returns the line size for the global memory corresponding to the given ident
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn global_line_size(&self, ident: MatmulIdent) -> u32;
 
     /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme {
@@ -140,10 +143,10 @@ pub trait GlobalConfig:
     }
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
+    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
 
     /// Returns the number of planes participating in loading `ident`
-    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn num_loading_planes(&self, ident: MatmulIdent) -> u32;
 
     /// Indicates the specialization roles for the planes
     fn plane_role_config(&self) -> PlaneRoleConfig;
@@ -160,10 +163,10 @@ pub trait GlobalConfig:
     fn plane_dim(&self) -> u32;
 
     /// Whether to check if accessing a row would exceed bounds.
-    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool;
+    fn check_row_bounds(&self, ident: MatmulIdent) -> bool;
 
     /// Whether to check if accessing a col would exceed bounds.
-    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool;
+    fn check_col_bounds(&self, ident: MatmulIdent) -> bool;
 
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
@@ -172,7 +175,7 @@ pub trait GlobalConfig:
     fn precompute_job(&self) -> bool;
 
     /// The number of stages in stage memory
-    fn num_stages(&self, ident: InputIdent) -> u32;
+    fn num_stages(&self, ident: MatmulIdent) -> u32;
 
     /// Whether to check loader is balanced in comptime or runtime.
     ///
@@ -180,7 +183,7 @@ pub trait GlobalConfig:
     fn loader_mode(&self) -> LoaderMode;
 
     /// Whether event loading is constrained to be ordered
-    fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode;
+    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode;
 
     /// Whether the matmul is quantized
     fn quantized(&self) -> bool {

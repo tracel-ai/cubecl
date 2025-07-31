@@ -1,7 +1,7 @@
 use crate::components::tile::register::config::{ProductType, RegisterConfig};
 use crate::components::tile::tile_data::Tile;
 use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{Ident, MatmulPrecision, MatrixLayout};
+use crate::components::{MatmulPrecision, MatrixLayout, StageIdent};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -52,8 +52,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
     fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
         let size = config.tile_size();
-        let lhs_line_size = config.stage_line_size(Ident::Lhs);
-        let lhs_layout = config.matrix_layout(Ident::Lhs);
+        let lhs_line_size = config.stage_line_size(StageIdent::Lhs);
+        let lhs_layout = config.matrix_layout(StageIdent::Lhs);
 
         match config.product_type() {
             ProductType::Inner => match lhs_layout {
@@ -77,8 +77,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
 
     fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
         let size = config.tile_size();
-        let rhs_line_size = config.stage_line_size(Ident::Rhs);
-        let rhs_layout = config.matrix_layout(Ident::Rhs);
+        let rhs_line_size = config.stage_line_size(StageIdent::Rhs);
+        let rhs_layout = config.matrix_layout(StageIdent::Rhs);
 
         match config.product_type() {
             ProductType::Inner => match rhs_layout {
@@ -120,7 +120,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         slice: &mut SliceMut<Line<MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        let out_line_size = config.stage_line_size(Ident::Out);
+        let out_line_size = config.stage_line_size(StageIdent::Acc);
         #[unroll(UNROLL)]
         for i in 0..comptime!(acc.rows * acc.cols / out_line_size) {
             let mut line = Line::empty(out_line_size);

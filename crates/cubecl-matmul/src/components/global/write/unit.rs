@@ -1,6 +1,5 @@
-use crate::components::Ident;
-use crate::components::global::GlobalConfig;
 use crate::components::global::global_memory::TensorWriter;
+use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -38,7 +37,7 @@ impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
         #[comptime] config: G,
     ) {
         let tile_size = config.tiling_scheme().elements_in_tile_mn();
-        let output_line_size = config.global_line_size(Ident::Out);
+        let output_line_size = config.global_line_size(MatmulIdent::Out);
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let num_lines = tile_size / output_line_size;

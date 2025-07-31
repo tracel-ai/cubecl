@@ -15,7 +15,7 @@ use crate::{
 };
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    InputIdent, InvalidConfigError,
+    InvalidConfigError, MatmulIdent,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, PlaneMatmulFamily},
     tile::TileMatmulFamily,
@@ -51,7 +51,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
-        ident: InputIdent,
+        ident: MatmulIdent,
     ) -> TensorHandle<R, E> {
         into_tensor_handle_tma(client, handle, ident)
     }
@@ -75,7 +75,7 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
 pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &TensorHandleRef<'_, R>,
-    ident: InputIdent,
+    ident: MatmulIdent,
 ) -> TensorHandle<R, E> {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
@@ -85,8 +85,8 @@ pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
         into_contiguous_pitched(client, handle)
     };
     match ident {
-        InputIdent::Lhs => handle,
-        InputIdent::Rhs => {
+        MatmulIdent::Lhs => handle,
+        MatmulIdent::Rhs => {
             let k_size = handle.shape[1..dim_c].iter().product();
             handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
             handle.strides = vec![
@@ -96,12 +96,13 @@ pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
             ];
             handle
         }
+        MatmulIdent::Out => unreachable!(),
     }
 }
 
 pub(crate) fn has_valid_layout<R: Runtime>(
     handle: &TensorHandleRef<'_, R>,
-    ident: InputIdent,
+    ident: MatmulIdent,
 ) -> bool {
     let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
     let rank = handle.shape.len();
@@ -112,8 +113,8 @@ pub(crate) fn has_valid_layout<R: Runtime>(
         .all(|stride| stride % stride_align == 0);
 
     let valid_layout = match ident {
-        InputIdent::Lhs => handle.strides[dim_c] == 1,
-        InputIdent::Rhs => {
+        MatmulIdent::Lhs => handle.strides[dim_c] == 1,
+        MatmulIdent::Rhs => {
             let c_major = handle.strides[dim_c] == 1;
             let mut kernel_contig = true;
             for i in 1..dim_c - 1 {
@@ -121,6 +122,7 @@ pub(crate) fn has_valid_layout<R: Runtime>(
             }
             c_major && kernel_contig
         }
+        MatmulIdent::Out => unreachable!(),
     };
 
     valid_layout && aligned

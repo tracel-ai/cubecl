@@ -2,12 +2,13 @@ use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
+use cubecl_matmul::components::{MatmulIdent, StageIdent};
 use cubecl_std::{CubeOption, FastDivmod};
 
 use crate::base::RuntimeArgs;
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
 use cubecl_matmul::components::{
-    Ident, InputIdent, MatmulPrecision, global::Quantization, stage::FullStageToTileReader,
+    MatmulPrecision, global::Quantization, stage::FullStageToTileReader,
 };
 use cubecl_matmul::components::{
     global::{self, global_memory::MappedTensorReader},
@@ -47,10 +48,10 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::StageConfig>(
-                Ident::Rhs,
+            stages.push(StageMemory::new_aligned::<G::StageMemoryConfig>(
+                StageIdent::Rhs,
                 128u32,
-                config.stage_config(),
+                config.stage_memory_config(),
             ));
         }
 
@@ -95,10 +96,10 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
     }
 
     pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaWeightReader<MP> {
-        TmaWeightReader::<MP>::new(*this.stages.index(stage_idx), InputIdent::Rhs)
+        TmaWeightReader::<MP>::new(*this.stages.index(stage_idx), StageIdent::Rhs)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, Ident::Rhs);
+        this.tensor_view.update_view(k_offset, MatmulIdent::Rhs);
     }
 }
