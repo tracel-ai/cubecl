@@ -4,6 +4,7 @@ use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder, StageMemoryConfig},
     tile::TileConfig,
 };
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -62,7 +63,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type State: CubeType;
 
-    fn init_state() -> Self::State;
+    fn init_state(#[comptime] config: Self::Config) -> Self::State;
     fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn execute(
@@ -78,7 +79,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn write(acc: &Self::Accumulator, writer: Self::Writer);
 
-    fn init_writer() -> Self::Writer;
+    fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
     fn init_accumulator() -> Self::Accumulator;
 }
 

@@ -29,6 +29,8 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
+        comment!("Batch: Execute");
+
         // let n = config.seq_k();
         // There are ceil(n/br) to launch for each head and batch
         // Compute offsets
@@ -38,7 +40,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
             GA::init_query_loader(query),
             GA::init_key_loader(key, config.global_config()),
             GA::init_value_loader(value, config.global_config()),
-            GA::init_writer(),
+            GA::init_writer(out),
             &mut GA::init_accumulator(),
             config.global_config(),
         )

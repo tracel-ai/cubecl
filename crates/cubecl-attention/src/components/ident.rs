@@ -1,5 +1,5 @@
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum Ident {
+pub enum FlashIdent {
     Query,
     Key,
     Value,

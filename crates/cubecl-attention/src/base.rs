@@ -6,7 +6,7 @@ use cubecl_std::tensor::TensorHandle;
 use crate::{
     components::{
         AttentionPrecision, AttentionProblem, AttentionSelection, AttentionSetupError,
-        AvailableLineSizes, Ident, args::TensorInputsLaunch, batch::HypercubeSelection,
+        AvailableLineSizes, FlashIdent, args::TensorInputsLaunch, batch::HypercubeSelection,
     },
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
@@ -66,10 +66,10 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         &AP::EO::as_elem_native_unchecked(),
     );
     let line_sizes = DummyAlgorithm::filter_line_sizes(line_sizes)
-        .filter_with_tensor(Ident::Query, &query.strides, &query.shape)
-        .filter_with_tensor(Ident::Key, &key.strides, &key.shape)
-        .filter_with_tensor(Ident::Value, &value.strides, &value.shape)
-        .filter_with_tensor(Ident::Out, &out.strides, &out.shape)
+        .filter_with_tensor(FlashIdent::Query, &query.strides, &query.shape)
+        .filter_with_tensor(FlashIdent::Key, &key.strides, &key.shape)
+        .filter_with_tensor(FlashIdent::Value, &value.strides, &value.shape)
+        .filter_with_tensor(FlashIdent::Out, &out.strides, &out.shape)
         .pick_max()
         .unwrap();
 

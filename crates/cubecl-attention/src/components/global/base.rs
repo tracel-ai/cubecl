@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::StageMemoryConfig;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_matmul::components::{TilingScheme, stage::StageMemoryConfig};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, stage::StageAttentionConfig,
+    AttentionSetupError, AvailableLineSizes, FlashIdent, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -70,7 +70,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader;
-    fn init_writer() -> Self::Writer;
+    fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
     fn init_accumulator() -> Self::Accumulator;
 }
 
@@ -89,4 +89,6 @@ pub trait GlobalAttentionConfig:
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
     fn tc(&self) -> u32;
+
+    fn global_line_size(&self, ident: FlashIdent) -> u32;
 }

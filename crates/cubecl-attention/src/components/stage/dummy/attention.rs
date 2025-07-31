@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{stage::StageToTileReader, tile::TileMatmul};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -45,6 +46,8 @@ impl<
         prev_state: &Self::State,
         #[comptime] config: Self::Config,
     ) -> Self::State {
+        comment!("Stage: Execute");
+
         // Not accurate: this does two partition_matmul with computation in between,
         // But there should be a partition attention that computes intermediary stuff at each tile.
         //
@@ -71,26 +74,31 @@ impl<
     }
 
     fn last_update(acc: &mut Self::Accumulator, prev_state: Self::State) {
+        comment!("Stage: Last Update");
         // O_i = 1/diag(l_i_Tc) x O_i_Tc
         // todo!()
     }
 
-    fn init_state() -> Self::State {
+    fn init_state(#[comptime] config: Self::Config) -> Self::State {
+        comment!("Stage: Init Stage");
+
         DummyStageState::<AP::EI> {
-            prev_m: Array::new(8),
-            prev_l: Array::new(8),
+            prev_m: Array::new(config.rows_per_plane()),
+            prev_l: Array::new(config.rows_per_plane()),
         }
     }
 
     fn write(acc: &Self::Accumulator, writer: Self::Writer) {
+        comment!("Stage: Write");
         // todo
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator) {
+        comment!("Stage: Zero Accumulator");
         acc.zero();
     }
 
-    fn init_writer() -> Self::Writer {
+    fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
         DummyWriter::new()
     }
 

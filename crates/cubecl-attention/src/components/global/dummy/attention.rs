@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::StageIdent;
 use cubecl_matmul::components::global::global_memory::TensorReader;
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
@@ -45,6 +45,7 @@ impl<
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
+        comment!("Global: Execute");
         SA::zero_accumulator(acc);
 
         let query_reader = query_loader.reader();
@@ -53,7 +54,7 @@ impl<
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
-        let mut stage_state = SA::init_state();
+        let mut stage_state = SA::init_state(config.stage_config());
 
         for j in 0..config.tc() {
             key_loader.load();
@@ -74,6 +75,7 @@ impl<
     }
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> Self::QueryLoader {
+        comment!("Global: Init Query Loader");
         DummyQueryLoader::new(query)
     }
 
@@ -81,6 +83,7 @@ impl<
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyLoader {
+        comment!("Global: Init Key Loader");
         DummyKeyLoader::new(key, config)
     }
 
@@ -88,14 +91,17 @@ impl<
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader {
+        comment!("Global: Init Value Loader");
         DummyValueLoader::new(value, config)
     }
 
-    fn init_writer() -> Self::Writer {
-        SA::init_writer()
+    fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
+        comment!("Global: Init Writer");
+        SA::init_writer(out)
     }
 
     fn init_accumulator() -> Self::Accumulator {
+        comment!("Global: Init Accumulator");
         SA::init_accumulator()
     }
 }
@@ -139,7 +145,9 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
         RegisterToTileReader {}
     }
 
-    fn load(&self) {}
+    fn load(&self) {
+        comment!("Loading Query");
+    }
 }
 
 #[cube]
@@ -166,7 +174,9 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         }
     }
 
-    fn load(&self) {}
+    fn load(&self) {
+        comment!("Loading Key");
+    }
 }
 
 #[cube]
@@ -193,7 +203,9 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
         }
     }
 
-    fn load(&self) {}
+    fn load(&self) {
+        comment!("Loading Value");
+    }
 }
 
 #[derive(CubeType)]
