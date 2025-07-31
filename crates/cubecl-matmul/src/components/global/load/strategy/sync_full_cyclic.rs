@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::memory::TensorReader;
 use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};

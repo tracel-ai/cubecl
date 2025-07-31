@@ -120,10 +120,8 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     #[comptime] ident: MatmulIdent,
     #[comptime] config: G,
 ) {
-    let window: Window<EG> = tensor_reader.load_window_in_stage(
-        nth_slice,
-        comptime!(config.global_memory_config(ident)),
-    );
+    let window: Window<EG> = tensor_reader
+        .load_window_in_stage(nth_slice, comptime!(config.global_memory_config(ident)));
     let mut destination: SliceMut<Line<ES>> =
         StridedTilingLayout::nth_slice::<ES, G::StageMemoryConfig>(
             stage,

@@ -2,11 +2,11 @@ use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
 use crate::components::global::Quantization;
-use crate::components::global::memory::TensorReader;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::load::StageBuffer;
 use crate::components::global::load::TaskCounter;
+use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
