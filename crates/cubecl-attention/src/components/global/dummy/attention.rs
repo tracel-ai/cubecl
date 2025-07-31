@@ -49,8 +49,7 @@ impl<
         comment!("Global: Execute");
         SA::zero_accumulator(acc);
 
-        let query_reader = query_loader.reader();
-        query_loader.load();
+        let query_reader = query_loader.load();
 
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();

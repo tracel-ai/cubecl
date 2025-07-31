@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
-    global::dummy::RegisterToTileReader,
+    global::dummy::QueryRegisterReader,
     stage::{StageAttention, StageAttentionConfig as _, dummy::config::DummyStageConfig},
 };
 
@@ -39,7 +39,7 @@ impl<
     // Tc times, each call is at an index j
     // Return (m_ij, l_ij) [new]
     fn execute(
-        query_reader: &RegisterToTileReader,
+        query_reader: &QueryRegisterReader<AP::ES>,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,
@@ -47,6 +47,8 @@ impl<
         #[comptime] config: Self::Config,
     ) -> Self::State {
         comment!("Stage: Execute");
+
+        let query_fragment = query_reader.fragment();
 
         // Not accurate: this does two partition_matmul with computation in between,
         // But there should be a partition attention that computes intermediary stuff at each tile.

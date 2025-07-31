@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader};
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
+use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
@@ -45,12 +46,24 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
         }
     }
 
-    pub fn reader(&self) -> RegisterToTileReader {
-        RegisterToTileReader {}
-    }
-
-    pub fn load(&self) {
+    pub fn load(&self) -> QueryRegisterReader<AP::ES> {
         comment!("Loading Query");
+        QueryRegisterReader::<AP::ES> {
+            row: Array::vectorized(8u32, 1u32),
+            fragment: cmma::Matrix::from_slice(
+                cmma::MatrixIdent::A,
+                8,
+                8,
+                8,
+                cmma::MatrixLayout::RowMajor,
+                &self
+                    .tensor_reader
+                    .tensor
+                    .as_slice(0, 64)
+                    .try_cast_unchecked(),
+                8,
+            ),
+        }
     }
 }
 
@@ -155,4 +168,17 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
 }
 
 #[derive(CubeType)]
-pub struct RegisterToTileReader {}
+pub struct QueryRegisterReader<E: Float> {
+    row: Array<Line<E>>,
+    fragment: cmma::Matrix<E>,
+}
+
+#[cube]
+impl<E: Float> QueryRegisterReader<E> {
+    pub fn row(&self) -> &Array<Line<E>> {
+        &self.row
+    }
+    pub fn fragment(&self) -> &cmma::Matrix<E> {
+        &self.fragment
+    }
+}

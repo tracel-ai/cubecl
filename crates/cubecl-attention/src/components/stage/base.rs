@@ -8,7 +8,7 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::dummy::RegisterToTileReader,
+    AttentionSetupError, AvailableLineSizes, global::dummy::QueryRegisterReader,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -67,7 +67,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn execute(
-        query_reader: &RegisterToTileReader,
+        query_reader: &QueryRegisterReader<AP::ES>,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,
