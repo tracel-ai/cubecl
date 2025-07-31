@@ -93,19 +93,19 @@ impl<T: TileConfig> StageMemoryConfig for PlanePartitionedStageConfig<T> {
     }
 
     fn num_main_flow_planes(&self) -> u32 {
-        <Self as StageConfig>::num_main_flow_planes(&self)
+        <Self as StageConfig>::num_main_flow_planes(self)
     }
 
     fn tiling_scheme(&self) -> TilingScheme {
-        <Self as StageConfig>::tiling_scheme(&self)
+        <Self as StageConfig>::tiling_scheme(self)
     }
 
     fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        <Self as StageConfig>::stage_line_size(&self, ident)
+        <Self as StageConfig>::stage_line_size(self, ident)
     }
 
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-        <Self as StageConfig>::matrix_layout(&self, ident)
+        <Self as StageConfig>::matrix_layout(self, ident)
     }
 
     fn num_stages(&self, ident: StageIdent) -> u32 {
