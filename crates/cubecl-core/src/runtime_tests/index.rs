@@ -33,7 +33,7 @@ pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle_slice, 3, vectorization) },
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));

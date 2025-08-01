@@ -43,7 +43,7 @@ pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R::Server, R::Channel
         ArrayArg::from_raw_parts::<f32>(&handle, num_cubes as usize * 8, vectorization)
     });
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
 
     let mut expected: Vec<u32> = vec![6, 1, 2, 3];

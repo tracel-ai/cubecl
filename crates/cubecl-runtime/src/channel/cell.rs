@@ -1,10 +1,12 @@
 use super::ComputeChannel;
-use crate::logging::ServerLogger;
 use crate::server::{
-    Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
-    ProfilingToken,
+    Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
 };
 use crate::storage::{BindingResource, ComputeStorage};
+use crate::{
+    logging::ServerLogger,
+    server::{Allocation, AllocationDescriptor, IoError},
+};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
@@ -49,14 +51,22 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+    fn create(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError> {
         let mut server = self.server.borrow_mut();
-        server.read(bindings)
+        server.create(descriptors)
     }
 
-    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
         let mut server = self.server.borrow_mut();
-        server.read_tensor(bindings)
+        server.read(descriptors)
+    }
+
+    fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+        let mut server = self.server.borrow_mut();
+        server.write(descriptors)
     }
 
     fn sync(&self) -> DynFut<()> {
@@ -69,33 +79,6 @@ where
         binding: Binding,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.server.borrow_mut().get_resource(binding)
-    }
-
-    fn create(&self, resource: &[u8]) -> Handle {
-        self.server.borrow_mut().create(resource)
-    }
-
-    fn create_tensors(
-        &self,
-        data: Vec<&[u8]>,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        self.server
-            .borrow_mut()
-            .create_tensors(data, shape, elem_size)
-    }
-
-    fn empty(&self, size: usize) -> Handle {
-        self.server.borrow_mut().empty(size)
-    }
-
-    fn empty_tensors(
-        &self,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        self.server.borrow_mut().empty_tensors(shape, elem_size)
     }
 
     unsafe fn execute(

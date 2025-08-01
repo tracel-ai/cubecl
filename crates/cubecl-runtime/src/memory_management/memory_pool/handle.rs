@@ -18,7 +18,11 @@ impl MemoryHandle<SliceBinding> for SliceHandle {
 
 /// Take a list of sub-slices of a buffer and create a list of offset handles.
 /// Sizes must be in bytes and aligned to the memory alignment.
-pub fn offset_handles(base_handle: Handle, sizes_bytes: &[usize]) -> Vec<Handle> {
+pub fn offset_handles(
+    base_handle: Handle,
+    sizes_bytes: &[usize],
+    buffer_align: usize,
+) -> Vec<Handle> {
     let total_size: usize = sizes_bytes.iter().sum();
     let mut offset = 0;
     let mut out = Vec::new();
@@ -29,7 +33,7 @@ pub fn offset_handles(base_handle: Handle, sizes_bytes: &[usize]) -> Vec<Handle>
             .offset_start(offset as u64)
             .offset_end((total_size - offset - size) as u64);
         out.push(handle);
-        offset += size;
+        offset += size.next_multiple_of(buffer_align);
     }
 
     out

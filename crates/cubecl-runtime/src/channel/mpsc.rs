@@ -11,8 +11,8 @@ use crate::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
-        Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError,
-        ProfilingToken,
+        Allocation, AllocationDescriptor, AllocationType, Binding, Bindings, ComputeServer,
+        CopyDescriptor, CubeCount, IoError, ProfileError, ProfilingToken,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -37,28 +37,76 @@ where
 
 type Callback<Response> = async_channel::Sender<Response>;
 
+struct AllocationDescriptorOwned {
+    type_: AllocationType,
+    shape: Vec<usize>,
+    elem_size: usize,
+}
+
+impl From<AllocationDescriptor<'_>> for AllocationDescriptorOwned {
+    fn from(value: AllocationDescriptor) -> Self {
+        AllocationDescriptorOwned {
+            type_: value.type_,
+            shape: value.shape.to_vec(),
+            elem_size: value.elem_size,
+        }
+    }
+}
+
+impl AllocationDescriptorOwned {
+    fn as_ref(&self) -> AllocationDescriptor<'_> {
+        AllocationDescriptor::new(self.type_, &self.shape, self.elem_size)
+    }
+}
+
+struct CopyDescriptorOwned {
+    binding: Binding,
+    shape: Vec<usize>,
+    strides: Vec<usize>,
+    elem_size: usize,
+}
+
+impl From<CopyDescriptor<'_>> for CopyDescriptorOwned {
+    fn from(value: CopyDescriptor<'_>) -> Self {
+        CopyDescriptorOwned {
+            binding: value.binding,
+            shape: value.shape.to_vec(),
+            strides: value.strides.to_vec(),
+            elem_size: value.elem_size,
+        }
+    }
+}
+
+impl CopyDescriptorOwned {
+    fn as_ref(&self) -> CopyDescriptor<'_> {
+        CopyDescriptor::new(
+            self.binding.clone(),
+            &self.shape,
+            &self.strides,
+            self.elem_size,
+        )
+    }
+}
+
 enum Message<Server>
 where
     Server: ComputeServer,
 {
-    Read(Vec<Binding>, Callback<Vec<Vec<u8>>>),
-    ReadTensor(Vec<BindingWithMeta>, Callback<Vec<Vec<u8>>>),
+    Create(
+        Vec<AllocationDescriptorOwned>,
+        Callback<Result<Vec<Allocation>, IoError>>,
+    ),
+    Read(
+        Vec<CopyDescriptorOwned>,
+        Callback<Result<Vec<Vec<u8>>, IoError>>,
+    ),
+    Write(
+        Vec<(CopyDescriptorOwned, Vec<u8>)>,
+        Callback<Result<(), IoError>>,
+    ),
     GetResource(
         Binding,
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
-    ),
-    Create(Vec<u8>, Callback<Handle>),
-    CreateTensor(
-        Vec<Vec<u8>>,
-        Vec<Vec<usize>>,
-        Vec<usize>,
-        Callback<Vec<(Handle, Vec<usize>)>>,
-    ),
-    Empty(usize, Callback<Handle>),
-    EmptyTensor(
-        Vec<Vec<usize>>,
-        Vec<usize>,
-        Callback<Vec<(Handle, Vec<usize>)>>,
     ),
     ExecuteKernel(
         (Server::Kernel, CubeCount, ExecutionMode),
@@ -88,36 +136,27 @@ where
         spawn_detached_fut(async move {
             while let Ok(message) = receiver.recv().await {
                 match message {
-                    Message::Read(bindings, callback) => {
-                        let data = server.read(bindings).await;
+                    Message::Create(descriptors, callback) => {
+                        let descriptors = descriptors.iter().map(|it| it.as_ref()).collect();
+                        let data = server.create(descriptors);
                         callback.send(data).await.unwrap();
                     }
-                    Message::ReadTensor(bindings, callback) => {
-                        let data = server.read_tensor(bindings).await;
+                    Message::Read(descriptors, callback) => {
+                        let descriptors = descriptors.iter().map(|it| it.as_ref()).collect();
+                        let data = server.read(descriptors).await;
+                        callback.send(data).await.unwrap();
+                    }
+                    Message::Write(descriptors, callback) => {
+                        let descriptors = descriptors
+                            .iter()
+                            .map(|(desc, data)| (desc.as_ref(), data.as_slice()))
+                            .collect();
+                        let data = server.write(descriptors);
                         callback.send(data).await.unwrap();
                     }
                     Message::GetResource(binding, callback) => {
                         let data = server.get_resource(binding);
                         callback.send(data).await.unwrap();
-                    }
-                    Message::Create(data, callback) => {
-                        let handle = server.create(&data);
-                        callback.send(handle).await.unwrap();
-                    }
-                    Message::CreateTensor(data, shape, elem_size, callback) => {
-                        let data = data.iter().map(|it| it.as_slice()).collect();
-                        let shape = shape.iter().map(|it| it.as_slice()).collect();
-                        let handle = server.create_tensors(data, shape, elem_size);
-                        callback.send(handle).await.unwrap();
-                    }
-                    Message::Empty(size, callback) => {
-                        let handle = server.empty(size);
-                        callback.send(handle).await.unwrap();
-                    }
-                    Message::EmptyTensor(shape, elem_size, callback) => {
-                        let shape = shape.iter().map(|it| it.as_slice()).collect();
-                        let handle = server.empty_tensors(shape, elem_size);
-                        callback.send(handle).await.unwrap();
                     }
                     Message::ExecuteKernel(kernel, bindings, logger) => unsafe {
                         server.execute(kernel.0, kernel.1, bindings, kernel.2, logger);
@@ -167,29 +206,50 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    fn read(&self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+    fn create(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        let descriptors = descriptors.into_iter().map(|it| it.into()).collect();
+
+        let (callback, response) = async_channel::unbounded();
+
+        self.state
+            .sender
+            .send_blocking(Message::Create(descriptors, callback))
+            .unwrap();
+
+        handle_response(response.recv_blocking())
+    }
+
+    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
         let sender = self.state.sender.clone();
+        let descriptors = descriptors.into_iter().map(|it| it.into()).collect();
 
         Box::pin(async move {
             let (callback, response) = async_channel::unbounded();
             sender
-                .send(Message::Read(bindings, callback))
+                .send(Message::Read(descriptors, callback))
                 .await
                 .unwrap();
             handle_response(response.recv().await)
         })
     }
 
-    fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
-        let sender = self.state.sender.clone();
-        Box::pin(async move {
-            let (callback, response) = async_channel::unbounded();
-            sender
-                .send(Message::ReadTensor(bindings, callback))
-                .await
-                .unwrap();
-            handle_response(response.recv().await)
-        })
+    fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+        let descriptors = descriptors
+            .into_iter()
+            .map(|(desc, data)| (desc.into(), data.to_vec()))
+            .collect();
+
+        let (callback, response) = async_channel::unbounded();
+
+        self.state
+            .sender
+            .send_blocking(Message::Write(descriptors, callback))
+            .unwrap();
+
+        handle_response(response.recv_blocking())
     }
 
     fn get_resource(
@@ -201,66 +261,6 @@ where
         self.state
             .sender
             .send_blocking(Message::GetResource(binding, callback))
-            .unwrap();
-
-        handle_response(response.recv_blocking())
-    }
-
-    fn create(&self, data: &[u8]) -> Handle {
-        let (callback, response) = async_channel::unbounded();
-
-        self.state
-            .sender
-            .send_blocking(Message::Create(data.to_vec(), callback))
-            .unwrap();
-
-        handle_response(response.recv_blocking())
-    }
-
-    fn create_tensors(
-        &self,
-        data: Vec<&[u8]>,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let (callback, response) = async_channel::unbounded();
-
-        self.state
-            .sender
-            .send_blocking(Message::CreateTensor(
-                data.into_iter().map(|it| it.to_vec()).collect(),
-                shape.into_iter().map(|it| it.to_vec()).collect(),
-                elem_size,
-                callback,
-            ))
-            .unwrap();
-
-        handle_response(response.recv_blocking())
-    }
-
-    fn empty(&self, size: usize) -> Handle {
-        let (callback, response) = async_channel::unbounded();
-        self.state
-            .sender
-            .send_blocking(Message::Empty(size, callback))
-            .unwrap();
-
-        handle_response(response.recv_blocking())
-    }
-
-    fn empty_tensors(
-        &self,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let (callback, response) = async_channel::unbounded();
-        self.state
-            .sender
-            .send_blocking(Message::EmptyTensor(
-                shape.into_iter().map(|it| it.to_vec()).collect(),
-                elem_size,
-                callback,
-            ))
             .unwrap();
 
         handle_response(response.recv_blocking())

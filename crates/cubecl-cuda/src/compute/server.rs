@@ -1,6 +1,12 @@
-use cubecl_core::compute::{CubeTask, DebugInformation};
-use cubecl_core::future::{self, DynFut};
-use cubecl_core::server::{ProfileError, ProfilingToken};
+use cubecl_core::server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken};
+use cubecl_core::{
+    compute::{CubeTask, DebugInformation},
+    server::IoError,
+};
+use cubecl_core::{
+    future::{self, DynFut},
+    server::AllocationType,
+};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
@@ -10,16 +16,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CudaCompiler, WmmaCompiler};
 
+use super::CudaResource;
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
-use super::{CudaResource, uninit_vec};
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{Elem, IntKind, UIntKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{
     Feature,
     ir::FloatKind,
-    server::{BindingWithMeta, Bindings, Handle, TensorMapBinding},
+    server::{Bindings, CopyDescriptor, TensorMapBinding},
 };
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
@@ -83,83 +89,75 @@ unsafe impl Send for CudaServer {}
 impl CudaServer {
     fn read_async(
         &mut self,
-        bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
+        descriptors: Vec<CopyDescriptor<'_>>,
+    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
         let ctx = self.get_context();
-        let mut result = Vec::with_capacity(bindings.len());
 
-        for binding in bindings {
-            let resource = ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource");
+        fn inner(
+            ctx: &mut CudaContext,
+            descriptors: Vec<CopyDescriptor<'_>>,
+        ) -> Result<Vec<Vec<u8>>, IoError> {
+            let mut result = Vec::with_capacity(descriptors.len());
 
-            let mut data = uninit_vec(resource.size() as usize);
+            for descriptor in descriptors {
+                let CopyDescriptor {
+                    binding,
+                    shape,
+                    strides,
+                    elem_size,
+                } = descriptor;
 
-            unsafe {
-                cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream)
-                    .unwrap();
-            };
-            result.push(data);
-        }
+                if !valid_strides(shape, strides) {
+                    return Err(IoError::UnsupportedStrides);
+                }
 
-        let fence = ctx.fence();
-        async move {
-            // Wait for the fence. This is still sync, so the future will still complete in a
-            // single poll.
-            fence.wait();
-            result
-        }
-    }
+                let resource = ctx
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .ok_or(IoError::InvalidHandle)?;
+                let mut data = vec![0; shape.iter().product::<usize>() * elem_size];
 
-    fn read_tensor_async(
-        &mut self,
-        handles: Vec<BindingWithMeta>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
-        let ctx = self.get_context();
-        let mut result = Vec::with_capacity(handles.len());
-
-        for handle in handles {
-            let binding = handle.binding;
-            let resource = ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource");
-            let mut data = vec![0; handle.shape.iter().product::<usize>() * handle.elem_size];
-
-            let rank = handle.shape.len();
-            if rank <= 1 {
-                unsafe {
-                    cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream)
+                let rank = shape.len();
+                if rank <= 1 {
+                    unsafe {
+                        cudarc::driver::result::memcpy_dtoh_async(
+                            &mut data,
+                            resource.ptr,
+                            ctx.stream,
+                        )
                         .unwrap();
+                    };
+                    result.push(data);
+                    continue;
+                }
+
+                let dim_x = descriptor.shape[rank - 1];
+                let width_bytes = dim_x * descriptor.elem_size;
+                let dim_y: usize = descriptor.shape.iter().rev().skip(1).product();
+                let pitch = descriptor.strides[rank - 2] * descriptor.elem_size;
+
+                let cpy = CUDA_MEMCPY2D_st {
+                    srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+                    srcDevice: resource.ptr,
+                    srcPitch: pitch,
+                    dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+                    dstHost: data.as_mut_ptr() as *mut c_void,
+                    dstPitch: width_bytes,
+                    WidthInBytes: width_bytes,
+                    Height: dim_y,
+                    ..Default::default()
+                };
+
+                unsafe {
+                    cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
                 };
                 result.push(data);
-                continue;
             }
 
-            let dim_x = handle.shape[rank - 1];
-            let width_bytes = dim_x * handle.elem_size;
-            let dim_y: usize = handle.shape.iter().rev().skip(1).product();
-            let pitch = handle.strides[rank - 2] * handle.elem_size;
-
-            let cpy = CUDA_MEMCPY2D_st {
-                srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-                srcDevice: resource.ptr,
-                srcPitch: pitch,
-                dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-                dstHost: data.as_mut_ptr() as *mut c_void,
-                dstPitch: width_bytes,
-                WidthInBytes: width_bytes,
-                Height: dim_y,
-                ..Default::default()
-            };
-
-            unsafe {
-                cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
-            };
-            result.push(data);
+            Ok(result)
         }
 
+        let result = inner(ctx, descriptors);
         let fence = ctx.fence();
 
         async move {
@@ -187,52 +185,82 @@ impl ComputeServer for CudaServer {
     type Feature = Feature;
     type Info = ();
 
-    fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
-        Box::pin(self.read_async(bindings))
+    fn read(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+        Box::pin(self.read_async(descriptors))
     }
 
-    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
-        Box::pin(self.read_tensor_async(bindings))
-    }
+    fn create(
+        &mut self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        let mut strides = Vec::new();
+        let mut sizes = Vec::new();
+        let mut total_size = 0;
 
-    fn create(&mut self, data: &[u8]) -> server::Handle {
-        let handle = self.empty(data.len());
-        let ctx = self.get_context();
+        for descriptor in descriptors {
+            let pitch_align = match descriptor.type_ {
+                AllocationType::Contiguous => 1,
+                AllocationType::Strided => self.mem_alignment,
+            };
 
-        let binding = handle.clone().binding();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .expect("Failed to find resource");
+            let rank = descriptor.shape.len();
+            let width = *descriptor.shape.last().unwrap_or(&1);
+            let height: usize = descriptor.shape.iter().rev().skip(1).product();
+            let height = height.max(1);
+            let width_bytes = width * descriptor.elem_size;
+            let pitch = width_bytes.next_multiple_of(pitch_align);
+            let size = height * pitch;
+            total_size += size.next_multiple_of(self.mem_alignment);
+            let mut stride = vec![1; rank];
+            if rank > 1 {
+                stride[rank - 2] = pitch / descriptor.elem_size;
+            }
+            if rank > 2 {
+                for i in (0..rank - 2).rev() {
+                    stride[i] = stride[i + 1] * descriptor.shape[i + 1];
+                }
+            }
 
-        unsafe {
-            cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
+            strides.push(stride);
+            sizes.push(size);
         }
 
-        handle
+        let ctx = self.get_context();
+        let handle = ctx.memory_management.reserve(total_size as u64, None)?;
+        let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
+
+        let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
+
+        Ok(handles
+            .into_iter()
+            .zip(strides)
+            .map(|(handle, strides)| Allocation::new(handle, strides))
+            .collect())
     }
 
-    fn create_tensors(
-        &mut self,
-        data: Vec<&[u8]>,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes.clone());
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         let ctx = self.get_context();
 
-        for i in 0..data.len() {
-            let (handle, strides) = &handles_strides[i];
-            let data = data[i];
-            let shape = shapes[i];
-            let elem_size = elem_sizes[i];
+        for (descriptor, data) in descriptors {
+            let CopyDescriptor {
+                binding,
+                shape,
+                strides,
+                elem_size,
+            } = descriptor;
             let rank = shape.len();
 
-            let binding = handle.clone().binding();
+            if !valid_strides(shape, strides) {
+                return Err(IoError::UnsupportedStrides);
+            }
+
             let resource = ctx
                 .memory_management
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource");
+                .ok_or(IoError::InvalidHandle)?;
 
             if rank > 1 {
                 let dim_x = shape[rank - 1];
@@ -263,52 +291,7 @@ impl ComputeServer for CudaServer {
             }
         }
 
-        handles_strides
-    }
-
-    fn empty(&mut self, size: usize) -> server::Handle {
-        let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
-        server::Handle::new(handle, None, None, size as u64)
-    }
-
-    fn empty_tensors(
-        &mut self,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let mut strides = Vec::new();
-        let mut sizes = Vec::new();
-        let mut total_size = 0;
-
-        for (shape, elem_size) in shape.into_iter().zip(elem_size) {
-            let rank = shape.len();
-            let width = *shape.last().unwrap_or(&1);
-            let height: usize = shape.iter().rev().skip(1).product();
-            let height = height.max(1);
-            let width_bytes = width * elem_size;
-            // This should be done with cuMemAllocPitch, but that would propagate changes much deeper
-            // through memory management. So just manually pitch to alignment for now.
-            let pitch = width_bytes.next_multiple_of(self.mem_alignment);
-            let size = height * pitch;
-            total_size += size;
-            let mut stride = vec![1; rank];
-            if rank > 1 {
-                stride[rank - 2] = pitch / elem_size;
-            }
-            if rank > 2 {
-                for i in (0..rank - 2).rev() {
-                    stride[i] = stride[i + 1] * shape[i + 1];
-                }
-            }
-            strides.push(stride);
-            sizes.push(size);
-        }
-
-        let mem_handle = self.empty(total_size);
-        let handles = offset_handles(mem_handle, &sizes);
-
-        handles.into_iter().zip(strides).collect()
+        Ok(())
     }
 
     unsafe fn execute(
@@ -328,7 +311,13 @@ impl ComputeServer for CudaServer {
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
-                let data = future::block_on(self.read_async(vec![binding]));
+                let data = future::block_on(self.read_async(vec![CopyDescriptor::new(
+                    binding,
+                    &[3],
+                    &[1],
+                    4,
+                )]))
+                .unwrap();
                 let data = bytemuck::cast_slice(&data[0]);
                 assert!(
                     data.len() == 3,
@@ -363,20 +352,26 @@ impl ComputeServer for CudaServer {
             let mut handles = Vec::new();
             if bindings.metadata.static_len > 0 {
                 let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
-                handles.push(self.create(bytemuck::cast_slice(dyn_meta)));
+                handles.push(
+                    self.create_with_data(bytemuck::cast_slice(dyn_meta))
+                        .unwrap(),
+                );
             }
 
             (scalars, handles)
         } else {
             let mut handles = Vec::new();
             if !bindings.metadata.data.is_empty() {
-                handles.push(self.create(bytemuck::cast_slice(&bindings.metadata.data)))
+                handles.push(
+                    self.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
+                        .unwrap(),
+                )
             }
             handles.extend(
                 bindings
                     .scalars
                     .values()
-                    .map(|scalar| self.create(scalar.data())),
+                    .map(|scalar| self.create_with_data(scalar.data()).unwrap()),
             );
             (Vec::new(), handles)
         };
@@ -906,4 +901,29 @@ fn oob_to_cuda(fill: OobFill) -> CUtensorMapFloatOOBfill {
         OobFill::Zero => CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE,
         OobFill::NaN => CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA,
     }
+}
+
+pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
+    let rank = shape.len();
+    if strides[rank - 1] != 1 {
+        return false;
+    }
+    if rank <= 1 {
+        return true;
+    }
+
+    let mut sorted = strides.to_vec();
+    sorted.sort();
+    sorted.reverse();
+
+    if sorted != strides {
+        return false;
+    }
+
+    for i in 0..rank - 2 {
+        if strides[i] != shape[i + 1] * strides[i + 1] {
+            return false;
+        }
+    }
+    true
 }

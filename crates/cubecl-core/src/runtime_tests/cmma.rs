@@ -332,7 +332,7 @@ pub fn test_simple_1_lined<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(test_simple_1_expected(), actual);
@@ -387,7 +387,7 @@ pub fn test_simple_1_lined_offset<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(
@@ -430,7 +430,7 @@ pub fn test_simple_1<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(test_simple_1_expected(), actual);
@@ -496,7 +496,7 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 //         )
 //     };
 
-//     let actual = client.read_one(out.binding());
+//     let actual = client.read_one(out);
 //     let actual = f16::from_bytes(&actual);
 
 //     let expected: [f16; 64] = [0.0, 28.0, 56.0, 84.0, 112.0, 140.0, 168.0, 196.0, 0.0, 92.0, 184.0, 276.0, 368.0, 460.0, 552.0, 644.0, 0.0, 156.0, 312.0, 468.0, 624.0, 780.0, 936.0, 1092.0, 0.0, 220.0, 440.0, 660.0, 880.0, 1100.0, 1320.0, 1540.0, 0.0, 284.0, 568.0, 852.0, 1136.0, 1420.0, 1704.0, 1988.0, 0.0, 348.0, 696.0, 1044.0, 1392.0, 1740.0, 2088.0, 2436.0, 0.0, 412.0, 824.0, 1236.0, 1648.0, 2060.0, 2472.0, 2884.0, 0.0, 476.0, 952.0, 1428.0, 1904.0, 2380.0, 2856.0, 3332.0].map(|e| f16::from_f64(e));
@@ -534,7 +534,7 @@ pub fn test_cmma_cast_f16<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = f16::from_bytes(&actual);
     let expected: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
 
@@ -571,7 +571,7 @@ pub fn test_cmma_cast_bf16<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = bf16::from_bytes(&actual);
     let expected: Vec<bf16> = (0..256).map(|i| bf16::from_f32(i as f32)).collect();
 
@@ -612,7 +612,7 @@ pub fn test_simple_tf32<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = f32::from_bytes(&actual);
 
     let expected = [
@@ -732,7 +732,7 @@ pub fn test_cmma_strided<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = f32::from_bytes(&actual);
 
     let expected = [

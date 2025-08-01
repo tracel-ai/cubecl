@@ -9,7 +9,7 @@ use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_core::{
     Feature, MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
-    server::{Binding, BindingWithMeta, Bindings, Handle},
+    server::{Binding, CopyDescriptor, Bindings, Handle},
 };
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::offset_handles;
@@ -180,7 +180,7 @@ impl ComputeServer for WgpuServer {
         self.stream.mem_manage.memory_cleanup(true);
     }
 
-    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+    fn read_tensor(&mut self, bindings: Vec<CopyDescriptor>) -> DynFut<Vec<Vec<u8>>> {
         let expected_sizes = bindings
             .iter()
             .map(|it| it.shape.iter().product::<usize>() * it.elem_size)

@@ -2,7 +2,10 @@ use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
 };
-use crate::storage::{ComputeStorage, StorageHandle, StorageId};
+use crate::{
+    server::IoError,
+    storage::{ComputeStorage, StorageHandle, StorageId},
+};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
@@ -33,7 +36,11 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
+    fn alloc<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<SliceHandle, IoError> {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -324,7 +331,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    pub fn reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> SliceHandle {
+    pub fn reserve(
+        &mut self,
+        size: u64,
+        exclude: Option<&StorageExclude>,
+    ) -> Result<SliceHandle, IoError> {
         if let MemoryAllocationMode::Static = self.mode {
             return self.static_pool.alloc(&mut self.storage, size);
         }
@@ -338,10 +349,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .pools
             .iter_mut()
             .find(|p| p.max_alloc_size() >= size)
-            .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"));
+            .ok_or_else(|| IoError::BufferTooBig(size as usize))?;
 
         if let Some(slice) = pool.try_reserve(size, exclude) {
-            return slice;
+            return Ok(slice);
         }
 
         pool.alloc(&mut self.storage, size)
@@ -413,7 +424,7 @@ mod tests {
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::SubSlices,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10, None).unwrap();
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -643,7 +654,7 @@ mod tests {
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
         let handles: Vec<_> = sizes
             .iter()
-            .map(|&size| memory_management.reserve(size, None))
+            .map(|&size| memory_management.reserve(size, None).unwrap())
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate every other allocation
@@ -670,7 +681,7 @@ mod tests {
             }),
             MemoryConfiguration::ExclusivePages,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10, None).unwrap();
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);

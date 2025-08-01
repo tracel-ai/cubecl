@@ -4,7 +4,7 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_runtime::id::KernelId;
 use cubecl_runtime::kernel::KernelMetadata;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::server::{BindingWithMeta, Bindings, ProfileError, ProfilingToken};
+use cubecl_runtime::server::{CopyDescriptor, Bindings, ProfileError, ProfilingToken};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use std::sync::Arc;
 
@@ -71,7 +71,7 @@ impl ComputeServer for DummyServer {
         Box::pin(async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() })
     }
 
-    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+    fn read_tensor(&mut self, bindings: Vec<CopyDescriptor>) -> DynFut<Vec<Vec<u8>>> {
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
         self.read(bindings)
     }

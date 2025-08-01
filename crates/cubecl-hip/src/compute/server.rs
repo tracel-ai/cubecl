@@ -145,7 +145,7 @@ impl ComputeServer for HipServer {
         Box::pin(self.read_async(bindings))
     }
 
-    fn read_tensor(&mut self, bindings: Vec<server::BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
+    fn read_tensor(&mut self, bindings: Vec<server::CopyDescriptor>) -> DynFut<Vec<Vec<u8>>> {
         let bindings = bindings.into_iter().map(|it| it.binding).collect();
         Box::pin(self.read_async(bindings))
     }

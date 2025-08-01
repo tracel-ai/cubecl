@@ -1,6 +1,9 @@
 use core::fmt::Debug;
 
-use crate::{server::Binding, storage_id_type};
+use crate::{
+    server::{Binding, IoError},
+    storage_id_type,
+};
 
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
@@ -74,7 +77,7 @@ pub trait ComputeStorage: Send {
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
 
     /// Allocates `size` units of memory and returns a handle to it
-    fn alloc(&mut self, size: u64) -> StorageHandle;
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError>;
 
     /// Deallocates the memory pointed by the given storage id.
     ///

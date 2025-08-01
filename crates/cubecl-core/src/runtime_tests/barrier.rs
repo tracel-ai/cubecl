@@ -37,7 +37,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(2.0));
@@ -150,7 +150,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = F::from_bytes(&actual);
     let expected = [F::new(10.0), F::new(11.0), F::new(12.0), F::new(13.0)];
 
@@ -200,7 +200,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
         };
     }
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = F::from_bytes(&actual);
 
     let middle = num_data / 2;
