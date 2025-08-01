@@ -1,5 +1,5 @@
 use crate::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         global_memory::{TensorReader, Window},
@@ -18,7 +18,7 @@ use super::{AsyncLoadingJob, LoadingValidation};
 pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
@@ -30,51 +30,54 @@ impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
-        #[comptime] input_ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncPartialMaximizeSliceLengthJob {
-        let matrix_layout = config.matrix_layout(input_ident);
-        let line_size = config.stage_config().stage_line_size(input_ident);
+        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config
+            .stage_config()
+            .stage_line_size(comptime!(ident.into_stage()));
         let num_stages = 2;
 
-        let total_row = config.tiling_scheme().elements_in_stage_row(input_ident);
-        let total_col = config.tiling_scheme().elements_in_stage_col(input_ident);
+        let total_row = config.tiling_scheme().elements_in_stage_row(ident);
+        let total_col = config.tiling_scheme().elements_in_stage_col(ident);
 
         // If stage is parallel to slices, slices are as long as in full stage memory, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage memory
         let (num_slices, num_slices_stage_offset, slice_length, slice_stage_offset) = comptime! {
-            match (input_ident, matrix_layout) {
-                (InputIdent::Lhs, MatrixLayout::RowMajor) => {
+            match (ident, matrix_layout) {
+                (MatmulIdent::Lhs, MatrixLayout::RowMajor) => {
                     let slice_length = total_col / (num_stages * line_size);
 
                     (total_row, 0, slice_length, stage_index * slice_length)
                 },
-                (InputIdent::Lhs, MatrixLayout::ColMajor) => {
+                (MatmulIdent::Lhs, MatrixLayout::ColMajor) => {
                     let num_slices = total_col / num_stages;
 
                     (num_slices, stage_index * num_slices, total_row / line_size, 0)
                 },
-                (InputIdent::Rhs, MatrixLayout::RowMajor) => {
+                (MatmulIdent::Rhs, MatrixLayout::RowMajor) => {
                     let num_slices = total_row / num_stages;
 
                     (num_slices, stage_index * num_slices, total_col / line_size, 0)
                 },
-                (InputIdent::Rhs, MatrixLayout::ColMajor) => {
+                (MatmulIdent::Rhs, MatrixLayout::ColMajor) => {
                     let slice_length = total_row / (num_stages * line_size);
 
                     (total_col, 0, slice_length, stage_index * slice_length)
                 },
+                (MatmulIdent::Out, _) => unreachable!()
             }
         };
 
-        let unit_count = config.plane_dim() * config.num_loading_planes(input_ident);
+        let unit_count = config.plane_dim() * config.num_loading_planes(ident);
         let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         AsyncPartialMaximizeSliceLengthJob {
             num_tasks_per_unit,
             unit_count,
             num_slices_stage_offset,
-            input_ident,
+            ident,
             slice_stage_offset,
             slice_length,
             num_slices,
@@ -95,7 +98,7 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
     #[cube(comptime)]
     num_slices_stage_offset: u32,
     #[cube(comptime)]
-    input_ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     slice_stage_offset: u32,
     #[cube(comptime)]
@@ -121,13 +124,13 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
         let nth_slice = nth_slice_in_stage + this.num_slices_stage_offset;
 
         let window: Window<MP::EI> =
-            tensor_reader.load_window_in_stage::<G>(nth_slice, this.input_ident, config);
+            tensor_reader.load_window_in_stage::<G>(nth_slice, this.ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageConfig>(
+            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
                 stage,
                 nth_slice,
-                comptime!(this.input_ident.as_ident()),
-                config.stage_config(),
+                comptime!(this.ident.into_stage()),
+                config.stage_memory_config(),
             );
 
         let start = this.slice_stage_offset;

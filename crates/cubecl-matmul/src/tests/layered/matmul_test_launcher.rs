@@ -4,7 +4,7 @@ use cubecl_core::{CubeElement, server};
 use crate::components::MatrixLayout;
 use crate::components::batch::{BatchConfig, BatchMatmulFamily};
 use crate::components::global::args::TensorInputsLaunch;
-use crate::components::{AvailableLineSizes, Ident};
+use crate::components::{AvailableLineSizes, MatmulIdent};
 use crate::components::{MatmulProblem, MatmulSelection};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
@@ -41,9 +41,9 @@ pub fn test_matmul_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
@@ -135,11 +135,11 @@ pub fn test_matmul_algorithm<A, P, R>(
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
-    ident: Ident,
+    ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
     match ident {
-        Ident::Lhs => {
-            let mut tensor_shape = problem.shape(Ident::Lhs);
+        MatmulIdent::Lhs => {
+            let mut tensor_shape = problem.shape(MatmulIdent::Lhs);
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 1234);
 
@@ -151,7 +151,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let rank = tensor_shape.len();
 
-            if let Some(params) = P::quantization_params(Ident::Lhs) {
+            if let Some(params) = P::quantization_params(MatmulIdent::Lhs) {
                 let scaling = P::EG::as_bytes(&params.scaling);
                 let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
                 let zero = P::EG::from_int(0);
@@ -200,8 +200,8 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params,
             }
         }
-        Ident::Rhs => {
-            let mut tensor_shape = problem.shape(Ident::Rhs);
+        MatmulIdent::Rhs => {
+            let mut tensor_shape = problem.shape(MatmulIdent::Rhs);
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 5678);
 
@@ -213,7 +213,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let rank = tensor_shape.len();
 
-            if let Some(params) = P::quantization_params(Ident::Rhs) {
+            if let Some(params) = P::quantization_params(MatmulIdent::Rhs) {
                 let scaling = P::EG::as_bytes(&params.scaling);
                 let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
                 let zero = P::EG::from_int(0);
@@ -262,15 +262,15 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params,
             }
         }
-        Ident::Out => {
+        MatmulIdent::Out => {
             let zero = P::EG::from_int(0);
 
-            let data = vec![zero; tensor_size(problem, Ident::Out)];
+            let data = vec![zero; tensor_size(problem, MatmulIdent::Out)];
             let mut quant_params = None;
 
-            let tensor_shape = problem.shape(Ident::Out);
+            let tensor_shape = problem.shape(MatmulIdent::Out);
 
-            if let Some(params) = P::quantization_params(Ident::Out) {
+            if let Some(params) = P::quantization_params(MatmulIdent::Out) {
                 let scaling = P::EG::as_bytes(&params.scaling);
                 let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
                 let zero = P::EG::from_int(0);
@@ -322,30 +322,30 @@ pub(crate) fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols:
 }
 
 /// Returns the total number of elements for the identified tensor, inferred by the problem definition
-pub(crate) fn tensor_size(problem: &MatmulProblem, ident: Ident) -> usize {
+pub(crate) fn tensor_size(problem: &MatmulProblem, ident: MatmulIdent) -> usize {
     match ident {
-        Ident::Lhs => problem.num_batches() * problem.m * problem.k,
-        Ident::Rhs => problem.num_batches() * problem.k * problem.n,
-        Ident::Out => problem.num_batches() * problem.m * problem.n,
+        MatmulIdent::Lhs => problem.num_batches() * problem.m * problem.k,
+        MatmulIdent::Rhs => problem.num_batches() * problem.k * problem.n,
+        MatmulIdent::Out => problem.num_batches() * problem.m * problem.n,
     }
 }
 
 /// Returns the stride of the identified tensor, inferred by the problem definition
-pub(crate) fn strides(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
+pub(crate) fn strides(problem: &MatmulProblem, ident: MatmulIdent) -> Vec<usize> {
     let shape = problem.shape(ident);
     let rank = shape.len();
     let mut strides = Vec::with_capacity(rank);
 
     let (last_batch, x, y) = match ident {
-        Ident::Lhs => match problem.lhs_layout {
+        MatmulIdent::Lhs => match problem.lhs_layout {
             MatrixLayout::RowMajor => (problem.m * problem.k, problem.k, 1),
             MatrixLayout::ColMajor => (problem.m * problem.k, 1, problem.m),
         },
-        Ident::Rhs => match problem.rhs_layout {
+        MatmulIdent::Rhs => match problem.rhs_layout {
             MatrixLayout::RowMajor => (problem.k * problem.n, problem.n, 1),
             MatrixLayout::ColMajor => (problem.k * problem.n, 1, problem.k),
         },
-        Ident::Out => (problem.m * problem.n, problem.n, 1),
+        MatmulIdent::Out => (problem.m * problem.n, problem.n, 1),
     };
 
     strides.push(y);

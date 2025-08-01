@@ -3,18 +3,18 @@ use cubecl_core::prelude::CubeType;
 
 #[derive(Copy, Clone, CubeType)]
 /// Identifier for the stage in global double buffering
-pub enum StageIdent {
+pub enum StageBuffer {
     /// First buffer
     A,
     /// Second buffer
     B,
 }
 
-impl StageIdent {
+impl StageBuffer {
     pub fn to_index(&self) -> u32 {
         match self {
-            StageIdent::A => 0,
-            StageIdent::B => 1,
+            StageBuffer::A => 0,
+            StageBuffer::B => 1,
         }
     }
 }

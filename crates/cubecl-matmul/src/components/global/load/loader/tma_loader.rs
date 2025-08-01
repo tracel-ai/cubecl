@@ -4,11 +4,14 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
-use crate::components::stage::{FullStageToTileReader, RowMajorTilingOrder, TilingOrderEnum};
-use crate::components::{Ident, InputIdent, MatmulPrecision, MatrixLayout, global::Quantization};
+use crate::components::stage::{
+    FullStageToTileReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
+};
+use crate::components::{MatmulIdent, StageIdent};
+use crate::components::{MatmulPrecision, MatrixLayout, global::Quantization};
 use crate::components::{
     global::{GlobalConfig, global_memory::MappedTensorReader},
-    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, StageMemory, TilingOrder},
+    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 
 /// TMA uses contiguous tiling, but with a special tiling order
@@ -24,11 +27,11 @@ pub struct TmaTilingOrder;
 
 #[cube]
 impl TilingOrder for TmaTilingOrder {
-    fn to_row_col<C: StageConfig>(
+    fn to_row_col<C: StageMemoryConfig>(
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> (u32, u32) {
         match config.matrix_layout(ident) {
@@ -49,12 +52,12 @@ impl TilingOrder for TmaTilingOrder {
         }
     }
 
-    fn to_nth_tile<C: StageConfig>(
+    fn to_nth_tile<C: StageMemoryConfig>(
         row: u32,
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: StageIdent,
         #[comptime] config: C,
     ) -> u32 {
         match config.matrix_layout(ident) {
@@ -88,7 +91,7 @@ pub struct TmaLoader<MP: MatmulPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
     pub stage: StageMemory<MP::ES, TmaTiling>,
     #[cube(comptime)]
-    ident: InputIdent,
+    ident: MatmulIdent,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
@@ -102,7 +105,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
         y: u32,
         batch: u32,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: InputIdent,
+        #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
         comptime! {
@@ -111,10 +114,10 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
             }
         }
 
-        let stage = StageMemory::new_aligned::<G::StageConfig>(
-            comptime!(ident.as_ident()),
+        let stage = StageMemory::new_aligned::<G::StageMemoryConfig>(
+            comptime!(ident.into_stage()),
             128u32,
-            config.stage_config(),
+            config.stage_memory_config(),
         );
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
@@ -130,7 +133,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
     /// Fill the full stage memory
     pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: G) {
         if UNIT_POS == 0 {
-            let ident = comptime!(this.ident.as_ident());
+            let ident = comptime!(this.ident);
+            let stage_ident = comptime!(ident.into_stage());
             // The tensor map is encoded as the transposed shape, so we need to swap coordinates
             let (row, col) = match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
@@ -138,16 +142,16 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
             };
 
             let size_row = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
-                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
+                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(stage_ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(stage_ident),
             };
             let size_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_tile_col(ident),
-                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_tile_row(ident),
+                MatrixLayout::RowMajor => config.tiling_scheme().elements_in_tile_col(stage_ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().elements_in_tile_row(stage_ident),
             };
             let tile_count_col = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => config.tiling_scheme().tiles_in_stage_col(ident),
-                MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(ident),
+                MatrixLayout::RowMajor => config.tiling_scheme().tiles_in_stage_col(stage_ident),
+                MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(stage_ident),
             };
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
@@ -168,13 +172,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
 
     /// Give a reader to the loaded stage memory.
     pub fn reader(this: &Self) -> TmaReader<MP> {
-        TmaReader::<MP>::new(this.stage, this.ident)
+        TmaReader::<MP>::new(this.stage, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view
-            .update_view(k_offset, comptime!(this.ident.as_ident()));
+        this.tensor_view.update_view(k_offset, this.ident);
     }
 }
 

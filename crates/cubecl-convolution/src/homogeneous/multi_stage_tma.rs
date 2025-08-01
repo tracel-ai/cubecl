@@ -18,7 +18,7 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    AvailableLineSizes, EA, EI, EO, ES, InputIdent, InputRuntimeArg, MatmulLineSizes,
+    AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulIdent, MatmulLineSizes,
     MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg, TilingScheme,
     global::{
         AccumulatorLoader, GlobalConfig,
@@ -85,7 +85,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         // Arbitrarily using Lhs, they should be the same
-        let num_stages = config.num_stages(InputIdent::Lhs);
+        let num_stages = config.num_stages(MatmulIdent::Lhs);
         let stage_config = config.stage_config();
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
@@ -196,7 +196,7 @@ where
             x_offset,
             y_offset,
             runtime_args,
-            config.num_stages(InputIdent::Lhs),
+            config.num_stages(MatmulIdent::Lhs),
             config,
         )
     }
@@ -214,7 +214,7 @@ where
             y_offset,
             CubeOption::new_None(),
             runtime_args,
-            config.num_stages(InputIdent::Rhs),
+            config.num_stages(MatmulIdent::Rhs),
             config,
         )
     }

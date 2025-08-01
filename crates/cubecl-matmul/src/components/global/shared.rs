@@ -1,5 +1,5 @@
 use crate::components::{
-    InputIdent, MatmulLineSizes, TilingScheme,
+    MatmulIdent, MatmulLineSizes, TilingScheme,
     error::MatmulSetupError,
     global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
 };
@@ -38,13 +38,13 @@ impl MaxLoaderPlanes {
         MaxLoaderPlanes {
             lhs: LL::max_round_plane_count(
                 tiling_scheme,
-                InputIdent::Lhs,
+                MatmulIdent::Lhs,
                 line_sizes.lhs,
                 plane_dim,
             ),
             rhs: RL::max_round_plane_count(
                 tiling_scheme,
-                InputIdent::Rhs,
+                MatmulIdent::Rhs,
                 line_sizes.rhs,
                 plane_dim,
             ),

@@ -1,4 +1,4 @@
-use super::Ident;
+use super::StageIdent;
 use super::size::{GlobalPartitionSize, MatmulDim, PartitionSize, StageSize, TileSize};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -160,29 +160,29 @@ impl TilingScheme {
             })
     }
 
-    fn count_1d_ident_row<I: Into<Ident>>(
+    fn count_1d_ident_row(
         &self,
         child_level: TilingLevel,
         parent_level: TilingLevel,
-        ident: I,
+        ident: StageIdent,
     ) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.count_1d(child_level, parent_level, MatmulDim::M),
-            Ident::Rhs => self.count_1d(child_level, parent_level, MatmulDim::K),
-            Ident::Out => self.count_1d(child_level, parent_level, MatmulDim::M),
+        match ident {
+            StageIdent::Lhs => self.count_1d(child_level, parent_level, MatmulDim::M),
+            StageIdent::Rhs => self.count_1d(child_level, parent_level, MatmulDim::K),
+            StageIdent::Acc => self.count_1d(child_level, parent_level, MatmulDim::M),
         }
     }
 
-    fn count_1d_ident_col<I: Into<Ident>>(
+    fn count_1d_ident_col(
         &self,
         child_level: TilingLevel,
         parent_level: TilingLevel,
-        ident: I,
+        ident: StageIdent,
     ) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.count_1d(child_level, parent_level, MatmulDim::K),
-            Ident::Rhs => self.count_1d(child_level, parent_level, MatmulDim::N),
-            Ident::Out => self.count_1d(child_level, parent_level, MatmulDim::N),
+        match ident {
+            StageIdent::Lhs => self.count_1d(child_level, parent_level, MatmulDim::K),
+            StageIdent::Rhs => self.count_1d(child_level, parent_level, MatmulDim::N),
+            StageIdent::Acc => self.count_1d(child_level, parent_level, MatmulDim::N),
         }
     }
 
@@ -199,16 +199,16 @@ impl TilingScheme {
             })
     }
 
-    fn count_2d_ident<I: Into<Ident>>(
+    fn count_2d_ident(
         &self,
         child_level: TilingLevel,
         parent_level: TilingLevel,
-        ident: I,
+        ident: StageIdent,
     ) -> u32 {
-        match ident.into() {
-            Ident::Lhs => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::K),
-            Ident::Rhs => self.count_2d(child_level, parent_level, MatmulDim::K, MatmulDim::N),
-            Ident::Out => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::N),
+        match ident {
+            StageIdent::Lhs => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::K),
+            StageIdent::Rhs => self.count_2d(child_level, parent_level, MatmulDim::K, MatmulDim::N),
+            StageIdent::Acc => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::N),
         }
     }
 }
@@ -223,16 +223,16 @@ macro_rules! count_1d_method {
 
 macro_rules! count_1d_ident_row_method {
     ($name:ident, $child:ident, $parent:ident) => {
-        pub fn $name<I: Into<Ident>>(&self, ident: I) -> u32 {
-            self.count_1d_ident_row(TilingLevel::$child, TilingLevel::$parent, ident)
+        pub fn $name<I: Into<StageIdent>>(&self, ident: I) -> u32 {
+            self.count_1d_ident_row(TilingLevel::$child, TilingLevel::$parent, ident.into())
         }
     };
 }
 
 macro_rules! count_1d_ident_col_method {
     ($name:ident, $child:ident, $parent:ident) => {
-        pub fn $name<I: Into<Ident>>(&self, ident: I) -> u32 {
-            self.count_1d_ident_col(TilingLevel::$child, TilingLevel::$parent, ident)
+        pub fn $name<I: Into<StageIdent>>(&self, ident: I) -> u32 {
+            self.count_1d_ident_col(TilingLevel::$child, TilingLevel::$parent, ident.into())
         }
     };
 }
@@ -252,8 +252,8 @@ macro_rules! count_2d_method {
 
 macro_rules! count_2d_ident_method {
     ($name:ident, $child:ident, $parent:ident) => {
-        pub fn $name<I: Into<Ident>>(&self, ident: I) -> u32 {
-            self.count_2d_ident(TilingLevel::$child, TilingLevel::$parent, ident)
+        pub fn $name<I: Into<StageIdent>>(&self, ident: I) -> u32 {
+            self.count_2d_ident(TilingLevel::$child, TilingLevel::$parent, ident.into())
         }
     };
 }

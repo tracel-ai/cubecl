@@ -1,5 +1,5 @@
 use cubecl_matmul::components::{
-    AvailableLineSizes, InputIdent, LoadingPrecomputeStrategy, MatmulLineSizes, MatmulPrecision,
+    AvailableLineSizes, LoadingPrecomputeStrategy, MatmulIdent, MatmulLineSizes, MatmulPrecision,
     MatmulSelection, MatmulSetupError, MultiRowStrategy,
     global::{LoadSpecializationConfig, args::MatmulArgs, load::LoaderMode},
     stage::{NumStages, PartitionBuffering, StageMatmulFamily},
@@ -75,7 +75,7 @@ pub trait Algorithm {
     fn into_tensor_handle<R: Runtime, E: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
-        ident: InputIdent,
+        ident: MatmulIdent,
     ) -> TensorHandle<R, E>;
 
     fn selection<R: Runtime>(

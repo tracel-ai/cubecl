@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::{InputIdent, MatmulPrecision};
+use crate::components::{MatmulIdent, MatmulPrecision};
 
 /// Store the quantization meta-parameters.
 /// For now, we only support symmetric quantization,
@@ -14,10 +14,11 @@ pub struct Quantization<MP: MatmulPrecision> {
 
 #[cube]
 impl<MP: MatmulPrecision> Quantization<MP> {
-    pub fn dequantize(&self, line: Line<MP::EI>, #[comptime] ident: InputIdent) -> Line<MP::ES> {
+    pub fn dequantize(&self, line: Line<MP::EI>, #[comptime] ident: MatmulIdent) -> Line<MP::ES> {
         match ident {
-            InputIdent::Lhs => Line::<MP::ES>::new(self.scaling_lhs) * Line::cast_from(line),
-            InputIdent::Rhs => Line::<MP::ES>::new(self.scaling_rhs) * Line::cast_from(line),
+            MatmulIdent::Lhs => Line::<MP::ES>::new(self.scaling_lhs) * Line::cast_from(line),
+            MatmulIdent::Rhs => Line::<MP::ES>::new(self.scaling_rhs) * Line::cast_from(line),
+            MatmulIdent::Out => comptime!(unreachable!()),
         }
     }
 }

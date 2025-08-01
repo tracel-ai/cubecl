@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    Ident, InputIdent, LoadingPrecomputeStrategy, MatmulPrecision, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
     error::MatmulSetupError,
     global::{
         GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
@@ -27,36 +27,41 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
     type StageConfig = S;
+    type StageMemoryConfig = S::StageMemoryConfig;
+
+    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
+        self.stage_config.stage_memory_config()
+    }
 
     fn stage_config(&self) -> Self::StageConfig {
         self.stage_config
     }
 
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
-        self.stage_config.global_line_size(ident)
+    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+        self.stage_config.global_line_size(ident.into_stage())
     }
 
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
-        self.stage_config.matrix_layout(ident)
+    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+        self.stage_config.matrix_layout(ident.into_stage())
     }
 
     fn plane_dim(&self) -> u32 {
         self.stage_config.plane_dim()
     }
 
-    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
-        match ident.into() {
-            Ident::Lhs => self.check_m_bounds,
-            Ident::Rhs => self.check_k_bounds,
-            Ident::Out => self.check_m_bounds,
+    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+        match ident {
+            MatmulIdent::Lhs => self.check_m_bounds,
+            MatmulIdent::Rhs => self.check_k_bounds,
+            MatmulIdent::Out => self.check_m_bounds,
         }
     }
 
-    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
-        match ident.into() {
-            Ident::Lhs => self.check_k_bounds,
-            Ident::Rhs => self.check_n_bounds,
-            Ident::Out => self.check_n_bounds,
+    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+        match ident {
+            MatmulIdent::Lhs => self.check_k_bounds,
+            MatmulIdent::Rhs => self.check_n_bounds,
+            MatmulIdent::Out => self.check_n_bounds,
         }
     }
 
@@ -68,10 +73,11 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
         self.precompute_job.into()
     }
 
-    fn num_stages(&self, ident: InputIdent) -> u32 {
+    fn num_stages(&self, ident: MatmulIdent) -> u32 {
         match ident {
-            InputIdent::Lhs => 1,
-            InputIdent::Rhs => 2,
+            MatmulIdent::Lhs => 1,
+            MatmulIdent::Rhs => 2,
+            MatmulIdent::Out => unreachable!(),
         }
     }
 
@@ -79,10 +85,11 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
         self.loader_mode
     }
 
-    fn event_loading_mode(&self, ident: InputIdent) -> EventLoadingMode {
+    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
         match ident {
-            InputIdent::Lhs => EventLoadingMode::Ordered,
-            InputIdent::Rhs => EventLoadingMode::Relaxed,
+            MatmulIdent::Lhs => EventLoadingMode::Ordered,
+            MatmulIdent::Rhs => EventLoadingMode::Relaxed,
+            MatmulIdent::Out => unreachable!(),
         }
     }
 
@@ -90,10 +97,10 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
         self.stage_config.plane_role_config()
     }
 
-    fn num_loading_planes<I: Into<Ident>>(&self, ident: I) -> u32 {
+    fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
         self.specialized_loading_sides.num_loading_planes(
             self.plane_role_config().has_specialization(),
-            ident.into().as_input_ident(),
+            ident,
             self.plane_role_config().plane_roles,
         )
     }
@@ -143,8 +150,8 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     fn validate<LL: LoadingValidation, RL: LoadingValidation>(
         self,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check::<Self>(&self, Ident::Lhs)?;
-        RL::check::<Self>(&self, Ident::Rhs)?;
+        LL::check::<Self>(&self, MatmulIdent::Lhs)?;
+        RL::check::<Self>(&self, MatmulIdent::Rhs)?;
         shared_global_config_validation(self)?;
         if self.tiling_scheme().stage_partitions_in_stage_n() > 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(

@@ -4,11 +4,11 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
-use crate::components::stage::NumStages;
+use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection};
+use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection, StageIdent};
 use crate::components::{
-    Ident, InputIdent, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
+    MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
@@ -161,27 +161,28 @@ pub trait StageConfig:
 {
     /// Underlying Tile matmul config
     type TileConfig: TileConfig;
+    type StageMemoryConfig: StageMemoryConfig;
 
     /// Converts itself to the underlying Tile Matmul config
     fn tile_config(self) -> Self::TileConfig;
 
-    /// Returns the line size for the given ident
-    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    /// Converts itself to the underlying Stage Memory config
+    fn stage_memory_config(self) -> Self::StageMemoryConfig;
 
     /// Returns the line size for the given ident
-    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
+    fn stage_line_size(&self, ident: StageIdent) -> u32;
+
+    /// Returns the line size for the given ident
+    fn global_line_size(&self, ident: StageIdent) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
 
     /// Returns how many units are in a plane
     fn plane_dim(&self) -> u32;
 
     /// Returns whether we must perform partition buffering
     fn partition_buffering(&self) -> PartitionBuffering;
-
-    /// Returns the number of stages for the given input
-    fn num_stages(&self, ident: InputIdent) -> u32;
 
     /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme;
@@ -213,7 +214,7 @@ pub enum PartitionBuffering {
 #[cube]
 /// Read the tile at (row, col) from stage memory
 pub trait StageToTileReader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn read_tile<S: StageConfig>(
+    fn read_tile<S: StageMemoryConfig>(
         this: &Self,
         row: u32,
         col: u32,

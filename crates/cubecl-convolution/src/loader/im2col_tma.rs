@@ -1,6 +1,7 @@
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_core::{intrinsic, prelude::*};
 
+use cubecl_matmul::components::StageIdent;
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 use std::marker::PhantomData;
 
@@ -10,7 +11,7 @@ use crate::{
     reader::tma::Im2colTmaReader,
 };
 use cubecl_matmul::components::{
-    Ident, InputIdent, MatmulPrecision,
+    MatmulPrecision,
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory},
 };
 
@@ -41,10 +42,10 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::StageConfig>(
-                Ident::Lhs,
+            stages.push(StageMemory::new_aligned::<G::StageMemoryConfig>(
+                StageIdent::Lhs,
                 128u32,
-                config.stage_config(),
+                config.stage_memory_config(),
             ))
         }
 
@@ -156,7 +157,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
     }
 
     pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaIm2colReader<MP> {
-        TmaIm2colReader::<MP>::new(*this.stages.index(stage_idx), InputIdent::Lhs)
+        TmaIm2colReader::<MP>::new(*this.stages.index(stage_idx), StageIdent::Lhs)
     }
 }
 
