@@ -26,15 +26,12 @@ impl KernelFn {
             let debug_source = frontend_type("debug_source_expand");
             let cube_debug = frontend_type("CubeDebug");
             let src_file = self.src_file.as_ref().map(|file| file.value());
-            #[cfg(nightly)]
-            let src_file = {
-                src_file.or_else(|| {
-                    let span: proc_macro::Span = self.span.unwrap();
-                    let source_path = span.source().local_file();
-                    let source_file = source_path.as_ref().and_then(|path| path.file_name());
-                    source_file.map(|file| file.to_string_lossy().into())
-                })
-            };
+            let src_file = src_file.or_else(|| {
+                let span: proc_macro::Span = self.span.unwrap();
+                let source_path = span.local_file();
+                let source_file = source_path.as_ref().and_then(|path| path.file_name());
+                source_file.map(|file| file.to_string_lossy().into())
+            });
             let source_text = match src_file {
                 Some(file) => quote![include_str!(#file)],
                 None => quote![""],
