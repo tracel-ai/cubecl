@@ -12,7 +12,7 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
         Allocation, AllocationDescriptor, AllocationType, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, IoError, ProfileError, ProfilingToken,
+        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ProfilingToken,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -60,7 +60,7 @@ impl AllocationDescriptorOwned {
 }
 
 struct CopyDescriptorOwned {
-    binding: Binding,
+    handle: Handle,
     shape: Vec<usize>,
     strides: Vec<usize>,
     elem_size: usize,
@@ -69,7 +69,7 @@ struct CopyDescriptorOwned {
 impl From<CopyDescriptor<'_>> for CopyDescriptorOwned {
     fn from(value: CopyDescriptor<'_>) -> Self {
         CopyDescriptorOwned {
-            binding: value.binding,
+            handle: value.handle,
             shape: value.shape.to_vec(),
             strides: value.strides.to_vec(),
             elem_size: value.elem_size,
@@ -80,7 +80,7 @@ impl From<CopyDescriptor<'_>> for CopyDescriptorOwned {
 impl CopyDescriptorOwned {
     fn as_ref(&self) -> CopyDescriptor<'_> {
         CopyDescriptor::new(
-            self.binding.clone(),
+            self.handle.clone(),
             &self.shape,
             &self.strides,
             self.elem_size,

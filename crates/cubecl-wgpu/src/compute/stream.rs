@@ -3,7 +3,7 @@ use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Binding, Bindings, Handle, ProfileError, ProfilingToken},
+    server::{Bindings, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
@@ -25,7 +25,7 @@ pub struct WgpuStream {
     timings: Timings,
     tasks_count: usize,
     tasks_max: usize,
-    device: wgpu::Device,
+    pub device: wgpu::Device,
     queue: wgpu::Queue,
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
@@ -93,15 +93,17 @@ impl WgpuStream {
     ) {
         let dispatch_resource = match dispatch.clone() {
             CubeCount::Static(_, _, _) => None,
-            CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
+            CubeCount::Dynamic(handle) => Some(self.mem_manage.get_resource(handle.binding())),
         };
 
-        let info = (!bindings.metadata.data.is_empty())
-            .then(|| self.create(bytemuck::cast_slice(&bindings.metadata.data)));
+        let info = (!bindings.metadata.data.is_empty()).then(|| {
+            self.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
+                .unwrap()
+        });
         let scalars = bindings
             .scalars
             .values()
-            .map(|s| self.create(s.data()))
+            .map(|s| self.create_with_data(s.data()).unwrap())
             .collect::<Vec<_>>();
 
         // Store all the resources we'll be using. This could be eliminated if
@@ -178,12 +180,17 @@ impl WgpuStream {
         self.flush_if_needed();
     }
 
-    pub fn read_buffers(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
+    pub fn read_buffers(
+        &mut self,
+        descriptors: Vec<CopyDescriptor>,
+    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
         self.compute_pass = None;
-        let mut staging_buffers = Vec::with_capacity(bindings.len());
-        let mut callbacks = Vec::with_capacity(bindings.len());
+        let mut staging_buffers = Vec::with_capacity(descriptors.len());
+        let mut callbacks = Vec::with_capacity(descriptors.len());
 
-        for binding in bindings {
+        for descriptor in descriptors {
+            let binding = descriptor.handle.binding();
+            let size = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -202,7 +209,7 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
-            staging_buffers.push((staging_buffer, resource.size()));
+            staging_buffers.push((staging_buffer, size));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
@@ -240,7 +247,7 @@ impl WgpuStream {
                     .iter()
                     .map(|(staging_buffer, size)| {
                         let data = staging_buffer.slice(..).get_mapped_range();
-                        bytemuck::cast_slice(&data[0..(*size as usize)]).to_vec()
+                        bytemuck::cast_slice(&data[0..*size]).to_vec()
                     })
                     .collect()
             };
@@ -248,7 +255,16 @@ impl WgpuStream {
             for (staging_buffer, _size) in staging_buffers {
                 staging_buffer.unmap();
             }
-            result
+            Ok(result)
+        })
+    }
+
+    pub fn read_binding(&mut self, handle: Handle) -> DynFut<Result<Vec<u8>, IoError>> {
+        let shape = [handle.size() as usize];
+        let data = self.read_buffers(vec![CopyDescriptor::new(handle, &shape, &[1], 1)]);
+        Box::pin(async move {
+            let data = data.await?.remove(0);
+            Ok(data)
         })
     }
 
@@ -322,10 +338,10 @@ impl WgpuStream {
                 //
                 // For now, instead do a dummy readback. This *seems* to wait for the entire
                 // queue to be done.
-                let fut = self.read_buffers(vec![buf.clone().binding()]);
+                let fut = self.read_binding(buf.clone());
                 core::mem::swap(&mut buffer, &mut self.sync_buffer);
                 Box::pin(async move {
-                    fut.await;
+                    fut.await.expect("Failed to read sync buffer");
                 })
             }
             None => {
@@ -347,25 +363,14 @@ impl WgpuStream {
         }
     }
 
-    pub fn empty(&mut self, size: u64) -> Handle {
+    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         self.mem_manage.reserve(size, false)
     }
 
-    pub fn create(&mut self, data: &[u8]) -> Handle {
-        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT;
-        let aligned_len = (data.len() as u64).div_ceil(align) * align;
-
-        // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
-        // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
-        // a buffer we copy to MUST not have any outstanding compute work associated with it.
-        // Any handles with compute work are kept in pending operations,
-        // and the allocation here won't try to use that buffer.
-        let alloc = self.mem_manage.reserve(aligned_len, true);
-        self.copy_to_handle(alloc.clone(), data);
-
-        alloc
+    fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        let buffer = self.empty(data.len() as u64)?;
+        self.copy_to_handle(buffer.clone(), data);
+        Ok(buffer)
     }
 
     pub fn copy_to_handle(&mut self, handle: Handle, data: &[u8]) {

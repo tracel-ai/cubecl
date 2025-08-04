@@ -1,11 +1,14 @@
 use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::kernel::KernelMetadata;
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::server::{CopyDescriptor, Bindings, ProfileError, ProfilingToken};
+use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cubecl_runtime::{id::KernelId, server::IoError};
+use cubecl_runtime::{
+    kernel::KernelMetadata,
+    server::{Allocation, AllocationDescriptor},
+};
+use cubecl_runtime::{logging::ServerLogger, memory_management::MemoryHandle};
 use std::sync::Arc;
 
 use super::DummyKernel;
@@ -59,21 +62,52 @@ impl ComputeServer for DummyServer {
     type Info = ();
     type Feature = ();
 
-    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
-        let bytes: Vec<_> = bindings
+    fn create(
+        &mut self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        descriptors
+            .into_iter()
+            .map(|descriptor| {
+                let rank = descriptor.shape.len();
+                let mut strides = vec![1; rank];
+                for i in (0..rank - 1).rev() {
+                    strides[i] = strides[i + 1] * descriptor.shape[i + 1];
+                }
+                let size: usize = descriptor.shape.iter().product();
+                let handle = Handle::new(
+                    self.memory_management.reserve(size as u64, None)?,
+                    None,
+                    None,
+                    size as u64,
+                );
+                Ok(Allocation::new(handle, strides))
+            })
+            .collect()
+    }
+
+    fn read(&mut self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+        let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
-                let bytes_handle = self.memory_management.get(b.memory).unwrap();
+                let bytes_handle = self
+                    .memory_management
+                    .get(b.handle.memory.binding())
+                    .unwrap();
                 self.memory_management.storage().get(&bytes_handle)
             })
             .collect();
 
-        Box::pin(async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() })
+        Box::pin(async move { Ok(bytes.into_iter().map(|b| b.read().to_vec()).collect()) })
     }
 
-    fn read_tensor(&mut self, bindings: Vec<CopyDescriptor>) -> DynFut<Vec<Vec<u8>>> {
-        let bindings = bindings.into_iter().map(|it| it.binding).collect();
-        self.read(bindings)
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+        for (descriptor, data) in descriptors {
+            let resource = self.get_resource(descriptor.handle.binding());
+            let bytes = resource.resource().write();
+            bytes[..data.len()].copy_from_slice(data);
+        }
+        Ok(())
     }
 
     fn sync(&mut self) -> DynFut<()> {
@@ -83,69 +117,6 @@ impl ComputeServer for DummyServer {
     fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
         let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
-    }
-
-    fn create(&mut self, data: &[u8]) -> Handle {
-        let handle = self.empty(data.len());
-        let resource = self.get_resource(handle.clone().binding());
-        let bytes = resource.resource().write();
-        for (i, val) in data.iter().enumerate() {
-            bytes[i] = *val;
-        }
-
-        handle
-    }
-
-    fn create_tensors(
-        &mut self,
-        data: Vec<&[u8]>,
-        shape: Vec<&[usize]>,
-        _elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        data.into_iter()
-            .zip(shape)
-            .map(|(data, shape)| {
-                let rank = shape.len();
-                let mut strides = vec![1; rank];
-                for i in (0..rank - 1).rev() {
-                    strides[i] = strides[i + 1] * shape[i + 1];
-                }
-                let handle = self.create(data);
-
-                (handle, strides)
-            })
-            .collect()
-    }
-
-    fn empty(&mut self, size: usize) -> Handle {
-        Handle::new(
-            self.memory_management.reserve(size as u64, None),
-            None,
-            None,
-            size as u64,
-        )
-    }
-
-    fn empty_tensors(
-        &mut self,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        shape
-            .into_iter()
-            .zip(elem_size)
-            .map(|(shape, elem_size)| {
-                let rank = shape.len();
-                let mut strides = vec![1; rank];
-                for i in (0..rank - 1).rev() {
-                    strides[i] = strides[i + 1] * shape[i + 1];
-                }
-                let size = (shape.iter().product::<usize>() * elem_size) as u64;
-                let handle =
-                    Handle::new(self.memory_management.reserve(size, None), None, None, size);
-                (handle, strides)
-            })
-            .collect()
     }
 
     unsafe fn execute(
@@ -161,13 +132,15 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|b| self.get_resource(b))
             .collect();
-        let metadata = self.create(bytemuck::cast_slice(&bindings.metadata.data));
+        let metadata = self
+            .create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
+            .unwrap();
         resources.push(self.get_resource(metadata.binding()));
 
         let scalars = bindings
             .scalars
             .into_values()
-            .map(|s| self.create(s.data()))
+            .map(|s| self.create_with_data(s.data()).unwrap())
             .collect::<Vec<_>>();
         resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
 

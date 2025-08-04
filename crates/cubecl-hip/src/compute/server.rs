@@ -1,4 +1,6 @@
-use cubecl_core::server::{ProfileError, ProfilingToken};
+use cubecl_core::server::{
+    Allocation, AllocationType, CopyDescriptor, IoError, ProfileError, ProfilingToken,
+};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 
@@ -12,7 +14,10 @@ use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
 use cubecl_core::{Feature, server::Bindings};
-use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_hip_sys::{
+    HIP_SUCCESS, get_hip_include_path, hipMemcpyKind_hipMemcpyDeviceToHost,
+    hipMemcpyKind_hipMemcpyHostToDevice, hiprtcResult_HIPRTC_SUCCESS,
+};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
@@ -89,30 +94,46 @@ impl HipServer {
 
     fn read_async(
         &mut self,
-        bindings: Vec<server::Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
-        let ctx = self.get_context();
-        let mut result = Vec::with_capacity(bindings.len());
+        descriptors: Vec<server::CopyDescriptor>,
+    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
+        fn inner(
+            server: &mut HipServer,
+            descriptors: Vec<CopyDescriptor<'_>>,
+        ) -> Result<Vec<Vec<u8>>, IoError> {
+            let mut result = Vec::with_capacity(descriptors.len());
 
-        for binding in bindings {
-            let resource = ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource");
+            for descriptor in descriptors {
+                let CopyDescriptor {
+                    handle,
+                    shape,
+                    strides,
+                    elem_size,
+                } = descriptor;
+                let binding = handle.binding();
 
-            let mut data = uninit_vec(resource.size as usize);
-            unsafe {
-                let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                    data.as_mut_ptr() as *mut _,
-                    resource.ptr,
-                    resource.size as usize,
-                    ctx.stream,
-                );
-                assert_eq!(status, HIP_SUCCESS, "Should copy data from device to host");
-            };
-            result.push(data);
+                if !valid_strides(shape, strides) {
+                    return Err(IoError::UnsupportedStrides);
+                }
+
+                let mut data = vec![0; shape.iter().product::<usize>() * elem_size];
+
+                let rank = shape.len();
+                if rank <= 1 {
+                    server.copy_from_binding(binding, &mut data);
+                } else {
+                    let stride = strides[rank - 1];
+
+                    server.copy_from_binding_2d(binding, &mut data, shape, stride, elem_size);
+                }
+
+                result.push(data);
+            }
+
+            Ok(result)
         }
 
+        let result = inner(self, descriptors);
+        let ctx = self.get_context();
         let fence = ctx.fence();
 
         async move {
@@ -141,13 +162,90 @@ impl ComputeServer for HipServer {
     type Feature = Feature;
     type Info = ();
 
-    fn read(&mut self, bindings: Vec<server::Binding>) -> DynFut<Vec<Vec<u8>>> {
-        Box::pin(self.read_async(bindings))
+    fn create(
+        &mut self,
+        descriptors: Vec<server::AllocationDescriptor<'_>>,
+    ) -> Result<Vec<server::Allocation>, IoError> {
+        let mut total_size = 0;
+        let mut strides = Vec::new();
+        let mut sizes = Vec::new();
+
+        for descriptor in descriptors {
+            let pitch_align = match descriptor.type_ {
+                AllocationType::Contiguous => 1,
+                AllocationType::Optimized => self.mem_alignment,
+            };
+
+            let rank = descriptor.shape.len();
+            let width = *descriptor.shape.last().unwrap_or(&1);
+            let height: usize = descriptor.shape.iter().rev().skip(1).product();
+            let height = height.max(1);
+            let width_bytes = width * descriptor.elem_size;
+            let pitch = width_bytes.next_multiple_of(pitch_align);
+            let size = height * pitch;
+            total_size += size.next_multiple_of(self.mem_alignment);
+
+            let mut stride = vec![1; rank];
+            if rank > 1 {
+                stride[rank - 2] = pitch / descriptor.elem_size;
+            }
+            if rank > 2 {
+                for i in (0..rank - 2).rev() {
+                    stride[i] = stride[i + 1] * descriptor.shape[i + 1];
+                }
+            }
+
+            strides.push(stride);
+            sizes.push(size);
+        }
+
+        let ctx = self.get_context();
+        let handle = ctx.memory_management.reserve(total_size as u64, None)?;
+        let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
+        let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
+
+        Ok(handles
+            .into_iter()
+            .zip(strides)
+            .map(|(handle, strides)| Allocation::new(handle, strides))
+            .collect())
     }
 
-    fn read_tensor(&mut self, bindings: Vec<server::CopyDescriptor>) -> DynFut<Vec<Vec<u8>>> {
-        let bindings = bindings.into_iter().map(|it| it.binding).collect();
-        Box::pin(self.read_async(bindings))
+    fn read(
+        &mut self,
+        descriptors: Vec<server::CopyDescriptor>,
+    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+        Box::pin(self.read_async(descriptors))
+    }
+
+    fn write(
+        &mut self,
+        descriptors: Vec<(server::CopyDescriptor<'_>, &[u8])>,
+    ) -> Result<(), IoError> {
+        for (descriptor, data) in descriptors {
+            let CopyDescriptor {
+                handle,
+                shape,
+                strides,
+                elem_size,
+            } = descriptor;
+            let binding = handle.binding();
+            let rank = shape.len();
+
+            if !valid_strides(shape, strides) {
+                return Err(IoError::UnsupportedStrides);
+            }
+
+            if rank > 1 {
+                let stride = strides[rank - 2];
+
+                self.copy_to_binding_2d(binding, data, shape, stride, elem_size);
+            } else {
+                self.copy_to_binding(binding, data);
+            }
+        }
+
+        Ok(())
     }
 
     fn memory_usage(&self) -> MemoryUsage {
@@ -157,59 +255,6 @@ impl ComputeServer for HipServer {
     fn memory_cleanup(&mut self) {
         let ctx = self.get_context();
         ctx.memory_management.cleanup(true);
-    }
-
-    fn create(&mut self, data: &[u8]) -> server::Handle {
-        let handle = self.empty(data.len());
-
-        let binding = handle.clone().binding();
-        self.copy_to_binding(binding, data);
-        handle
-    }
-
-    fn create_tensors(
-        &mut self,
-        data: Vec<&[u8]>,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
-    ) -> Vec<(server::Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
-        for i in 0..data.len() {
-            let data = data[i];
-            let (handle, _) = &handles_strides[i];
-            let binding = handle.clone().binding();
-            self.copy_to_binding(binding, data);
-        }
-        handles_strides
-    }
-
-    fn empty(&mut self, size: usize) -> server::Handle {
-        let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
-        server::Handle::new(handle, None, None, size as u64)
-    }
-
-    fn empty_tensors(
-        &mut self,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
-    ) -> Vec<(server::Handle, Vec<usize>)> {
-        let mut total_size = 0;
-        let mut strides = Vec::new();
-        let mut sizes = Vec::new();
-
-        for (shape, elem_size) in shapes.into_iter().zip(elem_sizes) {
-            let size =
-                (shape.iter().product::<usize>() * elem_size).next_multiple_of(self.mem_alignment);
-            strides.push(contiguous_strides(shape));
-            sizes.push(size);
-            total_size += size;
-        }
-
-        let mem_handle = self.empty(total_size);
-        let handles = offset_handles(mem_handle, &sizes);
-
-        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(
@@ -228,8 +273,8 @@ impl ComputeServer for HipServer {
             // TODO: HIP doesn't have an exact equivalen of dynamic dispatch. Instead, kernels are free to launch other kernels.
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
-            CubeCount::Dynamic(binding) => {
-                let data = self.read_sync(binding);
+            CubeCount::Dynamic(handle) => {
+                let data = self.read_sync(handle.binding());
                 let data = bytemuck::cast_slice(&data);
                 assert!(
                     data.len() == 3,
@@ -247,8 +292,13 @@ impl ComputeServer for HipServer {
         } = bindings;
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
-        let info = self.create(bytemuck::cast_slice(&metadata.data));
-        let scalars: Vec<_> = scalars.values().map(|s| self.create(s.data())).collect();
+        let info = self
+            .create_with_data(bytemuck::cast_slice(&metadata.data))
+            .unwrap();
+        let scalars: Vec<_> = scalars
+            .values()
+            .map(|s| self.create_with_data(s.data()).unwrap())
+            .collect();
 
         let ctx = self.get_context();
 
@@ -603,6 +653,92 @@ impl HipServer {
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     }
+
+    fn copy_from_binding(&mut self, binding: server::Binding, data: &mut [u8]) {
+        let ctx = self.get_context();
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
+
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
+                data.as_mut_ptr() as *mut _,
+                resource.ptr,
+                data.len(),
+                ctx.stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
+    }
+
+    fn copy_to_binding_2d(
+        &mut self,
+        binding: server::Binding,
+        data: &[u8],
+        shape: &[usize],
+        stride: usize,
+        elem_size: usize,
+    ) {
+        let ctx = self.get_context();
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
+
+        let width = *shape.last().unwrap_or(&1);
+        let height: usize = shape.iter().rev().skip(1).product();
+        let width_bytes = width * elem_size;
+        let stride_bytes = stride * elem_size;
+
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpy2DAsync(
+                resource.ptr,
+                stride_bytes,
+                data as *const _ as *mut _,
+                width_bytes,
+                width_bytes,
+                height.max(1),
+                hipMemcpyKind_hipMemcpyHostToDevice,
+                ctx.stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
+    }
+
+    fn copy_from_binding_2d(
+        &mut self,
+        binding: server::Binding,
+        data: &mut [u8],
+        shape: &[usize],
+        stride: usize,
+        elem_size: usize,
+    ) {
+        let ctx = self.get_context();
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
+
+        let width = *shape.last().unwrap_or(&1);
+        let height: usize = shape.iter().rev().skip(1).product();
+        let width_bytes = width * elem_size;
+        let stride_bytes = stride * elem_size;
+
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpy2DAsync(
+                data.as_mut_ptr() as *mut _,
+                width_bytes,
+                resource.ptr,
+                stride_bytes,
+                width_bytes,
+                height.max(1),
+                hipMemcpyKind_hipMemcpyDeviceToHost,
+                ctx.stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
+    }
 }
 
 pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
@@ -627,4 +763,29 @@ impl From<LaunchError> for ProfileError {
             LaunchError::Unknown(msg) => ProfileError::Unknown(msg),
         }
     }
+}
+
+pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
+    let rank = shape.len();
+    if strides[rank - 1] != 1 {
+        return false;
+    }
+    if rank <= 1 {
+        return true;
+    }
+
+    let mut sorted = strides.to_vec();
+    sorted.sort();
+    sorted.reverse();
+
+    if sorted != strides {
+        return false;
+    }
+
+    for i in 0..rank - 2 {
+        if strides[i] != shape[i + 1] * strides[i + 1] {
+            return false;
+        }
+    }
+    true
 }

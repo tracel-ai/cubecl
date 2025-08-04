@@ -29,7 +29,7 @@ macro_rules! testgen_random_interval {
                     unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
                 );
 
-                let actual = client.read_one(output.binding());
+                let actual = client.read_one(output);
                 let actual = f32::from_bytes(&actual);
 
                 // Previous implementation would map to `[0, 1]` but the interval should be half open `[0, 1)`
@@ -67,7 +67,7 @@ macro_rules! testgen_random_interval {
                     unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
                 );
 
-                let actual = client.read_one(output.binding());
+                let actual = client.read_one(output);
                 let actual = f32::from_bytes(&actual);
 
                 assert!(

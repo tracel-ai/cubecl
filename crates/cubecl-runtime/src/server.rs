@@ -59,12 +59,7 @@ where
             )])?
             .remove(0);
         self.write(vec![(
-            CopyDescriptor::new(
-                alloc.handle.clone().binding(),
-                &[data.len()],
-                &alloc.strides,
-                1,
-            ),
+            CopyDescriptor::new(alloc.handle.clone(), &[data.len()], &alloc.strides, 1),
             data,
         )])?;
         Ok(alloc.handle)
@@ -144,31 +139,59 @@ pub struct Handle {
     size: u64,
 }
 
+/// Type of allocation, either contiguous or optimized (row-aligned when possible)
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum AllocationType {
+    /// Contiguous layout, with no padding
     Contiguous,
-    Strided,
+    /// Optimized for access speed. In practice this means row-aligned with padding for runtimes
+    /// that support it.
+    Optimized,
 }
 
+/// Descriptor for a new tensor allocation
 #[derive(new, Debug, Clone, Copy)]
 pub struct AllocationDescriptor<'a> {
+    /// Layout for the tensor
     pub type_: AllocationType,
+    /// Shape of the tensor
     pub shape: &'a [usize],
+    /// Size of each element in the tensor (used for conversion of shape to bytes)
     pub elem_size: usize,
 }
 
+impl<'a> AllocationDescriptor<'a> {
+    /// Create an optimized allocation descriptor
+    pub fn optimized(shape: &'a [usize], elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationType::Optimized, shape, elem_size)
+    }
+
+    /// Create a contiguous allocation descriptor
+    pub fn contiguous(shape: &'a [usize], elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationType::Contiguous, shape, elem_size)
+    }
+}
+
+/// An allocation with associated strides. Strides depend on tensor layout.
 #[derive(new, Debug)]
 pub struct Allocation {
+    /// The handle for the memory resource
     pub handle: Handle,
+    /// The strides of the tensor
     pub strides: Vec<usize>,
 }
 
+/// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
+/// are able to be caught, so some IO errors will still panic.
 #[derive(Debug, Error)]
 pub enum IoError {
+    /// Buffer size exceeds the max available
     #[error("can't allocate buffer of size")]
     BufferTooBig(usize),
+    /// Strides aren't supported for this copy operation on this runtime
     #[error("the provided strides are not supported for this operation")]
     UnsupportedStrides,
+    /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle")]
     InvalidHandle,
 }
@@ -301,8 +324,8 @@ pub struct Binding {
 /// A binding with shape and stride info for non-contiguous reading
 #[derive(new, Debug, Clone)]
 pub struct CopyDescriptor<'a> {
-    /// Binding for the memory resource
-    pub binding: Binding,
+    /// Handle for the memory resource
+    pub handle: Handle,
     /// Shape of the resource
     pub shape: &'a [usize],
     /// Strides of the resource
@@ -374,7 +397,7 @@ impl Handle {
             shape,
             strides,
             elem_size,
-            binding: self.clone().binding(),
+            handle: self.clone(),
         }
     }
 }
@@ -408,7 +431,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Binding),
+    Dynamic(Handle),
 }
 
 impl CubeCount {

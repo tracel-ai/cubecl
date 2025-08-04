@@ -125,7 +125,7 @@ where
         let descriptors = bindings
             .into_iter()
             .zip(shapes.iter())
-            .map(|(handle, shape)| CopyDescriptor::new(handle.binding(), shape, &strides, 1))
+            .map(|(handle, shape)| CopyDescriptor::new(handle, shape, &strides, 1))
             .collect();
 
         self.do_read(descriptors).await.unwrap()
@@ -209,7 +209,7 @@ where
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.handle.clone().binding(),
+                        alloc.handle.clone(),
                         desc.shape,
                         &alloc.strides,
                         desc.elem_size,
@@ -255,7 +255,7 @@ where
     pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
-                AllocationType::Strided,
+                AllocationType::Optimized,
                 shape,
                 elem_size,
             )],
@@ -296,7 +296,7 @@ where
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
-        let descriptor = AllocationDescriptor::new(AllocationType::Strided, shape, elem_size);
+        let descriptor = AllocationDescriptor::new(AllocationType::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 

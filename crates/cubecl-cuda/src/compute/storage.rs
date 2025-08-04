@@ -132,7 +132,8 @@ impl ComputeStorage for CudaStorage {
         let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
         let ptr = match ptr {
             Ok(ptr) => ptr,
-            // Not sure this actually triggers immediately, might be returning the error on the next call
+            // I don't think this actually triggers immediately, might be returning the error on the next call
+            // Need to figure out how to handle this
             Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
                 Err(IoError::BufferTooBig(size as usize))?
             }

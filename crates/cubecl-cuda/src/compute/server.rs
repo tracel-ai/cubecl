@@ -101,11 +101,12 @@ impl CudaServer {
 
             for descriptor in descriptors {
                 let CopyDescriptor {
-                    binding,
+                    handle,
                     shape,
                     strides,
                     elem_size,
                 } = descriptor;
+                let binding = handle.binding();
 
                 if !valid_strides(shape, strides) {
                     return Err(IoError::UnsupportedStrides);
@@ -131,10 +132,10 @@ impl CudaServer {
                     continue;
                 }
 
-                let dim_x = descriptor.shape[rank - 1];
-                let width_bytes = dim_x * descriptor.elem_size;
-                let dim_y: usize = descriptor.shape.iter().rev().skip(1).product();
-                let pitch = descriptor.strides[rank - 2] * descriptor.elem_size;
+                let dim_x = shape[rank - 1];
+                let width_bytes = dim_x * elem_size;
+                let dim_y: usize = shape.iter().rev().skip(1).product();
+                let pitch = strides[rank - 2] * elem_size;
 
                 let cpy = CUDA_MEMCPY2D_st {
                     srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
@@ -203,7 +204,7 @@ impl ComputeServer for CudaServer {
         for descriptor in descriptors {
             let pitch_align = match descriptor.type_ {
                 AllocationType::Contiguous => 1,
-                AllocationType::Strided => self.mem_alignment,
+                AllocationType::Optimized => self.mem_alignment,
             };
 
             let rank = descriptor.shape.len();
@@ -246,11 +247,12 @@ impl ComputeServer for CudaServer {
 
         for (descriptor, data) in descriptors {
             let CopyDescriptor {
-                binding,
+                handle,
                 shape,
                 strides,
                 elem_size,
             } = descriptor;
+            let binding = handle.binding();
             let rank = shape.len();
 
             if !valid_strides(shape, strides) {
@@ -310,9 +312,9 @@ impl ComputeServer for CudaServer {
             // TODO: CUDA doesn't have an exact equivalen of dynamic dispatch. Instead, kernels are free to launch other kernels.
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
-            CubeCount::Dynamic(binding) => {
+            CubeCount::Dynamic(handle) => {
                 let data = future::block_on(self.read_async(vec![CopyDescriptor::new(
-                    binding,
+                    handle,
                     &[3],
                     &[1],
                     4,

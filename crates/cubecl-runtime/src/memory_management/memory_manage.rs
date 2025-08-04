@@ -349,7 +349,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .pools
             .iter_mut()
             .find(|p| p.max_alloc_size() >= size)
-            .ok_or_else(|| IoError::BufferTooBig(size as usize))?;
+            .ok_or(IoError::BufferTooBig(size as usize))?;
 
         if let Some(slice) = pool.try_reserve(size, exclude) {
             return Ok(slice);
@@ -663,7 +663,7 @@ mod tests {
         }
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
-            memory_management.reserve(size, None);
+            memory_management.reserve(size, None).unwrap();
         }
         let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
