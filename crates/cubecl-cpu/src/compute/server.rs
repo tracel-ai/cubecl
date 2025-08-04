@@ -96,7 +96,7 @@ impl ComputeServer for CpuServer {
         let align = 8;
         let strides = descriptors
             .iter()
-            .map(|desc| contiguous_strides(&desc.shape))
+            .map(|desc| contiguous_strides(desc.shape))
             .collect::<Vec<_>>();
         let sizes = descriptors
             .iter()
@@ -130,7 +130,7 @@ impl ComputeServer for CpuServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         for (desc, data) in descriptors {
-            if desc.strides != contiguous_strides(&desc.shape) {
+            if desc.strides != contiguous_strides(desc.shape) {
                 return Err(IoError::UnsupportedStrides);
             }
 
