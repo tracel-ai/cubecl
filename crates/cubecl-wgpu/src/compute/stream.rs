@@ -374,9 +374,10 @@ impl WgpuStream {
     }
 
     pub fn copy_to_handle(&mut self, handle: Handle, data: &[u8]) {
+        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
-        let size = handle.size();
+        let size = handle.size().next_multiple_of(align as u64);
 
         // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
         // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,

@@ -11,6 +11,7 @@ use crate::{
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
