@@ -6,7 +6,8 @@ use cubecl_core::{
     compute::CubeTask,
     future::DynFut,
     server::{
-        Binding, BindingWithMeta, Bindings, ComputeServer, Handle, ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, Binding, BindingWithMeta, Bindings, ComputeServer,
+        CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken,
     },
 };
 use cubecl_runtime::{
@@ -55,22 +56,30 @@ impl CpuContext {
 impl CpuServer {
     fn read_async(
         &mut self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<> {
-        let mut result = Vec::with_capacity(bindings.len());
+        descriptors: Vec<CopyDescriptor>,
+    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
+        fn inner(
+            ctx: &mut CpuContext,
+            descriptors: Vec<CopyDescriptor>,
+        ) -> Result<Vec<Vec<u8>>, IoError> {
+            let mut result = Vec::with_capacity(descriptors.len());
+            for desc in descriptors {
+                let binding = desc.handle.binding();
+                let resource = ctx
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .ok_or(IoError::InvalidHandle)?;
 
-        for binding in bindings {
-            let resource = self
-                .ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource");
+                let data = resource.read().to_vec();
 
-            let data = resource.read().to_vec();
-
-            result.push(data);
+                result.push(data);
+            }
+            Ok(result)
         }
-        async move { result }
+
+        let res = inner(&mut self.ctx, descriptors);
+
+        async move { res }
     }
 }
 
@@ -80,13 +89,46 @@ impl ComputeServer for CpuServer {
     type Feature = Feature;
     type Info = ();
 
-    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>> {
-        Box::pin(self.read_async(bindings))
+    fn create(
+        &mut self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        let align = 8;
+        let strides = descriptors
+            .iter()
+            .map(|desc| contiguous_strides(&desc.shape))
+            .collect::<Vec<_>>();
+        let sizes = descriptors
+            .iter()
+            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
+            .collect::<Vec<_>>();
+        let total_size = sizes
+            .iter()
+            .map(|it| it.next_multiple_of(align))
+            .sum::<usize>();
+
+        let handle = self.ctx.memory_management.reserve(size as u64, None);
+        let mem_handle = Handle::new(handle, None, None, total_size as u64);
+        let handles = offset_handles(mem_handle, &sizes, align);
+
+        handles.into_iter().zip(strides).collect()
     }
 
-    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>> {
-        let bindings = bindings.into_iter().map(|it| it.binding).collect();
-        Box::pin(self.read_async(bindings))
+    fn read<'a>(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'a>>,
+    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+        Box::pin(self.read_async(descriptors))
+    }
+
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+        for (desc, data) in descriptors {
+            if desc.strides != contiguous_strides(&desc.shape) {
+                return Err(IoError::UnsupportedStrides);
+            }
+
+            self.copy_to_binding(desc.handle.binding(), data);
+        }
     }
 
     fn memory_usage(&self) -> MemoryUsage {
@@ -95,59 +137,6 @@ impl ComputeServer for CpuServer {
 
     fn memory_cleanup(&mut self) {
         self.ctx.memory_management.cleanup(true)
-    }
-
-    fn create(&mut self, data: &[u8]) -> Handle {
-        let handle = self.empty(data.len());
-        let binding = handle.clone().binding();
-        self.copy_to_binding(binding, data);
-
-        handle
-    }
-
-    fn create_tensors(
-        &mut self,
-        data: Vec<&[u8]>,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let handles_strides = self.empty_tensors(shapes.clone(), elem_sizes);
-        for i in 0..data.len() {
-            let data = data[i];
-            let (handle, _) = &handles_strides[i];
-            let binding = handle.clone().binding();
-            self.copy_to_binding(binding, data);
-        }
-        handles_strides
-    }
-
-    fn empty(&mut self, size: usize) -> Handle {
-        let handle = self.ctx.memory_management.reserve(size as u64, None);
-        Handle::new(handle, None, None, size as u64)
-    }
-
-    fn empty_tensors(
-        &mut self,
-        shape: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        let align = 8;
-        let strides = shape
-            .iter()
-            .map(|shape| contiguous_strides(shape))
-            .collect::<Vec<_>>();
-        let sizes = shape
-            .iter()
-            .map(|it| it.iter().product::<usize>())
-            .zip(elem_size)
-            .map(|(size, elem_size)| (size * elem_size).next_multiple_of(align))
-            .collect::<Vec<_>>();
-        let total_size = sizes.iter().sum::<usize>();
-
-        let mem_handle = self.empty(total_size);
-        let handles = offset_handles(mem_handle, &sizes);
-
-        handles.into_iter().zip(strides).collect()
     }
 
     unsafe fn execute(
