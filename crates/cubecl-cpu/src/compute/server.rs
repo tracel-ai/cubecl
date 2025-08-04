@@ -6,8 +6,8 @@ use cubecl_core::{
     compute::CubeTask,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, BindingWithMeta, Bindings, ComputeServer,
-        CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
+        IoError, ProfileError, ProfilingToken,
     },
 };
 use cubecl_runtime::{
@@ -107,11 +107,18 @@ impl ComputeServer for CpuServer {
             .map(|it| it.next_multiple_of(align))
             .sum::<usize>();
 
-        let handle = self.ctx.memory_management.reserve(size as u64, None);
+        let handle = self
+            .ctx
+            .memory_management
+            .reserve(total_size as u64, None)?;
         let mem_handle = Handle::new(handle, None, None, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, align);
 
-        handles.into_iter().zip(strides).collect()
+        Ok(handles
+            .into_iter()
+            .zip(strides)
+            .map(|(handle, strides)| Allocation::new(handle, strides))
+            .collect())
     }
 
     fn read<'a>(
@@ -129,6 +136,7 @@ impl ComputeServer for CpuServer {
 
             self.copy_to_binding(desc.handle.binding(), data);
         }
+        Ok(())
     }
 
     fn memory_usage(&self) -> MemoryUsage {
@@ -149,7 +157,8 @@ impl ComputeServer for CpuServer {
     ) {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
-            CubeCount::Dynamic(binding) => {
+            CubeCount::Dynamic(handle) => {
+                let binding = handle.binding();
                 let handle = self
                     .ctx
                     .memory_management
