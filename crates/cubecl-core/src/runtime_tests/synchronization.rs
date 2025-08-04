@@ -38,6 +38,46 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) 
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
+fn kernel_test_finished_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
+    buffer[UNIT_POS] = UNIT_POS;
+    if UNIT_POS > 8 {
+        terminate!();
+    }
+    sync_cube();
+    sync_cube();
+    if UNIT_POS > 0 {
+        out[UNIT_POS] = buffer[UNIT_POS - 1] + buffer[UNIT_POS];
+    }
+    sync_cube();
+}
+
+pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    let handle = client.empty(32 * core::mem::size_of::<u32>());
+    let test = client.empty(32 * core::mem::size_of::<u32>());
+
+    let vectorization = 1;
+
+    kernel_test_finished_sync_cube::launch::<R>(
+        &client,
+        CubeCount::Static(2, 1, 1),
+        CubeDim::new_2d(8, 2),
+        unsafe { ArrayArg::from_raw_parts::<u32>(&test, 32, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
+    );
+
+    let actual = client.read_one(handle.binding());
+    let actual = u32::from_bytes(&actual);
+
+    let expected: Vec<u32> = (0..8)
+        .into_iter()
+        .map(|i| std::cmp::max(2 * i - 1, 0) as u32)
+        .collect();
+
+    assert_eq!(&actual[0..8], &expected);
+}
+
+#[cube(launch)]
+/// First 32 elements should be 1, while last 32 elements may or may not be 1
 fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
     let mut shared_memory = SharedMemory::<F>::new(1);
 
@@ -93,6 +133,14 @@ macro_rules! testgen_sync_plane {
         fn test_sync_cube() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_cube::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_finished_sync_cube() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_finished_sync_cube::<TestRuntime>(
+                client,
+            );
         }
     };
 }

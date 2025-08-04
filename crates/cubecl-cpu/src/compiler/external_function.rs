@@ -42,8 +42,7 @@ pub fn add_external_function_to_module<'a>(
         Location::unknown(context),
     ));
     let func_name = StringAttribute::new(context, "sync_cube");
-    let integer_type = IntegerType::new(context, 32).into();
-    let func_type = TypeAttribute::new(FunctionType::new(context, &[integer_type], &[]).into());
+    let func_type = TypeAttribute::new(FunctionType::new(context, &[], &[]).into());
     module.body().append_operation(func::func(
         context,
         func_name,
