@@ -2,10 +2,10 @@ use cubecl_core::{
     ir::{
         Arithmetic, Bitwise, Elem, ExpandElement, Instruction, IntKind, Operation, Scope, UIntKind,
         Variable,
+        transformer::{IrTransformer, TransformAction},
     },
     prelude::{IntExpand, assign, expand_erf},
 };
-use cubecl_opt::{IrTransformer, TransformAction};
 
 use crate::bitwise::{small_int_reverse, u64_count_bits, u64_ffs, u64_leading_zeros, u64_reverse};
 
@@ -14,7 +14,7 @@ use crate::bitwise::{small_int_reverse, u64_count_bits, u64_ffs, u64_leading_zer
 pub(crate) struct ErfTransform;
 
 impl IrTransformer for ErfTransform {
-    fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
+    fn maybe_transform(&mut self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Erf(op)) => {
                 let mut scope = scope.child();
@@ -31,7 +31,7 @@ impl IrTransformer for ErfTransform {
 pub(crate) struct BitwiseTransform;
 
 impl IrTransformer for BitwiseTransform {
-    fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
+    fn maybe_transform(&mut self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
         let op = match &inst.operation {
             Operation::Bitwise(op) => op,
             _ => return TransformAction::Ignore,

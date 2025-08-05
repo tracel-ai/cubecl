@@ -33,11 +33,12 @@ use std::{
 };
 
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
-use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_common::{CubeDim, ExecutionMode, stub::Mutex};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_ir::{
     self as core, Allocator, Branch, Id, Item, Operation, Operator, Processor, Scope, Variable,
     VariableKind,
+    transformer::{IrTransformer, TransformAction},
 };
 use gvn::GvnPass;
 use passes::{
@@ -149,7 +150,7 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
-    pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
+    pub(crate) transformers: Rc<Vec<Mutex<Box<dyn IrTransformer>>>>,
 }
 
 impl Default for Optimizer {
@@ -176,14 +177,14 @@ impl Optimizer {
         expand: Scope,
         cube_dim: CubeDim,
         mode: ExecutionMode,
-        transformers: Vec<Rc<dyn IrTransformer>>,
+        transformers: Vec<Mutex<Box<dyn IrTransformer>>>,
     ) -> Self {
         let mut opt = Self {
             root_scope: expand.clone(),
             cube_dim,
             mode,
             allocator: expand.allocator.clone(),
-            transformers,
+            transformers: Rc::new(transformers),
             ..Default::default()
         };
         opt.run_opt();
@@ -372,9 +373,12 @@ impl Optimizer {
 
         let is_break = processed.instructions.contains(&Branch::Break.into());
 
+        let transformers = self.transformers.clone();
+
         for mut instruction in processed.instructions {
             let mut removed = false;
-            for transform in self.transformers.iter() {
+            for transform in transformers.iter() {
+                let mut transform = transform.lock().unwrap();
                 match transform.maybe_transform(&mut scope, &instruction) {
                     TransformAction::Ignore => {}
                     TransformAction::Replace(replacement) => {

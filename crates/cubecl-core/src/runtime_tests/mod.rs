@@ -24,6 +24,7 @@ pub mod tensormap;
 pub mod topology;
 pub mod traits;
 pub mod unary;
+pub mod unroll;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -95,6 +96,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_atomic_float!();
         cubecl_core::testgen_tensormap!();
         cubecl_core::testgen_minifloat!();
+        cubecl_core::testgen_unroll!();
     };
 }
 

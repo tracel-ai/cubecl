@@ -24,6 +24,8 @@ mod tma;
 mod type_hash;
 mod variable;
 
+pub mod transformer;
+
 pub use allocator::*;
 pub use arithmetic::*;
 pub use atomic::*;
