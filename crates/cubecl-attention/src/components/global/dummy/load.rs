@@ -13,16 +13,10 @@ use crate::components::stage::AttentionTilingLayout;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
 
 #[derive(CubeType)]
-pub struct DummyQueryLoader<
-    AP: AttentionPrecision,
-    TM: TileMatmul<AP::MatmulPrecision>,
-    G: GlobalAttentionConfig,
-> {
+pub struct DummyQueryLoader<AP: AttentionPrecision> {
     tensor_reader: TensorReader<AP::EI>,
-
-    #[cube(comptime)]
-    _phantom: PhantomData<(TM, G)>,
 }
+
 #[derive(CubeType)]
 pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     tensor_reader: TensorReader<AP::EI>,
@@ -41,35 +35,24 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[cube]
-impl<
-    AP: AttentionPrecision,
-    TM: TileMatmul<AP::MatmulPrecision>,
-    G: GlobalAttentionConfig<ScoreStageMemoryConfig = AttentionStageMemoryConfig<TM::Config>>,
-> DummyQueryLoader<AP, TM, G>
-{
+impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
     pub fn new(query: VirtualTensor<AP::EI>) -> Self {
         let tensor_reader = TensorReader::new(query, 0, 0, 0);
 
-        DummyQueryLoader::<AP, TM, G> {
-            tensor_reader,
-            _phantom: PhantomData,
-        }
+        DummyQueryLoader::<AP> { tensor_reader }
     }
 
-    pub fn load(&self, #[comptime] config: G) -> QueryRegisterReader<AP, TM> {
+    pub fn reader(&self) -> QueryRegisterReader<AP> {
         comment!("Loading Query");
         let row = Array::vectorized(8u32, 1u32);
-        // fill row
 
-        let tile_config = config.score_stage_memory_config().tile_config();
         let tile = Tile::<AP::EI> {
             slice: self.tensor_reader.tensor.as_slice(0, 64),
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
-        let fragment = TM::allocate_fill_cast_lhs(&tile, tile_config);
 
-        QueryRegisterReader::<AP, TM> { row, fragment }
+        QueryRegisterReader::<AP> { row, tile }
     }
 }
 
@@ -174,17 +157,23 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
 }
 
 #[derive(CubeType)]
-pub struct QueryRegisterReader<AP: AttentionPrecision, TM: TileMatmul<AP::MatmulPrecision>> {
+pub struct QueryRegisterReader<AP: AttentionPrecision> {
     row: Array<Line<AP::ES>>,
-    fragment: TM::Lhs,
+    tile: Tile<AP::EI>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, TM: TileMatmul<AP::MatmulPrecision>> QueryRegisterReader<AP, TM> {
-    pub fn row(&self) -> &Array<Line<AP::ES>> {
+impl<AP: AttentionPrecision> QueryRegisterReader<AP> {
+    pub fn read_row(&self) -> &Array<Line<AP::ES>> {
+        // fill row
         &self.row
     }
-    pub fn fragment(&self) -> &TM::Lhs {
-        &self.fragment
+
+    pub fn read_tile<TM: TileMatmul<AP::MatmulPrecision>>(
+        &self,
+        #[comptime] tile_config: TM::Config,
+    ) -> TM::Lhs {
+        let fragment = TM::allocate_fill_cast_lhs(&self.tile, tile_config);
+        fragment
     }
 }

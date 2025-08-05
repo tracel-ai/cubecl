@@ -8,7 +8,7 @@ use crate::components::{
     AttentionPrecision,
     global::dummy::QueryRegisterReader,
     stage::{
-        StageAttention, StageAttentionConfig as _,
+        StageAttention, StageAttentionConfig,
         dummy::{AttentionStageMemoryConfig, config::DummyStageConfig},
     },
 };
@@ -39,10 +39,12 @@ impl<
 
     type State = DummyStageState<AP::EI>;
 
+    type ScoreTileMatmul = STM;
+
     // Tc times, each call is at an index j
     // Return (m_ij, l_ij) [new]
     fn execute(
-        query_reader: &QueryRegisterReader<AP::ES>,
+        query_reader: &QueryRegisterReader<AP>,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,
@@ -51,17 +53,30 @@ impl<
     ) -> Self::State {
         comment!("Stage: Execute");
 
-        let query_fragment = query_reader.fragment();
-        let query_row = query_reader.row();
+        // VERY BAD TO LOAD IT AT THIS MOMENT
+        let query_fragment = query_reader.read_tile::<STM>(config.score_config());
 
-        let key = <R as StageToTileReader<AP::ES>>::read_tile::<
+        let key_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<STM::Config>,
         >(key_reader, 0, 0, config.score_stage_memory_config());
+        let mut key_fragment = STM::allocate_rhs(config.score_config());
+        STM::fill_rhs(&key_tile, &mut key_fragment, config.score_config());
+
+        // This should be reused in each execution
+        let mut scores =
+            <STM as TileMatmul<AP::MatmulPrecision>>::allocate_accumulator(config.score_config());
+
+        STM::execute(
+            &query_fragment,
+            &key_fragment,
+            &mut scores,
+            config.score_config(),
+        );
+
+        let query_row = query_reader.read_row();
         let value = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<VTM::Config>,
         >(value_reader, 0, 0, config.value_stage_memory_config());
-
-        STM::execute(query_fragment, key, acc, config);
 
         // Not accurate: this does two partition_matmul with computation in between,
         // But there should be a partition attention that computes intermediary stuff at each tile.

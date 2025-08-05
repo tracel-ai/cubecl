@@ -98,11 +98,11 @@ impl<T: TileConfig> StageMemoryConfig for AttentionStageMemoryConfig<T> {
     }
 
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-        todo!()
+        MatrixLayout::RowMajor
     }
 
     fn num_stages(&self, ident: StageIdent) -> u32 {
-        todo!()
+        1
     }
 }
 

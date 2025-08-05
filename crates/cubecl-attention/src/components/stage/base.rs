@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder, StageMemoryConfig},
-    tile::TileConfig,
+    tile::{TileConfig, TileMatmul},
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
@@ -63,11 +63,13 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type State: CubeType;
 
+    type ScoreTileMatmul: TileMatmul<AP::MatmulPrecision>;
+
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
     fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn execute(
-        query_reader: &QueryRegisterReader<AP::ES>,
+        query_reader: &QueryRegisterReader<AP>,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,

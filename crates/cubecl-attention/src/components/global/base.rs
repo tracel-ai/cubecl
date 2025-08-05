@@ -5,7 +5,9 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, stage::StageAttentionConfig,
+    AttentionSetupError, AvailableLineSizes, FlashIdent,
+    global::dummy::{DummyQueryLoader, QueryRegisterReader},
+    stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -37,8 +39,6 @@ pub trait GlobalAttentionFamily: Send + Sync + 'static {
 
 #[cube]
 pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    /// Simply loads to registers once before loop
-    type QueryLoader: CubeType;
     /// Writes to Out at the same offset it loaded Query
     type Writer: CubeType;
     /// Holds out tmp accumulated
@@ -53,7 +53,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Config: GlobalAttentionConfig;
 
     fn execute(
-        query_loader: Self::QueryLoader,
+        query_loader: DummyQueryLoader<AP>,
         key_loader: Self::KeyLoader,
         value_loader: Self::ValueLoader,
         writer: Self::Writer,
@@ -61,7 +61,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    fn init_query_loader(query: VirtualTensor<AP::EI>) -> Self::QueryLoader;
+    fn init_query_loader(query: VirtualTensor<AP::EI>) -> DummyQueryLoader<AP>;
     fn init_key_loader(
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,

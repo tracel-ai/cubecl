@@ -1,12 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader};
-use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
+use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory, StageMemoryConfig};
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
+use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
 use crate::components::stage::AttentionTilingLayout;
 use crate::components::{
@@ -29,7 +30,6 @@ impl<
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
 {
-    type QueryLoader = DummyQueryLoader<AP>;
     type KeyLoader = DummyKeyLoader<AP, Self::Config>;
     type ValueLoader = DummyValueLoader<AP, Self::Config>;
 
@@ -39,7 +39,7 @@ impl<
     type Config = DummyGlobalConfig<SA::Config>;
 
     fn execute(
-        query_loader: Self::QueryLoader,
+        query_loader: DummyQueryLoader<AP>,
         mut key_loader: Self::KeyLoader,
         mut value_loader: Self::ValueLoader,
         writer: Self::Writer,
@@ -49,8 +49,7 @@ impl<
         comment!("Global: Execute");
         SA::zero_accumulator(acc);
 
-        let query_reader = query_loader.load();
-
+        let query_reader = query_loader.reader();
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
@@ -74,9 +73,9 @@ impl<
         SA::write(acc, writer)
     }
 
-    fn init_query_loader(query: VirtualTensor<AP::EI>) -> Self::QueryLoader {
+    fn init_query_loader(query: VirtualTensor<AP::EI>) -> DummyQueryLoader<AP> {
         comment!("Global: Init Query Loader");
-        DummyQueryLoader::new(query)
+        DummyQueryLoader::<AP>::new(query)
     }
 
     fn init_key_loader(
