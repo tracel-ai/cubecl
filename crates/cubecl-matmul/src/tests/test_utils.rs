@@ -9,8 +9,6 @@ use cubecl_core::{
     tf32,
 };
 
-pub use cubecl_std::SymQ8;
-
 use crate::{
     components::{MatmulIdent, MatmulPrecision, MatmulProblem},
     tests::layered::matmul_test_launcher::strides,
@@ -148,76 +146,6 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     }
 
     Ok(())
-}
-
-// TODO:
-//   - Add different conversions from i32 to u8.
-//   - Fix with proper types for precision
-impl TestPrecision for SymQ8 {
-    type EG = u8;
-    type ES = u16;
-    type EA = i32;
-    type MP = SymQ8;
-
-    const QUANTIZED: bool = true;
-
-    fn quantization_params(ident: MatmulIdent) -> Option<QuantizationParams<Self::EG>> {
-        // These are somewhat arbitrary values. I try to use f32 that are exactly representable
-        // to avoid some rounding issues.
-        Some(match ident {
-            MatmulIdent::Lhs => QuantizationParams {
-                scaling: f32::to_be_bytes(0.6).to_vec(),
-                zero_offset: 15,
-            },
-            MatmulIdent::Rhs => QuantizationParams {
-                scaling: f32::to_be_bytes(0.1).to_vec(),
-                zero_offset: 20,
-            },
-            MatmulIdent::Out => QuantizationParams {
-                scaling: f32::to_be_bytes(0.4).to_vec(),
-                zero_offset: 50,
-            },
-        })
-    }
-
-    fn assert_result<R: Runtime>(
-        lhs: &[u8],
-        lhs_quant: Option<(f32, i32)>,
-        rhs: &[u8],
-        rhs_quant: Option<(f32, i32)>,
-        problem: &MatmulProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
-        out: server::Handle,
-        out_quant: Option<(f32, i32)>,
-        shape: &[usize],
-        strides: &[usize],
-    ) {
-        let out = client.read_one_tensor(out.binding_with_meta(
-            shape.to_vec(),
-            strides.to_vec(),
-            size_of::<Self::EG>(),
-        ));
-        let out = u8::from_bytes(&out);
-
-        let (lhs_scaling, lhs_offset) = lhs_quant.unwrap();
-        let (rhs_scaling, rhs_offset) = rhs_quant.unwrap();
-        let (out_scaling, out_offset) = out_quant.unwrap();
-
-        // TODO Move to some better place and wrap into a function.
-        let scaling_factor = (lhs_scaling * rhs_scaling) / out_scaling;
-        let approx_scaling = ApproxScaling::from_f32(scaling_factor);
-
-        let expected = matmul_cpu_reference_quantized(
-            lhs,
-            rhs,
-            problem,
-            lhs_offset,
-            rhs_offset,
-            out_offset,
-            approx_scaling,
-        );
-        assert_eq!(out, expected);
-    }
 }
 
 struct ApproxScaling {

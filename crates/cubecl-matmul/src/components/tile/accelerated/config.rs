@@ -4,7 +4,9 @@ use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{MatmulPrecision, MatrixLayout, StageIdent, TileSize, TilingScheme};
+use crate::components::{
+    LhsR, MatmulElems, MatmulPrecision, MatrixLayout, RhsR, StageIdent, TileSize, TilingScheme,
+};
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -92,23 +94,26 @@ impl AcceleratedConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let es = MP::ES::as_elem_native().expect("to be a native type");
-        let ea = MP::EA::as_elem_native().expect("to be a native type");
+        let elems = MatmulElems::new::<MP>();
 
-        let es = match es {
+        let lhs = match elems.lhs_register {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => es,
+            _ => elems.lhs_register,
+        };
+        let rhs = match elems.rhs_register {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => elems.rhs_register,
         };
 
-        let ea = match ea {
+        let ea = match elems.acc {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => ea,
+            _ => elems.acc,
         };
 
         let size = self.tile_size();
         if !client.properties().feature_enabled(Feature::Cmma {
-            a: es,
-            b: es,
+            a: lhs,
+            b: rhs,
             c: ea,
             m: size.m() as u8,
             k: size.k() as u8,
@@ -116,17 +121,22 @@ impl AcceleratedConfig {
         }) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::CmmaInstructionUnavailable {
-                    input: es,
+                    lhs,
+                    rhs,
                     output: ea,
                     size: Some(TileSize::new(size.m(), size.n(), size.k())),
                 },
             ));
         }
 
-        if !(MP::ES::is_supported(client) && MP::EA::is_supported(client)) {
+        if !(LhsR::<MP>::is_supported(client)
+            && RhsR::<MP>::is_supported(client)
+            && MP::EA::is_supported(client))
+        {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable {
-                    input: es,
+                    lhs,
+                    rhs,
                     output: ea,
                 },
             ));

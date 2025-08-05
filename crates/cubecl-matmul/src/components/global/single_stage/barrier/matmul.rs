@@ -4,7 +4,6 @@ use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::GlobalMatmul;
-use crate::components::global::Quantization;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;

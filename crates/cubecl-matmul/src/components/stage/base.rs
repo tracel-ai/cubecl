@@ -6,7 +6,7 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection, StageIdent};
+use crate::components::{AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent};
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
@@ -22,8 +22,8 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
             Config = Self::Config,
-            LhsReader = <Self::LhsReader as ReaderFamily>::Reader<MP::ES, TL>,
-            RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
+            LhsReader = <Self::LhsReader as ReaderFamily>::Reader<LhsS<MP>, TL>,
+            RhsReader = <Self::RhsReader as ReaderFamily>::Reader<RhsS<MP>, TR>,
         >;
 
     /// Reader family for Lhs

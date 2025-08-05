@@ -1,14 +1,13 @@
 use crate::components::batch::BatchConfig;
 use crate::components::{
-    InputArg, MatmulProblem, MatmulSpec, OutputArg,
-    global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+    InputArg, InputRuntimeArg, MatmulElems, MatmulLineSizes, MatmulSetupError, OutputRuntimeArg,
 };
 use crate::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSetupError, OutputRuntimeArg,
+    MatmulProblem, MatmulSpec, OutputArg,
+    global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
 };
 use crate::kernels::layered::base::Selection;
 use crate::kernels::layered::{Algorithm, launch_with_config};
-use cubecl_core::frontend::CubePrimitive;
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
@@ -32,14 +31,11 @@ where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
-    let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
+    let elems = MatmulElems::new::<MS::Precision>();
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
-        }
+        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args),
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
@@ -78,14 +74,11 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
-    let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
-    let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
+    let elems = MatmulElems::new::<MS::Precision>();
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
-        }
+        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args),
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 

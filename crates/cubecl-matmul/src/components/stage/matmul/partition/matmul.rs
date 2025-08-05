@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
+use crate::components::LhsS;
 use crate::components::MatmulPrecision;
+use crate::components::RhsS;
 use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
@@ -16,8 +18,8 @@ use cubecl_core as cubecl;
 pub struct PartitionMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
+    RL: StageToTileReader<LhsS<MP>>,
+    RR: StageToTileReader<RhsS<MP>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, S)>,
@@ -28,8 +30,8 @@ impl<MP, TMM, RL, RR, S> PartitionMatmul<MP, TMM, RL, RR, S>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
+    RL: StageToTileReader<LhsS<MP>>,
+    RR: StageToTileReader<RhsS<MP>>,
     S: StageConfig<TileConfig = TMM::Config>,
 {
     #[allow(clippy::too_many_arguments)]

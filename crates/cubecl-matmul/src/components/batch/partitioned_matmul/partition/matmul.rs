@@ -1,14 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{
-    MatmulPrecision,
-    global::{self, Quantization},
-};
-use cubecl_std::{
-    CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
-};
+use crate::components::{LhsG, MatmulPrecision, RhsG, global};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
@@ -31,13 +25,12 @@ pub struct PartitionRangeDim {
 /// Iterates on several global matmul across a global partition
 pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EI>,
-        rhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
+        rhs: VirtualTensor<RhsG<MP>>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         partition_ranges: PartitionRanges,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     );
 }
@@ -82,13 +75,12 @@ impl PartitionRangeDim {
 #[cube]
 impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EI>,
-        rhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
+        rhs: VirtualTensor<RhsG<MP>>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
         // Needed for the unroll macro to work.
@@ -109,15 +101,7 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                     let col_offset = ranges.col.start + c * ranges.col.step;
 
                     execute_global_matmul::<MP, GMM>(
-                        lhs,
-                        rhs,
-                        out,
-                        row_offset,
-                        col_offset,
-                        batch_iter,
-                        &mut acc,
-                        k_range,
-                        quantization,
+                        lhs, rhs, out, row_offset, col_offset, batch_iter, &mut acc, k_range,
                         config,
                     );
                 }
@@ -129,13 +113,12 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
 #[cube]
 impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EI>,
-        rhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
+        rhs: VirtualTensor<RhsG<MP>>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: GMM::Config,
     ) {
         // Needed for the unroll macro to work.
@@ -156,15 +139,7 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
                     let row_offset = ranges.row.start + r * ranges.row.step;
 
                     execute_global_matmul::<MP, GMM>(
-                        lhs,
-                        rhs,
-                        out,
-                        row_offset,
-                        col_offset,
-                        batch_iter,
-                        &mut acc,
-                        k_range,
-                        quantization,
+                        lhs, rhs, out, row_offset, col_offset, batch_iter, &mut acc, k_range,
                         config,
                     );
                 }
@@ -177,15 +152,14 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
 /// Execute global matmul on lhs, rhs, writing in out.
 /// m and n offsets are absolute rows and columns
 pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    lhs: VirtualTensor<MP::EI>,
-    rhs: VirtualTensor<MP::EI>,
+    lhs: VirtualTensor<LhsG<MP>>,
+    rhs: VirtualTensor<RhsG<MP>>,
     out: VirtualTensor<MP::EO, ReadWrite>,
     m_offset: u32,
     n_offset: u32,
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
-    quantization: CubeOption<Quantization<MP>>,
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
@@ -200,24 +174,8 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     }
 
     GMM::execute(
-        GMM::init_lhs_loader(
-            lhs,
-            m_offset,
-            k_range.0,
-            nth_batch,
-            batch_lhs,
-            quantization,
-            config,
-        ),
-        GMM::init_rhs_loader(
-            rhs,
-            k_range.0,
-            n_offset,
-            nth_batch,
-            batch_rhs,
-            quantization,
-            config,
-        ),
+        GMM::init_lhs_loader(lhs, m_offset, k_range.0, nth_batch, batch_lhs, config),
+        GMM::init_rhs_loader(rhs, k_range.0, n_offset, nth_batch, batch_rhs, config),
         GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out),
         acc,
         k_range,

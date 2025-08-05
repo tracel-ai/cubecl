@@ -3,7 +3,7 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{MatmulSetupError, tile::accelerated::AcceleratedMatmul},
+    components::{LhsG, MatmulSetupError, RhsG, tile::accelerated::AcceleratedMatmul},
     kernels::layered::{
         Selection,
         double_buffering::DoubleBufferingArgs,
@@ -88,9 +88,9 @@ pub enum AsyncLoadingStrategy {
 pub fn launch<R: Runtime, MP: MatmulPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, MP::EI>,
+    lhs: TensorHandle<R, LhsG<MP>>,
     lhs_scale: Option<TensorHandle<R, f32>>,
-    rhs: TensorHandle<R, MP::EI>,
+    rhs: TensorHandle<R, RhsG<MP>>,
     rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
 ) -> Result<(), MatmulSetupError> {
@@ -258,8 +258,8 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, selection,
         ),
         Strategy::Naive => {
-            // TODO Implement naive with EI and EO
-            naive::launch_ref::<R, MP::EI>(client, lhs, rhs, out)?;
+            // Warning: this assumes Lhs, Rhs and Output have the same type
+            naive::launch_ref::<R, LhsG<MP>>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {

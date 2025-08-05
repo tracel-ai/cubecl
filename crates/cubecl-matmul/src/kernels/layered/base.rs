@@ -1,8 +1,8 @@
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::{
-    AvailableLineSizes, InputRuntimeArg, MatmulAvailabilityError, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
-    ReplaceES,
+    AvailableLineSizes, InputRuntimeArg, LhsG, MatmulAvailabilityError, MatmulLineSizes,
+    MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout,
+    OutputRuntimeArg, ReplaceES, RhsG,
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::launch_kernel_concrete;
@@ -49,9 +49,9 @@ impl<S: Default> Default for Selection<S> {
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, MP::EI>,
+    lhs: TensorHandle<R, LhsG<MP>>,
     lhs_scale: Option<TensorHandle<R, f32>>,
-    rhs: TensorHandle<R, MP::EI>,
+    rhs: TensorHandle<R, RhsG<MP>>,
     rhs_scale: Option<TensorHandle<R, f32>>,
     out: TensorHandle<R, MP::EO>,
     selection: &Selection<A::SelectionArgs>,
@@ -113,7 +113,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             client,
             lhs,
             lhs_scale,
-            &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
+            &into_contiguous_pitched::<R, RhsG<MP>>(client, rhs).as_ref(),
             rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
@@ -121,7 +121,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         ),
         (true, false) => launch_inner_ref::<R, MP, A>(
             client,
-            &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
+            &into_contiguous_pitched::<R, LhsG<MP>>(client, lhs).as_ref(),
             lhs_scale,
             rhs,
             rhs_scale,
@@ -131,9 +131,9 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         ),
         (true, true) => launch_inner_ref::<R, MP, A>(
             client,
-            &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
+            &into_contiguous_pitched::<R, LhsG<MP>>(client, lhs).as_ref(),
             lhs_scale,
-            &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
+            &into_contiguous_pitched::<R, RhsG<MP>>(client, rhs).as_ref(),
             rhs_scale,
             out,
             (lhs_transposed, rhs_transposed),
@@ -154,28 +154,20 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
     let rank = lhs.strides.len();
-    let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
+    let lhs_elem = LhsG::<MP>::as_elem_native().expect("To be a native type");
+    let rhs_elem = RhsG::<MP>::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
     // This is mostly to check that i8 are supported for quantization.
-    if !client.properties().feature_enabled(Feature::Type(ei_elem))
+    if !client.properties().feature_enabled(Feature::Type(lhs_elem))
         || !client.properties().feature_enabled(Feature::Type(eo_elem))
     {
         return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::TypesUnavailable {
-                input: ei_elem,
+                lhs: lhs_elem,
+                rhs: rhs_elem,
                 output: eo_elem,
             },
-        ));
-    }
-
-    if MP::QUANTIZED
-        && !client
-            .properties()
-            .feature_enabled(cubecl_core::Feature::DynamicLineSize)
-    {
-        return Err(MatmulSetupError::Unavailable(
-            MatmulAvailabilityError::DynamicLineSizeUnavailable,
         ));
     }
 
@@ -203,7 +195,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&ei_elem, &eo_elem);
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&lhs_elem, &eo_elem);
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)
@@ -241,7 +233,8 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_accelerator()
-        && TypeId::of::<MP::ES>() == TypeId::of::<f32>()
+        && TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>()
+        && TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>()
         && tf32::is_supported(client)
     {
         launch_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
@@ -318,7 +311,10 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         }
     };
 
-    if TypeId::of::<MP::ES>() == TypeId::of::<f32>() && tf32::is_supported(client) {
+    if TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>()
+        && TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>()
+        && tf32::is_supported(client)
+    {
         launch_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
         )
