@@ -13,7 +13,10 @@
 use core::f32;
 use std::{
     cmp::Ordering,
-    ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign},
+    ops::{
+        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign, Mul,
+        MulAssign, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign,
+    },
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -269,6 +272,91 @@ impl<const POS: u8> Float for FloatExpand<POS> {
 
     fn new(val: f32) -> Self {
         FloatExpand::from_f32(val)
+    }
+}
+
+impl<const POS: u8> Int for FloatExpand<POS> {
+    const BITS: u32 = 32;
+
+    fn new(val: i64) -> Self {
+        FloatExpand::from_f32(val as f32)
+    }
+}
+impl<const POS: u8> ReverseBits for FloatExpand<POS> {}
+impl<const POS: u8> CountOnes for FloatExpand<POS> {}
+impl<const POS: u8> BitwiseNot for FloatExpand<POS> {}
+impl<const POS: u8> LeadingZeros for FloatExpand<POS> {}
+impl<const POS: u8> FindFirstSet for FloatExpand<POS> {}
+
+impl<const POS: u8> BitOr for FloatExpand<POS> {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        todo!()
+    }
+}
+impl<const POS: u8> BitXor for FloatExpand<POS> {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        todo!()
+    }
+}
+
+impl<const POS: u8> BitAnd for FloatExpand<POS> {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        todo!()
+    }
+}
+impl<const POS: u8> BitAndAssign for FloatExpand<POS> {
+    fn bitand_assign(&mut self, rhs: Self) {
+        todo!()
+    }
+}
+impl<const POS: u8> BitXorAssign for FloatExpand<POS> {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        todo!()
+    }
+}
+
+impl<const POS: u8> BitOrAssign for FloatExpand<POS> {
+    fn bitor_assign(&mut self, rhs: Self) {
+        todo!()
+    }
+}
+impl<const POS: u8> Shl for FloatExpand<POS> {
+    type Output = Self;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        todo!()
+    }
+}
+impl<const POS: u8> Shr for FloatExpand<POS> {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        todo!()
+    }
+}
+
+impl<const POS: u8> ShrAssign<u32> for FloatExpand<POS> {
+    fn shr_assign(&mut self, rhs: u32) {
+        todo!()
+    }
+}
+
+impl<const POS: u8> ShlAssign<u32> for FloatExpand<POS> {
+    fn shl_assign(&mut self, rhs: u32) {
+        todo!()
+    }
+}
+impl<const POS: u8> Not for FloatExpand<POS> {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        todo!()
     }
 }
 
