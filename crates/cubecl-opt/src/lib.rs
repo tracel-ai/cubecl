@@ -34,11 +34,10 @@ use std::{
 
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_common::{CubeDim, ExecutionMode, stub::Mutex};
-use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_core::post_processing::{checked_io::CheckedIoProcessor, unroll::UnrollProcessor};
 use cubecl_ir::{
     self as core, Allocator, Branch, Id, Item, Operation, Operator, Processor, Scope, Variable,
     VariableKind,
-    transformer::{IrTransformer, TransformAction},
 };
 use gvn::GvnPass;
 use passes::{
@@ -350,8 +349,10 @@ impl Optimizer {
 
     /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
+        // If this is ever used for backends with a different max line size, this needs to be a parameter
+        let unroll: Box<dyn Processor> = Box::new(UnrollProcessor::new(4));
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.mode));
-        let processed = scope.process([checked_io]);
+        let processed = scope.process([unroll, checked_io]);
 
         for var in processed.variables {
             if let VariableKind::LocalMut { id } = var.kind {
@@ -378,7 +379,7 @@ impl Optimizer {
         for mut instruction in processed.instructions {
             let mut removed = false;
             for transform in transformers.iter() {
-                let mut transform = transform.lock().unwrap();
+                let transform = transform.lock().unwrap();
                 match transform.maybe_transform(&mut scope, &instruction) {
                     TransformAction::Ignore => {}
                     TransformAction::Replace(replacement) => {

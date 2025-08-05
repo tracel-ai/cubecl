@@ -1,46 +1,53 @@
-use std::num::NonZero;
+use std::{iter, num::NonZero};
 
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, CopyMemoryOperator, ExpandElement, IndexAssignOperator,
-    IndexOperator, Instruction, Item, Metadata, Operation, OperationReflect, Operator, Scope,
-    Variable, VariableKind,
-    transformer::{IrTransformer, TransformAction},
+    Allocator, Arithmetic, BinaryOperator, Branch, CopyMemoryOperator, ExpandElement,
+    IndexAssignOperator, IndexOperator, Instruction, Item, Metadata, Operation, OperationReflect,
+    Operator, Processor, ScopeProcessing, Variable, VariableKind,
 };
 use hashbrown::HashMap;
 
 use crate::prelude::CubePrimitive;
 
-#[derive(Debug)]
-pub struct UnrollTransform {
-    max_line_size: u8,
-    mappings: HashMap<Variable, Vec<ExpandElement>>,
+/// The action that should be performed on an instruction, returned by [`IrTransformer::maybe_transform`]
+pub enum TransformAction {
+    /// The transformer doesn't apply to this instruction
+    Ignore,
+    /// Replace this instruction with one or more other instructions
+    Replace(Vec<Instruction>),
 }
 
-impl UnrollTransform {
-    pub fn new(max_line_size: u8) -> Self {
-        Self {
-            max_line_size,
-            mappings: Default::default(),
-        }
-    }
+#[derive(new, Debug)]
+pub struct UnrollProcessor {
+    max_line_size: u8,
+}
 
-    fn get_mapping(
+struct Mappings(HashMap<Variable, Vec<ExpandElement>>);
+
+impl Mappings {
+    fn get(
         &mut self,
-        scope: &mut Scope,
+        alloc: &Allocator,
         var: Variable,
         unroll_factor: u8,
+        line_size: u8,
     ) -> Vec<Variable> {
-        self.mappings
+        self.0
             .entry(var)
-            .or_insert_with(|| create_unrolled(scope, &var, self.max_line_size, unroll_factor))
+            .or_insert_with(|| create_unrolled(alloc, &var, line_size, unroll_factor))
             .iter()
             .map(|it| **it)
             .collect()
     }
 }
 
-impl IrTransformer for UnrollTransform {
-    fn maybe_transform(&mut self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
+impl UnrollProcessor {
+    fn maybe_transform(
+        &self,
+        alloc: &Allocator,
+        inst: &Instruction,
+        mappings: &mut Mappings,
+    ) -> TransformAction {
         if inst.operation.args().is_none() {
             return TransformAction::Ignore;
         }
@@ -63,13 +70,13 @@ impl IrTransformer for UnrollTransform {
             match &inst.operation {
                 Operation::Operator(Operator::CopyMemoryBulk(..)) => TransformAction::Ignore,
                 Operation::Operator(Operator::CopyMemory(op)) => {
-                    let mut indices_in = vec![op.in_index];
-                    let mut indices_out = vec![op.out_index];
-                    for _ in 0..unroll_factor as usize - 1 {
+                    let mut indices_in = vec![];
+                    let mut indices_out = vec![];
+                    for _ in 0..unroll_factor as usize {
                         indices_in
-                            .push(*scope.create_local(Item::new(u32::as_elem_native_unchecked())));
+                            .push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
                         indices_out
-                            .push(*scope.create_local(Item::new(u32::as_elem_native_unchecked())));
+                            .push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
                     }
 
                     let mut input = op.input;
@@ -80,6 +87,15 @@ impl IrTransformer for UnrollTransform {
 
                     let instructions = (0..unroll_factor as usize)
                         .flat_map(|i| {
+                            let add_in =
+                                add_index_inst(alloc, op.in_index, unroll_factor, i, indices_in[i]);
+                            let add_out = add_index_inst(
+                                alloc,
+                                op.out_index,
+                                unroll_factor,
+                                i,
+                                indices_out[i],
+                            );
                             let copy = Instruction::new(
                                 Operator::CopyMemory(CopyMemoryOperator {
                                     in_index: indices_in[i],
@@ -88,79 +104,69 @@ impl IrTransformer for UnrollTransform {
                                 }),
                                 out,
                             );
-                            if i > 0 {
-                                vec![
-                                    add_index_inst(op.in_index, i, indices_in[i]),
-                                    add_index_inst(op.out_index, i, indices_out[i]),
-                                    copy,
-                                ]
-                            } else {
-                                vec![copy]
-                            }
+                            add_in.into_iter().chain(add_out).chain(iter::once(copy))
                         })
                         .collect();
 
                     TransformAction::Replace(instructions)
                 }
                 Operation::Operator(Operator::Index(op)) if op.list.is_array() => {
-                    let mut indices = vec![op.index];
+                    let mut indices = vec![];
 
-                    for _ in 0..unroll_factor as usize - 1 {
+                    for _ in 0..unroll_factor as usize {
                         indices
-                            .push(*scope.create_local(Item::new(u32::as_elem_native_unchecked())));
+                            .push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
                     }
 
                     let mut list = op.list;
                     list.item.vectorization = NonZero::new(self.max_line_size);
 
-                    let out = self.get_mapping(scope, inst.out(), unroll_factor);
+                    let out = mappings.get(alloc, inst.out(), unroll_factor, self.max_line_size);
                     let instructions = (0..unroll_factor as usize)
                         .flat_map(|i| {
+                            let add_idx =
+                                add_index_inst(alloc, op.index, unroll_factor, i, indices[i]);
                             let index = Instruction::new(
                                 Operator::Index(IndexOperator {
                                     list,
                                     index: indices[i],
-                                    line_size: self.max_line_size as u32,
+                                    line_size: 0,
+                                    unroll_factor: unroll_factor as u32,
                                 }),
                                 out[i],
                             );
-                            if i > 0 {
-                                vec![add_index_inst(op.index, i, indices[i]), index]
-                            } else {
-                                vec![index]
-                            }
+                            add_idx.into_iter().chain(iter::once(index))
                         })
                         .collect();
 
                     TransformAction::Replace(instructions)
                 }
                 Operation::Operator(Operator::UncheckedIndex(op)) if op.list.is_array() => {
-                    let mut indices = vec![op.index];
+                    let mut indices = vec![];
 
-                    for _ in 0..unroll_factor as usize - 1 {
+                    for _ in 0..unroll_factor as usize {
                         indices
-                            .push(*scope.create_local(Item::new(u32::as_elem_native_unchecked())));
+                            .push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
                     }
 
                     let mut list = op.list;
                     list.item.vectorization = NonZero::new(self.max_line_size);
 
-                    let out = self.get_mapping(scope, inst.out(), unroll_factor);
+                    let out = mappings.get(alloc, inst.out(), unroll_factor, self.max_line_size);
                     let instructions = (0..unroll_factor as usize)
                         .flat_map(|i| {
+                            let add_idx =
+                                add_index_inst(alloc, op.index, unroll_factor, i, indices[i]);
                             let index = Instruction::new(
                                 Operator::UncheckedIndex(IndexOperator {
                                     list,
                                     index: indices[i],
-                                    line_size: self.max_line_size as u32,
+                                    line_size: 0,
+                                    unroll_factor: unroll_factor as u32,
                                 }),
                                 out[i],
                             );
-                            if i > 0 {
-                                vec![add_index_inst(op.index, i, indices[i]), index]
-                            } else {
-                                vec![index]
-                            }
+                            add_idx.into_iter().chain(iter::once(index))
                         })
                         .collect();
 
@@ -176,13 +182,14 @@ impl IrTransformer for UnrollTransform {
                     let unroll_idx = index / self.max_line_size as u32;
                     let sub_idx = index % self.max_line_size as u32;
 
-                    let value = self.get_mapping(scope, op.list, unroll_factor);
+                    let value = mappings.get(alloc, op.list, unroll_factor, self.max_line_size);
 
                     let inst = vec![Instruction::new(
                         Operator::Index(IndexOperator {
                             list: value[unroll_idx as usize],
                             index: sub_idx.into(),
                             line_size: 1,
+                            unroll_factor: unroll_factor as u32,
                         }),
                         inst.out(),
                     )];
@@ -190,33 +197,33 @@ impl IrTransformer for UnrollTransform {
                     TransformAction::Replace(inst)
                 }
                 Operation::Operator(Operator::IndexAssign(op)) if inst.out().is_array() => {
-                    let mut indices = vec![op.index];
+                    let mut indices = vec![];
 
-                    for _ in 0..unroll_factor as usize - 1 {
+                    for _ in 0..unroll_factor as usize {
                         indices
-                            .push(*scope.create_local(Item::new(u32::as_elem_native_unchecked())));
+                            .push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
                     }
 
                     let mut out = inst.out();
                     out.item.vectorization = NonZero::new(self.max_line_size);
 
-                    let value = self.get_mapping(scope, op.value, unroll_factor);
+                    let value = mappings.get(alloc, op.value, unroll_factor, self.max_line_size);
 
                     let instructions = (0..unroll_factor as usize)
                         .flat_map(|i| {
                             let index = Instruction::new(
                                 Operator::IndexAssign(IndexAssignOperator {
                                     index: indices[i],
-                                    line_size: self.max_line_size as u32,
+                                    line_size: 0,
                                     value: value[i],
+                                    unroll_factor: unroll_factor as u32,
                                 }),
                                 out,
                             );
-                            if i > 0 {
-                                vec![add_index_inst(op.index, i, indices[i]), index]
-                            } else {
-                                vec![index]
-                            }
+                            let add_idx =
+                                add_index_inst(alloc, op.index, unroll_factor, i, indices[i]);
+
+                            add_idx.into_iter().chain(iter::once(index))
                         })
                         .collect();
 
@@ -225,33 +232,32 @@ impl IrTransformer for UnrollTransform {
                 Operation::Operator(Operator::UncheckedIndexAssign(op))
                     if inst.out().is_array() =>
                 {
-                    let mut indices = vec![op.index];
+                    let mut indices = vec![];
 
-                    for _ in 0..unroll_factor as usize - 1 {
+                    for _ in 0..unroll_factor as usize {
                         indices
-                            .push(*scope.create_local(Item::new(u32::as_elem_native_unchecked())));
+                            .push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
                     }
 
-                    let value = self.get_mapping(scope, op.value, unroll_factor);
+                    let value = mappings.get(alloc, op.value, unroll_factor, self.max_line_size);
 
                     let mut out = inst.out();
                     out.item.vectorization = NonZero::new(self.max_line_size);
 
                     let instructions = (0..unroll_factor as usize)
                         .flat_map(|i| {
+                            let add_idx =
+                                add_index_inst(alloc, op.index, unroll_factor, i, indices[i]);
                             let index = Instruction::new(
                                 Operator::UncheckedIndexAssign(IndexAssignOperator {
                                     index: indices[i],
-                                    line_size: self.max_line_size as u32,
+                                    line_size: 0,
                                     value: value[i],
+                                    unroll_factor: unroll_factor as u32,
                                 }),
                                 out,
                             );
-                            if i > 0 {
-                                vec![add_index_inst(op.index, i, indices[i]), index]
-                            } else {
-                                vec![index]
-                            }
+                            add_idx.into_iter().chain(iter::once(index))
                         })
                         .collect();
 
@@ -269,13 +275,14 @@ impl IrTransformer for UnrollTransform {
                     let unroll_idx = index / self.max_line_size as u32;
                     let sub_idx = index % self.max_line_size as u32;
 
-                    let out = self.get_mapping(scope, inst.out(), unroll_factor);
+                    let out = mappings.get(alloc, inst.out(), unroll_factor, self.max_line_size);
 
                     let inst = vec![Instruction::new(
                         Operator::IndexAssign(IndexAssignOperator {
                             index: sub_idx.into(),
                             line_size: 1,
                             value: op.value,
+                            unroll_factor: unroll_factor as u32,
                         }),
                         out[unroll_idx as usize],
                     )];
@@ -300,12 +307,12 @@ impl IrTransformer for UnrollTransform {
                     let op_code = op.op_code();
                     let out = inst
                         .out
-                        .map(|out| self.get_mapping(scope, out, unroll_factor));
+                        .map(|out| mappings.get(alloc, out, unroll_factor, self.max_line_size));
                     let args = args
                         .into_iter()
                         .map(|arg| {
                             if arg.vectorization_factor() > 1 {
-                                self.get_mapping(scope, arg, unroll_factor)
+                                mappings.get(alloc, arg, unroll_factor, self.max_line_size)
                             } else {
                                 // Preserve scalars
                                 vec![arg]
@@ -337,10 +344,98 @@ impl IrTransformer for UnrollTransform {
             TransformAction::Ignore
         }
     }
+
+    fn transform_instructions(
+        &self,
+        allocator: &Allocator,
+        instructions: Vec<Instruction>,
+        mappings: &mut Mappings,
+    ) -> Vec<Instruction> {
+        let mut new_instructions = Vec::with_capacity(instructions.len());
+
+        for mut instruction in instructions {
+            if let Operation::Branch(branch) = &mut instruction.operation {
+                match branch {
+                    Branch::If(op) => {
+                        op.scope.instructions = self.transform_instructions(
+                            allocator,
+                            op.scope.instructions.drain(..).collect(),
+                            mappings,
+                        );
+                    }
+                    Branch::IfElse(op) => {
+                        op.scope_if.instructions = self.transform_instructions(
+                            allocator,
+                            op.scope_if.instructions.drain(..).collect(),
+                            mappings,
+                        );
+                        op.scope_else.instructions = self.transform_instructions(
+                            allocator,
+                            op.scope_else.instructions.drain(..).collect(),
+                            mappings,
+                        );
+                    }
+                    Branch::Switch(op) => {
+                        for (_, case) in &mut op.cases {
+                            case.instructions = self.transform_instructions(
+                                allocator,
+                                case.instructions.drain(..).collect(),
+                                mappings,
+                            );
+                        }
+                        op.scope_default.instructions = self.transform_instructions(
+                            allocator,
+                            op.scope_default.instructions.drain(..).collect(),
+                            mappings,
+                        );
+                    }
+                    Branch::RangeLoop(op) => {
+                        op.scope.instructions = self.transform_instructions(
+                            allocator,
+                            op.scope.instructions.drain(..).collect(),
+                            mappings,
+                        );
+                    }
+                    Branch::Loop(op) => {
+                        op.scope.instructions = self.transform_instructions(
+                            allocator,
+                            op.scope.instructions.drain(..).collect(),
+                            mappings,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            match self.maybe_transform(allocator, &instruction, mappings) {
+                TransformAction::Ignore => {
+                    new_instructions.push(instruction);
+                }
+                TransformAction::Replace(replacement) => {
+                    new_instructions.extend(replacement);
+                }
+            }
+        }
+
+        new_instructions
+    }
+}
+
+impl Processor for UnrollProcessor {
+    fn transform(&self, processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing {
+        let mut mappings = Mappings(Default::default());
+
+        let instructions =
+            self.transform_instructions(&allocator, processing.instructions, &mut mappings);
+
+        ScopeProcessing {
+            variables: processing.variables,
+            instructions,
+        }
+    }
 }
 
 fn create_unrolled(
-    scope: &mut Scope,
+    allocator: &Allocator,
     var: &Variable,
     max_line_size: u8,
     unroll_factor: u8,
@@ -349,20 +444,35 @@ fn create_unrolled(
     (0..unroll_factor as usize)
         .map(|_| match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {
-                scope.create_local_mut(item)
+                allocator.create_local_mut(item)
             }
-            VariableKind::LocalConst { .. } => scope.create_local(item),
+            VariableKind::LocalConst { .. } => allocator.create_local(item),
             _ => panic!("Out must be local"),
         })
         .collect()
 }
 
-fn add_index_inst(idx: Variable, i: usize, out: Variable) -> Instruction {
-    Instruction::new(
-        Arithmetic::Add(BinaryOperator {
+fn add_index_inst(
+    alloc: &Allocator,
+    idx: Variable,
+    unroll_factor: u8,
+    i: usize,
+    out: Variable,
+) -> Vec<Instruction> {
+    let mul_idx = alloc.create_local(idx.item);
+    let mul = Instruction::new(
+        Arithmetic::Mul(BinaryOperator {
             lhs: idx,
+            rhs: (unroll_factor as u32).into(),
+        }),
+        *mul_idx,
+    );
+    let add = Instruction::new(
+        Arithmetic::Add(BinaryOperator {
+            lhs: *mul_idx,
             rhs: (i as u32).into(),
         }),
         out,
-    )
+    );
+    vec![mul, add]
 }

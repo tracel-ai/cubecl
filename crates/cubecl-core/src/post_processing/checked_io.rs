@@ -45,6 +45,7 @@ impl Processor for CheckedIoProcessor {
                                     &mut scope,
                                     list.into(),
                                     index.into(),
+                                    op.unroll_factor,
                                 )
                                 .expand
                             } else {
@@ -52,6 +53,7 @@ impl Processor for CheckedIoProcessor {
                                     &mut scope,
                                     list.into(),
                                     index.into(),
+                                    op.unroll_factor,
                                 )
                                 .expand
                             };
@@ -75,7 +77,13 @@ impl Processor for CheckedIoProcessor {
 
                         if out.has_length() {
                             let mut scope = Scope::root(false).with_allocator(allocator.clone());
-                            expand_checked_index_assign(&mut scope, op.index, op.value, out);
+                            expand_checked_index_assign(
+                                &mut scope,
+                                op.index,
+                                op.value,
+                                out,
+                                op.unroll_factor,
+                            );
 
                             let tmp_processing = scope.process([]);
 

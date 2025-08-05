@@ -1,10 +1,11 @@
+use std::num::NonZero;
+
 use super::Subgroup;
 use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{ConstantScalarValue, Processor, UIntKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -12,6 +13,12 @@ use cubecl_core::{
     ir::{self as cube, Scope},
     prelude::expand_erf,
 };
+use cubecl_core::{
+    ir::{ConstantScalarValue, Processor, UIntKind},
+    post_processing::unroll::UnrollProcessor,
+};
+
+pub const MAX_LINE_SIZE: u8 = 4;
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -102,7 +109,12 @@ impl WgslCompiler {
             buffers: value
                 .buffers
                 .into_iter()
-                .map(|it| self.compile_binding(it))
+                .map(|mut it| {
+                    if it.item.vectorization() > MAX_LINE_SIZE {
+                        it.item.vectorization = NonZero::new(MAX_LINE_SIZE);
+                    }
+                    self.compile_binding(it)
+                })
                 .collect(),
             scalars: value
                 .scalars
@@ -370,9 +382,13 @@ impl WgslCompiler {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let processing = scope.process([checked_io]);
+        let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
+        let processing = scope.process([unroll, checked_io]);
 
-        for var in processing.variables {
+        for mut var in processing.variables {
+            if var.item.vectorization() > MAX_LINE_SIZE {
+                var.item.vectorization = NonZero::new(MAX_LINE_SIZE);
+            }
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
             });

@@ -135,6 +135,7 @@ pub(crate) fn expand_index_assign_native<
                 index,
                 value: value.expand.into(),
                 line_size,
+                unroll_factor: 1,
             }),
             array.expand.into(),
         ));
@@ -144,6 +145,7 @@ pub(crate) fn expand_index_assign_native<
                 index,
                 value: value.expand.into(),
                 line_size,
+                unroll_factor: 1,
             }),
             array.expand.into(),
         ));

@@ -61,6 +61,7 @@ where
         list,
         index,
         line_size: 0u32,
+        unroll_factor: 1,
     });
 
     scope.register(Instruction::new(op, out));
@@ -99,6 +100,7 @@ where
         list,
         index,
         line_size: line_size.unwrap_or(0),
+        unroll_factor: 1,
     });
 
     scope.register(Instruction::new(op, out));
@@ -304,6 +306,7 @@ pub fn array_assign_binary_op_expand<
             list: *array,
             index: *index,
             line_size: 0,
+            unroll_factor: 1,
         }),
         *array_value,
     );
@@ -321,6 +324,7 @@ pub fn array_assign_binary_op_expand<
         index: *index,
         value: op_out.consume(),
         line_size: 0,
+        unroll_factor: 1,
     });
     scope.register(read);
     scope.register(calculate);

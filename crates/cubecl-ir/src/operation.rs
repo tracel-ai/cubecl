@@ -175,7 +175,8 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 pub struct IndexOperator {
     pub list: Variable,
     pub index: Variable,
-    pub line_size: u32, // 0 == same as list.
+    pub line_size: u32,     // 0 == same as list.
+    pub unroll_factor: u32, // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -185,7 +186,8 @@ pub struct IndexAssignOperator {
     // list is out.
     pub index: Variable,
     pub value: Variable,
-    pub line_size: u32, // 0 == same as list.
+    pub line_size: u32,     // 0 == same as list.
+    pub unroll_factor: u32, // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

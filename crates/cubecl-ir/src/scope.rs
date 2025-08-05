@@ -244,6 +244,9 @@ impl Scope {
             processing = p.transform(processing, self.allocator.clone());
         }
 
+        // Add variables added from processors
+        processing.variables.extend(self.allocator.take_variables());
+
         processing
     }
 
