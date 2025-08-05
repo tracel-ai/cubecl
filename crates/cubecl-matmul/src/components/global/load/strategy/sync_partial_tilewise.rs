@@ -8,7 +8,7 @@ use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
 };
 use crate::components::{
-    global::{GlobalConfig, global_memory::TensorReader},
+    global::{GlobalConfig, memory::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
@@ -236,12 +236,11 @@ impl SyncPartialTilewiseJob {
         quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
-        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
+        let line_read = tensor_reader.load_coalesced_in_tile(
             tile.0,
             tile.1,
             line_index_within_tile * this.line_size,
-            this.ident,
-            config,
+            comptime!(config.global_memory_config(this.ident)),
         );
 
         let offset = line_index_within_tile + num_lines_to_skip_global;

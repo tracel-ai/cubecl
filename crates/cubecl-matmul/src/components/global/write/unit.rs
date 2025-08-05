@@ -1,4 +1,4 @@
-use crate::components::global::global_memory::TensorWriter;
+use crate::components::global::memory::TensorWriter;
 use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -44,12 +44,12 @@ impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
 
         for i in 0..num_lines {
             let value = out_smem_slice[i];
-            this.tensor_view.write_coalesced::<G>(
+            this.tensor_view.write_coalesced(
                 tile_row,
                 tile_col,
                 i * output_line_size,
                 value,
-                config,
+                config.global_memory_config(MatmulIdent::Out),
             );
         }
     }
