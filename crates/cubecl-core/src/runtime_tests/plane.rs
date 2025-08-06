@@ -553,7 +553,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(
     }
 
     let expected = [0b1111_1111, 0, 0, 0];
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
 
     assert_eq!(u32::from_bytes(&actual), &expected);
 }

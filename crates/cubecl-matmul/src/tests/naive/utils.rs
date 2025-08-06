@@ -17,14 +17,14 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read_one_tensor(lhs.handle.clone().binding_with_meta(
-            lhs.shape.clone(),
-            lhs.strides.clone(),
+        let lhs_binding = &client.read_one_tensor(lhs.handle.clone().copy_descriptor(
+            &lhs.shape,
+            &lhs.strides,
             size_of::<F>(),
         ));
-        let rhs_binding = &client.read_one_tensor(rhs.handle.clone().binding_with_meta(
-            rhs.shape.clone(),
-            rhs.strides.clone(),
+        let rhs_binding = &client.read_one_tensor(rhs.handle.clone().copy_descriptor(
+            &rhs.shape,
+            &rhs.strides,
             size_of::<F>(),
         ));
 

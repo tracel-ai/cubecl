@@ -5,7 +5,10 @@ use crate::{
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
-    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle, ProfileError},
+    server::{
+        Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
+        CopyDescriptor, CubeCount, Handle, IoError, ProfileError,
+    },
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::format;
@@ -106,14 +109,30 @@ where
         }
     }
 
-    /// Given bindings, returns owned resources as bytes.
-    pub fn read_async(
-        &self,
-        bindings: Vec<Binding>,
-    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + use<Server, Channel> {
+    async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Vec<u8>>, IoError> {
         self.profile_guard();
 
-        self.channel.read(bindings)
+        self.channel.read(descriptors).await
+    }
+
+    /// Given bindings, returns owned resources as bytes.
+    pub async fn read_async(&self, handles: Vec<Handle>) -> Vec<Vec<u8>> {
+        let strides = [1];
+        let shapes = handles
+            .iter()
+            .map(|it| [it.size() as usize])
+            .collect::<Vec<_>>();
+        let bindings = handles
+            .into_iter()
+            .map(|it| it.binding())
+            .collect::<Vec<_>>();
+        let descriptors = bindings
+            .into_iter()
+            .zip(shapes.iter())
+            .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
+            .collect();
+
+        self.do_read(descriptors).await.unwrap()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -121,27 +140,21 @@ where
     /// # Remarks
     ///
     /// Panics if the read operation fails.
-    pub fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        self.profile_guard();
-
-        cubecl_common::reader::read_sync(self.channel.read(bindings))
+    pub fn read(&self, handles: Vec<Handle>) -> Vec<Vec<u8>> {
+        cubecl_common::reader::read_sync(self.read_async(handles))
     }
 
     /// Given a binding, returns owned resource as bytes.
     ///
     /// # Remarks
     /// Panics if the read operation fails.
-    pub fn read_one(&self, binding: Binding) -> Vec<u8> {
-        self.profile_guard();
-
-        cubecl_common::reader::read_sync(self.channel.read([binding].into())).remove(0)
+    pub fn read_one(&self, handle: Handle) -> Vec<u8> {
+        cubecl_common::reader::read_sync(self.read_async(vec![handle])).remove(0)
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_tensor_async(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
-        self.profile_guard();
-
-        self.channel.read_tensor(bindings).await
+    pub async fn read_tensor_async(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Vec<u8>> {
+        self.do_read(descriptors).await.unwrap()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -156,18 +169,14 @@ where
     /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [ComputeClient::create_tensor].
-    pub fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
-        self.profile_guard();
-
-        cubecl_common::reader::read_sync(self.channel.read_tensor(bindings))
+    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Vec<u8>> {
+        cubecl_common::reader::read_sync(self.read_tensor_async(descriptors))
     }
 
     /// Given a binding, returns owned resource as bytes.
     /// See [ComputeClient::read_tensor]
-    pub async fn read_one_tensor_async(&self, binding: BindingWithMeta) -> Vec<u8> {
-        self.profile_guard();
-
-        self.channel.read_tensor([binding].into()).await.remove(0)
+    pub async fn read_one_tensor_async(&self, descriptor: CopyDescriptor<'_>) -> Vec<u8> {
+        self.read_tensor_async(vec![descriptor]).await.remove(0)
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -175,8 +184,8 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
-    pub fn read_one_tensor(&self, binding: BindingWithMeta) -> Vec<u8> {
-        self.read_tensor(vec![binding]).remove(0)
+    pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Vec<u8> {
+        self.read_tensor(vec![descriptor]).remove(0)
     }
 
     /// Given a resource handle, returns the storage resource.
@@ -189,11 +198,49 @@ where
         self.channel.get_resource(binding)
     }
 
-    /// Given a resource, stores it and returns the resource handle.
-    pub fn create(&self, data: &[u8]) -> Handle {
+    fn do_create(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+        data: Vec<&[u8]>,
+    ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        self.channel.create(data)
+        let allocations = self.channel.create(descriptors.clone())?;
+        let descriptors = descriptors
+            .into_iter()
+            .zip(allocations.iter())
+            .zip(data)
+            .map(|((desc, alloc), data)| {
+                (
+                    CopyDescriptor::new(
+                        alloc.handle.clone().binding(),
+                        desc.shape,
+                        &alloc.strides,
+                        desc.elem_size,
+                    ),
+                    data,
+                )
+            })
+            .collect();
+        self.channel.write(descriptors)?;
+        Ok(allocations)
+    }
+
+    /// Given a resource, stores it and returns the resource handle.
+    pub fn create(&self, data: &[u8]) -> Handle {
+        let shape = [data.len()];
+
+        self.do_create(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Contiguous,
+                &shape,
+                1,
+            )],
+            vec![data],
+        )
+        .unwrap()
+        .remove(0)
+        .handle
     }
 
     /// Given a resource and shape, stores it and returns the tensor handle and strides.
@@ -209,16 +256,17 @@ where
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [ComputeClient::read_tensor]).
-    pub fn create_tensor(
-        &self,
-        data: &[u8],
-        shape: &[usize],
-        elem_size: usize,
-    ) -> (Handle, Vec<usize>) {
-        self.channel
-            .create_tensors(vec![data], vec![shape], vec![elem_size])
-            .pop()
-            .unwrap()
+    pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
+        self.do_create(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Optimized,
+                shape,
+                elem_size,
+            )],
+            vec![data],
+        )
+        .unwrap()
+        .remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
@@ -226,41 +274,40 @@ where
     /// See [ComputeClient::create_tensor]
     pub fn create_tensors(
         &self,
-        data: Vec<&[u8]>,
-        shapes: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
+        descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
+    ) -> Vec<Allocation> {
+        let (descriptors, data) = descriptors.into_iter().unzip();
+
+        self.do_create(descriptors, data).unwrap()
+    }
+
+    fn do_empty(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        self.channel.create_tensors(data, shapes, elem_size)
+        self.channel.create(descriptors)
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
-        self.profile_guard();
-
-        self.channel.empty(size)
+        let shape = [size];
+        let descriptor = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
+        self.do_empty(vec![descriptor]).unwrap().remove(0).handle
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
-    pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        self.channel
-            .empty_tensors(vec![shape], vec![elem_size])
-            .pop()
-            .unwrap()
+    pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
+        let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
     /// See [ComputeClient::create_tensor]
-    pub fn empty_tensors(
-        &self,
-        shapes: Vec<&[usize]>,
-        elem_size: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)> {
-        self.profile_guard();
-
-        self.channel.empty_tensors(shapes, elem_size)
+    pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor<'_>>) -> Vec<Allocation> {
+        self.do_empty(descriptors).unwrap()
     }
 
     #[track_caller]

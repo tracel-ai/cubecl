@@ -60,7 +60,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(handle2.binding());
+    let actual = client.read_one(handle2);
     let actual = u8::from_bytes(&actual);
     let expect_0: Vec<u8> = vec![0b1_1000_000, 0b0_0111_110, 0b0_0101_101, 0b0_0111_010];
     let expect_1: Vec<u8> = vec![0b1_10000_00, 0b0_01111_11, 0b0_01101_10, 0b0_01111_01];
@@ -69,7 +69,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
-    let actual_2 = client.read_one(handle1.binding());
+    let actual_2 = client.read_one(handle1);
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
@@ -102,7 +102,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(handle2.binding());
+    let actual = client.read_one(handle2);
     let actual = u8::from_bytes(&actual);
     let expect_0: Vec<u8> = vec![0b1_10_000, 0b0_01_110, 0b0_00_011, 0b0_01_010];
     let expect_1: Vec<u8> = vec![0b1_100_00, 0b0_011_11, 0b0_001_10, 0b0_011_01];
@@ -111,7 +111,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
-    let actual_2 = client.read_one(handle1.binding());
+    let actual_2 = client.read_one(handle1);
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
@@ -140,13 +140,13 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vect
         )
     };
 
-    let actual = client.read_one(handle2.binding());
+    let actual = client.read_one(handle2);
     let actual = u8::from_bytes(&actual);
     let expect: Vec<u8> = vec![0b1000_0000, 0b1000_1001, 0b1000_1111, 0b1111_1110];
 
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
-    let actual_2 = client.read_one(handle1.binding());
+    let actual_2 = client.read_one(handle1);
     let actual_2 = f32::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 

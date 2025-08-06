@@ -23,7 +23,7 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
                 line_size as u32,
             );
         }
-        let actual = client.read_one(handle.binding());
+        let actual = client.read_one(handle);
         let actual = F::from_bytes(&actual);
 
         let mut expected = vec![F::new(0.0); line_size as usize];
@@ -56,7 +56,7 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
             );
         }
 
-        let actual = client.read_one(handle.binding());
+        let actual = client.read_one(handle);
         let actual = F::from_bytes(&actual);
 
         let mut expected = vec![F::new(0.0); line_size as usize];
@@ -93,7 +93,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
             );
         }
 
-        let actual = client.read_one(handle.binding());
+        let actual = client.read_one(handle);
         let actual = F::from_bytes(&actual);
 
         let expected = (0..line_size as i64)
@@ -125,7 +125,7 @@ pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(
             );
         }
 
-        let actual = client.read_one(output.binding());
+        let actual = client.read_one(output);
         let actual = F::from_bytes(&actual);
 
         assert_eq!(actual[0], F::new(42.0));
@@ -164,7 +164,7 @@ macro_rules! impl_line_comparison {
                     )
                 };
 
-                let actual = client.read_one(output.binding());
+                let actual = client.read_one(output);
                 let actual = u32::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);

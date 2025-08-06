@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
-use cubecl_core::calculate_cube_count_elemwise;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::{Runtime, server};
+use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
 use cubecl_runtime::server::Handle;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
@@ -68,7 +68,7 @@ where
 
     pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let elem_size = E::size().expect("To be a native type");
-        let (handle, strides) = client.empty_tensor(&shape, elem_size);
+        let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
 
         Self::new(handle, shape, strides)
     }
