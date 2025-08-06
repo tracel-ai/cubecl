@@ -3,8 +3,7 @@ use std::marker::PhantomData;
 use crate::components::{
     InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, RoleRule, global_memory::TensorReader,
-        load::AsyncFullLoadingStrategy,
+        CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy, memory::TensorReader,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -130,11 +129,10 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
 
         // TODO make branching comptime conditional (using Loader Mode)
         if slice_index < this.num_slices {
-            let window = tensor_reader.load_window_in_tile::<G>(
+            let window = tensor_reader.load_window_in_tile(
                 (tile_x, tile_y),
                 nth_slice,
-                this.ident,
-                config,
+                comptime!(config.global_memory_config(this.ident)),
             );
 
             // Where this unit writes source in the stage
