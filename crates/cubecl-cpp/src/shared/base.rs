@@ -1063,7 +1063,7 @@ impl<D: Dialect> CppCompiler<D> {
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
-                len: op.len.as_const().unwrap().as_u32(),
+                len: op.len,
             }),
             gpu::Operator::Select(op) => instructions.push(Instruction::Select {
                 cond: self.compile_variable(op.cond),
