@@ -1,6 +1,6 @@
 use crate::components::MatmulIdent;
 use crate::components::MatrixLayout;
-use crate::components::global;
+use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
@@ -77,29 +77,27 @@ impl<EG: Numeric> TensorReader<EG> {
     ///
     /// If the slice would be partly out-of-bounds, it will simply be shorter.
     /// The caller must do the padding if necessary.
-    pub fn load_window_in_tile<G: global::GlobalConfig>(
+    pub fn load_window_in_tile(
         &self,
         tile: (u32, u32),
         nth_window: u32,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Window<EG> {
-        let line_size = config.global_line_size(ident);
-        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config.global_line_size;
+        let matrix_layout = config.matrix_layout;
 
-        let tile_size_x = config.tiling_scheme().elements_in_tile_row(ident);
-        let tile_size_y = config.tiling_scheme().elements_in_tile_col(ident);
+        let tile_size_x = config.elements_in_tile_row;
+        let tile_size_y = config.elements_in_tile_col;
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor => tile_size_y / line_size,
             MatrixLayout::ColMajor => tile_size_x / line_size,
         }};
 
-        self.load_window::<G>(
+        self.load_window(
             nth_window,
             (tile.0 * tile_size_x, tile.1 * tile_size_y),
             num_lines_in_window,
-            ident,
             config,
         )
     }
@@ -112,43 +110,40 @@ impl<EG: Numeric> TensorReader<EG> {
     ///
     /// If the slice would be partly out-of-bounds, it will simply be shorter.
     /// The caller must do the padding if necessary.
-    pub fn load_window_in_stage<G: global::GlobalConfig>(
+    pub fn load_window_in_stage(
         &self,
         nth_window: u32,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Window<EG> {
-        let line_size = config.global_line_size(ident);
-        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config.global_line_size;
+        let matrix_layout = config.matrix_layout;
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor =>
-                config.tiling_scheme().elements_in_stage_col(ident) / line_size
+                config.elements_in_stage_col / line_size
             ,
             MatrixLayout::ColMajor =>
-                config.tiling_scheme().elements_in_stage_row(ident) / line_size
+                config.elements_in_stage_row / line_size
             ,
         }};
 
-        self.load_window::<G>(
+        self.load_window(
             nth_window,
             (0u32, 0u32).runtime(),
             num_lines_in_window,
-            ident,
             config,
         )
     }
 
-    fn load_window<G: global::GlobalConfig>(
+    fn load_window(
         &self,
         nth_window: u32,
         tile_offsets: (u32, u32),
         #[comptime] num_lines_in_window: u32,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Window<EG> {
-        let line_size = config.global_line_size(ident);
-        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config.global_line_size;
+        let matrix_layout = config.matrix_layout;
 
         let (load_x, load_y) = match matrix_layout {
             MatrixLayout::RowMajor => (nth_window, 0),
@@ -165,20 +160,20 @@ impl<EG: Numeric> TensorReader<EG> {
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
         let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
-            match config.matrix_layout(ident) {
+            match config.matrix_layout {
                 MatrixLayout::RowMajor => (
-                    config.check_row_bounds(ident),
+                    config.check_row_bounds,
                     view_x,
                     self.shape_x,
-                    config.check_col_bounds(ident),
+                    config.check_col_bounds,
                     view_y,
                     self.shape_y,
                 ),
                 MatrixLayout::ColMajor => (
-                    config.check_col_bounds(ident),
+                    config.check_col_bounds,
                     view_y,
                     self.shape_y,
-                    config.check_row_bounds(ident),
+                    config.check_row_bounds,
                     view_x,
                     self.shape_x,
                 ),
@@ -213,26 +208,25 @@ impl<EG: Numeric> TensorReader<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_coalesced_in_tile<G: global::GlobalConfig>(
+    pub fn load_coalesced_in_tile(
         &self,
         tile_x: u32,
         tile_y: u32,
         position: u32,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Line<EG> {
-        let tile_size_x = config.tiling_scheme().elements_in_tile_row(ident);
-        let tile_size_y = config.tiling_scheme().elements_in_tile_col(ident);
+        let tile_size_x = config.elements_in_tile_row;
+        let tile_size_y = config.elements_in_tile_col;
 
         let view_tile_x = tile_x * tile_size_x;
         let view_tile_y = tile_y * tile_size_y;
 
-        let (load_x, load_y) = match config.matrix_layout(ident) {
+        let (load_x, load_y) = match config.matrix_layout {
             MatrixLayout::RowMajor => (position / tile_size_y, position % tile_size_y),
             MatrixLayout::ColMajor => (position % tile_size_x, position / tile_size_x),
         };
 
-        self.load_coalesced::<G>((load_x + view_tile_x, load_y + view_tile_y), ident, config)
+        self.load_coalesced((load_x + view_tile_x, load_y + view_tile_y), config)
     }
 
     /// Reads data from the tensor view at the specified index within the whole view,
@@ -245,30 +239,28 @@ impl<EG: Numeric> TensorReader<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_coalesced_in_stage<G: global::GlobalConfig>(
+    pub fn load_coalesced_in_stage(
         &self,
         position: u32,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Line<EG> {
-        let stage_shape_x = config.tiling_scheme().elements_in_stage_row(ident);
-        let stage_shape_y = config.tiling_scheme().elements_in_stage_col(ident);
+        let stage_shape_x = config.elements_in_stage_row;
+        let stage_shape_y = config.elements_in_stage_col;
 
-        let load_offsets = match config.matrix_layout(ident) {
+        let load_offsets = match config.matrix_layout {
             MatrixLayout::RowMajor => (position / stage_shape_y, position % stage_shape_y),
             MatrixLayout::ColMajor => (position % stage_shape_x, position / stage_shape_x),
         };
 
-        self.load_coalesced::<G>(load_offsets, ident, config)
+        self.load_coalesced(load_offsets, config)
     }
 
-    fn load_coalesced<G: global::GlobalConfig>(
+    fn load_coalesced(
         &self,
         load_offsets: (u32, u32),
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Line<EG> {
-        let line_size = config.global_line_size(ident);
+        let line_size = config.global_line_size;
 
         let view_x = load_offsets.0 + self.x_offset.read();
         let view_y = load_offsets.1 + self.y_offset.read();
@@ -276,10 +268,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
-        match comptime!((
-            config.check_row_bounds(ident),
-            config.check_col_bounds(ident)
-        )) {
+        match comptime!((config.check_row_bounds, config.check_col_bounds)) {
             (true, true) => read_masked::<Line<EG>>(
                 view_x < self.shape_x && view_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
