@@ -24,10 +24,7 @@ pub struct SimpleMatmul<
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 > {
-    _ms: PhantomData<MP>,
-    _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
+    _phantom: PhantomData<(MP, SMM, LL, RL)>,
 }
 
 #[cube]
@@ -42,8 +39,8 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type Config = SimpleConfig<SMM::Config>;
-    type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncFullLoader<MP, Self::Config, RL>;
+    type LhsLoader = SyncFullLoader<MP::Lhs, Self::Config, LL>;
+    type RhsLoader = SyncFullLoader<MP::Rhs, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;

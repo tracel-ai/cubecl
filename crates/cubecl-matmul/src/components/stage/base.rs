@@ -6,7 +6,9 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent};
+use crate::components::{
+    AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
+};
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},

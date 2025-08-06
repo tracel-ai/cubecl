@@ -50,8 +50,8 @@ where
     RL: SyncPartialLoadingStrategy,
 {
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncFullLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncPartialLoader<MP, Self::Config, RL>;
+    type LhsLoader = SyncFullLoader<MP::Lhs, Self::Config, LL>;
+    type RhsLoader = SyncPartialLoader<MP::Rhs, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -167,7 +167,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        SyncFullLoader::<MP, Self::Config, LL>::new(
+        SyncFullLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs,
             x_offset,
             y_offset,
@@ -185,7 +185,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        SyncPartialLoader::<MP, Self::Config, RL>::new(
+        SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs,
             x_offset,
             y_offset,

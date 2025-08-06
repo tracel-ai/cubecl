@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::InputPrecision;
 use crate::components::LhsG;
 use crate::components::LhsS;
 use crate::components::MatmulIdent;
@@ -46,8 +47,20 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = SimpleBarrierConfig<SMM::Config>;
-    type LhsLoader = AsyncFullLoader<MP, Barrier<LhsG<MP>>, SMM::Config, LL, Self::Config>;
-    type RhsLoader = AsyncFullLoader<MP, Barrier<RhsG<MP>>, SMM::Config, RL, Self::Config>;
+    type LhsLoader = AsyncFullLoader<
+        MP::Lhs,
+        Barrier<<MP::Lhs as InputPrecision>::Stage>,
+        SMM::Config,
+        LL,
+        Self::Config,
+    >;
+    type RhsLoader = AsyncFullLoader<
+        MP::Rhs,
+        Barrier<<MP::Rhs as InputPrecision>::Stage>,
+        SMM::Config,
+        RL,
+        Self::Config,
+    >;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -68,8 +81,8 @@ where
         SMM::zero_accumulator(acc, config.stage_config());
 
         let barrier_level = LL::barrier_level();
-        let lhs_barrier = Barrier::<LhsG<MP>>::new(barrier_level);
-        let rhs_barrier = Barrier::<RhsG<MP>>::new(barrier_level);
+        let lhs_barrier = Barrier::<<MP::Lhs as InputPrecision>::Stage>::new(barrier_level);
+        let rhs_barrier = Barrier::<<MP::Rhs as InputPrecision>::Stage>::new(barrier_level);
 
         for loop_iter in 0..num_loops {
             sync_cube();

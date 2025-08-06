@@ -37,7 +37,7 @@ pub trait MatmulPrecision: Send + Sync + Copy + 'static {
     type EO: Numeric;
 }
 
-pub trait InputPrecision {
+pub trait InputPrecision: Send + Sync + Copy + 'static {
     /// Element type of input tensor in global memory
     type Global: Numeric;
     /// Element type once stored in shared memory

@@ -23,18 +23,17 @@ use crate::components::global::GlobalConfig;
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using tma loading
 pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
-    _ms: PhantomData<MP>,
-    _stage_matmul: PhantomData<SMM>,
+    _phantom: PhantomData<(MP, SMM)>,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<MP, LhsReader = TmaReader<MP>, RhsReader = TmaReader<MP>>,
+    SMM: StageMatmul<MP, LhsReader = TmaReader<MP::Lhs>, RhsReader = TmaReader<MP::Rhs>>,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
-    type LhsLoader = TmaLoader<MP, Self::Config>;
-    type RhsLoader = TmaLoader<MP, Self::Config>;
+    type LhsLoader = TmaLoader<MP::Lhs, Self::Config>;
+    type RhsLoader = TmaLoader<MP::Rhs, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;

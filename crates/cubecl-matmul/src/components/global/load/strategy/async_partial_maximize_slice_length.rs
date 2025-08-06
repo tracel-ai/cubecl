@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
+    InvalidConfigError, MatmulIdent, InputPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         global_memory::{TensorReader, Window},
@@ -26,9 +26,9 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
 #[cube]
 impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = AsyncPartialMaximizeSliceLengthJob;
+    type Job<IP: InputPrecision> = AsyncPartialMaximizeSliceLengthJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -108,14 +108,14 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
+impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsyncPartialMaximizeSliceLengthJob
 {
-    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
@@ -123,10 +123,10 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
 
         let nth_slice = nth_slice_in_stage + this.num_slices_stage_offset;
 
-        let window: Window<MP::EI> =
+        let window: Window<IP::Global> =
             tensor_reader.load_window_in_stage::<G>(nth_slice, this.ident, config);
-        let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
+        let mut destination: SliceMut<Line<IP::Stage>> =
+            StridedTilingLayout::nth_slice::<IP::Stage, G::StageMemoryConfig>(
                 stage,
                 nth_slice,
                 comptime!(this.ident.into_stage()),
