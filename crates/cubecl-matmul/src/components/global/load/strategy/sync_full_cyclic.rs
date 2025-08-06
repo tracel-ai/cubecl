@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::SyncFullLoadingStrategy;
+use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, Quantization, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
@@ -175,12 +175,11 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         comptime!(config.stage_memory_config()),
     );
 
-    let line_read = tensor_reader.load_coalesced_in_tile::<G>(
+    let line_read = tensor_reader.load_coalesced_in_tile(
         tile_x,
         tile_y,
         pos_within_tile,
-        job.ident,
-        config,
+        comptime!(config.global_memory_config(job.ident)),
     );
 
     stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
