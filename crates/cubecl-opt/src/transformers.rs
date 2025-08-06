@@ -1,4 +1,6 @@
-use cubecl_common::{CubeDim, stub::Mutex};
+use std::rc::Rc;
+
+use cubecl_common::CubeDim;
 use cubecl_ir::{Instruction, Processor, Scope};
 
 use crate::Optimizer;
@@ -6,14 +8,14 @@ use crate::Optimizer;
 /// Build an optimizer with IR transformers
 #[derive(Default)]
 pub struct OptimizerBuilder {
-    transformers: Vec<Mutex<Box<dyn IrTransformer>>>,
+    transformers: Vec<Rc<dyn IrTransformer>>,
     processors: Vec<Box<dyn Processor>>,
 }
 
 impl OptimizerBuilder {
     /// Add an IR transformer to the optimizer
     pub fn with_transformer(mut self, transformer: impl IrTransformer + 'static) -> Self {
-        self.transformers.push(Mutex::new(Box::new(transformer)));
+        self.transformers.push(Rc::new(transformer));
         self
     }
 

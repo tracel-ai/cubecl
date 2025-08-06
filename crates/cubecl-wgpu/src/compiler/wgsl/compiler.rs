@@ -110,6 +110,8 @@ impl WgslCompiler {
                 .buffers
                 .into_iter()
                 .map(|mut it| {
+                    // This is safe when combined with the unroll transform that adjusts all indices.
+                    // Must not be used alone
                     if it.item.vectorization() > MAX_LINE_SIZE {
                         it.item.vectorization = NonZero::new(MAX_LINE_SIZE);
                     }

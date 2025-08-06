@@ -228,7 +228,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
             .with_processor(CheckedIoProcessor::new(self.mode))
-            .with_processor(UnrollProcessor::new(4))
+            .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
             .optimize(kernel.body, kernel.cube_dim);
 
         self.uniformity = opt.analysis::<Uniformity>();

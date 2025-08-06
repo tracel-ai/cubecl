@@ -104,6 +104,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .buffers
             .into_iter()
             .map(|mut binding| {
+                // This is safe when combined with the unroll transform that adjusts all indices.
+                // Must not be used alone
                 if binding.item.vectorization() > MAX_VECTORIZATION {
                     binding.item.vectorization = NonZero::new(MAX_VECTORIZATION);
                 }
