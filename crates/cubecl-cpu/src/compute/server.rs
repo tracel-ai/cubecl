@@ -64,7 +64,7 @@ impl CpuServer {
         ) -> Result<Vec<Vec<u8>>, IoError> {
             let mut result = Vec::with_capacity(descriptors.len());
             for desc in descriptors {
-                let binding = desc.handle.binding();
+                let binding = desc.binding;
                 let resource = ctx
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
@@ -134,7 +134,7 @@ impl ComputeServer for CpuServer {
                 return Err(IoError::UnsupportedStrides);
             }
 
-            self.copy_to_binding(desc.handle.binding(), data);
+            self.copy_to_binding(desc.binding, data);
         }
         Ok(())
     }
@@ -157,8 +157,7 @@ impl ComputeServer for CpuServer {
     ) {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
-            CubeCount::Dynamic(handle) => {
-                let binding = handle.binding();
+            CubeCount::Dynamic(binding) => {
                 let handle = self
                     .ctx
                     .memory_management

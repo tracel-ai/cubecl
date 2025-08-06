@@ -259,9 +259,9 @@ impl WgpuStream {
         })
     }
 
-    pub fn read_binding(&mut self, handle: Handle) -> DynFut<Result<Vec<u8>, IoError>> {
-        let shape = [handle.size() as usize];
-        let data = self.read_buffers(vec![CopyDescriptor::new(handle.binding(), &shape, &[1], 1)]);
+    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Vec<u8>, IoError>> {
+        let shape = [binding.size() as usize];
+        let data = self.read_buffers(vec![CopyDescriptor::new(binding, &shape, &[1], 1)]);
         Box::pin(async move {
             let data = data.await?.remove(0);
             Ok(data)
@@ -338,7 +338,7 @@ impl WgpuStream {
                 //
                 // For now, instead do a dummy readback. This *seems* to wait for the entire
                 // queue to be done.
-                let fut = self.read_binding(buf.clone());
+                let fut = self.read_binding(buf.clone().binding());
                 core::mem::swap(&mut buffer, &mut self.sync_buffer);
                 Box::pin(async move {
                     fut.await.expect("Failed to read sync buffer");
