@@ -43,7 +43,7 @@ impl Compiler for MlirCompiler {
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_processor(CheckedIoProcessor::new(mode))
-            .optimize(kernel.body.clone(), kernel.cube_dim, mode);
+            .optimize(kernel.body.clone(), kernel.cube_dim);
 
         let mut shared_memories = SharedMemories::default();
         shared_memories.visit(&opt);
