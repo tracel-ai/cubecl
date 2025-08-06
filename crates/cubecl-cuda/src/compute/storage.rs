@@ -137,4 +137,8 @@ impl ComputeStorage for CudaStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
+
+    fn flush(&mut self) {
+        self.perform_deallocations();
+    }
 }
