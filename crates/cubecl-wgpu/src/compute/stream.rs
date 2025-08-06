@@ -3,7 +3,7 @@ use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Bindings, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
+    server::{Binding, Bindings, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
@@ -93,7 +93,7 @@ impl WgpuStream {
     ) {
         let dispatch_resource = match dispatch.clone() {
             CubeCount::Static(_, _, _) => None,
-            CubeCount::Dynamic(handle) => Some(self.mem_manage.get_resource(handle.binding())),
+            CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
         let info = (!bindings.metadata.data.is_empty()).then(|| {
@@ -189,7 +189,7 @@ impl WgpuStream {
         let mut callbacks = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
-            let binding = descriptor.handle.binding();
+            let binding = descriptor.binding;
             let size = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
@@ -261,7 +261,7 @@ impl WgpuStream {
 
     pub fn read_binding(&mut self, handle: Handle) -> DynFut<Result<Vec<u8>, IoError>> {
         let shape = [handle.size() as usize];
-        let data = self.read_buffers(vec![CopyDescriptor::new(handle, &shape, &[1], 1)]);
+        let data = self.read_buffers(vec![CopyDescriptor::new(handle.binding(), &shape, &[1], 1)]);
         Box::pin(async move {
             let data = data.await?.remove(0);
             Ok(data)
@@ -369,22 +369,22 @@ impl WgpuStream {
 
     fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
         let buffer = self.empty(data.len() as u64)?;
-        self.copy_to_handle(buffer.clone(), data);
+        self.copy_to_binding(buffer.clone().binding(), data);
         Ok(buffer)
     }
 
-    pub fn copy_to_handle(&mut self, handle: Handle, data: &[u8]) {
+    pub fn copy_to_binding(&mut self, binding: Binding, data: &[u8]) {
         let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
-        let size = handle.size().next_multiple_of(align as u64);
+        let size = binding.size().next_multiple_of(align as u64);
 
         // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
         // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
         // a buffer we copy to MUST not have any outstanding compute work associated with it.
         // Any handles with compute work are kept in pending operations,
         // and the allocation here won't try to use that buffer.
-        let resource = self.mem_manage.get_resource(handle.binding());
+        let resource = self.mem_manage.get_resource(binding);
 
         // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
         // its API as a slice to write into.

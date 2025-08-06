@@ -60,7 +60,12 @@ where
             )])?
             .remove(0);
         self.write(vec![(
-            CopyDescriptor::new(alloc.handle.clone(), &[data.len()], &alloc.strides, 1),
+            CopyDescriptor::new(
+                alloc.handle.clone().binding(),
+                &[data.len()],
+                &alloc.strides,
+                1,
+            ),
             data,
         )])?;
         Ok(alloc.handle)
@@ -320,13 +325,22 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// Size in bytes
+    size: u64,
+}
+
+impl Binding {
+    /// Get the size of the handle, in bytes, accounting for offsets
+    pub fn size(&self) -> u64 {
+        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
 }
 
 /// A binding with shape and stride info for non-contiguous reading
 #[derive(new, Debug, Clone)]
 pub struct CopyDescriptor<'a> {
-    /// Handle for the memory resource
-    pub handle: Handle,
+    /// Binding for the memory resource
+    pub binding: Binding,
     /// Shape of the resource
     pub shape: &'a [usize],
     /// Strides of the resource
@@ -384,6 +398,7 @@ impl Handle {
             memory: MemoryHandle::binding(self.memory),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            size: self.size,
         }
     }
 
@@ -398,7 +413,7 @@ impl Handle {
             shape,
             strides,
             elem_size,
-            handle: self.clone(),
+            binding: self.clone().binding(),
         }
     }
 }
@@ -420,6 +435,7 @@ impl Clone for Binding {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            size: self.size,
         }
     }
 }
@@ -432,7 +448,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Handle),
+    Dynamic(Binding),
 }
 
 impl CubeCount {

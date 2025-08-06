@@ -1,6 +1,7 @@
 use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{id::KernelId, server::IoError};
@@ -8,7 +9,6 @@ use cubecl_runtime::{
     kernel::KernelMetadata,
     server::{Allocation, AllocationDescriptor},
 };
-use cubecl_runtime::{logging::ServerLogger, memory_management::MemoryHandle};
 use std::sync::Arc;
 
 use super::DummyKernel;
@@ -90,10 +90,7 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
-                let bytes_handle = self
-                    .memory_management
-                    .get(b.handle.memory.binding())
-                    .unwrap();
+                let bytes_handle = self.memory_management.get(b.binding.memory).unwrap();
                 self.memory_management.storage().get(&bytes_handle)
             })
             .collect();
@@ -103,7 +100,7 @@ impl ComputeServer for DummyServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
-            let resource = self.get_resource(descriptor.handle.binding());
+            let resource = self.get_resource(descriptor.binding);
             let bytes = resource.resource().write();
             bytes[..data.len()].copy_from_slice(data);
         }

@@ -104,12 +104,11 @@ impl HipServer {
 
             for descriptor in descriptors {
                 let CopyDescriptor {
-                    handle,
+                    binding,
                     shape,
                     strides,
                     elem_size,
                 } = descriptor;
-                let binding = handle.binding();
 
                 if !valid_strides(shape, strides) {
                     return Err(IoError::UnsupportedStrides);
@@ -224,12 +223,11 @@ impl ComputeServer for HipServer {
     ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
             let CopyDescriptor {
-                handle,
+                binding,
                 shape,
                 strides,
                 elem_size,
             } = descriptor;
-            let binding = handle.binding();
             let rank = shape.len();
 
             if !valid_strides(shape, strides) {
@@ -273,8 +271,8 @@ impl ComputeServer for HipServer {
             // TODO: HIP doesn't have an exact equivalen of dynamic dispatch. Instead, kernels are free to launch other kernels.
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
-            CubeCount::Dynamic(handle) => {
-                let data = self.read_sync(handle.binding());
+            CubeCount::Dynamic(binding) => {
+                let data = self.read_sync(binding);
                 let data = bytemuck::cast_slice(&data);
                 assert!(
                     data.len() == 3,

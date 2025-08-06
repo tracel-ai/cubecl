@@ -116,16 +116,20 @@ where
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_async(&self, bindings: Vec<Handle>) -> Vec<Vec<u8>> {
+    pub async fn read_async(&self, handles: Vec<Handle>) -> Vec<Vec<u8>> {
         let strides = [1];
-        let shapes = bindings
+        let shapes = handles
             .iter()
             .map(|it| [it.size() as usize])
+            .collect::<Vec<_>>();
+        let bindings = handles
+            .into_iter()
+            .map(|it| it.binding())
             .collect::<Vec<_>>();
         let descriptors = bindings
             .into_iter()
             .zip(shapes.iter())
-            .map(|(handle, shape)| CopyDescriptor::new(handle, shape, &strides, 1))
+            .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
             .collect();
 
         self.do_read(descriptors).await.unwrap()
@@ -136,16 +140,16 @@ where
     /// # Remarks
     ///
     /// Panics if the read operation fails.
-    pub fn read(&self, bindings: Vec<Handle>) -> Vec<Vec<u8>> {
-        cubecl_common::reader::read_sync(self.read_async(bindings))
+    pub fn read(&self, handles: Vec<Handle>) -> Vec<Vec<u8>> {
+        cubecl_common::reader::read_sync(self.read_async(handles))
     }
 
     /// Given a binding, returns owned resource as bytes.
     ///
     /// # Remarks
     /// Panics if the read operation fails.
-    pub fn read_one(&self, binding: Handle) -> Vec<u8> {
-        cubecl_common::reader::read_sync(self.read_async(vec![binding])).remove(0)
+    pub fn read_one(&self, handle: Handle) -> Vec<u8> {
+        cubecl_common::reader::read_sync(self.read_async(vec![handle])).remove(0)
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -180,8 +184,8 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
-    pub fn read_one_tensor(&self, binding: CopyDescriptor) -> Vec<u8> {
-        self.read_tensor(vec![binding]).remove(0)
+    pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Vec<u8> {
+        self.read_tensor(vec![descriptor]).remove(0)
     }
 
     /// Given a resource handle, returns the storage resource.
@@ -209,7 +213,7 @@ where
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.handle.clone(),
+                        alloc.handle.clone().binding(),
                         desc.shape,
                         &alloc.strides,
                         desc.elem_size,

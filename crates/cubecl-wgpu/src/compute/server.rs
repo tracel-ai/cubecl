@@ -166,7 +166,7 @@ impl ComputeServer for WgpuServer {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides);
             }
-            self.stream.copy_to_handle(desc.handle, data);
+            self.stream.copy_to_binding(desc.binding, data);
         }
         Ok(())
     }
