@@ -1,5 +1,9 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{Metadata, WgpuCompilationOptions, ir as core, prelude::FastMath};
+use cubecl_core::{
+    Metadata, WgpuCompilationOptions, ir as core,
+    post_processing::{checked_io::CheckedIoProcessor, unroll::UnrollProcessor},
+    prelude::FastMath,
+};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
 use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 use std::{
@@ -223,7 +227,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
-            .optimize(kernel.body, kernel.cube_dim, self.mode);
+            .with_processor(CheckedIoProcessor::new(self.mode))
+            .with_processor(UnrollProcessor::new(4))
+            .optimize(kernel.body, kernel.cube_dim);
 
         self.uniformity = opt.analysis::<Uniformity>();
         self.opt = Rc::new(opt);

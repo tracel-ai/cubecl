@@ -41,6 +41,7 @@ impl Compiler for MlirCompiler {
         dump_scope(&kernel.body);
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
+            .with_processor(post_processing::checked_io::CheckedIoProcessor::new(mode))
             .optimize(kernel.body.clone(), kernel.cube_dim, mode);
 
         let mut shared_memories = SharedMemories::default();

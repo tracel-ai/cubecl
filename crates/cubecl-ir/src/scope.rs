@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, boxed::Box, rc::Rc, string::ToString, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, string::ToString, vec::Vec};
 use core::{any::TypeId, cell::RefCell, fmt::Display};
 use hashbrown::{HashMap, HashSet};
 
@@ -216,9 +216,9 @@ impl Scope {
     ///
     /// New operations and variables can be created within the same scope without having name
     /// conflicts.
-    pub fn process(
+    pub fn process<'a>(
         &mut self,
-        processors: impl IntoIterator<Item = Box<dyn Processor>>,
+        processors: impl IntoIterator<Item = &'a dyn Processor>,
     ) -> ScopeProcessing {
         let mut variables = core::mem::take(&mut self.locals);
 

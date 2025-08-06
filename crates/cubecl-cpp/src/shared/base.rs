@@ -254,7 +254,7 @@ impl<D: Dialect> CppCompiler<D> {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let processing = scope.process([checked_io]);
+        let processing = scope.process([&*checked_io]);
 
         for var in processing.variables {
             instructions.push(Instruction::DeclareVariable {

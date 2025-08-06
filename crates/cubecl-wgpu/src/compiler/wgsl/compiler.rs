@@ -383,7 +383,7 @@ impl WgslCompiler {
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
         let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
-        let processing = scope.process([unroll, checked_io]);
+        let processing = scope.process([&*unroll, &*checked_io]);
 
         for mut var in processing.variables {
             if var.item.vectorization() > MAX_LINE_SIZE {

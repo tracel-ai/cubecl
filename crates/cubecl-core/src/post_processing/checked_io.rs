@@ -6,7 +6,7 @@ use crate::{
     prelude::{Line, NumericExpand, expand_checked_index_assign},
 };
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct CheckedIoProcessor {
     mode: ExecutionMode,
 }

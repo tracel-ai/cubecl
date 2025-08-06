@@ -1,12 +1,13 @@
-use cubecl_common::{CubeDim, ExecutionMode, stub::Mutex};
-use cubecl_ir::{Instruction, Scope};
+use cubecl_common::{CubeDim, stub::Mutex};
+use cubecl_ir::{Instruction, Processor, Scope};
 
 use crate::Optimizer;
 
 /// Build an optimizer with IR transformers
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct OptimizerBuilder {
     transformers: Vec<Mutex<Box<dyn IrTransformer>>>,
+    processors: Vec<Box<dyn Processor>>,
 }
 
 impl OptimizerBuilder {
@@ -16,9 +17,14 @@ impl OptimizerBuilder {
         self
     }
 
+    pub fn with_processor(mut self, processor: impl Processor + 'static) -> Self {
+        self.processors.push(Box::new(processor));
+        self
+    }
+
     /// Build and run optimizer on the scope
-    pub fn optimize(self, expand: Scope, cube_dim: CubeDim, mode: ExecutionMode) -> Optimizer {
-        Optimizer::new(expand, cube_dim, mode, self.transformers)
+    pub fn optimize(self, expand: Scope, cube_dim: CubeDim) -> Optimizer {
+        Optimizer::new(expand, cube_dim, self.transformers, self.processors)
     }
 }
 
