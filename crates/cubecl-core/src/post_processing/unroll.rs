@@ -1,4 +1,4 @@
-use std::{iter, num::NonZero};
+use std::num::NonZero;
 
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CopyMemoryBulkOperator, ExpandElement,
@@ -6,8 +6,6 @@ use cubecl_ir::{
     Operator, Processor, ScopeProcessing, Variable, VariableKind,
 };
 use hashbrown::HashMap;
-
-use crate::prelude::CubePrimitive;
 
 /// The action that should be performed on an instruction, returned by [`IrTransformer::maybe_transform`]
 pub enum TransformAction {
@@ -188,19 +186,10 @@ impl UnrollProcessor {
         mut out: Variable,
         unroll_factor: u8,
     ) -> Vec<Instruction> {
-        let in_index = alloc.create_local(Item::new(u32::as_elem_native_unchecked()));
-        let offset_input = alloc.create_local(Item::new(u32::as_elem_native_unchecked()));
-        let out_index = alloc.create_local(Item::new(u32::as_elem_native_unchecked()));
-        let offset_out = alloc.create_local(Item::new(u32::as_elem_native_unchecked()));
-        let mul = |idx, out_idx| {
-            Instruction::new(
-                Arithmetic::Mul(BinaryOperator {
-                    lhs: idx,
-                    rhs: (unroll_factor as u32).into(),
-                }),
-                out_idx,
-            )
-        };
+        let (mul1, in_index) = mul_index(alloc, op.in_index, unroll_factor);
+        let (mul2, offset_input) = mul_index(alloc, op.offset_input, unroll_factor);
+        let (mul3, out_index) = mul_index(alloc, op.out_index, unroll_factor);
+        let (mul4, offset_out) = mul_index(alloc, op.offset_out, unroll_factor);
 
         let mut input = op.input;
         input.item.vectorization = NonZero::new(self.max_line_size);
@@ -208,10 +197,10 @@ impl UnrollProcessor {
         out.item.vectorization = NonZero::new(self.max_line_size);
 
         vec![
-            mul(op.in_index, *in_index),
-            mul(op.offset_input, *offset_input),
-            mul(op.out_index, *out_index),
-            mul(op.offset_out, *offset_out),
+            mul1,
+            mul2,
+            mul3,
+            mul4,
             Instruction::new(
                 Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
                     input,
@@ -237,31 +226,29 @@ impl UnrollProcessor {
         unroll_factor: u8,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
-        let mut indices = vec![];
-
-        for _ in 0..unroll_factor as usize {
-            indices.push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
-        }
+        let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
+        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
 
         let mut list = op.list;
         list.item.vectorization = NonZero::new(self.max_line_size);
 
         let out = mappings.get(alloc, out, unroll_factor, self.max_line_size);
-        (0..unroll_factor as usize)
-            .flat_map(|i| {
-                let add_idx = add_index_inst(alloc, op.index, unroll_factor, i, indices[i]);
-                let index = Instruction::new(
-                    operator(IndexOperator {
-                        list,
-                        index: indices[i],
-                        line_size: 0,
-                        unroll_factor: unroll_factor as u32,
-                    }),
-                    out[i],
-                );
-                add_idx.into_iter().chain(iter::once(index))
-            })
-            .collect()
+        let mut instructions = vec![mul];
+        instructions.extend((0..unroll_factor as usize).flat_map(|i| {
+            let (add, idx) = indices.next().unwrap();
+            let index = Instruction::new(
+                operator(IndexOperator {
+                    list,
+                    index: *idx,
+                    line_size: 0,
+                    unroll_factor: unroll_factor as u32,
+                }),
+                out[i],
+            );
+            [add, index]
+        }));
+
+        instructions
     }
 
     /// Transforms index assign into multiple index assign operations, each offset by 1 from the base.
@@ -275,32 +262,30 @@ impl UnrollProcessor {
         unroll_factor: u8,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
-        let mut indices = vec![];
-
-        for _ in 0..unroll_factor as usize {
-            indices.push(*alloc.create_local(Item::new(u32::as_elem_native_unchecked())));
-        }
+        let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
+        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
 
         out.item.vectorization = NonZero::new(self.max_line_size);
 
         let value = mappings.get(alloc, op.value, unroll_factor, self.max_line_size);
 
-        (0..unroll_factor as usize)
-            .flat_map(|i| {
-                let index = Instruction::new(
-                    operator(IndexAssignOperator {
-                        index: indices[i],
-                        line_size: 0,
-                        value: value[i],
-                        unroll_factor: unroll_factor as u32,
-                    }),
-                    out,
-                );
-                let add_idx = add_index_inst(alloc, op.index, unroll_factor, i, indices[i]);
+        let mut instructions = vec![mul];
+        instructions.extend((0..unroll_factor as usize).flat_map(|i| {
+            let (add, idx) = indices.next().unwrap();
+            let index = Instruction::new(
+                operator(IndexAssignOperator {
+                    index: *idx,
+                    line_size: 0,
+                    value: value[i],
+                    unroll_factor: unroll_factor as u32,
+                }),
+                out,
+            );
 
-                add_idx.into_iter().chain(iter::once(index))
-            })
-            .collect()
+            [add, index]
+        }));
+
+        instructions
     }
 
     /// Transforms a composite index (i.e. `Line`) that always returns a scalar. Translates the index
@@ -555,13 +540,19 @@ fn create_unrolled(
         .collect()
 }
 
-fn add_index_inst(
-    alloc: &Allocator,
-    idx: Variable,
-    unroll_factor: u8,
-    i: usize,
-    out: Variable,
-) -> Vec<Instruction> {
+fn add_index(alloc: &Allocator, idx: Variable, i: u8) -> (Instruction, ExpandElement) {
+    let add_idx = alloc.create_local(idx.item);
+    let add = Instruction::new(
+        Arithmetic::Add(BinaryOperator {
+            lhs: idx,
+            rhs: (i as u32).into(),
+        }),
+        *add_idx,
+    );
+    (add, add_idx)
+}
+
+fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u8) -> (Instruction, ExpandElement) {
     let mul_idx = alloc.create_local(idx.item);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperator {
@@ -570,12 +561,5 @@ fn add_index_inst(
         }),
         *mul_idx,
     );
-    let add = Instruction::new(
-        Arithmetic::Add(BinaryOperator {
-            lhs: *mul_idx,
-            rhs: (i as u32).into(),
-        }),
-        out,
-    );
-    vec![mul, add]
+    (mul, mul_idx)
 }
