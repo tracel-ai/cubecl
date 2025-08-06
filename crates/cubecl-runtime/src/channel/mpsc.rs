@@ -11,7 +11,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
-        Allocation, AllocationDescriptor, AllocationType, Binding, Bindings, ComputeServer,
+        Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ProfilingToken,
     },
     storage::{BindingResource, ComputeStorage},
@@ -38,7 +38,7 @@ where
 type Callback<Response> = async_channel::Sender<Response>;
 
 struct AllocationDescriptorOwned {
-    type_: AllocationType,
+    type_: AllocationKind,
     shape: Vec<usize>,
     elem_size: usize,
 }
@@ -46,7 +46,7 @@ struct AllocationDescriptorOwned {
 impl From<AllocationDescriptor<'_>> for AllocationDescriptorOwned {
     fn from(value: AllocationDescriptor) -> Self {
         AllocationDescriptorOwned {
-            type_: value.type_,
+            type_: value.kind,
             shape: value.shape.to_vec(),
             elem_size: value.elem_size,
         }

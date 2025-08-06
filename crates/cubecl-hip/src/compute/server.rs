@@ -1,5 +1,5 @@
 use cubecl_core::server::{
-    Allocation, AllocationType, CopyDescriptor, IoError, ProfileError, ProfilingToken,
+    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
@@ -171,9 +171,9 @@ impl ComputeServer for HipServer {
         let mut sizes = Vec::new();
 
         for descriptor in descriptors {
-            let pitch_align = match descriptor.type_ {
-                AllocationType::Contiguous => 1,
-                AllocationType::Optimized => self.mem_alignment,
+            let pitch_align = match descriptor.kind {
+                AllocationKind::Contiguous => 1,
+                AllocationKind::Optimized => self.mem_alignment,
             };
 
             let rank = descriptor.shape.len();

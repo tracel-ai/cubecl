@@ -54,7 +54,7 @@ where
     fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
         let alloc = self
             .create(vec![AllocationDescriptor::new(
-                AllocationType::Contiguous,
+                AllocationKind::Contiguous,
                 &[data.len()],
                 1,
             )])?
@@ -142,7 +142,7 @@ pub struct Handle {
 
 /// Type of allocation, either contiguous or optimized (row-aligned when possible)
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum AllocationType {
+pub enum AllocationKind {
     /// Contiguous layout, with no padding
     Contiguous,
     /// Optimized for access speed. In practice this means row-aligned with padding for runtimes
@@ -154,7 +154,7 @@ pub enum AllocationType {
 #[derive(new, Debug, Clone, Copy)]
 pub struct AllocationDescriptor<'a> {
     /// Layout for the tensor
-    pub type_: AllocationType,
+    pub kind: AllocationKind,
     /// Shape of the tensor
     pub shape: &'a [usize],
     /// Size of each element in the tensor (used for conversion of shape to bytes)
@@ -164,12 +164,12 @@ pub struct AllocationDescriptor<'a> {
 impl<'a> AllocationDescriptor<'a> {
     /// Create an optimized allocation descriptor
     pub fn optimized(shape: &'a [usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationType::Optimized, shape, elem_size)
+        AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size)
     }
 
     /// Create a contiguous allocation descriptor
     pub fn contiguous(shape: &'a [usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationType::Contiguous, shape, elem_size)
+        AllocationDescriptor::new(AllocationKind::Contiguous, shape, elem_size)
     }
 }
 

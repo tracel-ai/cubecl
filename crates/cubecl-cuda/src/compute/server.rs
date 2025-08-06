@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 use cubecl_core::{
     future::{self, DynFut},
-    server::AllocationType,
+    server::AllocationKind,
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
@@ -202,9 +202,9 @@ impl ComputeServer for CudaServer {
         let mut total_size = 0;
 
         for descriptor in descriptors {
-            let pitch_align = match descriptor.type_ {
-                AllocationType::Contiguous => 1,
-                AllocationType::Optimized => self.mem_alignment,
+            let pitch_align = match descriptor.kind {
+                AllocationKind::Contiguous => 1,
+                AllocationKind::Optimized => self.mem_alignment,
             };
 
             let rank = descriptor.shape.len();

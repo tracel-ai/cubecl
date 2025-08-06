@@ -6,7 +6,7 @@ use crate::{
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
-        Allocation, AllocationDescriptor, AllocationType, Binding, Bindings, ComputeServer,
+        Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, Handle, IoError, ProfileError,
     },
     storage::{BindingResource, ComputeStorage},
@@ -228,7 +228,7 @@ where
 
         self.do_create(
             vec![AllocationDescriptor::new(
-                AllocationType::Contiguous,
+                AllocationKind::Contiguous,
                 &shape,
                 1,
             )],
@@ -255,7 +255,7 @@ where
     pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
-                AllocationType::Optimized,
+                AllocationKind::Optimized,
                 shape,
                 elem_size,
             )],
@@ -289,14 +289,14 @@ where
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
         let shape = [size];
-        let descriptor = AllocationDescriptor::new(AllocationType::Contiguous, &shape, 1);
+        let descriptor = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
         self.do_empty(vec![descriptor]).unwrap().remove(0).handle
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
-        let descriptor = AllocationDescriptor::new(AllocationType::Optimized, shape, elem_size);
+        let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
