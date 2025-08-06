@@ -34,6 +34,7 @@ use cudarc::driver::sys::{
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
+use std::ffi::c_char;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -68,7 +69,7 @@ pub struct PtxCacheEntry {
     cube_dim: (u32, u32, u32),
     shared_mem_bytes: usize,
     cluster_dim: Option<(u32, u32, u32)>,
-    ptx: Vec<i8>,
+    ptx: Vec<c_char>,
 }
 
 #[derive(Debug)]
@@ -717,7 +718,7 @@ impl CudaContext {
 
     fn load_ptx(
         &mut self,
-        ptx: Vec<i8>,
+        ptx: Vec<c_char>,
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
