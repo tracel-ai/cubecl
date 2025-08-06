@@ -78,8 +78,11 @@ pub trait ComputeStorage: Send {
 
     /// Deallocates the memory pointed by the given storage id.
     ///
-    /// These deallocations might need to be flushed with [`Self::perform_deallocations`].
+    /// These deallocations might need to be flushed with [`Self::flush`].
     fn dealloc(&mut self, id: StorageId);
+
+    /// Flush deallocations when required.
+    fn flush(&mut self) {}
 }
 
 /// Access to the underlying resource for a given binding.

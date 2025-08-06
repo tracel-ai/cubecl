@@ -82,6 +82,8 @@ impl MemoryPool for StaticPool {
                     true
                 }
             });
+
+            storage.flush();
         }
     }
 }
