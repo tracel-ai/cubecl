@@ -11,10 +11,12 @@ use crate::{
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 use cubecl_ir::Elem;
+use thiserror::Error;
 
 #[derive(Debug, Clone)]
 /// An error during profiling.
@@ -42,11 +44,41 @@ where
     /// The type of the features supported by the server.
     type Feature: Ord + Copy + Debug + Send + Sync;
 
-    /// Given bindings, returns the owned resources as bytes.
-    fn read(&mut self, bindings: Vec<Binding>) -> DynFut<Vec<Vec<u8>>>;
+    /// Reserves `size` bytes in the storage, and returns a handle over them.
+    fn create(
+        &mut self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+    ) -> Result<Vec<Allocation>, IoError>;
 
-    /// Given tensor handles, returns the owned resources as bytes.
-    fn read_tensor(&mut self, bindings: Vec<BindingWithMeta>) -> DynFut<Vec<Vec<u8>>>;
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        let alloc = self
+            .create(vec![AllocationDescriptor::new(
+                AllocationKind::Contiguous,
+                &[data.len()],
+                1,
+            )])?
+            .remove(0);
+        self.write(vec![(
+            CopyDescriptor::new(
+                alloc.handle.clone().binding(),
+                &[data.len()],
+                &alloc.strides,
+                1,
+            ),
+            data,
+        )])?;
+        Ok(alloc.handle)
+    }
+
+    /// Given bindings, returns the owned resources as bytes.
+    fn read<'a>(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'a>>,
+    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>>;
+
+    /// Writes the specified bytes into the buffers given
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> DynFut<()>;
@@ -56,31 +88,6 @@ where
         &mut self,
         binding: Binding,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
-
-    /// Given a resource as bytes, stores it and returns the memory handle.
-    fn create(&mut self, data: &[u8]) -> Handle;
-
-    /// Given a resource as bytes with `shape`, stores it and returns the tensor handle.
-    /// May or may not be contiguous, depending on what's best for the given runtime. Always use
-    /// strides to index.
-    /// For example, in CUDA, this will allocate a padded tensor where the last dimension is padded
-    /// to the cache lines, so row access is faster.
-    fn create_tensors(
-        &mut self,
-        data: Vec<&[u8]>,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)>;
-
-    /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn empty(&mut self, size: usize) -> Handle;
-
-    /// Reserves `shape` bytes in the storage, and returns a handle to it.
-    fn empty_tensors(
-        &mut self,
-        shapes: Vec<&[usize]>,
-        elem_sizes: Vec<usize>,
-    ) -> Vec<(Handle, Vec<usize>)>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -136,6 +143,63 @@ pub struct Handle {
     pub offset_end: Option<u64>,
     /// Length of the underlying buffer ignoring offsets
     size: u64,
+}
+
+/// Type of allocation, either contiguous or optimized (row-aligned when possible)
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum AllocationKind {
+    /// Contiguous layout, with no padding
+    Contiguous,
+    /// Optimized for access speed. In practice this means row-aligned with padding for runtimes
+    /// that support it.
+    Optimized,
+}
+
+/// Descriptor for a new tensor allocation
+#[derive(new, Debug, Clone, Copy)]
+pub struct AllocationDescriptor<'a> {
+    /// Layout for the tensor
+    pub kind: AllocationKind,
+    /// Shape of the tensor
+    pub shape: &'a [usize],
+    /// Size of each element in the tensor (used for conversion of shape to bytes)
+    pub elem_size: usize,
+}
+
+impl<'a> AllocationDescriptor<'a> {
+    /// Create an optimized allocation descriptor
+    pub fn optimized(shape: &'a [usize], elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size)
+    }
+
+    /// Create a contiguous allocation descriptor
+    pub fn contiguous(shape: &'a [usize], elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationKind::Contiguous, shape, elem_size)
+    }
+}
+
+/// An allocation with associated strides. Strides depend on tensor layout.
+#[derive(new, Debug)]
+pub struct Allocation {
+    /// The handle for the memory resource
+    pub handle: Handle,
+    /// The strides of the tensor
+    pub strides: Vec<usize>,
+}
+
+/// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
+/// are able to be caught, so some IO errors will still panic.
+#[derive(Debug, Error)]
+pub enum IoError {
+    /// Buffer size exceeds the max available
+    #[error("can't allocate buffer of size")]
+    BufferTooBig(usize),
+    /// Strides aren't supported for this copy operation on this runtime
+    #[error("the provided strides are not supported for this operation")]
+    UnsupportedStrides,
+    /// Handle wasn't found in the memory pool
+    #[error("couldn't find resource for that handle")]
+    InvalidHandle,
 }
 
 impl Handle {
@@ -261,17 +325,26 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// Size in bytes
+    size: u64,
+}
+
+impl Binding {
+    /// Get the size of the handle, in bytes, accounting for offsets
+    pub fn size(&self) -> u64 {
+        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
 }
 
 /// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug)]
-pub struct BindingWithMeta {
+#[derive(new, Debug, Clone)]
+pub struct CopyDescriptor<'a> {
     /// Binding for the memory resource
     pub binding: Binding,
     /// Shape of the resource
-    pub shape: Vec<usize>,
+    pub shape: &'a [usize],
     /// Strides of the resource
-    pub strides: Vec<usize>,
+    pub strides: &'a [usize],
     /// Size of each element in the resource
     pub elem_size: usize,
 }
@@ -325,21 +398,22 @@ impl Handle {
             memory: MemoryHandle::binding(self.memory),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            size: self.size,
         }
     }
 
     /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
-    pub fn binding_with_meta(
-        self,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
+    pub fn copy_descriptor<'a>(
+        &'a self,
+        shape: &'a [usize],
+        strides: &'a [usize],
         elem_size: usize,
-    ) -> BindingWithMeta {
-        BindingWithMeta {
+    ) -> CopyDescriptor<'a> {
+        CopyDescriptor {
             shape,
             strides,
             elem_size,
-            binding: self.binding(),
+            binding: self.clone().binding(),
         }
     }
 }
@@ -361,6 +435,7 @@ impl Clone for Binding {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            size: self.size,
         }
     }
 }

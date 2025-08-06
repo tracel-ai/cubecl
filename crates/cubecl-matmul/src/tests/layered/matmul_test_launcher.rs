@@ -1,5 +1,8 @@
-use cubecl_core::prelude::*;
-use cubecl_core::{CubeElement, server};
+use cubecl_core::{
+    CubeElement,
+    server::{self, Allocation},
+};
+use cubecl_core::{prelude::*, server::AllocationDescriptor};
 
 use crate::components::MatrixLayout;
 use crate::components::batch::{BatchConfig, BatchMatmulFamily};
@@ -143,7 +146,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 1234);
 
-            let data = client.read_one(handle.handle.binding());
+            let data = client.read_one(handle.handle);
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -168,20 +171,27 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
-            let mut data = vec![P::EG::as_bytes(&data)];
-            let mut shape = vec![tensor_shape.as_slice()];
-            let mut elem_size = vec![size_of::<P::EG>()];
+            let mut descriptors = vec![(
+                AllocationDescriptor::optimized(tensor_shape.as_slice(), size_of::<P::EG>()),
+                P::EG::as_bytes(&data),
+            )];
 
             if let Some((scaling, offset)) = &quant_params {
-                data.push(bytemuck::bytes_of(scaling));
-                data.push(bytemuck::bytes_of(offset));
-                shape.push(&[1]);
-                shape.push(&[1]);
-                elem_size.extend(&[size_of::<f32>(), size_of::<i32>()]);
+                descriptors.push((
+                    AllocationDescriptor::optimized(&[1], size_of::<f32>()),
+                    bytemuck::bytes_of(scaling),
+                ));
+                descriptors.push((
+                    AllocationDescriptor::optimized(&[1], size_of::<i32>()),
+                    bytemuck::bytes_of(offset),
+                ));
             }
 
-            let mut tensors = client.create_tensors(data, shape, elem_size);
-            let (handle, mut strides) = tensors.remove(0);
+            let mut tensors = client.create_tensors(descriptors);
+            let Allocation {
+                handle,
+                mut strides,
+            } = tensors.remove(0);
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
                 tensor_shape.swap(rank - 1, rank - 2);
@@ -189,7 +199,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
 
             let _offs = tensors.pop();
-            let scale = tensors.pop().map(|it| it.0);
+            let scale = tensors.pop().map(|it| it.handle);
 
             TensorRawParts {
                 handle,
@@ -205,7 +215,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 5678);
 
-            let data = client.read_one(handle.handle.binding());
+            let data = client.read_one(handle.handle);
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -231,22 +241,29 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let mut data = vec![P::EG::as_bytes(&data)];
-            let mut shape = vec![tensor_shape.as_slice()];
-            let mut elem_size = vec![size_of::<P::EG>()];
+            let mut descriptors = vec![(
+                AllocationDescriptor::optimized(tensor_shape.as_slice(), size_of::<P::EG>()),
+                P::EG::as_bytes(&data),
+            )];
 
             if let Some((scaling, offset)) = &quant_params {
-                data.push(bytemuck::bytes_of(scaling));
-                data.push(bytemuck::bytes_of(offset));
-                shape.push(&[1]);
-                shape.push(&[1]);
-                elem_size.extend(&[size_of::<f32>(), size_of::<i32>()])
+                descriptors.push((
+                    AllocationDescriptor::optimized(&[1], size_of::<f32>()),
+                    bytemuck::bytes_of(scaling),
+                ));
+                descriptors.push((
+                    AllocationDescriptor::optimized(&[1], size_of::<i32>()),
+                    bytemuck::bytes_of(offset),
+                ));
             }
 
-            let mut tensors = client.create_tensors(data, shape, elem_size);
-            let (handle, mut strides) = tensors.remove(0);
+            let mut tensors = client.create_tensors(descriptors);
+            let Allocation {
+                handle,
+                mut strides,
+            } = tensors.remove(0);
             let _offs = tensors.pop();
-            let scale = tensors.pop().map(|it| it.0);
+            let scale = tensors.pop().map(|it| it.handle);
 
             if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 tensor_shape.swap(rank - 1, rank - 2);
@@ -280,22 +297,26 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 quant_params = Some((scaling, offset));
             }
 
-            let mut data = vec![P::EG::as_bytes(&data)];
-            let mut shape = vec![tensor_shape.as_slice()];
-            let mut elem_size = vec![size_of::<P::EG>()];
+            let mut descriptors = vec![(
+                AllocationDescriptor::optimized(tensor_shape.as_slice(), size_of::<P::EG>()),
+                P::EG::as_bytes(&data),
+            )];
 
             if let Some((scaling, offset)) = &quant_params {
-                data.push(bytemuck::bytes_of(scaling));
-                data.push(bytemuck::bytes_of(offset));
-                shape.push(&[1]);
-                shape.push(&[1]);
-                elem_size.extend(&[size_of::<f32>(), size_of::<i32>()])
+                descriptors.push((
+                    AllocationDescriptor::optimized(&[1], size_of::<f32>()),
+                    bytemuck::bytes_of(scaling),
+                ));
+                descriptors.push((
+                    AllocationDescriptor::optimized(&[1], size_of::<i32>()),
+                    bytemuck::bytes_of(offset),
+                ));
             }
 
-            let mut tensors = client.create_tensors(data, shape, elem_size);
-            let (handle, strides) = tensors.remove(0);
+            let mut tensors = client.create_tensors(descriptors);
+            let Allocation { handle, strides } = tensors.remove(0);
             let _offs = tensors.pop();
-            let scale = tensors.pop().map(|it| it.0);
+            let scale = tensors.pop().map(|it| it.handle);
 
             TensorRawParts {
                 handle,

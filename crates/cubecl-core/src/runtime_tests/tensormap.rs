@@ -6,7 +6,10 @@ use crate::{
 };
 
 use cubecl::prelude::*;
-use cubecl_runtime::{server::ComputeServer, storage::ComputeStorage};
+use cubecl_runtime::{
+    server::{Allocation, ComputeServer},
+    storage::ComputeStorage,
+};
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
@@ -117,7 +120,8 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let shape = vec![64, 64];
-    let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+    let Allocation { handle, strides } =
+        client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
@@ -135,7 +139,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
     );
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
     let expected: Vec<F> = (0..16)
         .flat_map(|i| i * 64..i * 64 + 32)
@@ -160,7 +164,7 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
 
     let values = (0..32 * 16).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let handle = client.create(F::as_bytes(&values));
-    let (out, out_strides) = client.create_tensor(
+    let out = client.create_tensor(
         &vec![0u8; 64 * 64 * size_of::<F>()],
         &[64, 64],
         size_of::<F>(),
@@ -175,12 +179,12 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
             TensorMapFormat::Tiled {
                 tile_size: vec![16, 32],
             },
-            unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &[64, 64], 1) },
+            unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_elem_native_unchecked(),
         ),
     );
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out.handle);
     let actual = F::from_bytes(&actual);
     let mut expected: Vec<F> = vec![F::from_int(0); 64 * 64];
     for y in 0..16 {
@@ -233,7 +237,8 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
     let shape = [n, h, w, c];
-    let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+    let Allocation { handle, strides } =
+        client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
@@ -262,7 +267,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         pad_w,
     );
 
-    let actual = client.read_one(out.binding());
+    let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
 
     let mut expected = vec![0, 0, 0, 0, 0, 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9];
@@ -331,7 +336,7 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
         output_2,
     );
 
-    let actual = client.read_one(out_handle_2.binding());
+    let actual = client.read_one(out_handle_2);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[2, 4, 6, 8]);

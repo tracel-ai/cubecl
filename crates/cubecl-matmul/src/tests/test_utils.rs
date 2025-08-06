@@ -119,11 +119,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one_tensor(output.binding_with_meta(
-        shape.to_vec(),
-        strides.to_vec(),
-        size_of::<F>(),
-    ));
+    let actual = client.read_one_tensor(output.copy_descriptor(shape, strides, size_of::<F>()));
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -192,11 +188,8 @@ impl TestPrecision for SymQ8 {
         shape: &[usize],
         strides: &[usize],
     ) {
-        let out = client.read_one_tensor(out.binding_with_meta(
-            shape.to_vec(),
-            strides.to_vec(),
-            size_of::<Self::EG>(),
-        ));
+        let out =
+            client.read_one_tensor(out.copy_descriptor(shape, strides, size_of::<Self::EG>()));
         let out = u8::from_bytes(&out);
 
         let (lhs_scaling, lhs_offset) = lhs_quant.unwrap();

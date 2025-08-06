@@ -39,7 +39,7 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server, R::Ch
             )
         };
 
-        let actual = client.read_one(output.binding());
+        let actual = client.read_one(output);
         let actual = u32::from_bytes(&actual);
 
         assert_eq!(actual, expected);

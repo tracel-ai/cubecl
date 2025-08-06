@@ -538,8 +538,7 @@ impl TestCase {
             return; // We don't test in that case.
         }
 
-        let binding = output_handle.binding();
-        let bytes = client.read_one(binding);
+        let bytes = client.read_one(output_handle);
         let output_values = O::from_bytes(&bytes);
         assert_approx_equal(output_values, &expected_values);
     }
@@ -572,7 +571,7 @@ impl TestCase {
         if result.is_err() {
             return; // don't execute the test in that case since atomic adds are not supported.
         }
-        let bytes = client.read_one(output_handle.binding());
+        let bytes = client.read_one(output_handle);
         let actual = F::from_bytes(&bytes);
         assert_approx_equal(actual, &[expected]);
     }
