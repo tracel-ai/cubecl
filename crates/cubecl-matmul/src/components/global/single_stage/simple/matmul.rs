@@ -1,7 +1,7 @@
 use crate::components::{
-    MatmulIdent, MatmulPrecision,
+    LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalMatmul, Quantization, ZeroAccumulatorLoader,
+        GlobalMatmul, ZeroAccumulatorLoader,
         load::{SyncFullLoader, SyncFullLoadingStrategy},
         single_stage::simple::SimpleConfig,
     },
@@ -9,7 +9,6 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
@@ -36,8 +35,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullStageToTileReader<MP::ES, LL::TilingLayout>,
-            RhsReader = FullStageToTileReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
+            RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
@@ -92,12 +91,11 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
@@ -105,19 +103,17 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            quantization,
             MatmulIdent::Lhs,
             config,
         )
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
@@ -125,7 +121,6 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            quantization,
             MatmulIdent::Rhs,
             config,
         )

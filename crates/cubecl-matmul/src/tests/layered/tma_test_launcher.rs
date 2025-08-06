@@ -70,7 +70,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+    let config = match A::setup::<(P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,
@@ -113,7 +113,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     );
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
+        A::BatchMatmul::launch_unchecked::<
+            ((P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), TensorMapArgs),
+            R,
+        >(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),

@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
-use crate::components::global::Quantization;
 use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
@@ -46,7 +45,6 @@ pub struct SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadi
     tensor_reader: TensorReader<MP::EI>,
     stage_memory: StageMemory<MP::ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<MP>>,
-    quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
@@ -61,7 +59,6 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {

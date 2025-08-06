@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::global::Quantization;
 use crate::components::global::global_memory::TensorReader;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::{CopyMechanism, GlobalConfig};
@@ -69,7 +68,6 @@ impl<
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {

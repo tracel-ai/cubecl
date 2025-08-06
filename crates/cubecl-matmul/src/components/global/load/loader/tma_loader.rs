@@ -2,13 +2,12 @@ use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_std::CubeOption;
 
 use crate::components::stage::{
     FullStageToTileReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
 };
 use crate::components::{MatmulIdent, StageIdent};
-use crate::components::{MatmulPrecision, MatrixLayout, global::Quantization};
+use crate::components::{MatmulPrecision, MatrixLayout};
 use crate::components::{
     global::{GlobalConfig, global_memory::MappedTensorReader},
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageMemory, TilingOrder},
@@ -104,16 +103,9 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
         x: u32,
         y: u32,
         batch: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let stage = StageMemory::new_aligned::<G::StageMemoryConfig>(
             comptime!(ident.into_stage()),
             128u32,

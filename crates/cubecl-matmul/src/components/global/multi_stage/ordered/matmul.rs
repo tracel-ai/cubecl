@@ -1,3 +1,4 @@
+use crate::components::global::Specializer;
 use crate::components::global::load::{
     StageBuffer, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
     SyncPartialLoadingStrategy,
@@ -7,14 +8,13 @@ use crate::components::global::multi_stage::double_buffer_execution::{
 };
 use crate::components::global::multi_stage::ordered::LL;
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
-use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::PartialStageToTileReader;
-use crate::components::{MatmulIdent, MatmulPrecision, stage};
+use crate::components::{LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -42,10 +42,10 @@ where
     SMM: stage::StageMatmul<
             MP,
             LhsReader = FullStageToTileReader<
-                MP::ES,
+                LhsS<MP>,
                 <LL as SyncFullLoadingStrategy>::TilingLayout,
             >,
-            RhsReader = PartialStageToTileReader<MP::ES, RL::TilingLayout>,
+            RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
         >,
     RL: SyncPartialLoadingStrategy,
 {
@@ -160,12 +160,11 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         SyncFullLoader::<MP, Self::Config, LL>::new(
@@ -173,19 +172,17 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            quantization,
             MatmulIdent::Lhs,
             config,
         )
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         SyncPartialLoader::<MP, Self::Config, RL>::new(
@@ -193,7 +190,6 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            quantization,
             MatmulIdent::Rhs,
             config,
         )

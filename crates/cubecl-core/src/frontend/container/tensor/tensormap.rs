@@ -74,13 +74,13 @@ impl<'a, R: Runtime> TensorMapArg<'a, R> {
 ///
 /// Also see [cubecl_common::tma].
 #[derive(Clone)]
-pub struct TensorMap<Lhs: CubePrimitive, Rhs: CubePrimitive> {
-    _ty: PhantomData<(Lhs, Rhs)>,
+pub struct TensorMap<E: CubePrimitive> {
+    _ty: PhantomData<E>,
 }
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> Copy for TensorMap<Lhs, Rhs> {}
+impl<E: CubePrimitive> Copy for TensorMap<E> {}
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> TensorMap<Lhs, Rhs> {
+impl<E: CubePrimitive> TensorMap<E> {
     /// Create a dummy tensor map to satisfy the type checker. Not actually valid, so the code should
     /// panic if this is ever reached.
     pub fn dummy() -> Self {
@@ -92,22 +92,22 @@ impl<Lhs: CubePrimitive, Rhs: CubePrimitive> TensorMap<Lhs, Rhs> {
     }
 }
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> ExpandElementIntoMut for TensorMap<Lhs, Rhs> {
+impl<E: CubePrimitive> ExpandElementIntoMut for TensorMap<E> {
     fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> CubeType for TensorMap<Lhs, Rhs> {
-    type ExpandType = ExpandElementTyped<TensorMap<Lhs, Rhs>>;
+impl<E: CubePrimitive> CubeType for TensorMap<E> {
+    type ExpandType = ExpandElementTyped<TensorMap<E>>;
 }
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> CubeType for *const TensorMap<Lhs, Rhs> {
-    type ExpandType = ExpandElementTyped<TensorMap<Lhs, Rhs>>;
+impl<E: CubePrimitive> CubeType for *const TensorMap<E> {
+    type ExpandType = ExpandElementTyped<TensorMap<E>>;
 }
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> CubeType for *mut TensorMap<Lhs, Rhs> {
-    type ExpandType = ExpandElementTyped<TensorMap<Lhs, Rhs>>;
+impl<E: CubePrimitive> CubeType for *mut TensorMap<E> {
+    type ExpandType = ExpandElementTyped<TensorMap<E>>;
 }
 
 impl<R: Runtime> ArgSettings<R> for TensorMapArg<'_, R> {
@@ -122,26 +122,26 @@ pub struct TensorMapCompilationArg;
 
 impl CompilationArg for TensorMapCompilationArg {}
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> LaunchArgExpand for TensorMap<Lhs, Rhs> {
+impl<E: CubePrimitive> LaunchArgExpand for TensorMap<E> {
     type CompilationArg = TensorMapCompilationArg;
 
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<TensorMap<Lhs, Rhs>> {
+    ) -> ExpandElementTyped<TensorMap<E>> {
         let tensor = builder.tensor_map();
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<TensorMap<Lhs, Rhs>> {
+    ) -> ExpandElementTyped<TensorMap<E>> {
         let tensor = builder.tensor_map();
         tensor.into()
     }
 }
 
-impl<Lhs: CubePrimitive, Rhs: CubePrimitive> LaunchArg for TensorMap<Lhs, Rhs> {
+impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
     type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R>;
 
     fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {

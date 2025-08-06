@@ -65,7 +65,6 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -88,7 +87,6 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             tensor_reader,
             stage_memory,
             loading_job,
-            quantization,
             ident,
             _config: PhantomData::<G>,
         }

@@ -916,8 +916,8 @@ impl MatmulArgs for TensorMapArgs {
     type Input<Lhs: Numeric, Rhs: Numeric> = TensorMapInputs<Lhs, Rhs>;
     type Output<EO: Numeric> = Tensor<Line<EO>>;
     type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = (
-        *const TensorMap<Lhs, Rhs>,
-        *const TensorMap<Lhs, Rhs>,
+        *const TensorMap<Lhs>,
+        *const TensorMap<Rhs>,
         *mut Tensor<Line<EO>>,
     );
 

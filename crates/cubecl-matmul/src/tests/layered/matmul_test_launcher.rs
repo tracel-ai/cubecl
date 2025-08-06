@@ -57,7 +57,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+    let config = match A::setup::<(P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,

@@ -3,7 +3,7 @@ use crate::components::batch::base::BatchMatmul;
 use crate::components::global::args::{TensorLhs, TensorRhs};
 use crate::components::{
     batch::{BatchConfig, BatchMatmulFamily},
-    global::args::{self, MatmulArgs, TensorOutput},
+    global::args::{MatmulArgs, TensorOutput},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -40,11 +40,17 @@ pub(crate) fn matmul<
 
     let lhs = TensorLhs::<LhsG, RhsG, EO, Args>::new(&state);
     let rhs = TensorRhs::<LhsG, RhsG, EO, Args>::new(&state);
-    let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
+    let mut out = TensorOutput::<LhsG, RhsG, EO, Args>::new(&mut state);
 
-    let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
-    let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
-    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
+    let lhs = VirtualTensor::<LhsG>::new::<TensorLhs<LhsG, RhsG, EO, Args>>(&lhs);
+    let rhs = VirtualTensor::<RhsG>::new::<TensorRhs<LhsG, RhsG, EO, Args>>(&rhs);
+    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<LhsG, RhsG, EO, Args>>(&mut out);
 
-    BMMF::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, cube_count_args, config);
+    BMMF::Matmul::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::execute(
+        lhs,
+        rhs,
+        out,
+        cube_count_args,
+        config,
+    );
 }

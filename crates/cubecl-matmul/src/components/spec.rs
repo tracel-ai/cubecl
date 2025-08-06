@@ -105,9 +105,11 @@ impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
     type EO = MP::EO;
 }
 
-impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI, ES, EA, EO) {
-    type Lhs = (EI, ES);
-    type Rhs = (EI, ES);
+impl<LhsG: Numeric, RhsG: Numeric, LhsS: Numeric, RhsS: Numeric, EA: Numeric, EO: Numeric>
+    MatmulPrecision for (LhsG, RhsG, LhsS, RhsS, EA, EO)
+{
+    type Lhs = (LhsG, LhsS);
+    type Rhs = (RhsG, RhsS);
     type EA = EA;
     type EO = EO;
 }
