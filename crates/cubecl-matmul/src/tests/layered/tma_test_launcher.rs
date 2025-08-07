@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
+use crate::MatmulInputHandleRef;
 use crate::components::AvailableLineSizes;
 use crate::components::MatmulIdent;
 use crate::components::MatmulProblem;
@@ -44,20 +45,20 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let elem_size = size_of::<P::EG>();
-    let lhs_handle = TensorHandleRef {
+    let lhs_handle = MatmulInputHandleRef::Normal(TensorHandleRef {
         handle: &lhs.handle,
         strides: &lhs.strides,
         shape: &lhs.shape,
         elem_size,
         runtime: PhantomData,
-    };
-    let rhs_handle = TensorHandleRef {
+    });
+    let rhs_handle = MatmulInputHandleRef::Normal(TensorHandleRef {
         handle: &rhs.handle,
         strides: &rhs.strides,
         shape: &rhs.shape,
         elem_size,
         runtime: PhantomData,
-    };
+    });
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
@@ -91,15 +92,8 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     let line_sizes = config.line_sizes();
 
-    let inputs = TensorMapInputs::create(
-        &lhs_handle,
-        &None,
-        &rhs_handle,
-        &None,
-        &selection,
-        &problem,
-        &line_sizes,
-    );
+    let inputs =
+        TensorMapInputs::create(&lhs_handle, &rhs_handle, &selection, &problem, &line_sizes);
     let output = unsafe {
         TensorArg::<R>::from_raw_parts::<P::EG>(
             &out.handle,

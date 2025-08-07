@@ -145,6 +145,8 @@ pub type EO<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EO;
 pub type Args<MS> = <MS as MatmulSpec>::Args;
 
 pub struct MatmulElems {
+    pub lhs_global: Elem,
+    pub rhs_global: Elem,
     pub lhs_stage: Elem,
     pub rhs_stage: Elem,
     pub lhs_register: Elem,
@@ -156,6 +158,8 @@ pub struct MatmulElems {
 impl MatmulElems {
     pub fn new<MP: MatmulPrecision>() -> Self {
         Self {
+            lhs_global: <MP::Lhs as InputPrecision>::Global::as_elem_native_unchecked(),
+            rhs_global: <MP::Rhs as InputPrecision>::Global::as_elem_native_unchecked(),
             lhs_stage: <MP::Lhs as InputPrecision>::Stage::as_elem_native_unchecked(),
             rhs_stage: <MP::Rhs as InputPrecision>::Stage::as_elem_native_unchecked(),
             lhs_register: <MP::Lhs as InputPrecision>::Register::as_elem_native_unchecked(),

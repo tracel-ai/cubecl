@@ -6,6 +6,7 @@ use crate::components::{
 };
 use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::launch_kernel_concrete;
+use crate::{MatmulInputHandle, MatmulInputHandleRef};
 use core::any::TypeId;
 use cubecl_core::{Feature, prelude::*, try_tensor_line_size_parallel};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
@@ -49,19 +50,15 @@ impl<S: Default> Default for Selection<S> {
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, LhsG<MP>>,
-    lhs_scale: Option<TensorHandle<R, f32>>,
-    rhs: TensorHandle<R, RhsG<MP>>,
-    rhs_scale: Option<TensorHandle<R, f32>>,
+    lhs: MatmulInputHandle<R, LhsG<MP>>,
+    rhs: MatmulInputHandle<R, RhsG<MP>>,
     out: TensorHandle<R, MP::EO>,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<TensorHandle<R, MP::EO>, MatmulSetupError> {
     let result = launch_ref::<R, MP, A>(
         client,
         &lhs.as_ref(),
-        &lhs_scale.as_ref().map(|it| it.as_ref()),
         &rhs.as_ref(),
-        &rhs_scale.as_ref().map(|it| it.as_ref()),
         &out.as_ref(),
         selection,
     );
@@ -79,10 +76,8 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    lhs: &MatmulInputHandleRef<'_, R>,
+    rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
@@ -95,64 +90,56 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         MatrixBatchLayout::HighlyPermuted => (true, false),
     };
 
-    let (lhs_make_contiguous, lhs_transposed) = check_layout(lhs);
-    let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
+    let (lhs_make_contiguous, lhs_transposed) = check_layout(lhs.data());
+    let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs.data());
 
-    match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => launch_inner_ref::<R, MP, A>(
-            client,
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-            (lhs_transposed, rhs_transposed),
-            selection,
-        ),
-        (false, true) => launch_inner_ref::<R, MP, A>(
-            client,
-            lhs,
-            lhs_scale,
-            &into_contiguous_pitched::<R, RhsG<MP>>(client, rhs).as_ref(),
-            rhs_scale,
-            out,
-            (lhs_transposed, rhs_transposed),
-            selection,
-        ),
-        (true, false) => launch_inner_ref::<R, MP, A>(
-            client,
-            &into_contiguous_pitched::<R, LhsG<MP>>(client, lhs).as_ref(),
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-            (lhs_transposed, rhs_transposed),
-            selection,
-        ),
-        (true, true) => launch_inner_ref::<R, MP, A>(
-            client,
-            &into_contiguous_pitched::<R, LhsG<MP>>(client, lhs).as_ref(),
-            lhs_scale,
-            &into_contiguous_pitched::<R, RhsG<MP>>(client, rhs).as_ref(),
-            rhs_scale,
-            out,
-            (lhs_transposed, rhs_transposed),
-            selection,
-        ),
-    }
+    let lhs_owned;
+    let rhs_owned;
+    let lhs = if lhs_make_contiguous {
+        lhs_owned = match lhs {
+            MatmulInputHandleRef::Normal(data) => {
+                MatmulInputHandle::Normal(into_contiguous_pitched::<R, LhsG<MP>>(client, data))
+            }
+            MatmulInputHandleRef::Quantized { .. } => unimplemented!(),
+        };
+        &lhs_owned.as_ref()
+    } else {
+        lhs
+    };
+    let rhs = if rhs_make_contiguous {
+        rhs_owned = match rhs {
+            MatmulInputHandleRef::Normal(data) => {
+                MatmulInputHandle::Normal(into_contiguous_pitched::<R, RhsG<MP>>(client, data))
+            }
+            MatmulInputHandleRef::Quantized { .. } => unimplemented!(),
+        };
+        &rhs_owned.as_ref()
+    } else {
+        rhs
+    };
+
+    launch_inner_ref::<R, MP, A>(
+        client,
+        lhs,
+        rhs,
+        out,
+        (lhs_transposed, rhs_transposed),
+        selection,
+    )
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    lhs_handle: &MatmulInputHandleRef<'_, R>,
+    rhs_handle: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
+    let lhs = lhs_handle.data();
+    let rhs = rhs_handle.data();
+
     let rank = lhs.strides.len();
     let lhs_elem = LhsG::<MP>::as_elem_native().expect("To be a native type");
     let rhs_elem = RhsG::<MP>::as_elem_native().expect("To be a native type");
@@ -214,17 +201,15 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let plane_dim = fix_plane_dim(A::select_plane_dim::<R>(client));
 
     launch_inner_ref_fix_dtype::<R, MP, A>(
-        client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+        client, lhs_handle, rhs_handle, out, problem, line_sizes, plane_dim, selection,
     )
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    lhs: &MatmulInputHandleRef<'_, R>,
+    rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
@@ -237,11 +222,11 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && tf32::is_supported(client)
     {
         launch_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
         )
     } else {
         launch_kernel_concrete::<MP, R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
         )
     }
 }
@@ -249,14 +234,15 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    lhs_handle: &MatmulInputHandleRef<'_, R>,
+    rhs_handle: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
+    let lhs = lhs_handle.data();
+    let rhs = rhs_handle.data();
+
     let rank = lhs.strides.len();
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
@@ -315,11 +301,11 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         && tf32::is_supported(client)
     {
         launch_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            client, lhs_handle, rhs_handle, out, problem, line_sizes, plane_dim, selection,
         )
     } else {
         launch_kernel_concrete::<(MP, TensorMapArgs), R, A>(
-            client, lhs, lhs_scale, rhs, rhs_scale, out, problem, line_sizes, plane_dim, selection,
+            client, lhs_handle, rhs_handle, out, problem, line_sizes, plane_dim, selection,
         )
     }
 }

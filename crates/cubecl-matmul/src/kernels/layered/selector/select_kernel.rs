@@ -1,3 +1,4 @@
+use crate::MatmulInputHandleRef;
 use crate::components::batch::BatchConfig;
 use crate::components::{
     InputArg, InputRuntimeArg, MatmulElems, MatmulLineSizes, MatmulSetupError, OutputRuntimeArg,
@@ -17,10 +18,8 @@ use cubecl_core::{Runtime, client::ComputeClient};
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    lhs: &MatmulInputHandleRef<'_, R>,
+    rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
@@ -51,9 +50,7 @@ where
         cube_count_plan.resolve(),
         <InputArg<MS> as ConcreteInputsFactory>::create(
             lhs,
-            lhs_scale,
             rhs,
-            rhs_scale,
             &selection,
             &problem,
             &line_sizes,
