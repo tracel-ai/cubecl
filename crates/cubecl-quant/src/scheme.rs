@@ -20,11 +20,11 @@ pub struct QuantScheme {
 impl Default for QuantScheme {
     fn default() -> Self {
         Self {
+            value: QuantValue::QInt8,
+            param: QuantParam::F32,
+            store: QuantStore::U32,
             level: QuantLevel::Tensor,
             mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
-            store: QuantStore::U32,
-            param: QuantParam::F32,
         }
     }
 }
@@ -67,6 +67,11 @@ impl QuantScheme {
             QuantStore::U32 => 32,
             // QuantStoreType::U8 => 8,
         }
+    }
+
+    /// Returns the size of the quantization storage type in bits.
+    pub fn size_bits_value(&self) -> usize {
+        self.value.size_bits()
     }
 
     /// Returns the number of quantized values stored in a single element.

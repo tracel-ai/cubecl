@@ -1,7 +1,7 @@
-#![allow(missing_docs)] // cube derive macros
-
-use burn_tensor::quantization::{QuantInputType, QuantLevel, QuantMode, QuantScheme};
 use cubecl::prelude::*;
+use cubecl_core as cubecl;
+
+use crate::scheme::{QuantLevel, QuantMode, QuantScheme, QuantValue};
 
 /// Quantization parameters.
 #[derive(CubeLaunch, CubeType)]
@@ -16,29 +16,29 @@ pub struct QParams {
 impl QParams {
     /// Create a new quantization parameters instance.
     pub fn new(#[comptime] scheme: QuantScheme) -> Self {
-        let num_quants = comptime!((scheme.size_bits_stored() / scheme.q_type.size_bits()) as u32);
+        let num_quants = comptime!((scheme.size_bits_stored() / scheme.size_bits_value()) as u32);
         QParams { scheme, num_quants }
     }
 
     /// Get the quantization parameters values.
-    pub fn scale<F: Float>(&self, scale_tensor: &Tensor<F>, in_pos: u32) -> F {
+    pub fn scale<F: Float>(&self, scale_tensor: &Tensor<F>, value_pos: u32) -> F {
         match comptime!(self.scheme) {
             // Symmetric quantization only contains the scaling factor as the last element
             QuantScheme {
                 level: QuantLevel::Tensor,
                 mode: QuantMode::Symmetric,
-                q_type: QuantInputType::QInt8,
+                value: QuantValue::QInt8,
                 ..
             } => scale_tensor[0],
             QuantScheme {
                 level: QuantLevel::Block(block_size),
                 mode: QuantMode::Symmetric,
-                q_type: QuantInputType::QInt8,
+                value: QuantValue::QInt8,
                 ..
             } => {
                 // The input position is `num_quants` smaller because it acts as vectorize with a line
                 // size, but the scales don't have any line size.
-                let position = in_pos * self.num_quants;
+                let position = value_pos * self.num_quants;
                 scale_tensor[position / comptime! {block_size as u32}]
             }
         }

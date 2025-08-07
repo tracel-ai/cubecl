@@ -1,2 +1,4 @@
+#[cfg(feature = "kernels")]
+pub mod qparams;
+
 pub mod scheme;
-// pub mod qparams;
