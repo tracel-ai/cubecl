@@ -1,7 +1,7 @@
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::tile_data::Tile;
 use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{as_cmma_layout, LhsR, LhsS, MatmulPrecision, RhsR, RhsS, StageIdent};
+use crate::components::{LhsR, LhsS, MatmulPrecision, RhsR, RhsS, StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 

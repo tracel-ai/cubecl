@@ -186,11 +186,7 @@ impl RegisterConfig {
             && MP::EA::is_supported(client))
         {
             return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TypesUnavailable {
-                    lhs,
-                    rhs,
-                    output,
-                },
+                MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));
         }
 

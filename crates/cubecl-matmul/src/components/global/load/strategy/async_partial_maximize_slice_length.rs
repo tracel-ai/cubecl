@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, InputPrecision, MatrixLayout,
+    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         global_memory::{TensorReader, Window},
