@@ -238,23 +238,33 @@ impl WgslCompiler {
             cube::VariableKind::SharedMemory {
                 id,
                 length,
+                unroll_factor,
                 alignment,
             } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories
-                        .push(SharedMemory::new(id, item, length, alignment));
+                    self.shared_memories.push(SharedMemory::new(
+                        id,
+                        item,
+                        length * unroll_factor,
+                        alignment,
+                    ));
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }
-            cube::VariableKind::ConstantArray { id, length } => {
+            cube::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_item(item);
                 wgsl::Variable::ConstantArray(id, item, length)
             }
-            cube::VariableKind::LocalArray { id, length } => {
+            cube::VariableKind::LocalArray {
+                id,
+                length,
+                unroll_factor,
+            } => {
                 let item = self.compile_item(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
-                    self.local_arrays.push(LocalArray::new(id, item, length));
+                    self.local_arrays
+                        .push(LocalArray::new(id, item, length * unroll_factor));
                 }
                 wgsl::Variable::LocalArray(id, item, length)
             }

@@ -53,6 +53,7 @@ pub enum VariableKind {
     LocalArray {
         id: Id,
         length: u32,
+        unroll_factor: u32,
     },
     LocalMut {
         id: Id,
@@ -68,10 +69,12 @@ pub enum VariableKind {
     ConstantArray {
         id: Id,
         length: u32,
+        unroll_factor: u32,
     },
     SharedMemory {
         id: Id,
         length: u32,
+        unroll_factor: u32,
         alignment: Option<u32>,
     },
     Matrix {

@@ -260,6 +260,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::ConstantArray {
                 id: arr.id,
                 length: arr.length,
+                unroll_factor: 1,
             },
             arr.item,
         );

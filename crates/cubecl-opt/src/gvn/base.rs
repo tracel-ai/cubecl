@@ -91,7 +91,7 @@ pub enum Value {
     Local(Local),
     Input(Id, Item),
     Scalar(Id, Elem),
-    ConstArray(Id, Item, u32),
+    ConstArray(Id, Item, u32, u32),
     Builtin(Builtin),
     // Metadata only
     Output(Id, Item),
@@ -138,7 +138,7 @@ impl Value {
             Value::Local(local) => local.item,
             Value::Input(_, item) => *item,
             Value::Scalar(_, elem) => Item::new(*elem),
-            Value::ConstArray(_, item, _) => *item,
+            Value::ConstArray(_, item, _, _) => *item,
             Value::Builtin(_) => Item::new(Elem::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
         }

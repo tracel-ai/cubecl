@@ -1183,18 +1183,27 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::SharedMemory {
                 id,
                 length,
+                unroll_factor,
                 alignment,
             } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories
-                        .push(SharedMemory::new(id, item, length, alignment));
+                    self.shared_memories.push(SharedMemory::new(
+                        id,
+                        item,
+                        length * unroll_factor,
+                        alignment,
+                    ));
                 }
                 Variable::SharedMemory(id, item, length)
             }
-            gpu::VariableKind::ConstantArray { id, length } => {
+            gpu::VariableKind::ConstantArray {
+                id,
+                length,
+                unroll_factor,
+            } => {
                 let item = self.compile_item(item);
-                Variable::ConstantArray(id, item, length)
+                Variable::ConstantArray(id, item, length * unroll_factor)
             }
             gpu::VariableKind::Builtin(builtin) => match builtin {
                 gpu::Builtin::AbsolutePos => {
@@ -1312,10 +1321,15 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::UnitPosPlane
                 }
             },
-            gpu::VariableKind::LocalArray { id, length } => {
+            gpu::VariableKind::LocalArray {
+                id,
+                length,
+                unroll_factor,
+            } => {
                 let item = self.compile_item(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
-                    self.local_arrays.push(LocalArray::new(id, item, length));
+                    self.local_arrays
+                        .push(LocalArray::new(id, item, length * unroll_factor));
                 }
                 Variable::LocalArray(id, item, length)
             }

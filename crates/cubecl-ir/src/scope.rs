@@ -267,6 +267,7 @@ impl Scope {
             VariableKind::SharedMemory {
                 id: index,
                 length: shared_memory_size,
+                unroll_factor: 1,
                 alignment,
             },
             item,
@@ -287,6 +288,7 @@ impl Scope {
             VariableKind::ConstantArray {
                 id: index,
                 length: data.len() as u32,
+                unroll_factor: 1,
             },
             item,
         );

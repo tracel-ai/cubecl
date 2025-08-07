@@ -356,12 +356,17 @@ impl Optimizer {
         }
 
         for (var, values) in scope.const_arrays.clone() {
-            let VariableKind::ConstantArray { id, length } = var.kind else {
+            let VariableKind::ConstantArray {
+                id,
+                length,
+                unroll_factor,
+            } = var.kind
+            else {
                 unreachable!()
             };
             self.program.const_arrays.push(ConstArray {
                 id,
-                length,
+                length: length * unroll_factor,
                 item: var.item,
                 values,
             });

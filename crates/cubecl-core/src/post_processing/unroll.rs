@@ -1,9 +1,9 @@
 use std::num::NonZero;
 
 use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperator, Branch, CopyMemoryBulkOperator, ExpandElement,
-    IndexAssignOperator, IndexOperator, Instruction, Item, Metadata, Operation, OperationReflect,
-    Operator, Processor, ScopeProcessing, Variable, VariableKind,
+    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
+    IndexAssignOperator, IndexOperator, Instruction, Item, MatrixLayout, Metadata, Operation,
+    OperationReflect, Operator, Processor, ScopeProcessing, Variable, VariableKind,
 };
 use hashbrown::HashMap;
 
@@ -47,7 +47,49 @@ impl UnrollProcessor {
         mappings: &mut Mappings,
     ) -> TransformAction {
         if inst.operation.args().is_none() {
-            return TransformAction::Ignore;
+            // Detect unhandled ops that can't be reflected
+            match &inst.operation {
+                Operation::CoopMma(op) => match op {
+                    // Stride is in scalar elems
+                    CoopMma::Load {
+                        value,
+                        stride,
+                        offset,
+                        layout,
+                    } if value.vectorization_factor() > self.max_line_size => {
+                        return TransformAction::Replace(self.transform_cmma_load(
+                            alloc,
+                            inst.out(),
+                            value,
+                            stride,
+                            offset,
+                            layout,
+                        ));
+                    }
+                    CoopMma::Store {
+                        mat,
+                        stride,
+                        offset,
+                        layout,
+                    } if inst.out().vectorization_factor() > self.max_line_size => {
+                        return TransformAction::Replace(self.transform_cmma_store(
+                            alloc,
+                            inst.out(),
+                            mat,
+                            stride,
+                            offset,
+                            layout,
+                        ));
+                    }
+                    _ => return TransformAction::Ignore,
+                },
+                Operation::Branch(_) | Operation::NonSemantic(_) => {
+                    return TransformAction::Ignore;
+                }
+                _ => {
+                    panic!("Need special handling for unrolling non-reflectable operations")
+                }
+            }
         }
 
         let args = inst.operation.args().unwrap_or_default();
@@ -140,7 +182,7 @@ impl UnrollProcessor {
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::IndexAssign(op)) if inst.out().is_array() => {
+                Operation::Operator(Operator::IndexAssign(op)) => {
                     TransformAction::Replace(self.transform_composite_index_assign(
                         alloc,
                         inst.out(),
@@ -150,9 +192,7 @@ impl UnrollProcessor {
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::UncheckedIndexAssign(op))
-                    if inst.out().is_array() =>
-                {
+                Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
                     TransformAction::Replace(self.transform_composite_index_assign(
                         alloc,
                         inst.out(),
@@ -178,12 +218,66 @@ impl UnrollProcessor {
         }
     }
 
+    /// Transform CMMA load offset and array
+    fn transform_cmma_load(
+        &self,
+        alloc: &Allocator,
+        out: Variable,
+        value: &Variable,
+        stride: &Variable,
+        offset: &Variable,
+        layout: &Option<MatrixLayout>,
+    ) -> Vec<Instruction> {
+        let line_size = value.vectorization_factor();
+        let unroll_factor = line_size / self.max_line_size;
+
+        let value = unroll_array(*value, self.max_line_size, unroll_factor);
+        let (mul, offset) = mul_index(alloc, *offset, unroll_factor);
+        let load = Instruction::new(
+            Operation::CoopMma(CoopMma::Load {
+                value,
+                stride: *stride,
+                offset: *offset,
+                layout: *layout,
+            }),
+            out,
+        );
+        vec![mul, load]
+    }
+
+    /// Transform CMMA store offset and array
+    fn transform_cmma_store(
+        &self,
+        alloc: &Allocator,
+        out: Variable,
+        mat: &Variable,
+        stride: &Variable,
+        offset: &Variable,
+        layout: &MatrixLayout,
+    ) -> Vec<Instruction> {
+        let line_size = out.vectorization_factor();
+        let unroll_factor = line_size / self.max_line_size;
+
+        let out = unroll_array(out, self.max_line_size, unroll_factor);
+        let (mul, offset) = mul_index(alloc, *offset, unroll_factor);
+        let store = Instruction::new(
+            Operation::CoopMma(CoopMma::Store {
+                mat: *mat,
+                stride: *stride,
+                offset: *offset,
+                layout: *layout,
+            }),
+            out,
+        );
+        vec![mul, store]
+    }
+
     /// Transforms memcpy into one with higher length and adjusted indices/offsets
     fn transform_memcpy(
         &self,
         alloc: &Allocator,
         op: &CopyMemoryBulkOperator,
-        mut out: Variable,
+        out: Variable,
         unroll_factor: u8,
     ) -> Vec<Instruction> {
         let (mul1, in_index) = mul_index(alloc, op.in_index, unroll_factor);
@@ -191,10 +285,8 @@ impl UnrollProcessor {
         let (mul3, out_index) = mul_index(alloc, op.out_index, unroll_factor);
         let (mul4, offset_out) = mul_index(alloc, op.offset_out, unroll_factor);
 
-        let mut input = op.input;
-        input.item.vectorization = NonZero::new(self.max_line_size);
-
-        out.item.vectorization = NonZero::new(self.max_line_size);
+        let input = unroll_array(op.input, self.max_line_size, unroll_factor);
+        let out = unroll_array(out, self.max_line_size, unroll_factor);
 
         vec![
             mul1,
@@ -229,8 +321,7 @@ impl UnrollProcessor {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
         let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
 
-        let mut list = op.list;
-        list.item.vectorization = NonZero::new(self.max_line_size);
+        let list = unroll_array(op.list, self.max_line_size, unroll_factor);
 
         let out = mappings.get(alloc, out, unroll_factor, self.max_line_size);
         let mut instructions = vec![mul];
@@ -256,7 +347,7 @@ impl UnrollProcessor {
     fn transform_array_index_assign(
         &self,
         alloc: &Allocator,
-        mut out: Variable,
+        out: Variable,
         op: &IndexAssignOperator,
         operator: impl Fn(IndexAssignOperator) -> Operator,
         unroll_factor: u8,
@@ -265,7 +356,7 @@ impl UnrollProcessor {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
         let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
 
-        out.item.vectorization = NonZero::new(self.max_line_size);
+        let out = unroll_array(out, self.max_line_size, unroll_factor);
 
         let value = mappings.get(alloc, op.value, unroll_factor, self.max_line_size);
 
@@ -528,6 +619,11 @@ fn create_unrolled(
     max_line_size: u8,
     unroll_factor: u8,
 ) -> Vec<ExpandElement> {
+    // Preserve scalars
+    if var.vectorization_factor() == 1 {
+        return vec![ExpandElement::Plain(*var); unroll_factor as usize];
+    }
+
     let item = Item::vectorized(var.elem(), NonZero::new(max_line_size));
     (0..unroll_factor as usize)
         .map(|_| match var.kind {
@@ -562,4 +658,19 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u8) -> (Instructio
         *mul_idx,
     );
     (mul, mul_idx)
+}
+
+fn unroll_array(mut var: Variable, max_line_size: u8, factor: u8) -> Variable {
+    var.item.vectorization = NonZero::new(max_line_size);
+
+    match &mut var.kind {
+        VariableKind::LocalArray { unroll_factor, .. }
+        | VariableKind::ConstantArray { unroll_factor, .. }
+        | VariableKind::SharedMemory { unroll_factor, .. } => {
+            *unroll_factor = factor as u32;
+        }
+        _ => {}
+    }
+
+    var
 }

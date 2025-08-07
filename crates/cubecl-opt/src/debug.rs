@@ -237,7 +237,7 @@ impl Display for Value {
             Value::Local(local) => write!(f, "{local}"),
             Value::Input(id, _) => write!(f, "input({id})"),
             Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
-            Value::ConstArray(id, _, _) => write!(f, "const_array({id})"),
+            Value::ConstArray(id, _, _, _) => write!(f, "const_array({id})"),
             Value::Builtin(builtin) => write!(f, "{builtin:?}"),
             Value::Output(id, _) => write!(f, "output({id})"),
         }
