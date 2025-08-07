@@ -64,7 +64,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
         ComptimeTagLaunch::new(array_arg, &"zero".to_string()),
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], f32::new(0.0));
@@ -79,7 +79,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
         ComptimeTagLaunch::new(array_arg, &"not_zero".to_string()),
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], f32::new(1.0));
@@ -97,7 +97,7 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -113,7 +113,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server,
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 5.0);
@@ -137,7 +137,7 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R::Server, R::Ch
         shared_size_2 as u32,
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[1, 9, 9, 9, 9, 9, 9, 1]);

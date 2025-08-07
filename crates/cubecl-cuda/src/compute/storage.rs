@@ -1,5 +1,6 @@
+use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use cudarc::driver::sys::CUstream;
+use cudarc::driver::{DriverError, sys::CUstream};
 use std::collections::HashMap;
 
 use super::uninit_vec;
@@ -126,15 +127,30 @@ impl ComputeStorage for CudaStorage {
         )
     }
 
-    fn alloc(&mut self, size: u64) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        let ptr =
-            unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize).unwrap() };
+        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
+        let ptr = match ptr {
+            Ok(ptr) => ptr,
+            // I don't think this actually triggers immediately, might be returning the error on the next call
+            // Need to figure out how to handle this
+            Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
+                Err(IoError::BufferTooBig(size as usize))?
+            }
+            Err(other) => panic!("{other}"),
+        };
         self.memory.insert(id, ptr);
-        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization { offset: 0, size },
+        ))
     }
 
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
+    }
+
+    fn flush(&mut self) {
+        self.perform_deallocations();
     }
 }

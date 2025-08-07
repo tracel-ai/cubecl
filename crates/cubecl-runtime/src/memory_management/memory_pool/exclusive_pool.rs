@@ -1,5 +1,6 @@
 use crate::{
     memory_management::{MemoryUsage, StorageExclude},
+    server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
 
@@ -69,12 +70,12 @@ impl ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> &mut MemoryPage {
+    ) -> Result<&mut MemoryPage, IoError> {
         let alloc_size = (self.cur_avg_size as u64)
             .max(size)
             .next_multiple_of(self.alignment);
 
-        let storage = storage.alloc(alloc_size);
+        let storage = storage.alloc(alloc_size)?;
 
         let handle = SliceHandle::new();
         let padding = calculate_padding(size, self.alignment);
@@ -94,7 +95,7 @@ impl ExclusiveMemoryPool {
         });
 
         let idx = self.pages.len() - 1;
-        &mut self.pages[idx]
+        Ok(&mut self.pages[idx])
     }
 }
 
@@ -128,13 +129,17 @@ impl MemoryPool for ExclusiveMemoryPool {
         })
     }
 
-    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
-        assert!(
-            size <= self.max_alloc_size,
-            "Should allocate less than maximum size in pool!"
-        );
-        let page = self.alloc_page(storage, size);
-        page.slice.handle.clone()
+    fn alloc<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<SliceHandle, IoError> {
+        if size > self.max_alloc_size {
+            return Err(IoError::BufferTooBig(size as usize));
+        }
+
+        let page = self.alloc_page(storage, size)?;
+        Ok(page.slice.handle.clone())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

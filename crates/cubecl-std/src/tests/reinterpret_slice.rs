@@ -37,7 +37,7 @@ pub fn run_test_read_global<R: Runtime>(
         );
     }
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = f16::from_bytes(&actual);
 
     assert_eq!(actual, target);
@@ -76,7 +76,7 @@ pub fn run_test_write_global<R: Runtime>(
         );
     }
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = i8::from_bytes(&actual);
 
     assert_eq!(actual, casted);
@@ -119,7 +119,7 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server, 
         );
     }
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = f16::from_bytes(&actual);
 
     assert_eq!(actual, target);
@@ -158,7 +158,7 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server,
         );
     }
 
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = i8::from_bytes(&actual);
 
     assert_eq!(actual, casted);

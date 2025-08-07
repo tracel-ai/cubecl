@@ -13,7 +13,7 @@ fn created_resource_is_the_same_when_read() {
     let resource = Vec::from([0, 1, 2]);
     let resource_description = client.create(&resource);
 
-    let obtained_resource = client.read_one(resource_description.binding());
+    let obtained_resource = client.read_one(resource_description);
 
     assert_eq!(resource, obtained_resource)
 }
@@ -23,7 +23,7 @@ fn empty_allocates_memory() {
     let client = test_client(&DummyDevice);
     let size = 4;
     let resource_description = client.empty(size);
-    let empty_resource = client.read_one(resource_description.binding());
+    let empty_resource = client.read_one(resource_description);
 
     assert_eq!(empty_resource.len(), 4);
 }
@@ -41,7 +41,7 @@ fn execute_elementwise_addition() {
         Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
     );
 
-    let obtained_resource = client.read_one(out.binding());
+    let obtained_resource = client.read_one(out);
 
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
 }
@@ -65,7 +65,7 @@ fn autotune_basic_addition_execution() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    let obtained_resource = client.read_one(out.binding());
+    let obtained_resource = client.read_one(out);
 
     // If slow kernel was selected it would output [0, 1, 2]
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]));
@@ -91,7 +91,7 @@ fn autotune_basic_multiplication_execution() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    let obtained_resource = client.read_one(out.binding());
+    let obtained_resource = client.read_one(out);
 
     // If slow kernel was selected it would output [0, 1, 2]
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));

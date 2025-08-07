@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
+use cubecl_core::{CubeElement, server::Allocation};
 
 use crate::components::AvailableLineSizes;
 use crate::components::MatmulIdent;
@@ -149,7 +149,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle.binding());
+            let data = client.read_one(handle.handle);
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -163,8 +163,10 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let (handle, mut strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let Allocation {
+                handle,
+                mut strides,
+            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -185,7 +187,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 5678);
 
-            let data = client.read_one(handle.handle.binding());
+            let data = client.read_one(handle.handle);
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -199,8 +201,10 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let (handle, mut strides) =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            let Allocation {
+                handle,
+                mut strides,
+            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -222,7 +226,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = vec![zero; tensor_size(problem, MatmulIdent::Out)];
 
             let shape = problem.shape(MatmulIdent::Out);
-            let (handle, strides) =
+            let Allocation { handle, strides } =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {
                 handle,

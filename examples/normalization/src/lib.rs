@@ -26,7 +26,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         )
     };
 
-    let bytes = client.read_one(output_a_handle.binding());
+    let bytes = client.read_one(output_a_handle);
     let output = f32::from_bytes(&bytes);
 
     println!(
@@ -34,7 +34,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         R::name(&client)
     );
 
-    let bytes = client.read_one(output_b_handle.binding());
+    let bytes = client.read_one(output_b_handle);
     let output = f32::from_bytes(&bytes);
 
     println!(
