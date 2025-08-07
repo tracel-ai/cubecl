@@ -386,14 +386,14 @@ fn sanitize_constant_scalar_ref_var(var: &mut Variable, reference: &Variable) {
 }
 
 fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: Elem) {
-    if let VariableKind::ConstantScalar(scalar) = var.kind {
-        if scalar.elem() != elem {
-            *var = match scalar {
-                super::ConstantScalarValue::Int(val, _) => elem.constant_from_i64(val),
-                super::ConstantScalarValue::Float(val, _) => elem.constant_from_f64(val),
-                super::ConstantScalarValue::UInt(val, _) => elem.constant_from_u64(val),
-                super::ConstantScalarValue::Bool(val) => elem.constant_from_bool(val),
-            };
-        }
+    if let VariableKind::ConstantScalar(scalar) = var.kind
+        && scalar.elem() != elem
+    {
+        *var = match scalar {
+            super::ConstantScalarValue::Int(val, _) => elem.constant_from_i64(val),
+            super::ConstantScalarValue::Float(val, _) => elem.constant_from_f64(val),
+            super::ConstantScalarValue::UInt(val, _) => elem.constant_from_u64(val),
+            super::ConstantScalarValue::Bool(val) => elem.constant_from_bool(val),
+        };
     }
 }
