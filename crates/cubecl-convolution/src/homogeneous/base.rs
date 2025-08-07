@@ -131,7 +131,7 @@ pub mod config {
         type StageMemoryConfig = <M::StageConfig as StageConfig>::StageMemoryConfig;
 
         fn stage_memory_config(&self) -> Self::StageMemoryConfig {
-            todo!()
+            self.stage_config().stage_memory_config()
         }
 
         fn stage_config(&self) -> Self::StageConfig {
