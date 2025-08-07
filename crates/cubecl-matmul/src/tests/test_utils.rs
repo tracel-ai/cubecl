@@ -148,35 +148,6 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     Ok(())
 }
 
-struct ApproxScaling {
-    multiplier: i64,
-    rounding: i64,
-    shift: u32,
-}
-
-impl ApproxScaling {
-    fn from_f32(x: f32) -> Self {
-        let log = x.log2().ceil() as i32;
-        let multiplier = (x * 2.0_f32.powi(31 - log)).round() as i64;
-        let rounding: i64 = 1 << (30 - log as i64);
-        let shift = (31 - log) as u32;
-        Self {
-            multiplier,
-            rounding,
-            shift,
-        }
-    }
-
-    fn scale(&self, x: i32) -> i32 {
-        if self.multiplier == i32::MIN as i64 && x == i32::MIN {
-            return i32::MAX; // sature on overflow. (while multiplier is in the range of an i32 even if it is a i64)
-        }
-        let prod = (x as i64) * self.multiplier;
-        let prod_with_rounding = prod + self.rounding;
-        (prod_with_rounding >> self.shift) as i32
-    }
-}
-
 pub trait CastInto<E> {
     fn cast_into(self) -> E;
 }
@@ -408,72 +379,106 @@ where
     out
 }
 
-fn matmul_cpu_reference_quantized(
-    lhs: &[u8],
-    rhs: &[u8],
-    problem: &MatmulProblem,
-    lhs_zero_offset: i32,
-    rhs_zero_offset: i32,
-    out_zero_offset: i32,
-    approx_scaling: ApproxScaling,
-) -> Vec<u8>
-where
-{
-    let m = problem.m;
-    let n = problem.n;
-    let k = problem.k;
-    let num_batches = problem.num_batches();
+#[allow(unused)]
+// This will probably be used once quantization is back. Otherwise delete.
+mod quantization {
+    use super::*;
 
-    let b_lhs = problem.lhs_batches.clone();
-    let b_rhs = problem.rhs_batches.clone();
+    struct ApproxScaling {
+        multiplier: i64,
+        rounding: i64,
+        shift: u32,
+    }
 
-    assert!(
-        b_lhs.len() == b_rhs.len(),
-        "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
-    );
-
-    let lhs_strides = strides(problem, MatmulIdent::Lhs);
-    let rhs_strides = strides(problem, MatmulIdent::Rhs);
-    let out_strides = strides(problem, MatmulIdent::Out);
-
-    let mut out = vec![0; m * n * num_batches];
-
-    for nth_batch in 0..num_batches {
-        let batch_out = nth_batch * m * n;
-        let mut batch_lhs = 0;
-        let mut batch_rhs = 0;
-        for b in 0..b_lhs.len() {
-            let tmp = batch_out / out_strides[b];
-            batch_lhs += tmp % b_lhs[b] * lhs_strides[b];
-            batch_rhs += tmp % b_rhs[b] * rhs_strides[b];
+    impl ApproxScaling {
+        fn from_f32(x: f32) -> Self {
+            let log = x.log2().ceil() as i32;
+            let multiplier = (x * 2.0_f32.powi(31 - log)).round() as i64;
+            let rounding: i64 = 1 << (30 - log as i64);
+            let shift = (31 - log) as u32;
+            Self {
+                multiplier,
+                rounding,
+                shift,
+            }
         }
 
-        // Perform matmul
-        for row in 0..m {
-            for col in 0..n {
-                let mut elem = 0;
-                for middle in 0..k {
-                    let lhs_index = row * k + middle;
-                    let rhs_index = middle * n + col;
-
-                    let l = lhs[batch_lhs + lhs_index] as i32 - lhs_zero_offset;
-                    let r = rhs[batch_rhs + rhs_index] as i32 - rhs_zero_offset;
-                    let prod = l * r;
-                    elem += prod;
-                }
-                elem = approx_scaling.scale(elem);
-                elem += out_zero_offset;
-                let out_index = row * n + col;
-                out[batch_out + out_index] = if elem < 0 {
-                    0
-                } else if elem > 255 {
-                    255
-                } else {
-                    elem as u8
-                };
+        fn scale(&self, x: i32) -> i32 {
+            if self.multiplier == i32::MIN as i64 && x == i32::MIN {
+                return i32::MAX; // sature on overflow. (while multiplier is in the range of an i32 even if it is a i64)
             }
+            let prod = (x as i64) * self.multiplier;
+            let prod_with_rounding = prod + self.rounding;
+            (prod_with_rounding >> self.shift) as i32
         }
     }
 
-    out
+    fn matmul_cpu_reference_quantized(
+        lhs: &[u8],
+        rhs: &[u8],
+        problem: &MatmulProblem,
+        lhs_zero_offset: i32,
+        rhs_zero_offset: i32,
+        out_zero_offset: i32,
+        approx_scaling: ApproxScaling,
+    ) -> Vec<u8>
+where {
+        let m = problem.m;
+        let n = problem.n;
+        let k = problem.k;
+        let num_batches = problem.num_batches();
+
+        let b_lhs = problem.lhs_batches.clone();
+        let b_rhs = problem.rhs_batches.clone();
+
+        assert!(
+            b_lhs.len() == b_rhs.len(),
+            "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
+        );
+
+        let lhs_strides = strides(problem, MatmulIdent::Lhs);
+        let rhs_strides = strides(problem, MatmulIdent::Rhs);
+        let out_strides = strides(problem, MatmulIdent::Out);
+
+        let mut out = vec![0; m * n * num_batches];
+
+        for nth_batch in 0..num_batches {
+            let batch_out = nth_batch * m * n;
+            let mut batch_lhs = 0;
+            let mut batch_rhs = 0;
+            for b in 0..b_lhs.len() {
+                let tmp = batch_out / out_strides[b];
+                batch_lhs += tmp % b_lhs[b] * lhs_strides[b];
+                batch_rhs += tmp % b_rhs[b] * rhs_strides[b];
+            }
+
+            // Perform matmul
+            for row in 0..m {
+                for col in 0..n {
+                    let mut elem = 0;
+                    for middle in 0..k {
+                        let lhs_index = row * k + middle;
+                        let rhs_index = middle * n + col;
+
+                        let l = lhs[batch_lhs + lhs_index] as i32 - lhs_zero_offset;
+                        let r = rhs[batch_rhs + rhs_index] as i32 - rhs_zero_offset;
+                        let prod = l * r;
+                        elem += prod;
+                    }
+                    elem = approx_scaling.scale(elem);
+                    elem += out_zero_offset;
+                    let out_index = row * n + col;
+                    out[batch_out + out_index] = if elem < 0 {
+                        0
+                    } else if elem > 255 {
+                        255
+                    } else {
+                        elem as u8
+                    };
+                }
+            }
+        }
+
+        out
+    }
 }
