@@ -76,7 +76,7 @@ impl Runtime for WgpuRuntime {
         }
         #[cfg(not(feature = "msl"))]
         {
-            &[8, 4, 2, 1]
+            &[4, 2, 1]
         }
     }
 
