@@ -1,12 +1,11 @@
 use std::marker::PhantomData;
 
-use cubecl_core::ir::Elem;
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
-use cubecl_matmul::components::MatmulSelection;
+use cubecl_matmul::components::{MatmulElems, MatmulSelection};
 
 use crate::{
     base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily,
@@ -69,10 +68,9 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        matmul_elems: MatmulElems,
     ) -> MatmulSelection {
-        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, matmul_elems)
     }
 }
 

@@ -62,6 +62,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
+        &P::EG::as_elem_native_unchecked(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes

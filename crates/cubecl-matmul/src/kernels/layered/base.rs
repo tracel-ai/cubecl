@@ -195,7 +195,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&lhs_elem, &eo_elem);
+    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&lhs_elem, &rhs_elem, &eo_elem);
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)

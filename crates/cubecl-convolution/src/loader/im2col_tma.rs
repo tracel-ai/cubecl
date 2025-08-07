@@ -1,7 +1,7 @@
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_core::{intrinsic, prelude::*};
 
-use cubecl_matmul::components::StageIdent;
+use cubecl_matmul::components::{InputPrecision, StageIdent};
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 use std::marker::PhantomData;
 
@@ -10,28 +10,28 @@ use crate::{
     base::{Dimensionality, RuntimeArgs},
     reader::tma::Im2colTmaReader,
 };
-use cubecl_matmul::components::{
-    MatmulPrecision,
-    stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory},
+use cubecl_matmul::components::stage::{
+    ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory,
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
-pub type TmaIm2colReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaIm2colTiling>;
+pub type TmaIm2colReader<IP> =
+    FullStageToTileReader<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
-pub struct TmaIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
-    pub map: Im2colTmaReader<MP::EI>,
-    pub stages: Sequence<StageMemory<MP::ES, TmaIm2colTiling>>,
+pub struct TmaIm2colLoader<IP: InputPrecision, G: ConvGemmConfig> {
+    pub map: Im2colTmaReader<IP::Global>,
+    pub stages: Sequence<StageMemory<IP::Stage, TmaIm2colTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
+impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colLoader<IP, G> {
     pub fn new(
-        tensor: VirtualTensor<MP::EI>,
+        tensor: VirtualTensor<IP::Global>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -51,9 +51,9 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
         let (n_offs, spatial_offsets) = div_mod_seq(x_offset, &runtime_args.out_shape);
 
-        let map = Im2colTmaReader::<MP::EI>::new(tensor, n_offs, spatial_offsets, y_offset);
+        let map = Im2colTmaReader::<IP::Global>::new(tensor, n_offs, spatial_offsets, y_offset);
 
-        TmaIm2colLoader::<MP, G> {
+        TmaIm2colLoader::<IP, G> {
             map,
             stages,
             padded_channels: runtime_args.padded_channels,
@@ -63,7 +63,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
 
     pub fn fill_stage(
         this: &mut Self,
-        bar: &Barrier<MP::ES>,
+        bar: &Barrier<IP::Stage>,
         #[comptime] stage_idx: u32,
         #[comptime] config: G,
     ) {
@@ -156,8 +156,8 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         this.map.update_view(k_offset);
     }
 
-    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaIm2colReader<MP> {
-        TmaIm2colReader::<MP>::new(*this.stages.index(stage_idx), StageIdent::Lhs)
+    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaIm2colReader<IP> {
+        TmaIm2colReader::<IP>::new(*this.stages.index(stage_idx), StageIdent::Lhs)
     }
 }
 
