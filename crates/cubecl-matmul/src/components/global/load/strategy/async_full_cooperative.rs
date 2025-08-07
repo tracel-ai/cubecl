@@ -2,8 +2,8 @@ use crate::components::{
     InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
-        global_memory::{TensorReader, Window},
         load::AsyncFullLoadingStrategy,
+        memory::{TensorReader, Window},
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -67,8 +67,8 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullC
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let window: Window<IP::Global> =
-            tensor_reader.load_window_in_stage::<G>(task_id, this.ident, config);
+        let window: Window<IP::Global> = tensor_reader
+            .load_window_in_stage(task_id, comptime!(config.global_memory_config(this.ident)));
         let mut destination: SliceMut<Line<IP::Stage>> =
             StridedTilingLayout::nth_slice::<IP::Stage, G::StageMemoryConfig>(
                 stage,

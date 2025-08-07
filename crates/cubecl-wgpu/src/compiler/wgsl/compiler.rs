@@ -1,10 +1,11 @@
+use std::num::NonZero;
+
 use super::Subgroup;
 use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{ConstantScalarValue, Processor, UIntKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -12,6 +13,12 @@ use cubecl_core::{
     ir::{self as cube, Scope},
     prelude::expand_erf,
 };
+use cubecl_core::{
+    ir::{ConstantScalarValue, Processor, UIntKind},
+    post_processing::unroll::UnrollProcessor,
+};
+
+pub const MAX_LINE_SIZE: u8 = 4;
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -102,7 +109,14 @@ impl WgslCompiler {
             buffers: value
                 .buffers
                 .into_iter()
-                .map(|it| self.compile_binding(it))
+                .map(|mut it| {
+                    // This is safe when combined with the unroll transform that adjusts all indices.
+                    // Must not be used alone
+                    if it.item.vectorization() > MAX_LINE_SIZE {
+                        it.item.vectorization = NonZero::new(MAX_LINE_SIZE);
+                    }
+                    self.compile_binding(it)
+                })
                 .collect(),
             scalars: value
                 .scalars
@@ -224,23 +238,33 @@ impl WgslCompiler {
             cube::VariableKind::SharedMemory {
                 id,
                 length,
+                unroll_factor,
                 alignment,
             } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories
-                        .push(SharedMemory::new(id, item, length, alignment));
+                    self.shared_memories.push(SharedMemory::new(
+                        id,
+                        item,
+                        length * unroll_factor,
+                        alignment,
+                    ));
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }
-            cube::VariableKind::ConstantArray { id, length } => {
+            cube::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_item(item);
                 wgsl::Variable::ConstantArray(id, item, length)
             }
-            cube::VariableKind::LocalArray { id, length } => {
+            cube::VariableKind::LocalArray {
+                id,
+                length,
+                unroll_factor,
+            } => {
                 let item = self.compile_item(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
-                    self.local_arrays.push(LocalArray::new(id, item, length));
+                    self.local_arrays
+                        .push(LocalArray::new(id, item, length * unroll_factor));
                 }
                 wgsl::Variable::LocalArray(id, item, length)
             }
@@ -370,9 +394,13 @@ impl WgslCompiler {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let processing = scope.process([checked_io]);
+        let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
+        let processing = scope.process([&*unroll, &*checked_io]);
 
-        for var in processing.variables {
+        for mut var in processing.variables {
+            if var.item.vectorization() > MAX_LINE_SIZE {
+                var.item.vectorization = NonZero::new(MAX_LINE_SIZE);
+            }
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
             });
@@ -940,7 +968,7 @@ impl WgslCompiler {
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
-                len: op.len.as_const().unwrap().as_u32(),
+                len: op.len,
             }),
             cube::Operator::Select(op) => instructions.push(wgsl::Instruction::Select {
                 cond: self.compile_variable(op.cond),

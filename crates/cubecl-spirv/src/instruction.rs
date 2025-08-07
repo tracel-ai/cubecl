@@ -244,7 +244,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let in_index = self.compile_variable(op.in_index);
                 let out = self.compile_variable(out);
                 let out_index = self.compile_variable(op.out_index);
-                let len = op.len.as_const().unwrap().as_u32();
+                let len = op.len;
 
                 let source = self.index_ptr(&input, &in_index);
                 let target = self.index_ptr(&out, &out_index);

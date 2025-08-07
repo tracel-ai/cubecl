@@ -50,10 +50,11 @@ impl Value {
             Value::Scalar(id, elem) => {
                 Variable::new(VariableKind::GlobalScalar(*id), Item::new(*elem))
             }
-            Value::ConstArray(id, item, len) => Variable::new(
+            Value::ConstArray(id, item, len, unroll_factor) => Variable::new(
                 VariableKind::ConstantArray {
                     id: *id,
                     length: *len,
+                    unroll_factor: *unroll_factor,
                 },
                 *item,
             ),
@@ -77,7 +78,11 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             item,
         }),
         VariableKind::ConstantScalar(val) => Value::Constant(val.into()),
-        VariableKind::ConstantArray { id, length } => Value::ConstArray(id, item, length),
+        VariableKind::ConstantArray {
+            id,
+            length,
+            unroll_factor,
+        } => Value::ConstArray(id, item, length, unroll_factor),
         VariableKind::LocalMut { .. }
         | VariableKind::SharedMemory { .. }
         | VariableKind::LocalArray { .. }

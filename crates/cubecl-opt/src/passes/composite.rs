@@ -118,18 +118,15 @@ impl OptimizerPass for RemoveIndexScalar {
             for op in ops.borrow_mut().values_mut() {
                 if let Operation::Operator(Operator::Index(IndexOperator { list, index, .. })) =
                     &mut op.operation
+                    && !list.is_array()
+                    && let Some(index) = index.as_const()
                 {
-                    if !list.is_array() {
-                        if let Some(index) = index.as_const() {
-                            let index = index.as_u32();
-                            let vectorization =
-                                list.item.vectorization.map(|it| it.get()).unwrap_or(1);
-                            if vectorization == 1 {
-                                assert_eq!(index, 0, "Can't index into scalar");
-                                op.operation = Operation::Copy(*list);
-                                changes.inc();
-                            }
-                        }
+                    let index = index.as_u32();
+                    let vectorization = list.item.vectorization.map(|it| it.get()).unwrap_or(1);
+                    if vectorization == 1 {
+                        assert_eq!(index, 0, "Can't index into scalar");
+                        op.operation = Operation::Copy(*list);
+                        changes.inc();
                     }
                 }
             }

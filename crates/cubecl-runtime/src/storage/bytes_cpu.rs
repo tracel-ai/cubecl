@@ -1,3 +1,5 @@
+use crate::server::IoError;
+
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
@@ -72,7 +74,7 @@ impl ComputeStorage for BytesStorage {
         }
     }
 
-    fn alloc(&mut self, size: u64) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         let handle = StorageHandle {
             id,
@@ -82,12 +84,16 @@ impl ComputeStorage for BytesStorage {
         unsafe {
             let layout = Layout::array::<u8>(size as usize).unwrap();
             let ptr = alloc(layout);
+            if ptr.is_null() {
+                // Assume allocation failure is OOM, we can't see the actual error on stable
+                return Err(IoError::BufferTooBig(size as usize));
+            }
             let memory = AllocatedBytes { ptr, layout };
 
             self.memory.insert(id, memory);
         }
 
-        handle
+        Ok(handle)
     }
 
     fn dealloc(&mut self, id: StorageId) {
@@ -106,7 +112,7 @@ mod tests {
     #[test]
     fn test_can_alloc_and_dealloc() {
         let mut storage = BytesStorage::default();
-        let handle_1 = storage.alloc(64);
+        let handle_1 = storage.alloc(64).unwrap();
 
         assert_eq!(handle_1.size(), 64);
         storage.dealloc(handle_1.id);
@@ -115,7 +121,7 @@ mod tests {
     #[test]
     fn test_slices() {
         let mut storage = BytesStorage::default();
-        let handle_1 = storage.alloc(64);
+        let handle_1 = storage.alloc(64).unwrap();
         let handle_2 = StorageHandle::new(
             handle_1.id,
             StorageUtilization {

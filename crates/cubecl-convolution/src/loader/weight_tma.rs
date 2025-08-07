@@ -9,7 +9,7 @@ use crate::base::RuntimeArgs;
 use cubecl_matmul::components::stage::FullStageToTileReader;
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
 use cubecl_matmul::components::{
-    global::{self, global_memory::MappedTensorReader},
+    global::{self, memory::MappedTensorReader},
     stage::{ContiguousTilingLayout, StageConfig, StageMemory},
 };
 

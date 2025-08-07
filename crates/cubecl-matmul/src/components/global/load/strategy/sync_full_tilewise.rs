@@ -7,7 +7,7 @@ use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
 use crate::components::{
-    global::{GlobalConfig, global_memory::TensorReader},
+    global::{GlobalConfig, memory::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
@@ -176,12 +176,11 @@ impl SyncFullTilewiseJob {
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
-        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
+        let line_read = tensor_reader.load_coalesced_in_tile(
             tile.0,
             tile.1,
             line_index_within_tile * this.line_size,
-            this.ident,
-            config,
+            comptime!(config.global_memory_config(this.ident)),
         );
 
         let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;

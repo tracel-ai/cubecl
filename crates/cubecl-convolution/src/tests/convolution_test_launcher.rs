@@ -1,5 +1,5 @@
-use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
+use cubecl_core::{CubeElement, server::Allocation};
 use cubecl_matmul::components::AvailableLineSizes;
 use cubecl_matmul::components::MatmulIdent;
 use cubecl_matmul::components::MatmulSelection;
@@ -145,7 +145,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle.clone().binding());
+            let data = client.read_one(handle.handle.clone());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -163,7 +163,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle.clone().binding());
+            let data = client.read_one(handle.handle.clone());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -182,7 +182,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = vec![zero; tensor_size(problem, MatmulIdent::Out)];
 
             let shape = shape(problem, MatmulIdent::Out);
-            let (handle, strides) =
+            let Allocation { handle, strides } =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             TensorRawParts {

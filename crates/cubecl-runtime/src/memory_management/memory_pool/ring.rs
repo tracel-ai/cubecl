@@ -67,12 +67,12 @@ impl RingBuffer {
                 let is_free = slice.is_free();
 
                 if is_big_enough && is_free {
-                    if slice.effective_size() > size {
-                        if let Some(new_slice) = slice.split(size, self.buffer_alignment) {
-                            let new_slice_id = new_slice.id();
-                            page.insert_slice(slice.next_slice_position(), new_slice_id);
-                            slices.insert(new_slice_id, new_slice);
-                        }
+                    if slice.effective_size() > size
+                        && let Some(new_slice) = slice.split(size, self.buffer_alignment)
+                    {
+                        let new_slice_id = new_slice.id();
+                        page.insert_slice(slice.next_slice_position(), new_slice_id);
+                        slices.insert(new_slice_id, new_slice);
                     }
                     return Some((slice_index, slice_id));
                 }
@@ -112,17 +112,17 @@ impl RingBuffer {
                 slice_index = 0;
             }
 
-            if let Some(id) = self.queue.get(chunk_index) {
-                if !exclude.is_some_and(|e| e.is_excluded(*id)) {
-                    let chunk = pages.get_mut(id).unwrap();
-                    let result = self.find_free_slice_in_chunk(size, chunk, slices, slice_index);
+            if let Some(id) = self.queue.get(chunk_index)
+                && !exclude.is_some_and(|e| e.is_excluded(*id))
+            {
+                let chunk = pages.get_mut(id).unwrap();
+                let result = self.find_free_slice_in_chunk(size, chunk, slices, slice_index);
 
-                    if let Some((_cursor_slice, slice)) = result {
-                        let slice = slices.get(&slice).unwrap();
-                        self.cursor_slice = slice.next_slice_position();
-                        self.cursor_chunk = chunk_index;
-                        return Some(slice.id());
-                    }
+                if let Some((_cursor_slice, slice)) = result {
+                    let slice = slices.get(&slice).unwrap();
+                    self.cursor_slice = slice.next_slice_position();
+                    self.cursor_chunk = chunk_index;
+                    return Some(slice.id());
                 }
             }
             self.cursor_chunk = chunk_index;

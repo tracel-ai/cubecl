@@ -1,6 +1,6 @@
 use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
-use crate::components::global::global_memory::TensorWriter;
+use crate::components::global::memory::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::div_ceil;
@@ -40,6 +40,8 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
     ) {
         let tile_size = config.tiling_scheme().elements_in_tile_mn();
         let output_line_size = config.global_line_size(MatmulIdent::Out);
+        let out_config = config.global_memory_config(MatmulIdent::Out);
+
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let unit_step = config.plane_dim() * output_line_size;
@@ -54,12 +56,12 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
             if comptime!(balanced_workload) {
                 let value = out_smem_slice[unit_write / output_line_size];
                 this.tensor_writer
-                    .write_coalesced::<G>(tile_row, tile_col, unit_write, value, config);
+                    .write_coalesced(tile_row, tile_col, unit_write, value, out_config);
             } else {
                 if unit_write < tile_size {
                     let value = out_smem_slice[unit_write / output_line_size];
                     this.tensor_writer
-                        .write_coalesced::<G>(tile_row, tile_col, unit_write, value, config);
+                        .write_coalesced(tile_row, tile_col, unit_write, value, out_config);
                 }
             }
         }

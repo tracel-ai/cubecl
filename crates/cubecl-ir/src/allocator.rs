@@ -75,6 +75,7 @@ impl Allocator {
             VariableKind::LocalArray {
                 id,
                 length: array_size,
+                unroll_factor: 1,
             },
             item,
         );

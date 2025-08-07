@@ -14,7 +14,7 @@ pub(crate) fn assert_equals_approx<
     expected: &[F],
     epsilon: F,
 ) {
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = F::from_bytes(&actual);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -112,7 +112,7 @@ macro_rules! test_unary_impl_int {
                     )
                 };
 
-                let actual = client.read_one(output_handle.binding());
+                let actual = client.read_one(output_handle);
                 let actual = $int_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);
@@ -158,7 +158,7 @@ macro_rules! test_unary_impl_int_fixed {
                     )
                 };
 
-                let actual = client.read_one(output_handle.binding());
+                let actual = client.read_one(output_handle);
                 let actual = $out_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);

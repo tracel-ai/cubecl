@@ -1,3 +1,4 @@
+use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
@@ -97,15 +98,19 @@ impl ComputeStorage for HipStorage {
         )
     }
 
-    fn alloc(&mut self, size: u64) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         unsafe {
             let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
+            // Checking status is pointless because errors are async
             let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
             assert_eq!(status, HIP_SUCCESS, "Should allocate memory");
             self.memory.insert(id, dptr);
         };
-        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization { offset: 0, size },
+        ))
     }
 
     fn dealloc(&mut self, id: StorageId) {

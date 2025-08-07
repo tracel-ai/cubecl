@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, num::NonZero};
 
 use cubecl_core::{
     compute::{Binding, Location, Visibility},
@@ -10,7 +10,7 @@ use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
 
 use crate::{
-    SpirvCompiler, SpirvTarget,
+    MAX_VECTORIZATION, SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::{ConstVal, Variable},
 };
@@ -103,7 +103,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.buffers = kernel
             .buffers
             .into_iter()
-            .map(|binding| {
+            .map(|mut binding| {
+                // This is safe when combined with the unroll transform that adjusts all indices.
+                // Must not be used alone
+                if binding.item.vectorization() > MAX_VECTORIZATION {
+                    binding.item.vectorization = NonZero::new(MAX_VECTORIZATION);
+                }
                 let var =
                     ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.item);
                 let name = self.name_of_var(var);
@@ -255,6 +260,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::ConstantArray {
                 id: arr.id,
                 length: arr.length,
+                unroll_factor: 1,
             },
             arr.item,
         );

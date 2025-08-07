@@ -31,42 +31,42 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
         mod simple_strided {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_precision!(SimpleAlgorithm<TMM, sync_full_strided::LoadingStrategy, sync_full_strided::LoadingStrategy>);
+            $crate::testgen_matmul_accelerated_precision!(SimpleAlgorithm<TMM, sync_full_strided::SyncFullStridedLoading, sync_full_strided::SyncFullStridedLoading>);
         }
 
         #[cfg(all(feature = "matmul_tests_simple", feature="matmul_tests_tilewise"))]
         mod simple_tilewise {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_precision!(SimpleAlgorithm<TMM, sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>, sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>>);
+            $crate::testgen_matmul_accelerated_precision!(SimpleAlgorithm<TMM, sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>, sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>>);
         }
 
         #[cfg(all(feature = "matmul_tests_simple", feature = "matmul_tests_barrier"))]
         mod simple_barrier_cooperative {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_cooperative::LoadingStrategy>);
+            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_cooperative::AsyncFullCooperativeLoading>);
         }
 
         #[cfg(all(feature = "matmul_tests_simple", feature = "matmul_tests_barrier"))]
         mod simple_barrier_cyclic {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>>);
+            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>>);
         }
 
         #[cfg(all(feature = "matmul_tests_simple", feature = "matmul_tests_barrier"))]
         mod simple_barrier_maximize_slice_length {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_slice_length::LoadingStrategy>);
+            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading>);
         }
 
         #[cfg(all(feature = "matmul_tests_simple", feature = "matmul_tests_barrier"))]
         mod simple_barrier_maximize_unit_count {
             use super::*;
 
-            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_unit_count::LoadingStrategy>);
+            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading>);
         }
 
         #[cfg(all(feature = "matmul_tests_double", feature = "matmul_tests_cyclic"))]

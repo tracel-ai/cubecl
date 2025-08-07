@@ -1,4 +1,4 @@
-use crate::components::global::global_memory::TensorReader;
+use crate::components::global::memory::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::{StageMemory, TilingLayout};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent};

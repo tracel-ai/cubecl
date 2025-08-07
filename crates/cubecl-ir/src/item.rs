@@ -383,6 +383,10 @@ impl Item {
             vectorization,
         }
     }
+
+    pub fn vectorization(&self) -> u8 {
+        self.vectorization.map(|it| it.get()).unwrap_or(1)
+    }
 }
 
 impl Display for Item {

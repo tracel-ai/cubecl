@@ -9,7 +9,7 @@ use crate::components::stage::{
 };
 use crate::components::{InputPrecision, MatmulIdent, StageIdent};
 use crate::components::{
-    global::{GlobalConfig, global_memory::MappedTensorReader},
+    global::{GlobalConfig, memory::MappedTensorReader},
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 

@@ -10,8 +10,8 @@ members = ["crates/*", "examples/*", "xtask"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+rust-version = "1.88"
 version = "0.7.0"
-rust-version = "1.85"
 
 [workspace.dependencies]
 bitflags = { version = "2.8.0", features = ["serde"] }
@@ -29,8 +29,8 @@ toml = "0.9.1"
 variadics_please = "1"
 
 dashmap = "6.1.0"
-hashbrown = "0.15.4"
 foldhash = { version = "0.1.2", default-features = false }
+hashbrown = "0.15.4"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 spin = { version = "0.10.0", features = ["mutex", "spin_mutex"] }
 
@@ -40,12 +40,12 @@ rand = { version = "0.9.0", default-features = false, features = [
 
 async-channel = "2.3"
 dirs = "6.0.0"
+embassy-time = { version = "0.4.0", default-features = false }
 md5 = "0.8.0"
 sanitize-filename = "0.6"
 wasm-bindgen-futures = "0.4.45"
 weak-table = "0.3"
 web-time = "1.1.0"
-embassy-time = { version = "0.4.0", default-features = false }
 
 # Testing
 rstest = "0.25.0"
@@ -68,6 +68,7 @@ paste = "1.0.15"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
+thiserror = "2"
 
 tracy-client = { version = "0.18.0" }
 
@@ -85,9 +86,9 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.36.1"
 libc = "0.2.172"
+sysinfo = "0.36.1"
 
 [profile.dev]
-debug = 0 # Speed up compilation time and not necessary.
+debug = 0     # Speed up compilation time and not necessary.
 opt-level = 0
