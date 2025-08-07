@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use cubecl_core::{ir::Elem, prelude::*};
 use half::{bf16, f16};
 
@@ -91,18 +89,6 @@ impl MatmulPrecision for f64 {
     type Rhs = (f64, f32);
     type EA = f32;
     type EO = f64;
-}
-
-#[derive(Clone, Copy)]
-pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
-    _phantom: PhantomData<(ES, MP)>,
-}
-
-impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
-    type Lhs = (<MP::Lhs as InputPrecision>::Global, ES);
-    type Rhs = (<MP::Rhs as InputPrecision>::Global, ES);
-    type EA = MP::EA;
-    type EO = MP::EO;
 }
 
 impl<LhsG: Numeric, RhsG: Numeric, LhsS: Numeric, RhsS: Numeric, EA: Numeric, EO: Numeric>
