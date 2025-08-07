@@ -10,7 +10,7 @@ members = ["crates/*", "examples/*", "xtask"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = "1.85"
+rust-version = "1.88"
 version = "0.7.0"
 
 [workspace.dependencies]
