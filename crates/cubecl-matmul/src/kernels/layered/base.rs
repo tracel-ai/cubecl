@@ -1,4 +1,5 @@
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
+use crate::components::global::args::TensorArgs;
 use crate::components::{
     AvailableLineSizes, InputRuntimeArg, LhsG, LhsS, MatmulAvailabilityError, MatmulLineSizes,
     MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout,
@@ -221,39 +222,31 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>(),
             TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>(),
         ) {
-            (true, true) => launch_kernel_concrete::<
-                ((f32, f32, tf32, tf32, MP::EA, MP::EO), TensorMapArgs),
-                R,
-                A,
-            >(
-                client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-            ),
+            (true, true) => {
+                launch_kernel_concrete::<((f32, f32, tf32, tf32, MP::EA, MP::EO), TensorArgs), R, A>(
+                    client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
+                )
+            }
             (true, false) => launch_kernel_concrete::<
-                (
-                    (f32, RhsG<MP>, tf32, RhsS<MP>, MP::EA, MP::EO),
-                    TensorMapArgs,
-                ),
+                ((f32, RhsG<MP>, tf32, RhsS<MP>, MP::EA, MP::EO), TensorArgs),
                 R,
                 A,
             >(
                 client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
             ),
             (false, true) => launch_kernel_concrete::<
-                (
-                    (LhsG<MP>, f32, LhsS<MP>, tf32, MP::EA, MP::EO),
-                    TensorMapArgs,
-                ),
+                ((LhsG<MP>, f32, LhsS<MP>, tf32, MP::EA, MP::EO), TensorArgs),
                 R,
                 A,
             >(
                 client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
             ),
-            (false, false) => launch_kernel_concrete::<(MP, TensorMapArgs), R, A>(
+            (false, false) => launch_kernel_concrete::<(MP, TensorArgs), R, A>(
                 client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
             ),
         }
     } else {
-        launch_kernel_concrete::<(MP, TensorMapArgs), R, A>(
+        launch_kernel_concrete::<(MP, TensorArgs), R, A>(
             client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
         )
     }
