@@ -23,6 +23,7 @@ pub struct Range {
 /// between simple arithmetic, so we can determine the possible range of a good number of variables.
 /// This is currently only used in index bound analysis.
 #[derive(Debug, Default)]
+#[allow(unused)]
 pub struct Ranges {
     int_ranges: HashMap<VarId, Range>,
 }

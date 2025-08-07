@@ -164,15 +164,15 @@ impl CubeImplItem {
             param.plain_normalized_self();
         }
 
-        if let Some(param) = func_sig.parameters.first_mut() {
-            if is_method {
-                let ty = match &param.ty {
-                    Type::Reference(reference) => reference.elem.as_ref().clone(),
-                    ty => ty.clone(),
-                };
-                param.name = Ident::new("this", param.span());
-                param.normalized_ty = ty;
-            }
+        if let Some(param) = func_sig.parameters.first_mut()
+            && is_method
+        {
+            let ty = match &param.ty {
+                Type::Reference(reference) => reference.elem.as_ref().clone(),
+                ty => ty.clone(),
+            };
+            param.name = Ident::new("this", param.span());
+            param.normalized_ty = ty;
         }
         func_sig.plain_returns_self();
 

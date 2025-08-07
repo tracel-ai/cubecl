@@ -290,10 +290,10 @@ impl Optimizer {
         for node in self.node_ids() {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation {
-                    if let VariableKind::LocalMut { id } = &op.out().kind {
-                        self.program.variables.remove(id);
-                    }
+                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation
+                    && let VariableKind::LocalMut { id } = &op.out().kind
+                {
+                    self.program.variables.remove(id);
                 }
             }
         }

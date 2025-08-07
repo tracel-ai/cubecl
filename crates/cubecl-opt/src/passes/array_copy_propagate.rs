@@ -121,23 +121,23 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
         for op in ops.borrow_mut().values_mut() {
             match &mut op.operation.clone() {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let VariableKind::LocalArray { id, .. } = index.list.kind {
-                        if id == arr_id {
-                            let const_index = index.index.as_const().unwrap().as_i64() as usize;
-                            op.operation = Operation::Copy(vars[const_index]);
-                        }
+                    if let VariableKind::LocalArray { id, .. } = index.list.kind
+                        && id == arr_id
+                    {
+                        let const_index = index.index.as_const().unwrap().as_i64() as usize;
+                        op.operation = Operation::Copy(vars[const_index]);
                     }
                 }
                 Operation::Operator(
                     Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
                 ) => {
-                    if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind {
-                        if id == arr_id {
-                            let const_index = assign.index.as_const().unwrap().as_i64() as usize;
-                            let out = vars[const_index];
-                            *op = Instruction::new(Operation::Copy(assign.value), out);
-                            opt.invalidate_analysis::<Writes>();
-                        }
+                    if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind
+                        && id == arr_id
+                    {
+                        let const_index = assign.index.as_const().unwrap().as_i64() as usize;
+                        let out = vars[const_index];
+                        *op = Instruction::new(Operation::Copy(assign.value), out);
+                        opt.invalidate_analysis::<Writes>();
                     }
                 }
                 _ => {}
