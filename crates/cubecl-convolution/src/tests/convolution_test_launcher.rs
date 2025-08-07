@@ -155,7 +155,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides: handle.strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Rhs => {
@@ -173,7 +172,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides: handle.strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Out => {
@@ -191,7 +189,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: None,
-                quant_params: None,
             }
         }
     }

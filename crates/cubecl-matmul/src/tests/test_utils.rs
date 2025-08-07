@@ -15,30 +15,19 @@ use crate::{
 };
 use cubecl_std::tensor::TensorHandle;
 
-pub struct QuantizationParams<N: Numeric> {
-    pub scaling: Vec<N>, // This is the bit cast of an f32 into the appropriate numbers of N.
-    pub zero_offset: N,
-}
-
 pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
     type ES: Numeric + Display + CastInto<Self::EA>;
     type EA: Numeric + Display + CastInto<Self::EG>;
     type MP: MatmulPrecision;
-    const QUANTIZED: bool;
-
-    fn quantization_params(ident: MatmulIdent) -> Option<QuantizationParams<Self::EG>>;
 
     #[allow(clippy::too_many_arguments)]
     fn assert_result<R: Runtime>(
         lhs: &[Self::EG],
-        lhs_quant: Option<(f32, i32)>,
         rhs: &[Self::EG],
-        rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
-        out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     );
@@ -54,21 +43,13 @@ where
     type ES = ES;
     type EA = f32;
     type MP = EG;
-    const QUANTIZED: bool = false;
-
-    fn quantization_params(_: MatmulIdent) -> Option<QuantizationParams<Self::EG>> {
-        None
-    }
 
     fn assert_result<R: Runtime>(
         lhs: &[EG],
-        _lhs_quant: Option<(f32, i32)>,
         rhs: &[EG],
-        _rhs_quant: Option<(f32, i32)>,
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
-        _out_quant: Option<(f32, i32)>,
         shape: &[usize],
         strides: &[usize],
     ) {

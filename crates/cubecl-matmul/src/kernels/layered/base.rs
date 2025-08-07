@@ -158,7 +158,6 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let rhs_elem = RhsG::<MP>::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
-    // This is mostly to check that i8 are supported for quantization.
     if !client.properties().feature_enabled(Feature::Type(lhs_elem))
         || !client.properties().feature_enabled(Feature::Type(eo_elem))
     {

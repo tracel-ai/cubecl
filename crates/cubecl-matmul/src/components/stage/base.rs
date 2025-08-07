@@ -143,12 +143,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     ) -> Self::Writer;
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    ///
-    /// # Quantization
-    ///
-    /// If some `quantization` is provided, the read will also requantize the stage in the output
-    /// and update the scaling of the output tensor. This assumes that [execute] is called
-    /// with some `scaling` provided.
     fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Self::Writer,

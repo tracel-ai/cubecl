@@ -130,13 +130,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     P::assert_result::<R>(
         &lhs.original_data.unwrap(),
-        lhs.quant_params,
         &rhs.original_data.unwrap(),
-        rhs.quant_params,
         &problem,
         &client,
         out.handle,
-        out.quant_params,
         &out.shape,
         &out.strides,
     );
@@ -183,7 +180,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Rhs => {
@@ -221,7 +217,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Out => {
@@ -238,7 +233,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: None,
-                quant_params: None,
             }
         }
     }
