@@ -1091,16 +1091,16 @@ fn index(
         };
 
         // Check for bounds.
-        if let Some(ind) = index {
-            if let Some(len) = len {
-                // Note: This is technically not 100% allowed. According to the WebGPU specification,
-                // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
-                // both wgpu and Dawn handle this by either returning dummy data or clamping the index
-                // to valid bounds. This means it's harmless to use in a select.
-                let out_item = out.item();
-                value = format!("select({out_item}(0), {value}, {ind} < {len})");
-            };
-        }
+        if let Some(ind) = index
+            && let Some(len) = len
+        {
+            // Note: This is technically not 100% allowed. According to the WebGPU specification,
+            // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
+            // both wgpu and Dawn handle this by either returning dummy data or clamping the index
+            // to valid bounds. This means it's harmless to use in a select.
+            let out_item = out.item();
+            value = format!("select({out_item}(0), {value}, {ind} < {len})");
+        };
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {value};")

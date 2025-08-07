@@ -32,7 +32,7 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R::Server, R::Channel>)
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
     let expected = &[
         1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,

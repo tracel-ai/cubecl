@@ -1,6 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{CudaContext, CudaServer, CudaStorage},
+    compute::{CudaContext, CudaServer, CudaStorage, valid_strides},
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;
@@ -259,28 +259,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        let rank = shape.len();
-        if strides[rank - 1] != 1 {
-            return false;
-        }
-        if rank <= 1 {
-            return true;
-        }
-
-        let mut sorted = strides.to_vec();
-        sorted.sort();
-        sorted.reverse();
-
-        if sorted != strides {
-            return false;
-        }
-
-        for i in 0..rank - 2 {
-            if strides[i] != shape[i + 1] * strides[i + 1] {
-                return false;
-            }
-        }
-        true
+        valid_strides(shape, strides)
     }
 
     fn device_count() -> usize {

@@ -2,8 +2,8 @@ use crate::components::{
     InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
-        global_memory::{TensorReader, Window},
         load::AsyncFullLoadingStrategy,
+        memory::{TensorReader, Window},
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -67,8 +67,8 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for AsyncFull
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let window: Window<MP::EI> =
-            tensor_reader.load_window_in_stage::<G>(task_id, this.ident, config);
+        let window: Window<MP::EI> = tensor_reader
+            .load_window_in_stage(task_id, comptime!(config.global_memory_config(this.ident)));
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
                 stage,

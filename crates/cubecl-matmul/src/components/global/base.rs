@@ -3,6 +3,7 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
+use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::stage::StageMemoryConfig;
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
@@ -133,6 +134,19 @@ pub trait GlobalConfig:
     fn stage_config(&self) -> Self::StageConfig;
 
     fn stage_memory_config(&self) -> Self::StageMemoryConfig;
+
+    fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
+        GlobalMemoryConfig {
+            elements_in_tile_row: self.tiling_scheme().elements_in_tile_row(ident),
+            elements_in_tile_col: self.tiling_scheme().elements_in_tile_col(ident),
+            elements_in_stage_row: self.tiling_scheme().elements_in_stage_row(ident),
+            elements_in_stage_col: self.tiling_scheme().elements_in_stage_col(ident),
+            global_line_size: self.global_line_size(ident),
+            check_row_bounds: self.check_row_bounds(ident),
+            check_col_bounds: self.check_col_bounds(ident),
+            matrix_layout: self.matrix_layout(ident),
+        }
+    }
 
     /// Returns the line size for the global memory corresponding to the given ident
     fn global_line_size(&self, ident: MatmulIdent) -> u32;

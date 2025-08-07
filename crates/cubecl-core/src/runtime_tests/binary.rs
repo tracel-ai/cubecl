@@ -15,7 +15,7 @@ pub(crate) fn assert_equals_approx<
     expected: &[F],
     epsilon: f32,
 ) {
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one(output);
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -169,7 +169,7 @@ macro_rules! test_mulhi_impl {
                     )
                 };
 
-                let actual = client.read_one(output_handle.binding());
+                let actual = client.read_one(output_handle);
                 let actual = u32::from_bytes(&actual);
                 let expected: &[u32] = $expected;
 
