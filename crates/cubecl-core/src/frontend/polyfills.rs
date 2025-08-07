@@ -28,6 +28,7 @@ fn checked_index_assign<E: CubePrimitive>(
     value: Line<E>,
     out: &mut Array<Line<E>>,
     #[comptime] has_buffer_len: bool,
+    #[comptime] unroll_factor: u32,
 ) {
     let array_len = if comptime![has_buffer_len] {
         out.buffer_len()
@@ -35,13 +36,19 @@ fn checked_index_assign<E: CubePrimitive>(
         out.len()
     };
 
-    if index < array_len {
+    if index < array_len * unroll_factor {
         unsafe { out.index_assign_unchecked(index, value) };
     }
 }
 
 #[allow(missing_docs)]
-pub fn expand_checked_index_assign(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
+pub fn expand_checked_index_assign(
+    scope: &mut Scope,
+    lhs: Variable,
+    rhs: Variable,
+    out: Variable,
+    unroll_factor: u32,
+) {
     scope.register_elem::<FloatExpand<0>>(rhs.item.elem);
     checked_index_assign::expand::<FloatExpand<0>>(
         scope,
@@ -49,6 +56,7 @@ pub fn expand_checked_index_assign(scope: &mut Scope, lhs: Variable, rhs: Variab
         ExpandElement::Plain(rhs).into(),
         ExpandElement::Plain(out).into(),
         out.has_buffer_length(),
+        unroll_factor,
     );
 }
 

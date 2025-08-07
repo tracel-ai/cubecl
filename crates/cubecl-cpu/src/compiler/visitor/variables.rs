@@ -134,7 +134,11 @@ impl<'a> Visitor<'a> {
                 .mutable
                 .get(&id)
                 .expect("Variable should have been declared before"),
-            VariableKind::ConstantArray { id, length } => {
+            VariableKind::ConstantArray {
+                id,
+                length,
+                unroll_factor,
+            } => {
                 let name = id.to_string();
                 let r#type = self
                     .variables
@@ -142,7 +146,8 @@ impl<'a> Visitor<'a> {
                     .get(&id)
                     .unwrap()
                     .to_type(self.context);
-                let r#type = MemRefType::new(r#type, &[length as i64], None, None);
+                let r#type =
+                    MemRefType::new(r#type, &[(length * unroll_factor) as i64], None, None);
                 self.append_operation_with_result(memref::get_global(
                     self.context,
                     &name,

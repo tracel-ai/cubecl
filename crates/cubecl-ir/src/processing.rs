@@ -10,7 +10,7 @@ use super::{
     VariableKind,
 };
 
-pub trait Processor {
+pub trait Processor: core::fmt::Debug {
     fn transform(&self, processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing;
 }
 

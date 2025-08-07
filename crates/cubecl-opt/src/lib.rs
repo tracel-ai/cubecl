@@ -33,8 +33,7 @@ use std::{
 };
 
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
-use cubecl_common::{CubeDim, ExecutionMode};
-use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_common::CubeDim;
 use cubecl_ir::{
     self as core, Allocator, Branch, Id, Item, Operation, Operator, Processor, Scope, Variable,
     VariableKind,
@@ -147,9 +146,8 @@ pub struct Optimizer {
     pub root_scope: Scope,
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
-    /// The execution mode, `Unchecked` skips bounds check optimizations.
-    pub(crate) mode: ExecutionMode,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
+    pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,
 }
 
 impl Default for Optimizer {
@@ -162,9 +160,9 @@ impl Default for Optimizer {
             ret: Default::default(),
             root_scope: Scope::root(false),
             cube_dim: Default::default(),
-            mode: Default::default(),
             analysis_cache: Default::default(),
             transformers: Default::default(),
+            processors: Default::default(),
         }
     }
 }
@@ -175,15 +173,15 @@ impl Optimizer {
     pub fn new(
         expand: Scope,
         cube_dim: CubeDim,
-        mode: ExecutionMode,
         transformers: Vec<Rc<dyn IrTransformer>>,
+        processors: Vec<Box<dyn Processor>>,
     ) -> Self {
         let mut opt = Self {
             root_scope: expand.clone(),
             cube_dim,
-            mode,
             allocator: expand.allocator.clone(),
             transformers,
+            processors: Rc::new(processors),
             ..Default::default()
         };
         opt.run_opt();
@@ -349,8 +347,7 @@ impl Optimizer {
 
     /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
-        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.mode));
-        let processed = scope.process([checked_io]);
+        let processed = scope.process(self.processors.iter().map(|it| &**it));
 
         for var in processed.variables {
             if let VariableKind::LocalMut { id } = var.kind {
@@ -359,12 +356,17 @@ impl Optimizer {
         }
 
         for (var, values) in scope.const_arrays.clone() {
-            let VariableKind::ConstantArray { id, length } = var.kind else {
+            let VariableKind::ConstantArray {
+                id,
+                length,
+                unroll_factor,
+            } = var.kind
+            else {
                 unreachable!()
             };
             self.program.const_arrays.push(ConstArray {
                 id,
-                length,
+                length: length * unroll_factor,
                 item: var.item,
                 values,
             });
@@ -477,7 +479,7 @@ mod test {
         ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
-        let opt = Optimizer::new(ctx, CubeDim::default(), ExecutionMode::Checked, vec![]);
+        let opt = Optimizer::new(ctx, CubeDim::default(), vec![], vec![]);
         println!("{opt}")
     }
 }

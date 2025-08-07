@@ -62,9 +62,21 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
         for op in ops.borrow().values() {
             match &op.operation {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let VariableKind::LocalArray { id, length } = index.list.kind {
+                    if let VariableKind::LocalArray {
+                        id,
+                        length,
+                        unroll_factor,
+                    } = index.list.kind
+                    {
                         let item = index.list.item;
-                        arrays.insert(id, Array { id, length, item });
+                        arrays.insert(
+                            id,
+                            Array {
+                                id,
+                                length: length * unroll_factor,
+                                item,
+                            },
+                        );
                         let is_const = index.index.as_const().is_some();
                         *track_consts.entry(id).or_insert(is_const) &= is_const;
                     }
@@ -72,9 +84,21 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                 Operation::Operator(
                     Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
                 ) => {
-                    if let VariableKind::LocalArray { id, length } = op.out().kind {
+                    if let VariableKind::LocalArray {
+                        id,
+                        length,
+                        unroll_factor,
+                    } = op.out().kind
+                    {
                         let item = op.out().item;
-                        arrays.insert(id, Array { id, length, item });
+                        arrays.insert(
+                            id,
+                            Array {
+                                id,
+                                length: length * unroll_factor,
+                                item,
+                            },
+                        );
                         let is_const = assign.index.as_const().is_some();
                         *track_consts.entry(id).or_insert(is_const) &= is_const;
                     }
