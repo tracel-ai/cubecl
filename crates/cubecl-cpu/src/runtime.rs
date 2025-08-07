@@ -1,7 +1,7 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel,
-    client::ComputeClient,
+    client::ComputeClient, ir::Elem,
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -91,7 +91,14 @@ impl Runtime for CpuRuntime {
 
     // TODO Should be removed because it depends on element size
     fn supported_line_sizes() -> &'static [u8] {
-        &[8, 1, 1, 1]
+        &[64, 32, 16, 8, 4, 2, 1]
+    }
+
+    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> + Clone {
+        Self::supported_line_sizes()
+            .iter()
+            .filter(|v| **v as usize * elem.size() <= 64)
+            .cloned() // 128 bits
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
