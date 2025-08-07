@@ -1,4 +1,4 @@
-//! This module contains a configurable [element type](FloatExpand) for floats to be used during
+//! This module contains a configurable [element type](ElemExpand) for floats to be used during
 //! kernel expansion to speed up Rust compilation.
 //!
 //! Expand functions don't need to be generated for different element types even if they are generic
@@ -7,7 +7,7 @@
 //! This can be done dynamically using the scope instead, reducing the binary size and the
 //! compilation time of kernels significantly.
 //!
-//! You can still have multiple element types in a single kernel, since [FloatExpand] uses const
+//! You can still have multiple element types in a single kernel, since [ElemExpand] uses const
 //! generics to differentiate between float kinds.
 
 use core::f32;
@@ -59,18 +59,25 @@ use super::*;
     Debug,
     Display,
 )]
-pub struct FloatExpand<const POS: u8>(f32);
-pub type NumericExpand<const POS: u8> = FloatExpand<POS>;
 
-impl<const POS: u8> FloatExpand<POS> {
+/// A fake element type that can be configured to map to any other element type.
+pub struct ElemExpand<const POS: u8>(f32);
+
+/// A fake float element type that can be configured to map to any other element type.
+pub type FloatExpand<const POS: u8> = ElemExpand<POS>;
+
+/// A fake numeric element type that can be configured to map to any other element type.
+pub type NumericExpand<const POS: u8> = ElemExpand<POS>;
+
+impl<const POS: u8> ElemExpand<POS> {
     pub const MIN_POSITIVE: Self = Self(half::f16::MIN_POSITIVE.to_f32_const());
 
     pub const fn from_f32(val: f32) -> Self {
-        FloatExpand(val)
+        ElemExpand(val)
     }
 
     pub const fn from_f64(val: f64) -> Self {
-        FloatExpand(val as f32)
+        ElemExpand(val as f32)
     }
 
     pub const fn to_f32(self) -> f32 {
@@ -90,61 +97,61 @@ impl<const POS: u8> FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> Mul for FloatExpand<POS> {
+impl<const POS: u8> Mul for ElemExpand<POS> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        FloatExpand(self.0 * rhs.0)
+        ElemExpand(self.0 * rhs.0)
     }
 }
 
-impl<const POS: u8> Div for FloatExpand<POS> {
+impl<const POS: u8> Div for ElemExpand<POS> {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        FloatExpand(self.0 / rhs.0)
+        ElemExpand(self.0 / rhs.0)
     }
 }
 
-impl<const POS: u8> Rem for FloatExpand<POS> {
+impl<const POS: u8> Rem for ElemExpand<POS> {
     type Output = Self;
 
     fn rem(self, rhs: Self) -> Self::Output {
-        FloatExpand(self.0 % rhs.0)
+        ElemExpand(self.0 % rhs.0)
     }
 }
 
-impl<const POS: u8> MulAssign for FloatExpand<POS> {
+impl<const POS: u8> MulAssign for ElemExpand<POS> {
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
     }
 }
 
-impl<const POS: u8> DivAssign for FloatExpand<POS> {
+impl<const POS: u8> DivAssign for ElemExpand<POS> {
     fn div_assign(&mut self, rhs: Self) {
         self.0 /= rhs.0;
     }
 }
 
-impl<const POS: u8> RemAssign for FloatExpand<POS> {
+impl<const POS: u8> RemAssign for ElemExpand<POS> {
     fn rem_assign(&mut self, rhs: Self) {
         self.0 %= rhs.0;
     }
 }
 
-impl<const POS: u8> From<f32> for FloatExpand<POS> {
+impl<const POS: u8> From<f32> for ElemExpand<POS> {
     fn from(value: f32) -> Self {
         Self::from_f32(value)
     }
 }
 
-impl<const POS: u8> From<FloatExpand<POS>> for f32 {
-    fn from(val: FloatExpand<POS>) -> Self {
+impl<const POS: u8> From<ElemExpand<POS>> for f32 {
+    fn from(val: ElemExpand<POS>) -> Self {
         val.to_f32()
     }
 }
 
-impl<const POS: u8> ToPrimitive for FloatExpand<POS> {
+impl<const POS: u8> ToPrimitive for ElemExpand<POS> {
     fn to_i64(&self) -> Option<i64> {
         Some((*self).to_f32() as i64)
     }
@@ -162,25 +169,25 @@ impl<const POS: u8> ToPrimitive for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> NumCast for FloatExpand<POS> {
+impl<const POS: u8> NumCast for ElemExpand<POS> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
-        Some(FloatExpand::from_f32(n.to_f32()?))
+        Some(ElemExpand::from_f32(n.to_f32()?))
     }
 }
 
-impl<const POS: u8> CubeType for FloatExpand<POS> {
-    type ExpandType = ExpandElementTyped<FloatExpand<POS>>;
+impl<const POS: u8> CubeType for ElemExpand<POS> {
+    type ExpandType = ExpandElementTyped<ElemExpand<POS>>;
 }
 
-impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
+impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
     /// Return the element type to use on GPU
     fn as_elem(scope: &Scope) -> Elem {
         scope.resolve_elem::<Self>().expect("Type to be registered")
     }
 }
 
-impl<const POS: u8> From<FloatExpand<POS>> for Variable {
-    fn from(val: FloatExpand<POS>) -> Self {
+impl<const POS: u8> From<ElemExpand<POS>> for Variable {
+    fn from(val: ElemExpand<POS>) -> Self {
         // TODO: Fix how we create literal.
         Variable::new(
             crate::ir::VariableKind::ConstantScalar(crate::ir::ConstantScalarValue::Float(
@@ -192,21 +199,21 @@ impl<const POS: u8> From<FloatExpand<POS>> for Variable {
     }
 }
 
-impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<POS>> {
-    fn from(value: FloatExpand<POS>) -> Self {
+impl<const POS: u8> From<ElemExpand<POS>> for ExpandElementTyped<ElemExpand<POS>> {
+    fn from(value: ElemExpand<POS>) -> Self {
         let var: Variable = value.into();
         ExpandElementTyped::new(ExpandElement::Plain(var))
     }
 }
 
-impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
+impl<const POS: u8> IntoRuntime for ElemExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
         into_runtime_expand_element(scope, elem).into()
     }
 }
 
-impl<const POS: u8> Numeric for FloatExpand<POS> {
+impl<const POS: u8> Numeric for ElemExpand<POS> {
     fn min_value() -> Self {
         panic!("Can't use min value in comptime with dynamic element type");
     }
@@ -215,40 +222,40 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementIntoMut for FloatExpand<POS> {
+impl<const POS: u8> ExpandElementIntoMut for ElemExpand<POS> {
     fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         into_mut_expand_element(scope, elem)
     }
 }
 
-impl<const POS: u8> Normalize for FloatExpand<POS> {}
-impl<const POS: u8> Dot for FloatExpand<POS> {}
-impl<const POS: u8> Magnitude for FloatExpand<POS> {}
-impl<const POS: u8> Recip for FloatExpand<POS> {}
-impl<const POS: u8> Erf for FloatExpand<POS> {}
-impl<const POS: u8> Exp for FloatExpand<POS> {}
-impl<const POS: u8> Remainder for FloatExpand<POS> {}
-impl<const POS: u8> Abs for FloatExpand<POS> {}
-impl<const POS: u8> Max for FloatExpand<POS> {}
-impl<const POS: u8> Min for FloatExpand<POS> {}
-impl<const POS: u8> Clamp for FloatExpand<POS> {}
-impl<const POS: u8> Log for FloatExpand<POS> {}
-impl<const POS: u8> Log1p for FloatExpand<POS> {}
-impl<const POS: u8> Cos for FloatExpand<POS> {}
-impl<const POS: u8> Sin for FloatExpand<POS> {}
-impl<const POS: u8> Tanh for FloatExpand<POS> {}
-impl<const POS: u8> Powf for FloatExpand<POS> {}
-impl<const POS: u8> Sqrt for FloatExpand<POS> {}
-impl<const POS: u8> Round for FloatExpand<POS> {}
-impl<const POS: u8> Floor for FloatExpand<POS> {}
-impl<const POS: u8> Ceil for FloatExpand<POS> {}
+impl<const POS: u8> Normalize for ElemExpand<POS> {}
+impl<const POS: u8> Dot for ElemExpand<POS> {}
+impl<const POS: u8> Magnitude for ElemExpand<POS> {}
+impl<const POS: u8> Recip for ElemExpand<POS> {}
+impl<const POS: u8> Erf for ElemExpand<POS> {}
+impl<const POS: u8> Exp for ElemExpand<POS> {}
+impl<const POS: u8> Remainder for ElemExpand<POS> {}
+impl<const POS: u8> Abs for ElemExpand<POS> {}
+impl<const POS: u8> Max for ElemExpand<POS> {}
+impl<const POS: u8> Min for ElemExpand<POS> {}
+impl<const POS: u8> Clamp for ElemExpand<POS> {}
+impl<const POS: u8> Log for ElemExpand<POS> {}
+impl<const POS: u8> Log1p for ElemExpand<POS> {}
+impl<const POS: u8> Cos for ElemExpand<POS> {}
+impl<const POS: u8> Sin for ElemExpand<POS> {}
+impl<const POS: u8> Tanh for ElemExpand<POS> {}
+impl<const POS: u8> Powf for ElemExpand<POS> {}
+impl<const POS: u8> Sqrt for ElemExpand<POS> {}
+impl<const POS: u8> Round for ElemExpand<POS> {}
+impl<const POS: u8> Floor for ElemExpand<POS> {}
+impl<const POS: u8> Ceil for ElemExpand<POS> {}
 
-impl<const POS: u8> Float for FloatExpand<POS> {
+impl<const POS: u8> Float for ElemExpand<POS> {
     const DIGITS: u32 = 32;
 
-    const EPSILON: Self = FloatExpand::from_f32(half::f16::EPSILON.to_f32_const());
+    const EPSILON: Self = ElemExpand::from_f32(half::f16::EPSILON.to_f32_const());
 
-    const INFINITY: Self = FloatExpand::from_f32(f32::INFINITY);
+    const INFINITY: Self = ElemExpand::from_f32(f32::INFINITY);
 
     const MANTISSA_DIGITS: u32 = f32::MANTISSA_DIGITS;
 
@@ -262,147 +269,157 @@ impl<const POS: u8> Float for FloatExpand<POS> {
     /// One greater than the minimum possible normal [`tf32`](crate::frontend::tf32) power of 2 exponent
     const MIN_EXP: i32 = f32::MIN_EXP;
 
-    const MIN_POSITIVE: Self = FloatExpand(f32::MIN_POSITIVE);
+    const MIN_POSITIVE: Self = ElemExpand(f32::MIN_POSITIVE);
 
-    const NAN: Self = FloatExpand::from_f32(f32::NAN);
+    const NAN: Self = ElemExpand::from_f32(f32::NAN);
 
-    const NEG_INFINITY: Self = FloatExpand::from_f32(f32::NEG_INFINITY);
+    const NEG_INFINITY: Self = ElemExpand::from_f32(f32::NEG_INFINITY);
 
     const RADIX: u32 = 2;
 
     fn new(val: f32) -> Self {
-        FloatExpand::from_f32(val)
+        ElemExpand::from_f32(val)
     }
 }
 
-impl<const POS: u8> Int for FloatExpand<POS> {
+impl<const POS: u8> Int for ElemExpand<POS> {
     const BITS: u32 = 32;
 
     fn new(val: i64) -> Self {
-        FloatExpand::from_f32(val as f32)
+        ElemExpand::from_f32(val as f32)
     }
 }
-impl<const POS: u8> ReverseBits for FloatExpand<POS> {}
-impl<const POS: u8> CountOnes for FloatExpand<POS> {}
-impl<const POS: u8> BitwiseNot for FloatExpand<POS> {}
-impl<const POS: u8> LeadingZeros for FloatExpand<POS> {}
-impl<const POS: u8> FindFirstSet for FloatExpand<POS> {}
+impl<const POS: u8> ReverseBits for ElemExpand<POS> {}
+impl<const POS: u8> CountOnes for ElemExpand<POS> {}
+impl<const POS: u8> BitwiseNot for ElemExpand<POS> {}
+impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
+impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 
-impl<const POS: u8> BitOr for FloatExpand<POS> {
+impl<const POS: u8> BitOr for ElemExpand<POS> {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        todo!()
+        Self(BitOr::bitor(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
-impl<const POS: u8> BitXor for FloatExpand<POS> {
+impl<const POS: u8> BitXor for ElemExpand<POS> {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        todo!()
+        Self(BitXor::bitxor(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
 
-impl<const POS: u8> BitAnd for FloatExpand<POS> {
+impl<const POS: u8> BitAnd for ElemExpand<POS> {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        todo!()
+        Self(BitAnd::bitand(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
-impl<const POS: u8> BitAndAssign for FloatExpand<POS> {
+impl<const POS: u8> BitAndAssign for ElemExpand<POS> {
     fn bitand_assign(&mut self, rhs: Self) {
-        todo!()
+        let mut value = self.0 as i32;
+        BitAndAssign::bitand_assign(&mut value, rhs.0 as i32);
+        self.0 = value as f32
     }
 }
-impl<const POS: u8> BitXorAssign for FloatExpand<POS> {
+impl<const POS: u8> BitXorAssign for ElemExpand<POS> {
     fn bitxor_assign(&mut self, rhs: Self) {
-        todo!()
+        let mut value = self.0 as i32;
+        BitXorAssign::bitxor_assign(&mut value, rhs.0 as i32);
+        self.0 = value as f32
     }
 }
 
-impl<const POS: u8> BitOrAssign for FloatExpand<POS> {
+impl<const POS: u8> BitOrAssign for ElemExpand<POS> {
     fn bitor_assign(&mut self, rhs: Self) {
-        todo!()
+        let mut value = self.0 as i32;
+        BitOrAssign::bitor_assign(&mut value, rhs.0 as i32);
+        self.0 = value as f32
     }
 }
-impl<const POS: u8> Shl for FloatExpand<POS> {
+impl<const POS: u8> Shl for ElemExpand<POS> {
     type Output = Self;
 
     fn shl(self, rhs: Self) -> Self::Output {
-        todo!()
+        Self(Shl::shl(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
-impl<const POS: u8> Shr for FloatExpand<POS> {
+impl<const POS: u8> Shr for ElemExpand<POS> {
     type Output = Self;
 
     fn shr(self, rhs: Self) -> Self::Output {
-        todo!()
+        Self(Shr::shr(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
 
-impl<const POS: u8> ShrAssign<u32> for FloatExpand<POS> {
+impl<const POS: u8> ShrAssign<u32> for ElemExpand<POS> {
     fn shr_assign(&mut self, rhs: u32) {
-        todo!()
+        let mut value = self.0 as i32;
+        ShrAssign::shr_assign(&mut value, rhs);
+        self.0 = value as f32
     }
 }
 
-impl<const POS: u8> ShlAssign<u32> for FloatExpand<POS> {
+impl<const POS: u8> ShlAssign<u32> for ElemExpand<POS> {
     fn shl_assign(&mut self, rhs: u32) {
-        todo!()
+        let mut value = self.0 as i32;
+        ShlAssign::shl_assign(&mut value, rhs);
+        self.0 = value as f32
     }
 }
-impl<const POS: u8> Not for FloatExpand<POS> {
+impl<const POS: u8> Not for ElemExpand<POS> {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        todo!()
+        Self(Not::not(self.0 as i32) as f32)
     }
 }
 
-impl<const POS: u8> LaunchArgExpand for FloatExpand<POS> {
+impl<const POS: u8> LaunchArgExpand for ElemExpand<POS> {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(FloatExpand::<POS>::as_elem(&builder.scope))
+            .scalar(ElemExpand::<POS>::as_elem(&builder.scope))
             .into()
     }
 }
 
-impl<const POS: u8> ScalarArgSettings for FloatExpand<POS> {
+impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_f32(self.0);
     }
 }
 
-impl<const POS: u8> num_traits::Float for FloatExpand<POS> {
+impl<const POS: u8> num_traits::Float for ElemExpand<POS> {
     fn nan() -> Self {
-        FloatExpand(f32::nan())
+        ElemExpand(f32::nan())
     }
 
     fn infinity() -> Self {
-        FloatExpand(f32::infinity())
+        ElemExpand(f32::infinity())
     }
 
     fn neg_infinity() -> Self {
-        FloatExpand(f32::neg_infinity())
+        ElemExpand(f32::neg_infinity())
     }
 
     fn neg_zero() -> Self {
-        FloatExpand(f32::neg_zero())
+        ElemExpand(f32::neg_zero())
     }
 
     fn min_value() -> Self {
-        FloatExpand(<f32 as num_traits::Float>::min_value())
+        ElemExpand(<f32 as num_traits::Float>::min_value())
     }
 
     fn min_positive_value() -> Self {
-        FloatExpand(f32::min_positive_value())
+        ElemExpand(f32::min_positive_value())
     }
 
     fn max_value() -> Self {
-        FloatExpand(<f32 as num_traits::Float>::max_value())
+        ElemExpand(<f32 as num_traits::Float>::max_value())
     }
 
     fn is_nan(self) -> bool {
@@ -426,31 +443,31 @@ impl<const POS: u8> num_traits::Float for FloatExpand<POS> {
     }
 
     fn floor(self) -> Self {
-        FloatExpand(self.0.floor())
+        ElemExpand(self.0.floor())
     }
 
     fn ceil(self) -> Self {
-        FloatExpand(self.0.ceil())
+        ElemExpand(self.0.ceil())
     }
 
     fn round(self) -> Self {
-        FloatExpand(self.0.round())
+        ElemExpand(self.0.round())
     }
 
     fn trunc(self) -> Self {
-        FloatExpand(self.0.trunc())
+        ElemExpand(self.0.trunc())
     }
 
     fn fract(self) -> Self {
-        FloatExpand(self.0.fract())
+        ElemExpand(self.0.fract())
     }
 
     fn abs(self) -> Self {
-        FloatExpand(self.0.abs())
+        ElemExpand(self.0.abs())
     }
 
     fn signum(self) -> Self {
-        FloatExpand(self.0.signum())
+        ElemExpand(self.0.signum())
     }
 
     fn is_sign_positive(self) -> bool {
@@ -462,132 +479,132 @@ impl<const POS: u8> num_traits::Float for FloatExpand<POS> {
     }
 
     fn mul_add(self, a: Self, b: Self) -> Self {
-        FloatExpand(self.0.mul_add(a.0, b.0))
+        ElemExpand(self.0.mul_add(a.0, b.0))
     }
 
     fn recip(self) -> Self {
-        FloatExpand(self.0.recip())
+        ElemExpand(self.0.recip())
     }
 
     fn powi(self, n: i32) -> Self {
-        FloatExpand(self.0.powi(n))
+        ElemExpand(self.0.powi(n))
     }
 
     fn powf(self, n: Self) -> Self {
-        FloatExpand(self.0.powf(n.0))
+        ElemExpand(self.0.powf(n.0))
     }
 
     fn sqrt(self) -> Self {
-        FloatExpand(self.0.sqrt())
+        ElemExpand(self.0.sqrt())
     }
 
     fn exp(self) -> Self {
-        FloatExpand(self.0.exp())
+        ElemExpand(self.0.exp())
     }
 
     fn exp2(self) -> Self {
-        FloatExpand(self.0.exp2())
+        ElemExpand(self.0.exp2())
     }
 
     fn ln(self) -> Self {
-        FloatExpand(self.0.ln())
+        ElemExpand(self.0.ln())
     }
 
     fn log(self, base: Self) -> Self {
-        FloatExpand(self.0.log(base.0))
+        ElemExpand(self.0.log(base.0))
     }
 
     fn log2(self) -> Self {
-        FloatExpand(self.0.log2())
+        ElemExpand(self.0.log2())
     }
 
     fn log10(self) -> Self {
-        FloatExpand(self.0.log10())
+        ElemExpand(self.0.log10())
     }
 
     fn max(self, other: Self) -> Self {
-        FloatExpand(self.0.max(other.0))
+        ElemExpand(self.0.max(other.0))
     }
 
     fn min(self, other: Self) -> Self {
-        FloatExpand(self.0.min(other.0))
+        ElemExpand(self.0.min(other.0))
     }
 
     fn abs_sub(self, other: Self) -> Self {
-        FloatExpand((self.0 - other.0).abs())
+        ElemExpand((self.0 - other.0).abs())
     }
 
     fn cbrt(self) -> Self {
-        FloatExpand(self.0.cbrt())
+        ElemExpand(self.0.cbrt())
     }
 
     fn hypot(self, other: Self) -> Self {
-        FloatExpand(self.0.hypot(other.0))
+        ElemExpand(self.0.hypot(other.0))
     }
 
     fn sin(self) -> Self {
-        FloatExpand(self.0.sin())
+        ElemExpand(self.0.sin())
     }
 
     fn cos(self) -> Self {
-        FloatExpand(self.0.cos())
+        ElemExpand(self.0.cos())
     }
 
     fn tan(self) -> Self {
-        FloatExpand(self.0.tan())
+        ElemExpand(self.0.tan())
     }
 
     fn asin(self) -> Self {
-        FloatExpand(self.0.asin())
+        ElemExpand(self.0.asin())
     }
 
     fn acos(self) -> Self {
-        FloatExpand(self.0.acos())
+        ElemExpand(self.0.acos())
     }
 
     fn atan(self) -> Self {
-        FloatExpand(self.0.atan())
+        ElemExpand(self.0.atan())
     }
 
     fn atan2(self, other: Self) -> Self {
-        FloatExpand(self.0.atan2(other.0))
+        ElemExpand(self.0.atan2(other.0))
     }
 
     fn sin_cos(self) -> (Self, Self) {
         let (a, b) = self.0.sin_cos();
-        (FloatExpand(a), FloatExpand(b))
+        (ElemExpand(a), ElemExpand(b))
     }
 
     fn exp_m1(self) -> Self {
-        FloatExpand(self.0.exp_m1())
+        ElemExpand(self.0.exp_m1())
     }
 
     fn ln_1p(self) -> Self {
-        FloatExpand(self.0.ln_1p())
+        ElemExpand(self.0.ln_1p())
     }
 
     fn sinh(self) -> Self {
-        FloatExpand(self.0.sinh())
+        ElemExpand(self.0.sinh())
     }
 
     fn cosh(self) -> Self {
-        FloatExpand(self.0.cosh())
+        ElemExpand(self.0.cosh())
     }
 
     fn tanh(self) -> Self {
-        FloatExpand(self.0.tanh())
+        ElemExpand(self.0.tanh())
     }
 
     fn asinh(self) -> Self {
-        FloatExpand(self.0.asinh())
+        ElemExpand(self.0.asinh())
     }
 
     fn acosh(self) -> Self {
-        FloatExpand(self.0.acosh())
+        ElemExpand(self.0.acosh())
     }
 
     fn atanh(self) -> Self {
-        FloatExpand(self.0.atanh())
+        ElemExpand(self.0.atanh())
     }
 
     fn integer_decode(self) -> (u64, i16, i8) {
@@ -595,23 +612,23 @@ impl<const POS: u8> num_traits::Float for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> Num for FloatExpand<POS> {
+impl<const POS: u8> Num for ElemExpand<POS> {
     type FromStrRadixErr = <f32 as Num>::FromStrRadixErr;
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
-        Ok(FloatExpand(f32::from_str_radix(str, radix)?))
+        Ok(ElemExpand(f32::from_str_radix(str, radix)?))
     }
 }
 
-impl<const POS: u8> One for FloatExpand<POS> {
+impl<const POS: u8> One for ElemExpand<POS> {
     fn one() -> Self {
-        FloatExpand(1.0)
+        ElemExpand(1.0)
     }
 }
 
-impl<const POS: u8> Zero for FloatExpand<POS> {
+impl<const POS: u8> Zero for ElemExpand<POS> {
     fn zero() -> Self {
-        FloatExpand(0.0)
+        ElemExpand(0.0)
     }
 
     fn is_zero(&self) -> bool {
