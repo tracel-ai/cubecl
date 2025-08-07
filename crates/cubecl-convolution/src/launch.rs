@@ -139,18 +139,14 @@ where
             } else if lhs_is_f32 {
                 launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, f32, f32, MP::EO), Alg>
             } else {
-                // rhs_is_f32
                 launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, tf32, f32, MP::EO), Alg>
             }
+        } else if lhs_is_f32 && rhs_is_f32 {
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f16, f32, MP::EO), Alg>
+        } else if lhs_is_f32 {
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f32, f32, MP::EO), Alg>
         } else {
-            if lhs_is_f32 && rhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f16, f32, MP::EO), Alg>
-            } else if lhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f32, f32, MP::EO), Alg>
-            } else {
-                // rhs_is_f32
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, f16, f32, MP::EO), Alg>
-            }
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, f16, f32, MP::EO), Alg>
         }
     } else {
         launch_kernel::<R, MP, Alg>
