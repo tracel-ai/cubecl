@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::components::error::MatmulSetupError;
 use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
@@ -48,16 +46,5 @@ impl TileMatmulFamily for RegisterMatmul {
             .filter_lhs(|ls| *ls <= 4)
             .filter_rhs(|ls| *ls <= 4)
             .filter_out(|ls| *ls <= 4)
-    }
-}
-
-pub struct RegisterMatmulConfigError {
-    func: Box<dyn Fn() -> String>,
-}
-
-impl Display for RegisterMatmulConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let string = (self.func)();
-        write!(f, "{string}")
     }
 }
