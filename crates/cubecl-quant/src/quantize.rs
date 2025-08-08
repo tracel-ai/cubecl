@@ -5,15 +5,9 @@ use cubecl_core::tensor_line_size_parallel;
 use cubecl_std::tensor::StridedLayoutArgs;
 use cubecl_std::tensor::into_contiguous;
 use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
-use half::bf16;
-use half::f16;
 
-use crate::scheme::QuantLevel;
-use crate::scheme::QuantMode;
-use crate::scheme::QuantParam;
-use crate::scheme::QuantScheme;
-use crate::scheme::QuantStore;
-use crate::scheme::QuantValue;
+use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
+use half::{bf16, f16};
 
 #[cube]
 fn quantize_symmetric<F: Float, FS: Float>(
