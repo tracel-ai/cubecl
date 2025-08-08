@@ -1,3 +1,4 @@
+use crate::compiler::wgsl::Item::Scalar;
 use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, UIntKind};
 use std::fmt::Display;
 
@@ -182,7 +183,16 @@ impl Variable {
 
     pub fn fmt_cast_to(&self, item: Item) -> String {
         if self.item() != item {
-            format!("{item}({self})")
+            match (self.item(), item) {
+                // Scalar to scalar or scalar to vec works fine
+                (Scalar(_), Scalar(_)) => format!("{item}({self})"),
+
+                // Casting a vec to a scalar: just pick first component
+                (_, Scalar(_)) => format!("{item}({self}.x)"),
+
+                // Vec to vec
+                _ => format!("{item}({self})"),
+            }
         } else {
             format!("{self}")
         }
