@@ -1,3 +1,4 @@
+use crate::compiler::wgsl::Item::{Scalar, Vec2, Vec3, Vec4};
 use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, UIntKind};
 use std::fmt::Display;
 
@@ -182,7 +183,23 @@ impl Variable {
 
     pub fn fmt_cast_to(&self, item: Item) -> String {
         if self.item() != item {
-            format!("{item}({self})")
+            match self.item() {
+                Vec2(_) | Vec3(_) | Vec4(_) => {
+                    match item {
+                        Vec2(_) | Vec3(_) | Vec4(_) => {
+                            format!("{item}({self})")
+                        }
+                        Scalar(_) => {
+                            // Casting a vec to a scalar: just pick first component
+                            format!("{item}({self}.x)")
+                        }
+                    }
+                }
+                Scalar(_) => {
+                    // Scalar to scalar or scalar to vec works fine
+                    format!("{item}({self}[0u])")
+                }
+            }
         } else {
             format!("{self}")
         }
