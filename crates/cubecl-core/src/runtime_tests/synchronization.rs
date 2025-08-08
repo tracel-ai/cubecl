@@ -6,7 +6,7 @@ use crate::{self as cubecl, Feature};
 fn kernel_test_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
     buffer[UNIT_POS] = UNIT_POS;
     sync_cube();
-    if UNIT_POS > 0 {
+    if UNIT_POS != 0 {
         out[UNIT_POS] = buffer[UNIT_POS - 1] + buffer[UNIT_POS];
     }
 }
@@ -40,7 +40,7 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) 
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
 fn kernel_test_finished_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
     buffer[UNIT_POS] = UNIT_POS;
-    if UNIT_POS > 8 {
+    if UNIT_POS > 16 {
         terminate!();
     }
     sync_cube();
