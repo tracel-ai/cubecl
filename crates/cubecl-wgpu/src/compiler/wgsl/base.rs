@@ -183,22 +183,15 @@ impl Variable {
 
     pub fn fmt_cast_to(&self, item: Item) -> String {
         if self.item() != item {
-            match self.item() {
-                Vec2(_) | Vec3(_) | Vec4(_) => {
-                    match item {
-                        Vec2(_) | Vec3(_) | Vec4(_) => {
-                            format!("{item}({self})")
-                        }
-                        Scalar(_) => {
-                            // Casting a vec to a scalar: just pick first component
-                            format!("{item}({self}.x)")
-                        }
-                    }
-                }
-                Scalar(_) => {
-                    // Scalar to scalar or scalar to vec works fine
-                    format!("{item}({self})")
-                }
+            match (self.item(), item) {
+                // Scalar to scalar or scalar to vec works fine
+                (Scalar(_), Scalar(_)) => format!("{item}({self})"),
+
+                // Casting a vec to a scalar: just pick first component
+                (_, Scalar(_)) => format!("{item}({self}.x)"),
+
+                // Vec to vec
+                _ => format!("{item}({self})") 
             }
         } else {
             format!("{self}")
