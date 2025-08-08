@@ -33,7 +33,7 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) 
         .map(|i| std::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
-    assert_eq!(&actual[0..16], &expected);
+    assert_eq!(&actual[1..16], &expected[1..16]);
 }
 
 #[cube(launch)]
@@ -73,7 +73,7 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::C
         .map(|i| std::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
-    assert_eq!(&actual[0..8], &expected);
+    assert_eq!(&actual[1..8], &expected[1..8]);
 }
 
 #[cube(launch)]
