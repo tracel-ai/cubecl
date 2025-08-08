@@ -197,7 +197,7 @@ impl Variable {
                 }
                 Scalar(_) => {
                     // Scalar to scalar or scalar to vec works fine
-                    format!("{item}({self}[0u])")
+                    format!("{item}({self})")
                 }
             }
         } else {
