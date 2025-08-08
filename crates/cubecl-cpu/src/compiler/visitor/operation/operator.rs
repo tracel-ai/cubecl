@@ -91,6 +91,7 @@ impl<'a> Visitor<'a> {
             }
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
+                let condition = self.cast_to_bool(condition, select.cond.item);
                 let (then, or_else) = self.get_binary_op_variable(select.then, select.or_else);
                 let value = self.append_operation_with_result(arith::select(
                     condition,
