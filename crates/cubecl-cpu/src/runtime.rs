@@ -44,8 +44,8 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         .unwrap_or(system.total_memory()) as usize;
 
     let topology = HardwareProperties {
-        plane_size_min: u32::MAX,
-        plane_size_max: u32::MAX,
+        plane_size_min: 1,
+        plane_size_max: 1,
         max_bindings: u32::MAX,
         max_shared_memory_size,
         max_cube_count,

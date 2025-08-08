@@ -18,9 +18,7 @@ use super::prelude::*;
 
 #[derive(Default, Debug)]
 pub struct Variables<'a> {
-    pub local: HashMap<u32, Value<'a, 'a>>,
-    pub version: HashMap<(u32, u16), Value<'a, 'a>>,
-    pub mutable: HashMap<u32, Value<'a, 'a>>,
+    pub local: HashMap<VariableKind, Value<'a, 'a>>,
     pub global_constant: HashMap<u32, Item>,
 }
 
@@ -39,49 +37,62 @@ impl<'a> Variables<'a> {
 impl<'a> Visitor<'a> {
     pub fn insert_variable(&mut self, variable: Variable, value: Value<'a, 'a>) {
         match variable.kind {
-            VariableKind::LocalConst { id } => {
-                self.variables.local.insert(id, value);
+            VariableKind::LocalConst { .. } | VariableKind::Versioned { .. } => {
+                self.variables.local.insert(variable.kind, value);
             }
-            VariableKind::Versioned { id, version } => {
-                self.variables.version.insert((id, version), value);
+            VariableKind::LocalMut { .. } => {
+                self.insert_mutable_memory(variable, value, 1);
             }
-            VariableKind::LocalMut { id } => {
-                let r#type = variable.elem().to_type(self.context);
-                let memref_type = MemRefType::new(
-                    r#type,
-                    &[variable.vectorization_factor() as i64],
-                    None,
-                    None,
-                );
-                let memref = self.variables.mutable.get(&id).copied().unwrap_or_else(|| {
-                    let value = self.append_operation_with_result(memref::alloca(
-                        self.context,
-                        memref_type,
-                        &[],
-                        &[],
-                        None,
-                        self.location,
-                    ));
-                    self.variables.mutable.insert(id, value);
-                    value
-                });
-                let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
-                let zero = self.append_operation_with_result(arith::constant(
-                    self.context,
-                    Type::index(self.context),
-                    integer,
-                    self.location,
-                ));
-                let operation = if value.r#type().is_vector() {
-                    vector::store(self.context, value, memref, &[zero], self.location).into()
-                } else {
-                    memref::store(value, memref, &[zero], self.location)
-                };
-                self.block.append_operation(operation);
+            VariableKind::LocalArray { length, .. } => {
+                self.insert_mutable_memory(variable, value, length);
             }
             _ => todo!("This variable is not implemented {:?}", variable),
         };
     }
+
+    fn get_mutable_memory(&mut self, variable: Variable, length: u32) -> Value<'a, 'a> {
+        let r#type = variable.elem().to_type(self.context);
+        let memref_type = MemRefType::new(
+            r#type,
+            &[variable.vectorization_factor() as i64 * length as i64],
+            None,
+            None,
+        );
+        self.variables
+            .local
+            .get(&variable.kind)
+            .copied()
+            .unwrap_or_else(|| {
+                let value = self.append_operation_with_result(memref::alloca(
+                    self.context,
+                    memref_type,
+                    &[],
+                    &[],
+                    None,
+                    self.location,
+                ));
+                self.variables.local.insert(variable.kind, value);
+                value
+            })
+    }
+
+    fn insert_mutable_memory(&mut self, variable: Variable, value: Value<'a, 'a>, length: u32) {
+        let memref = self.get_mutable_memory(variable, length);
+        let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
+        let zero = self.append_operation_with_result(arith::constant(
+            self.context,
+            Type::index(self.context),
+            integer,
+            self.location,
+        ));
+        let operation = if value.r#type().is_vector() {
+            vector::store(self.context, value, memref, &[zero], self.location).into()
+        } else {
+            memref::store(value, memref, &[zero], self.location)
+        };
+        self.block.append_operation(operation);
+    }
+
     pub fn get_binary_op_variable(
         &self,
         lhs: Variable,
@@ -119,7 +130,8 @@ impl<'a> Visitor<'a> {
         }
         (lhs_value, rhs_value)
     }
-    pub fn get_memory(&self, variable: Variable) -> Value<'a, 'a> {
+
+    pub fn get_memory(&mut self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
                 self.args_manager.buffers[id as usize]
@@ -129,6 +141,7 @@ impl<'a> Visitor<'a> {
                 .shared_memory_values
                 .get(&id)
                 .expect("Variable should have been declared before"),
+<<<<<<< HEAD
             VariableKind::LocalMut { id } => *self
                 .variables
                 .mutable
@@ -139,6 +152,11 @@ impl<'a> Visitor<'a> {
                 length,
                 unroll_factor,
             } => {
+=======
+            VariableKind::LocalMut { .. } => self.get_mutable_memory(variable, 1),
+            VariableKind::LocalArray { length, .. } => self.get_mutable_memory(variable, length),
+            VariableKind::ConstantArray { id, length } => {
+>>>>>>> 8ab08314 (feat: add local array support)
                 let name = id.to_string();
                 let r#type = self
                     .variables
@@ -161,22 +179,25 @@ impl<'a> Visitor<'a> {
             ),
         }
     }
+
     pub fn is_memory(&self, variable: Variable) -> bool {
         matches!(
             variable.kind,
             VariableKind::GlobalInputArray(_)
                 | VariableKind::GlobalOutputArray(_)
                 | VariableKind::LocalMut { .. }
+                | VariableKind::LocalArray { .. }
                 | VariableKind::ConstantArray { .. }
                 | VariableKind::SharedMemory { .. }
         )
     }
+
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
-            VariableKind::LocalConst { id } => *self
+            VariableKind::LocalConst { .. } => *self
                 .variables
                 .local
-                .get(&id)
+                .get(&variable.kind)
                 .expect("Variable should have been declared before"),
             VariableKind::Builtin(builtin) => self.get_builtin(builtin),
             VariableKind::ConstantScalar(constant_scalar_value) => {
@@ -238,16 +259,16 @@ impl<'a> Visitor<'a> {
                     false => value,
                 }
             }
-            VariableKind::Versioned { id, version } => *self
+            VariableKind::Versioned { .. } => *self
                 .variables
-                .version
-                .get(&(id, version))
+                .local
+                .get(&variable.kind)
                 .expect("Variable should have been declared before"),
-            VariableKind::LocalMut { id } => {
+            VariableKind::LocalMut { .. } => {
                 let memref = *self
                     .variables
-                    .mutable
-                    .get(&id)
+                    .local
+                    .get(&variable.kind)
                     .expect("Variable should have been declared before");
                 let result_type = variable.item.to_type(self.context);
                 let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
@@ -289,6 +310,7 @@ impl<'a> Visitor<'a> {
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }
     }
+
     pub fn get_index(&self, variable: Variable, target_item: Item) -> Value<'a, 'a> {
         let index = self.get_variable(variable);
         let mut index = self.append_operation_with_result(index::casts(
