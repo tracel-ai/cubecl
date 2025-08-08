@@ -9,6 +9,10 @@ pub mod qparams;
 
 pub mod scheme;
 
+#[cfg(feature = "export_tests")]
+pub mod tests;
+
+#[cfg(feature = "kernels")]
 pub(crate) mod utils {
     use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
     use cubecl_std::tensor::StridedLayoutArgs;

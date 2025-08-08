@@ -195,7 +195,7 @@ fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, F: Float>(
+pub fn launch_ref<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
@@ -305,11 +305,13 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
     out_scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
 ) {
+    println!("{input:?}");
+    println!("{output:?}");
+    println!("{out_scale:?}");
     let input = into_contiguous::<R, F>(client, input);
-    let num_elems: usize = input.shape.iter().product();
+    let num_elems: usize = output.shape.iter().product();
 
-    // Input line size selected based on the number of packed values per storage type
-    let num_quants = (scheme.size_bits_stored() / scheme.size_bits_value()) as u8;
+    let num_quants = scheme.num_quants() as u8;
     let use_packed_line_size =
         num_elems % num_quants as usize == 0 && R::supported_line_sizes().contains(&num_quants);
 

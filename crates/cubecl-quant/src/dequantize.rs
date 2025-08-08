@@ -27,12 +27,11 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 #[cube]
 pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
     position: u32,
-    values: &Tensor<QI>,
+    values: &Tensor<Line<QI>>,
     scales: &Tensor<FS>,
     #[comptime] scheme: QuantScheme,
 ) -> Line<F> {
-    let value = values[position];
-    dequantize_packed_value_at::<F, FS, QI>(position, value, scales, scheme)
+    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
 }
 
 /// Dequantize a single value using the scale at the specified position.
@@ -42,13 +41,13 @@ pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
 #[cube]
 pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
-    value: QI,
+    values: Line<QI>,
     scales: &Tensor<FS>,
     #[comptime] scheme: QuantScheme,
 ) -> Line<F> {
     let qparams = QParams::new(scheme);
     let scale = qparams.scale(scales, position);
-    dequantize_packed_value::<F, FS, QI>(value, scale, scheme)
+    dequantize_packed_value::<F, FS, QI>(values, scale, scheme)
 }
 
 /// Dequantize a single packed value using the scale provided.
@@ -57,14 +56,31 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
 /// values in the stored quantization type.
 #[cube]
 pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
-    value: QS,
+    values: Line<QS>,
     scale: FS,
     #[comptime] scheme: QuantScheme,
 ) -> Line<F> {
     // TODO: q_store_type: QuantStoreType::Native
-    let floats = unpack_q::<F, QS>(value, scheme.value);
+    let line_size_values = values.line_size();
+    if comptime!(line_size_values == 1) {
+        let floats = unpack_q::<F, QS>(values[0], scheme.value);
+        dequantize_symmetric::<F, FS>(floats, scale)
+    } else {
+        let mut tmp = Line::empty(line_size_values);
 
-    dequantize_symmetric::<F, FS>(floats, scale)
+        #[unroll]
+        for i in 0..1 {
+            let floats = unpack_q::<F, QS>(values[i], scheme.value);
+            let ls = floats.line_size();
+
+            #[unroll]
+            for j in 0..ls {
+                tmp[i * line_size_values + j] = floats[j];
+            }
+        }
+
+        dequantize_symmetric::<F, FS>(tmp, scale)
+    }
 }
 
 /// Unpack a quantized integer into a line of floating-point values, according to the specified quantization input type.
@@ -118,14 +134,13 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
     let qparams = QParams::new(scheme);
     let num_quants = comptime!(qparams.num_quants);
     let scale = qparams.scale(scales, ABSOLUTE_POS);
-    let value = input[ABSOLUTE_POS][0];
+    let values = input[ABSOLUTE_POS];
 
-    let out = dequantize_packed_value::<F, FS, u32>(value, scale, scheme);
+    let out = dequantize_packed_value::<F, FS, u32>(values, scale, scheme);
 
     if comptime!(output.line_size() == num_quants) {
         output[ABSOLUTE_POS] = out;
     } else {
-        // Output line size = 1
         #[unroll]
         for i in 0..out.size() {
             output[ABSOLUTE_POS * out.size() + i] = Line::cast_from(out[i]);
@@ -158,11 +173,11 @@ fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
 
 #[allow(clippy::result_large_err)]
 /// Convert the tensor back to a higher precision data type.
-pub fn launch<R: Runtime, F: Float>(
+pub fn launch_ref<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: &TensorHandleRef<R>,
+    values: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
-    scale: &TensorHandleRef<'_, R>,
+    params: &TensorHandleRef<'_, R>,
     scheme: &QuantScheme,
 ) {
     match scheme {
@@ -171,10 +186,14 @@ pub fn launch<R: Runtime, F: Float>(
             store: QuantStore::U32,
             ..
         } => match scheme.param {
-            QuantParam::F32 => dequantize_packed::<R, F, f32>(client, input, scheme, scale, output),
-            QuantParam::F16 => dequantize_packed::<R, F, f16>(client, input, scheme, scale, output),
+            QuantParam::F32 => {
+                dequantize_packed::<R, F, f32>(client, values, scheme, params, output)
+            }
+            QuantParam::F16 => {
+                dequantize_packed::<R, F, f16>(client, values, scheme, params, output)
+            }
             QuantParam::BF16 => {
-                dequantize_packed::<R, F, bf16>(client, input, scheme, scale, output)
+                dequantize_packed::<R, F, bf16>(client, values, scheme, params, output)
             }
         },
         QuantScheme {
@@ -188,13 +207,13 @@ pub fn launch<R: Runtime, F: Float>(
 
             match scheme.param {
                 QuantParam::F32 => {
-                    dequantize_native::<R, F, f32>(client, input, scheme, scale, output)
+                    dequantize_native::<R, F, f32>(client, values, scheme, params, output)
                 }
                 QuantParam::F16 => {
-                    dequantize_native::<R, F, f16>(client, input, scheme, scale, output)
+                    dequantize_native::<R, F, f16>(client, values, scheme, params, output)
                 }
                 QuantParam::BF16 => {
-                    dequantize_native::<R, F, bf16>(client, input, scheme, scale, output)
+                    dequantize_native::<R, F, bf16>(client, values, scheme, params, output)
                 }
             }
         }
@@ -210,26 +229,29 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
 ) {
     // The actual number of elements is 1/4 (four int8 values packed in a single u32)
     // so we choose a line size to match a valid input binding size.
-    let num_out_elems: usize = input.shape.iter().product();
-    let num_quants = (scheme.size_bits_stored() / scheme.size_bits_value()) as u8;
-    let num_elems_input = num_out_elems / num_quants as usize;
-    let line_size_in = 1;
-    // let line_size = tensor_line_size_parallel(
+    let num_elems_input: usize = input.shape.iter().product();
+
+    // TODO: Fix line size handling in kernel.
+    // let mut line_size_in = tensor_line_size_parallel(
     //     R::line_size_elem(&F::as_elem_native_unchecked()),
     //     input.shape,
     //     input.strides,
     //     input.shape.len() - 1,
     // );
+    let mut line_size_in = 1;
+    let num_quants = scheme.num_quants() as u8;
+    let mut line_size_out = line_size_in * num_quants;
+    let rank = output.shape.len();
+
+    if output.shape[rank - 1] % line_size_out as usize != 0 {
+        line_size_in = 1;
+        // That's the minimum line size possible.
+        line_size_out = line_size_in * num_quants;
+    }
+
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems_input / line_size_in as usize, cube_dim);
-
-    // Output line size selected based on the number of packed values per storage type
-    let num_quants = (scheme.size_bits_stored() / scheme.size_bits_value()) as u8;
-    let use_packed_line_size =
-        num_out_elems % num_quants as usize == 0 && R::supported_line_sizes().contains(&num_quants);
-
-    let line_size_out = if use_packed_line_size { num_quants } else { 1 };
 
     match scheme {
         QuantScheme {

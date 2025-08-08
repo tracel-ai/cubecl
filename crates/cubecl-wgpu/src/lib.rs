@@ -38,6 +38,7 @@ mod tests {
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
+    cubecl_quant::testgen_quant!();
 }
 
 #[cfg(all(test, feature = "spirv"))]

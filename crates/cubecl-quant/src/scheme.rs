@@ -43,20 +43,20 @@ impl QuantScheme {
     }
 
     /// Set the data type used for quantized values.
-    pub fn with_q_type(mut self, q_type: QuantValue) -> Self {
-        self.value = q_type;
+    pub fn with_value(mut self, value: QuantValue) -> Self {
+        self.value = value;
         self
     }
 
     /// Set the data type used to store quantized values.
-    pub fn with_q_store_type(mut self, q_store_type: QuantStore) -> Self {
-        self.store = q_store_type;
+    pub fn with_store(mut self, store: QuantStore) -> Self {
+        self.store = store;
         self
     }
 
     /// Set the precision used for quantization parameters
-    pub fn with_q_params_precision(mut self, q_params_precision: QuantParam) -> Self {
-        self.param = q_params_precision;
+    pub fn with_param(mut self, param: QuantParam) -> Self {
+        self.param = param;
         self
     }
 
