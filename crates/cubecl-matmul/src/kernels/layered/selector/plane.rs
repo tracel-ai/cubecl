@@ -7,10 +7,11 @@ use crate::components::batch::{
 };
 use crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 use crate::components::stage::PartitionBuffering;
-use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::components::{
-    MatmulSelection, MultiRowStrategy, PartitionSize, StageSize, TileSize, TilingScheme,
+    MatmulElems, MatmulSelection, MultiRowStrategy, PartitionSize, StageSize, TileSize,
+    TilingScheme,
 };
+use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 
 pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
@@ -29,13 +30,15 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    elem_stage: Elem,
-    elem_acc: Elem,
+    elems: MatmulElems,
     options: PlaneMatmulSelectionOptions,
 ) -> MatmulSelection {
     let tile_size = find_instruction_size(
         if TMM::requires_accelerator() {
-            Some((client.properties(), (elem_stage, elem_stage, elem_acc)))
+            Some((
+                client.properties(),
+                (elems.lhs_register, elems.rhs_register, elems.acc),
+            ))
         } else {
             None
         },
@@ -45,7 +48,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
-        let precision_factor = match elem_stage.size() >= 4 {
+        let precision_factor = match elems.lhs_stage.size() >= 4 {
             true => 2,
             false => 1,
         };

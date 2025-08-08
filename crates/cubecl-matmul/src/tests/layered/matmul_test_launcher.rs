@@ -20,7 +20,6 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
     pub shape: Vec<usize>,
     pub strides: Vec<usize>,
     pub original_data: Option<Vec<N>>,
-    pub quant_params: Option<(f32, i32)>,
 }
 
 /// Test the correctness of the specified Matmul on the given device,
@@ -51,6 +50,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
+        &P::EG::as_elem_native_unchecked(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
@@ -60,7 +60,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+    let config = match A::setup::<(P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,
@@ -123,13 +123,10 @@ pub fn test_matmul_algorithm<A, P, R>(
 
     P::assert_result::<R>(
         &lhs.original_data.unwrap(),
-        lhs.quant_params,
         &rhs.original_data.unwrap(),
-        rhs.quant_params,
         &problem,
         &client,
         out.handle,
-        out.quant_params,
         &out.shape,
         &out.strides,
     );
@@ -150,19 +147,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
-            let mut quant_params = None;
-
             let rank = tensor_shape.len();
-
-            if let Some(params) = P::quantization_params(MatmulIdent::Lhs) {
-                let scaling = P::EG::as_bytes(&params.scaling);
-                let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
-                let zero = P::EG::from_int(0);
-                let offset = &[zero, zero, zero, params.zero_offset];
-                let offset = P::EG::as_bytes(offset);
-                let offset = i32::from_be_bytes([offset[0], offset[1], offset[2], offset[3]]);
-                quant_params = Some((scaling, offset));
-            }
 
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
@@ -171,21 +156,10 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
-            let mut descriptors = vec![(
+            let descriptors = vec![(
                 AllocationDescriptor::optimized(tensor_shape.as_slice(), size_of::<P::EG>()),
                 P::EG::as_bytes(&data),
             )];
-
-            if let Some((scaling, offset)) = &quant_params {
-                descriptors.push((
-                    AllocationDescriptor::optimized(&[1], size_of::<f32>()),
-                    bytemuck::bytes_of(scaling),
-                ));
-                descriptors.push((
-                    AllocationDescriptor::optimized(&[1], size_of::<i32>()),
-                    bytemuck::bytes_of(offset),
-                ));
-            }
 
             let mut tensors = client.create_tensors(descriptors);
             let Allocation {
@@ -207,7 +181,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape: tensor_shape,
                 strides,
                 original_data: Some(original_data),
-                quant_params,
             }
         }
         MatmulIdent::Rhs => {
@@ -219,19 +192,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
-            let mut quant_params = None;
-
             let rank = tensor_shape.len();
-
-            if let Some(params) = P::quantization_params(MatmulIdent::Rhs) {
-                let scaling = P::EG::as_bytes(&params.scaling);
-                let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
-                let zero = P::EG::from_int(0);
-                let offset = &[zero, zero, zero, params.zero_offset];
-                let offset = P::EG::as_bytes(offset);
-                let offset = i32::from_be_bytes([offset[0], offset[1], offset[2], offset[3]]);
-                quant_params = Some((scaling, offset));
-            }
 
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
@@ -241,21 +202,10 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let mut descriptors = vec![(
+            let descriptors = vec![(
                 AllocationDescriptor::optimized(tensor_shape.as_slice(), size_of::<P::EG>()),
                 P::EG::as_bytes(&data),
             )];
-
-            if let Some((scaling, offset)) = &quant_params {
-                descriptors.push((
-                    AllocationDescriptor::optimized(&[1], size_of::<f32>()),
-                    bytemuck::bytes_of(scaling),
-                ));
-                descriptors.push((
-                    AllocationDescriptor::optimized(&[1], size_of::<i32>()),
-                    bytemuck::bytes_of(offset),
-                ));
-            }
 
             let mut tensors = client.create_tensors(descriptors);
             let Allocation {
@@ -276,42 +226,19 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape: tensor_shape,
                 strides,
                 original_data: Some(original_data),
-                quant_params,
             }
         }
         MatmulIdent::Out => {
             let zero = P::EG::from_int(0);
 
             let data = vec![zero; tensor_size(problem, MatmulIdent::Out)];
-            let mut quant_params = None;
 
             let tensor_shape = problem.shape(MatmulIdent::Out);
 
-            if let Some(params) = P::quantization_params(MatmulIdent::Out) {
-                let scaling = P::EG::as_bytes(&params.scaling);
-                let scaling = f32::from_be_bytes([scaling[0], scaling[1], scaling[2], scaling[3]]);
-                let zero = P::EG::from_int(0);
-                let offset = &[zero, zero, zero, params.zero_offset];
-                let offset = P::EG::as_bytes(offset);
-                let offset = i32::from_be_bytes([offset[0], offset[1], offset[2], offset[3]]);
-                quant_params = Some((scaling, offset));
-            }
-
-            let mut descriptors = vec![(
+            let descriptors = vec![(
                 AllocationDescriptor::optimized(tensor_shape.as_slice(), size_of::<P::EG>()),
                 P::EG::as_bytes(&data),
             )];
-
-            if let Some((scaling, offset)) = &quant_params {
-                descriptors.push((
-                    AllocationDescriptor::optimized(&[1], size_of::<f32>()),
-                    bytemuck::bytes_of(scaling),
-                ));
-                descriptors.push((
-                    AllocationDescriptor::optimized(&[1], size_of::<i32>()),
-                    bytemuck::bytes_of(offset),
-                ));
-            }
 
             let mut tensors = client.create_tensors(descriptors);
             let Allocation { handle, strides } = tensors.remove(0);
@@ -324,7 +251,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape: tensor_shape,
                 strides,
                 original_data: None,
-                quant_params,
             }
         }
     }

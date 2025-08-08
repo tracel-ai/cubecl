@@ -6,7 +6,9 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
-use crate::components::{AvailableLineSizes, MatmulLineSizes, MatmulSelection, StageIdent};
+use crate::components::{
+    AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
+};
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
@@ -22,8 +24,8 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
             MP,
             Config = Self::Config,
-            LhsReader = <Self::LhsReader as ReaderFamily>::Reader<MP::ES, TL>,
-            RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
+            LhsReader = <Self::LhsReader as ReaderFamily>::Reader<LhsS<MP>, TL>,
+            RhsReader = <Self::RhsReader as ReaderFamily>::Reader<RhsS<MP>, TR>,
         >;
 
     /// Reader family for Lhs
@@ -141,12 +143,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     ) -> Self::Writer;
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    ///
-    /// # Quantization
-    ///
-    /// If some `quantization` is provided, the read will also requantize the stage in the output
-    /// and update the scaling of the output tensor. This assumes that [execute] is called
-    /// with some `scaling` provided.
     fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Self::Writer,

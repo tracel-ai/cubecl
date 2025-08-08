@@ -1,7 +1,7 @@
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::tile_data::Tile;
 use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{MatmulPrecision, StageIdent, as_cmma_layout};
+use crate::components::{LhsR, LhsS, MatmulPrecision, RhsR, RhsS, StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 
@@ -11,8 +11,8 @@ pub struct AcceleratedMatmul;
 #[cube]
 impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
     type Config = AcceleratedConfig;
-    type Lhs = cmma::Matrix<MP::ES>;
-    type Rhs = cmma::Matrix<MP::ES>;
+    type Lhs = cmma::Matrix<LhsR<MP>>;
+    type Rhs = cmma::Matrix<RhsR<MP>>;
     type Accumulator = cmma::Matrix<MP::EA>;
 
     fn execute(
@@ -21,14 +21,14 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         out: &mut Self::Accumulator,
         #[comptime] _config: Self::Config,
     ) {
-        cmma::execute::<MP::ES, MP::ES, MP::EA, MP::EA>(lhs, rhs, out, out);
+        cmma::execute::<LhsR<MP>, RhsR<MP>, MP::EA, MP::EA>(lhs, rhs, out, out);
     }
 
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Lhs);
         unsafe {
-            cmma::Matrix::<MP::ES>::uninitialized(
+            cmma::Matrix::<LhsR<MP>>::uninitialized(
                 cmma::MatrixIdent::A,
                 size.m(),
                 size.n(),
@@ -42,7 +42,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Rhs);
         unsafe {
-            cmma::Matrix::<MP::ES>::uninitialized(
+            cmma::Matrix::<RhsR<MP>>::uninitialized(
                 cmma::MatrixIdent::B,
                 size.m(),
                 size.n(),
@@ -52,12 +52,12 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         }
     }
 
-    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
+    fn fill_lhs(tile: &Tile<LhsS<MP>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
         let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
         cmma::load(lhs, &slice, stride);
     }
 
-    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
+    fn fill_rhs(tile: &Tile<RhsS<MP>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
         let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Rhs, config);
         cmma::load(rhs, &slice, stride);
     }

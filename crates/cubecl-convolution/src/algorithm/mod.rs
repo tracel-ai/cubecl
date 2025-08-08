@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{
-    AvailableLineSizes, LoadingPrecomputeStrategy, MatmulIdent, MatmulLineSizes, MatmulPrecision,
-    MatmulSelection, MatmulSetupError, MultiRowStrategy,
+    AvailableLineSizes, LoadingPrecomputeStrategy, MatmulElems, MatmulIdent, MatmulLineSizes,
+    MatmulPrecision, MatmulSelection, MatmulSetupError, MultiRowStrategy,
     global::{LoadSpecializationConfig, args::MatmulArgs, load::LoaderMode},
     stage::{NumStages, PartitionBuffering, StageMatmulFamily},
     tile::TileMatmulFamily,
@@ -8,7 +8,7 @@ use cubecl_matmul::components::{
 
 use cubecl_std::tensor::TensorHandle;
 
-use cubecl_core::{ir::Elem, prelude::*};
+use cubecl_core::prelude::*;
 
 use super::base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProblem};
 
@@ -82,7 +82,6 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        matmul_elems: MatmulElems,
     ) -> MatmulSelection;
 }

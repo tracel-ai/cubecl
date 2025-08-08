@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
+use crate::components::global::RoleRule;
 use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{Quantization, RoleRule};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
+    FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, memory::TensorReader},
@@ -13,7 +13,6 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -92,9 +91,9 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
 #[cube]
 impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = SyncPartialTilewiseJob;
+    type Job<IP: InputPrecision> = SyncPartialTilewiseJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -160,15 +159,14 @@ pub struct SyncPartialTilewiseJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>>
+impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
     for SyncPartialTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
@@ -206,14 +204,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
 
-        SyncPartialTilewiseJob::load_and_store_line::<MP, TO, G>(
+        SyncPartialTilewiseJob::load_and_store_line::<IP, TO, G>(
             this,
             tile,
             line_index_within_tile,
             num_lines_to_skip_global,
             tensor_reader,
             stage,
-            quantization,
             config,
         );
     }
@@ -226,14 +223,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 #[cube]
 impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let line_read = tensor_reader.load_coalesced_in_tile(
@@ -245,9 +241,6 @@ impl SyncPartialTilewiseJob {
 
         let offset = line_index_within_tile + num_lines_to_skip_global;
 
-        stage.as_slice_mut(this.line_size)[offset] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.ident),
-            CubeOption::None => Line::cast_from(line_read),
-        };
+        stage.as_slice_mut(this.line_size)[offset] = Line::cast_from(line_read);
     }
 }

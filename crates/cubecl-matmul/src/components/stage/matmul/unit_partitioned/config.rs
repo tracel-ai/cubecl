@@ -132,7 +132,8 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
         plane_role_config: PlaneRoleConfig,
-        es_size: u32,
+        lhs_s_size: u32,
+        rhs_s_size: u32,
         eo_size: u32,
         smem_limit: u32,
         ordered: bool,
@@ -146,12 +147,13 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
             plane_role_config,
             ordered,
         }
-        .validate(es_size, eo_size, smem_limit)
+        .validate(lhs_s_size, rhs_s_size, eo_size, smem_limit)
     }
 
     fn validate(
         self,
-        es_size: u32,
+        lhs_s_size: u32,
+        rhs_s_size: u32,
         eo_size: u32,
         smem_limit: u32,
     ) -> Result<Self, MatmulSetupError> {
@@ -178,7 +180,8 @@ impl<T: TileConfig> UnitPartitionedStageConfig<T> {
         let lhs_smem_size = self.tiling_scheme.elements_in_stage_mk() * self.num_stages.lhs;
         let rhs_smem_size = self.tiling_scheme.elements_in_stage_nk() * self.num_stages.rhs;
         let out_smem_size = self.tiling_scheme.elements_in_tile_mn() * num_units;
-        let smem_total_size = es_size * (lhs_smem_size + rhs_smem_size) + eo_size * out_smem_size;
+        let smem_total_size =
+            lhs_s_size * lhs_smem_size + rhs_s_size * rhs_smem_size + eo_size * out_smem_size;
 
         if smem_total_size > smem_limit {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(

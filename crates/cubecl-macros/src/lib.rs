@@ -1,4 +1,3 @@
-#![cfg_attr(nightly, feature(proc_macro_span))]
 #![allow(clippy::large_enum_variant)]
 
 use core::panic;

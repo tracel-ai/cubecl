@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
+    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
@@ -28,9 +28,9 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
 #[cube]
 impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = AsyncFullCooperativeJob;
+    type Job<IP: InputPrecision> = AsyncFullCooperativeJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullCooperativeJob {
@@ -58,19 +58,19 @@ pub struct AsyncFullCooperativeJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for AsyncFullCooperativeJob {
-    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullCooperativeJob {
+    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let window: Window<MP::EI> = tensor_reader
+        let window: Window<IP::Global> = tensor_reader
             .load_window_in_stage(task_id, comptime!(config.global_memory_config(this.ident)));
-        let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
+        let mut destination: SliceMut<Line<IP::Stage>> =
+            StridedTilingLayout::nth_slice::<IP::Stage, G::StageMemoryConfig>(
                 stage,
                 task_id,
                 comptime!(this.ident.into_stage()),

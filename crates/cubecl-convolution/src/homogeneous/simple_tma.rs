@@ -18,8 +18,8 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulLineSizes, MatmulPrecision,
-    MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg,
+    AvailableLineSizes, EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulLineSizes, MatmulPrecision,
+    MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     global::{
         AccumulatorLoader, GlobalConfig,
         load::{NoLoadingValidation, arrive_tma},
@@ -50,13 +50,13 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for SimpleTmaConvolution<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullStageToTileReader<MP::ES, TmaIm2colTiling>,
-            RhsReader = FullStageToTileReader<MP::ES, TmaWeightTiling>,
+            LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
+            RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
         >,
 {
-    type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
+    type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
-    type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
+    type RhsLoader = TmaWeightLoader<MP::Rhs, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Writer = SMM::Writer;
@@ -91,17 +91,20 @@ where
             config.stage_config(),
         );
 
-        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let lhs_barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let rhs_barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.stage_config());
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &lhs_barrier, 0u32, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &rhs_barrier, 0u32, config.stage_config());
 
-            arrive_tma::<MP::ES>(&barrier, total_stage_elems);
+            arrive_tma::<LhsS<MP>>(&lhs_barrier, total_stage_elems);
+            arrive_tma::<RhsS<MP>>(&rhs_barrier, total_stage_elems);
 
-            barrier.wait();
+            lhs_barrier.wait();
+            rhs_barrier.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, 0u32);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, 0u32);
@@ -125,7 +128,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -135,7 +138,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -145,7 +148,6 @@ where
             rhs.as_tensor_map(),
             x_offset,
             y_offset,
-            CubeOption::new_None(),
             runtime_args,
             1u32,
             config,
@@ -271,7 +273,17 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         );
 
         unsafe {
-            implicit_conv::launch_unchecked::<MS::Args, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+            implicit_conv::launch_unchecked::<
+                MS::Args,
+                LhsG<MS>,
+                RhsG<MS>,
+                LhsS<MS>,
+                RhsS<MS>,
+                EA<MS>,
+                EO<MS>,
+                Self,
+                R,
+            >(
                 client,
                 cube_count,
                 cube_dim,

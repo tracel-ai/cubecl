@@ -3,13 +3,12 @@ use std::marker::PhantomData;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{GlobalConfig, Quantization, RoleRule};
+use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
+use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::{LoaderMode, LoadingJob, LoadingValidation};
 
@@ -56,12 +55,12 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
 #[cube]
 impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = SyncFullCyclicJob;
+    type Job<IP: InputPrecision> = SyncFullCyclicJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP> {
+    ) -> Self::Job<IP> {
         let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
         let line_size = config.global_line_size(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
@@ -115,39 +114,24 @@ pub struct SyncFullCyclicJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>>
+impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
     for SyncFullCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<MP, TO, G>(
-                this,
-                unit_position,
-                tensor_reader,
-                stage,
-                quantization,
-                config,
-            );
+            load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<MP, TO, G>(
-                    this,
-                    unit_position,
-                    tensor_reader,
-                    stage,
-                    quantization,
-                    config,
-                );
+                load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
             }
         }
     }
@@ -158,12 +142,11 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
-    tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-    quantization: &CubeOption<Quantization<MP>>,
+    tensor_reader: &TensorReader<IP::Global>,
+    stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
     let nth_tile = unit_position / job.tile_num_elements;
@@ -182,8 +165,5 @@ pub(crate) fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: Globa
         comptime!(config.global_memory_config(job.ident)),
     );
 
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = match quantization {
-        CubeOption::Some(quantization) => quantization.dequantize(line_read, job.ident),
-        CubeOption::None => Line::cast_from(line_read),
-    };
+    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = Line::cast_from(line_read);
 }

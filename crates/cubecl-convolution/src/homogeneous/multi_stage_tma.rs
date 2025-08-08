@@ -18,8 +18,9 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulIdent, MatmulLineSizes,
-    MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg, TilingScheme,
+    AvailableLineSizes, EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulIdent, MatmulLineSizes,
+    MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
+    TilingScheme,
     global::{
         AccumulatorLoader, GlobalConfig,
         load::{NoLoadingValidation, arrive_tma},
@@ -63,13 +64,13 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for MultiStageTmaConvolution<MP, 
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullStageToTileReader<MP::ES, TmaIm2colTiling>,
-            RhsReader = FullStageToTileReader<MP::ES, TmaWeightTiling>,
+            LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
+            RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
         >,
 {
-    type LhsLoader = TmaIm2colLoader<MP, Self::Config>;
+    type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
-    type RhsLoader = TmaWeightLoader<MP, SMM::Config>;
+    type RhsLoader = TmaWeightLoader<MP::Rhs, SMM::Config>;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Writer = SMM::Writer;
@@ -105,7 +106,8 @@ where
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, stage_config);
 
-        let mut barriers = Sequence::<Barrier<MP::ES>>::new();
+        let mut lhs_barriers = Sequence::<Barrier<LhsS<MP>>>::new();
+        let mut rhs_barriers = Sequence::<Barrier<RhsS<MP>>>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
 
         let mut stage = comptime![0u32];
@@ -114,17 +116,20 @@ where
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..num_stages {
-            let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+            let lhs_barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+            let rhs_barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, stage, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, stage, stage_config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &lhs_barrier, stage, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &rhs_barrier, stage, stage_config);
 
-            arrive_tma::<MP::ES>(&barrier, total_stage_elems);
+            arrive_tma::<LhsS<MP>>(&lhs_barrier, total_stage_elems);
+            arrive_tma::<RhsS<MP>>(&rhs_barrier, total_stage_elems);
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
-            barriers.push(barrier);
+            lhs_barriers.push(lhs_barrier);
+            rhs_barriers.push(rhs_barrier);
 
             comptime![stage += 1];
         }
@@ -143,13 +148,15 @@ where
 
                 // Bounds check for k stage, for when `k_stages % num_stages != 0`
                 if k < k_range.1 {
-                    let barrier = barriers.index(stage);
+                    let lhs_barrier = lhs_barriers.index(stage);
+                    let rhs_barrier = rhs_barriers.index(stage);
 
                     let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, stage);
                     let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, stage);
 
                     // Wait for load and execute matmul on this stage
-                    barrier.wait();
+                    lhs_barrier.wait();
+                    rhs_barrier.wait();
                     SMM::execute(
                         lhs_stage_reader,
                         rhs_stage_reader,
@@ -158,17 +165,25 @@ where
                         acc,
                         config.stage_config(),
                     );
-                    barrier.arrive();
+                    lhs_barrier.arrive();
+                    rhs_barrier.arrive();
 
                     // Check if there's any stages left to load in the k dimension
                     if next_k < k_range.1 {
-                        barrier.wait();
+                        lhs_barrier.wait();
+                        rhs_barrier.wait();
 
                         // Refill stage and advance view
-                        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, stage, config);
-                        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, stage, stage_config);
+                        Self::LhsLoader::fill_stage(&mut lhs_loader, lhs_barrier, stage, config);
+                        Self::RhsLoader::fill_stage(
+                            &mut rhs_loader,
+                            rhs_barrier,
+                            stage,
+                            stage_config,
+                        );
 
-                        arrive_tma::<MP::ES>(barrier, total_stage_elems);
+                        arrive_tma::<LhsS<MP>>(lhs_barrier, total_stage_elems);
+                        arrive_tma::<RhsS<MP>>(rhs_barrier, total_stage_elems);
 
                         Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
                         Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
@@ -185,7 +200,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -202,7 +217,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -212,7 +227,6 @@ where
             rhs.as_tensor_map(),
             x_offset,
             y_offset,
-            CubeOption::new_None(),
             runtime_args,
             config.num_stages(MatmulIdent::Rhs),
             config,
@@ -347,7 +361,17 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         );
 
         unsafe {
-            implicit_conv::launch_unchecked::<MS::Args, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+            implicit_conv::launch_unchecked::<
+                MS::Args,
+                LhsG<MS>,
+                RhsG<MS>,
+                LhsS<MS>,
+                LhsG<MS>,
+                EA<MS>,
+                EO<MS>,
+                Self,
+                R,
+            >(
                 client,
                 cube_count,
                 cube_dim,
@@ -373,12 +397,14 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
     num_planes: u32,
     tiling_scheme: &TilingScheme,
 ) -> u32 {
-    let inputs_stage_size =
-        tiling_scheme.elements_in_stage_mk() + tiling_scheme.elements_in_stage_nk();
+    let lhs_stage_size = tiling_scheme.elements_in_stage_mk();
+    let rhs_stage_size = tiling_scheme.elements_in_stage_nk();
+
     // u64 is the barrier, which is also in shared.
     // Just to ensure we don't go over by a few bytes accidentally.
-    let inputs_stage_size_bytes =
-        inputs_stage_size * size_of::<MP::ES>() as u32 + size_of::<u64>() as u32;
+    let inputs_stage_size_bytes = lhs_stage_size * size_of::<LhsS<MP>>() as u32
+        + rhs_stage_size * size_of::<RhsS<MP>>() as u32
+        + 2 * size_of::<u64>() as u32;
     let output_stage_size = tiling_scheme.elements_in_tile_mn() * num_planes;
     let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
 

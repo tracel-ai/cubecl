@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    AvailableLineSizes, InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
+    AvailableLineSizes, InputRuntimeArg, LhsG, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg, RhsG,
     global::{AccumulatorLoader, GlobalWriter},
 };
 use cubecl_std::{
@@ -56,7 +56,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -64,7 +64,7 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
     ) -> Self::LhsLoader;
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,

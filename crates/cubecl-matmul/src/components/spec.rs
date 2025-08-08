@@ -1,7 +1,4 @@
-use core::marker::PhantomData;
-
-use cubecl_core::prelude::*;
-use cubecl_std::SymQ8;
+use cubecl_core::{ir::Elem, prelude::*};
 use half::{bf16, f16};
 
 use super::global::args::{MatmulArgs, TensorArgs};
@@ -27,12 +24,10 @@ impl<MP: MatmulPrecision> MatmulSpec for MP {
 
 /// Matrix multiplication precisions.
 pub trait MatmulPrecision: Send + Sync + Copy + 'static {
-    const QUANTIZED: bool;
-
     /// Element type of each input tensors of the kernel.
-    type EI: Numeric;
+    type Lhs: InputPrecision;
     /// Element type for the shared memories used to read inputs.
-    type ES: Numeric;
+    type Rhs: InputPrecision;
     /// Element type for the shared memories or fragments used to accumulate
     /// smaller matmul results before writing to the output tensor.
     type EA: Numeric;
@@ -40,10 +35,24 @@ pub trait MatmulPrecision: Send + Sync + Copy + 'static {
     type EO: Numeric;
 }
 
+pub trait InputPrecision: Send + Sync + Copy + 'static {
+    /// Element type of input tensor in global memory
+    type Global: Numeric;
+    /// Element type once stored in shared memory
+    type Stage: Numeric;
+    /// Element type once in registers for computation
+    type Register: Numeric;
+}
+
+impl<EG: Numeric, ES: Numeric> InputPrecision for (EG, ES) {
+    type Global = EG;
+    type Stage = ES;
+    type Register = ES;
+}
+
 impl MatmulPrecision for f16 {
-    const QUANTIZED: bool = false;
-    type EI = f16;
-    type ES = f16;
+    type Lhs = (f16, f16);
+    type Rhs = (f16, f16);
     #[cfg(target_os = "macos")]
     type EA = f16;
     #[cfg(not(target_os = "macos"))]
@@ -52,17 +61,15 @@ impl MatmulPrecision for f16 {
 }
 
 impl MatmulPrecision for flex32 {
-    const QUANTIZED: bool = false;
-    type EI = f32;
-    type ES = f16;
+    type Lhs = (f32, f16);
+    type Rhs = (f32, f16);
     type EA = f32;
     type EO = f32;
 }
 
 impl MatmulPrecision for bf16 {
-    const QUANTIZED: bool = false;
-    type EI = bf16;
-    type ES = bf16;
+    type Lhs = (bf16, bf16);
+    type Rhs = (bf16, bf16);
     #[cfg(target_os = "macos")]
     type EA = bf16;
     #[cfg(not(target_os = "macos"))]
@@ -71,65 +78,30 @@ impl MatmulPrecision for bf16 {
 }
 
 impl MatmulPrecision for f32 {
-    const QUANTIZED: bool = false;
-    type EI = f32;
-    type ES = f32;
+    type Lhs = (f32, f32);
+    type Rhs = (f32, f32);
     type EA = f32;
     type EO = f32;
 }
 
 impl MatmulPrecision for f64 {
-    const QUANTIZED: bool = false;
-    type EI = f64;
-    type ES = f32;
+    type Lhs = (f64, f32);
+    type Rhs = (f64, f32);
     type EA = f32;
     type EO = f64;
 }
 
-#[derive(Clone, Copy)]
-pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
-    _phantom: PhantomData<(ES, MP)>,
-}
-
-impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
-    const QUANTIZED: bool = MP::QUANTIZED;
-    type EI = MP::EI;
-    type ES = ES;
-    type EA = MP::EA;
-    type EO = MP::EO;
-}
-
-impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI, ES, EA, EO) {
-    const QUANTIZED: bool = false;
-    type EI = EI;
-    type ES = ES;
-    type EA = EA;
-    type EO = EO;
-}
-
-#[derive(Clone, Copy)]
-pub struct Quantized;
-
-impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision
-    for (EI, ES, EA, EO, Quantized)
+impl<LhsG: Numeric, RhsG: Numeric, LhsS: Numeric, RhsS: Numeric, EA: Numeric, EO: Numeric>
+    MatmulPrecision for (LhsG, RhsG, LhsS, RhsS, EA, EO)
 {
-    const QUANTIZED: bool = true;
-    type EI = EI;
-    type ES = ES;
+    type Lhs = (LhsG, LhsS);
+    type Rhs = (RhsG, RhsS);
     type EA = EA;
     type EO = EO;
-}
-
-impl MatmulPrecision for SymQ8 {
-    const QUANTIZED: bool = true;
-    type EI = i8;
-    type ES = f16;
-    type EA = f16;
-    type EO = f16;
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<EI<MS>>;
+pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<LhsG<MS>, RhsG<MS>>;
 
 /// Output argument
 pub type OutputArg<MS> = <Args<MS> as MatmulArgs>::Output<EO<MS>>;
@@ -140,9 +112,46 @@ pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a
 /// Output runtime argument
 pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
 
-pub type EI<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EI;
-pub type ES<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::ES;
+pub type LhsG<MS> =
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as InputPrecision>::Global;
+pub type LhsS<MS> =
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as InputPrecision>::Stage;
+pub type LhsR<MS> =
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as InputPrecision>::Register;
+pub type RhsG<MS> =
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as InputPrecision>::Global;
+pub type RhsS<MS> =
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as InputPrecision>::Stage;
+pub type RhsR<MS> =
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as InputPrecision>::Register;
+
 pub type EA<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EA;
 pub type EO<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EO;
 
 pub type Args<MS> = <MS as MatmulSpec>::Args;
+
+pub struct MatmulElems {
+    pub lhs_global: Elem,
+    pub rhs_global: Elem,
+    pub lhs_stage: Elem,
+    pub rhs_stage: Elem,
+    pub lhs_register: Elem,
+    pub rhs_register: Elem,
+    pub acc: Elem,
+    pub out: Elem,
+}
+
+impl MatmulElems {
+    pub fn new<MP: MatmulPrecision>() -> Self {
+        Self {
+            lhs_global: <MP::Lhs as InputPrecision>::Global::as_elem_native_unchecked(),
+            rhs_global: <MP::Rhs as InputPrecision>::Global::as_elem_native_unchecked(),
+            lhs_stage: <MP::Lhs as InputPrecision>::Stage::as_elem_native_unchecked(),
+            rhs_stage: <MP::Rhs as InputPrecision>::Stage::as_elem_native_unchecked(),
+            lhs_register: <MP::Lhs as InputPrecision>::Register::as_elem_native_unchecked(),
+            rhs_register: <MP::Rhs as InputPrecision>::Register::as_elem_native_unchecked(),
+            acc: MP::EA::as_elem_native_unchecked(),
+            out: MP::EO::as_elem_native_unchecked(),
+        }
+    }
+}

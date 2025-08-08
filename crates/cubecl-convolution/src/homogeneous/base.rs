@@ -11,23 +11,25 @@ use cubecl_matmul::components::{
     MatmulIdent,
     global::{
         GlobalConfig,
-        args::{MatmulArgs, TensorInput, TensorInputIdent, TensorOutput},
+        args::{MatmulArgs, TensorLhs, TensorOutput, TensorRhs},
     },
 };
 
-type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
+type Input<Args, Lhs, Rhs> = <Args as MatmulArgs>::Input<Lhs, Rhs>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 #[cube(launch_unchecked)]
 pub(crate) fn implicit_conv<
     Args: MatmulArgs,
-    EI: Numeric,
-    ES: Numeric,
+    LhsG: Numeric,
+    RhsG: Numeric,
+    LhsS: Numeric,
+    RhsS: Numeric,
     EA: Numeric,
     EO: Numeric,
     GMM: ConvolutionFamily,
 >(
-    inputs: &Input<Args, EI>,
+    inputs: &Input<Args, LhsG, RhsG>,
     bias: &CubeOption<Tensor<Line<EO>>>,
     output: &mut Output<Args, EO>,
     runtime_args: RuntimeArgs,
@@ -35,13 +37,13 @@ pub(crate) fn implicit_conv<
 ) {
     let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<EI, EO, Args>::new(&state, TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EI, EO, Args>::new(&state, TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
+    let lhs = TensorLhs::<LhsG, RhsG, EO, Args>::new(&state);
+    let rhs = TensorRhs::<LhsG, RhsG, EO, Args>::new(&state);
+    let mut out = TensorOutput::<LhsG, RhsG, EO, Args>::new(&mut state);
 
-    let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
-    let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
-    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
+    let lhs = VirtualTensor::<LhsG>::new::<TensorLhs<LhsG, RhsG, EO, Args>>(&lhs);
+    let rhs = VirtualTensor::<RhsG>::new::<TensorRhs<LhsG, RhsG, EO, Args>>(&rhs);
+    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<LhsG, RhsG, EO, Args>>(&mut out);
 
     let x_offset = CUBE_POS_X * config.tiling_scheme().elements_in_stage_m();
     let y_offset = CUBE_POS_Y * config.tiling_scheme().elements_in_stage_n();
@@ -54,24 +56,26 @@ pub(crate) fn implicit_conv<
         CubeOption::None => CubeOption::new_None(),
     };
 
-    GMM::Convolution::<(EI, ES, EA, EO)>::execute(
-        GMM::Convolution::<(EI, ES, EA, EO)>::init_lhs_loader(
+    GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::execute(
+        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_lhs_loader(
             lhs,
             x_offset,
             k_range.0,
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(EI, ES, EA, EO)>::init_rhs_loader(
+        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_rhs_loader(
             rhs,
             k_range.0,
             y_offset,
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(EI, ES, EA, EO)>::init_bias_loader(bias, y_offset, config),
-        GMM::Convolution::<(EI, ES, EA, EO)>::init_writer(out, x_offset, y_offset),
-        &mut GMM::Convolution::<(EI, ES, EA, EO)>::init_accumulator(config),
+        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_bias_loader(
+            bias, y_offset, config,
+        ),
+        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_writer(out, x_offset, y_offset),
+        &mut GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_accumulator(config),
         k_range,
         config,
     );

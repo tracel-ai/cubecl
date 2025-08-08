@@ -27,11 +27,12 @@ pub enum MatmulAvailabilityError {
     PlaneDimUnsupported { plane_dim: u32 },
 
     /// The required data types for input or output are not supported.
-    TypesUnavailable { input: Elem, output: Elem },
+    TypesUnavailable { lhs: Elem, rhs: Elem, output: Elem },
 
     /// The required CMMA instruction is not supported for the given element types and tile size.
     CmmaInstructionUnavailable {
-        input: Elem,
+        lhs: Elem,
+        rhs: Elem,
         output: Elem,
         size: Option<TileSize>,
     },
@@ -110,30 +111,36 @@ impl Debug for MatmulAvailabilityError {
                     "Plane dimension unsupported: {plane_dim}. Only 32 & 64 are supported."
                 )
             }
-            MatmulAvailabilityError::TypesUnavailable { input, output } => {
+            MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output } => {
                 writeln!(
                     f,
-                    "Types input={input:?} and/or output={output:?} not supported.",
+                    "Types lhs={lhs:?}, rhs={rhs:?} and/or output={output:?} not supported.",
                 )
             }
             MatmulAvailabilityError::CmmaInstructionUnavailable {
-                input,
+                lhs,
+                rhs,
                 output,
                 size: Some(size),
             } => writeln!(
                 f,
-                "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
-                input,
+                "Cmma on lhs {:?} rhs {:?} and output {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
+                lhs,
+                rhs,
                 output,
                 size.m(),
                 size.n(),
                 size.k()
             ),
             MatmulAvailabilityError::CmmaInstructionUnavailable {
-                input,
+                lhs,
+                rhs,
                 output,
                 size: None,
-            } => writeln!(f, "Cmma on inputs {input:?} and outputs {output:?}.",),
+            } => writeln!(
+                f,
+                "Cmma on inputs lhs {lhs:?} rhs {rhs:?} and output {output:?} not supported.",
+            ),
             MatmulAvailabilityError::BarrierUnavailable => {
                 writeln!(f, "Barrier is not available.")
             }

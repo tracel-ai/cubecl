@@ -1,8 +1,10 @@
 use crate::components::ComputeResources;
+use crate::components::LhsS;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
+use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::PlaneRoleConfig;
@@ -28,7 +30,7 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
     type LhsReader = LRF;
     type RhsReader = RRF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<MP::ES, TL>, RRF::Reader<MP::ES, TR>>;
+        PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<LhsS<MP>, TL>, RRF::Reader<RhsS<MP>, TR>>;
     type Config = PlanePartitionedStageConfig<TMM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
@@ -68,7 +70,8 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
             selection.partition_buffering,
             num_stages,
             plane_role_config,
-            MP::ES::elem_size(),
+            LhsS::<MP>::elem_size(),
+            RhsS::<MP>::elem_size(),
             MP::EO::elem_size(),
             client.properties().hardware.max_shared_memory_size as u32,
             ordered,
