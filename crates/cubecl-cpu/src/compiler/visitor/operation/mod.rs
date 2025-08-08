@@ -39,8 +39,7 @@ impl<'a> Visitor<'a> {
                     .chain(args.iter().map(|arg| self.get_variable(*arg)))
                     .collect();
                 let integer_type = IntegerType::new(self.context, 32).into();
-                let mut argument_type = vec![llvm::r#type::pointer(self.context, 0)];
-                argument_type.extend(args.iter().map(|v| v.item.to_type(self.context)));
+                let argument_type = [llvm::r#type::pointer(self.context, 0)];
                 let func_type =
                     TypeAttribute::new(llvm::r#type::function(integer_type, &argument_type, true));
                 let call = llvm::call(

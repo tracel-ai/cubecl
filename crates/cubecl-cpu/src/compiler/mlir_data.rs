@@ -7,18 +7,18 @@ use crate::compiler::{builtin::BuiltinArray, memref::LineMemRef};
 
 use super::passes::shared_memories::SharedMemories;
 
-struct SharedMlirData {
-    args_zero_indirection: Vec<LineMemRef>,
-    metadata: Vec<u32>,
-    args_first_indirection: Vec<*mut ()>,
-    scalars: Vec<ScalarBinding>,
+pub struct SharedMlirData {
+    pub args_zero_indirection: Vec<LineMemRef>,
+    pub metadata: Vec<u32>,
+    pub args_first_indirection: Vec<*mut ()>,
+    pub scalars: Vec<ScalarBinding>,
 }
 
 unsafe impl Send for SharedMlirData {}
 unsafe impl Sync for SharedMlirData {}
 
 pub struct MlirData {
-    shared_mlir_data: Arc<SharedMlirData>,
+    pub shared_mlir_data: Arc<SharedMlirData>,
     pub args_second_indirection: Vec<*mut ()>,
     pub builtin: BuiltinArray,
 }

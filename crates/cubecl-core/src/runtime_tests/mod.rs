@@ -5,6 +5,7 @@ pub mod binary;
 pub mod branch;
 pub mod cluster;
 pub mod cmma;
+pub mod comparison;
 pub mod const_match;
 pub mod constants;
 pub mod debug;
@@ -18,7 +19,7 @@ pub mod minifloat;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
-pub mod sync_plane;
+pub mod synchronization;
 pub mod tensor;
 pub mod tensormap;
 pub mod topology;
@@ -133,6 +134,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cluster!();
 
         cubecl_core::testgen_enums!();
+        cubecl_core::testgen_comparison!();
     };
 }
 

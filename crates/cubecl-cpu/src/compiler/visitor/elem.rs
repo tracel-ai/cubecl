@@ -25,7 +25,7 @@ impl IntoType for Elem {
             Elem::UInt(UIntKind::U16) => IntegerType::new(context, 16).into(),
             Elem::UInt(UIntKind::U32) => IntegerType::new(context, 32).into(),
             Elem::UInt(UIntKind::U64) => IntegerType::new(context, 64).into(),
-            Elem::Bool => IntegerType::new(context, 1).into(),
+            Elem::Bool => IntegerType::new(context, 8).into(),
             _ => todo!("This type is not implemented yet."),
         }
     }

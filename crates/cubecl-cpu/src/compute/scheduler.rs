@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::mpsc};
 
 use cubecl_core::{ExecutionMode, compute::CubeTask, prelude::CompiledKernel, server::Bindings};
@@ -9,6 +10,7 @@ use crate::{
     compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData},
 };
 
+use super::compute_task::{BARRIER_COUNTER, CURRENT_CUBE_DIM, STOPPED_COUNTER};
 use super::{compute_task::ComputeTask, worker::Worker};
 
 pub struct Scheduler {
@@ -60,15 +62,7 @@ impl Scheduler {
             });
 
         let cube_dim = kernel.cube_dim;
-        let mut unit_pos_vec = Vec::with_capacity((cube_dim.x * cube_dim.y * cube_dim.z) as usize);
-
-        for unit_pos_x in 0..cube_dim.x {
-            for unit_pos_y in 0..cube_dim.y {
-                for unit_pos_z in 0..cube_dim.z {
-                    unit_pos_vec.push([unit_pos_x, unit_pos_y, unit_pos_z]);
-                }
-            }
-        }
+        let cube_dim_size = cube_dim.num_elems();
 
         let mlir_engine = kernel.repr.clone().unwrap();
         let mut mlir_data =
@@ -78,24 +72,38 @@ impl Scheduler {
 
         let (send, receive) = mpsc::channel();
         let mut msg_count = 0;
-        for (slice, worker) in unit_pos_vec
-            .chunks(unit_pos_vec.len().div_ceil(self.workers.len()))
-            .zip(self.workers.iter_mut())
-        {
-            let mlir_engine = mlir_engine.clone();
-            let mlir_data = mlir_data.clone();
-            let vec_unit_pos = slice.to_vec();
 
-            let compute_task = ComputeTask {
-                mlir_engine,
-                mlir_data,
-                vec_unit_pos,
-                kind,
-            };
-            msg_count += 1;
-            worker.send_task(compute_task);
-            worker.send_stop(send.clone());
+        CURRENT_CUBE_DIM.store(cube_dim_size as i32, Ordering::Release);
+        BARRIER_COUNTER.store(0, Ordering::Release);
+        STOPPED_COUNTER.store(0, Ordering::Release);
+
+        if cube_dim_size > self.workers.len() as u32 {
+            self.workers
+                .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::default()));
         }
+
+        let mut workers = self.workers.iter_mut();
+        for unit_pos_x in 0..cube_dim.x {
+            for unit_pos_y in 0..cube_dim.y {
+                for unit_pos_z in 0..cube_dim.z {
+                    let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
+                    let worker = workers.next().expect("The CubeDim are too large");
+                    let mlir_engine = mlir_engine.clone();
+                    let mlir_data = mlir_data.clone();
+
+                    let compute_task = ComputeTask {
+                        mlir_engine,
+                        mlir_data,
+                        unit_pos,
+                        kind,
+                    };
+                    msg_count += 1;
+                    worker.send_task(compute_task);
+                    worker.send_stop(send.clone());
+                }
+            }
+        }
+
         for _ in receive.into_iter() {
             msg_count -= 1;
             if msg_count == 0 {
