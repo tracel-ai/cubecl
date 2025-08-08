@@ -1,8 +1,8 @@
-use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::sync_partial_cyclic::SyncPartialCyclicLoading,
@@ -41,8 +41,7 @@ impl Algorithm for DoubleUnitAlgorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _elem_stage: Elem,
-        _elem_acc: Elem,
+        _elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         unit_matmul_selection::<R>(

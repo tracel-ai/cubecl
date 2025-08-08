@@ -1,13 +1,13 @@
 use super::StageBuffer;
+use crate::components::global::CopyMechanism;
 use crate::components::global::base::GlobalConfig;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::{CopyMechanism, Quantization};
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
-use crate::components::{MatmulIdent, MatmulPrecision, StageIdent};
+use crate::components::{InputPrecision, MatmulIdent, StageIdent};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -22,14 +22,14 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision>: AsyncLoadingJob<MP, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] buffer_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP>;
+    ) -> Self::Job<IP>;
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
@@ -41,14 +41,14 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct AsyncBufferLoader<
-    MP: MatmulPrecision,
+    IP: InputPrecision,
     S: stage::StageConfig,
-    CM: CopyMechanism<MP::ES>,
+    CM: CopyMechanism<IP::Stage>,
     L: AsyncPartialLoadingStrategy,
 > {
-    tensor_reader: TensorReader<MP::EI>,
-    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
-    loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
+    tensor_reader: TensorReader<IP::Global>,
+    stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
+    loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
@@ -57,19 +57,18 @@ pub struct AsyncBufferLoader<
 
 #[cube]
 impl<
-    MP: MatmulPrecision,
+    IP: InputPrecision,
     S: stage::StageConfig,
-    CM: CopyMechanism<MP::ES>,
+    CM: CopyMechanism<IP::Stage>,
     L: AsyncPartialLoadingStrategy,
-> AsyncBufferLoader<MP, S, CM, L>
+> AsyncBufferLoader<IP, S, CM, L>
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
-        tensor: VirtualTensor<MP::EI>,
+        tensor: VirtualTensor<IP::Global>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
@@ -80,21 +79,15 @@ impl<
         );
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
-                L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(0u32, ident, config),
-                L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(1u32, ident, config),
+                L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(0u32, ident, config),
+                L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(1u32, ident, config),
             )),
             false => CubeOption::new_None(),
         };
 
-        AsyncBufferLoader::<MP, S, CM, L> {
+        AsyncBufferLoader::<IP, S, CM, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -107,7 +100,7 @@ impl<
     pub fn reader(
         this: &Self,
         #[comptime] stage_buffer: StageBuffer,
-    ) -> PartialStageToTileReader<MP::ES, L::TilingLayout> {
+    ) -> PartialStageToTileReader<IP::Stage, L::TilingLayout> {
         PartialStageToTileReader::new(
             this.stage_memory,
             stage_buffer,
@@ -137,17 +130,17 @@ impl<
             },
             CubeOption::None => match stage_buffer {
                 StageBuffer::A => {
-                    L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(0u32, this.ident, config)
+                    L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(0u32, this.ident, config)
                 }
                 StageBuffer::B => {
-                    L::new_job::<MP, DoubleBufferingGlobalConfig<S>>(1u32, this.ident, config)
+                    L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(1u32, this.ident, config)
                 }
             },
         };
 
         let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
-            L::Job::<MP>::execute_task::<CM, DoubleBufferingGlobalConfig<S>>(
+            L::Job::<IP>::execute_task::<CM, DoubleBufferingGlobalConfig<S>>(
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,

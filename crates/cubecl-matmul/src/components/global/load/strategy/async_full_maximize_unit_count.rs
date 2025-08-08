@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
+    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
@@ -52,9 +52,9 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 #[cube]
 impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = AsyncFullMaximizeUnitCountJob;
+    type Job<IP: InputPrecision> = AsyncFullMaximizeUnitCountJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullMaximizeUnitCountJob {
@@ -106,26 +106,26 @@ pub struct AsyncFullMaximizeUnitCountJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
+impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsyncFullMaximizeUnitCountJob
 {
-    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::StageMemoryConfig>(
+        let mut destination: SliceMut<Line<IP::Stage>> =
+            StridedTilingLayout::nth_slice::<IP::Stage, G::StageMemoryConfig>(
                 stage,
                 this.nth_slice,
                 comptime!(this.ident.into_stage()),
                 config.stage_memory_config(),
             );
 
-        let window: Window<MP::EI> = tensor_reader.load_window_in_stage(
+        let window: Window<IP::Global> = tensor_reader.load_window_in_stage(
             this.nth_slice,
             comptime!(config.global_memory_config(this.ident)),
         );

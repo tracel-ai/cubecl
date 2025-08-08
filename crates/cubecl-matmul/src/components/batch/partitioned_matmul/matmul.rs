@@ -1,16 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulPrecision;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
 use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountInput};
-use crate::components::global::Quantization;
 use crate::components::global::{self, GlobalMatmul};
+use crate::components::{LhsG, MatmulPrecision, RhsG};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 /// Executes matrix multiplication at the batch level,
@@ -35,10 +33,9 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
     type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn execute(
-        lhs: VirtualTensor<MP::EI>,
-        rhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
+        rhs: VirtualTensor<RhsG<MP>>,
         out: VirtualTensor<MP::EO, ReadWrite>,
-        quantization: CubeOption<Quantization<MP>>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
@@ -72,15 +69,6 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
         let global_config = config.global_config();
         let acc = GMM::init_accumulator(global_config);
 
-        GPMM::execute::<MP, GMM>(
-            lhs,
-            rhs,
-            out,
-            ranges,
-            acc,
-            k_range,
-            quantization,
-            global_config,
-        );
+        GPMM::execute::<MP, GMM>(lhs, rhs, out, ranges, acc, k_range, global_config);
     }
 }

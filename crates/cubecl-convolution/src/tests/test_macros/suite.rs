@@ -27,7 +27,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     stage_size: StageSize,
     problem: ConvolutionSize,
 ) where
-    Args::Input<P::EG>: ConvInputsLaunch,
+    Args::Input<P::EG, P::EG>: ConvInputsLaunch,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());

@@ -8,7 +8,8 @@ use crate::ConvGemmConfig;
 use crate::base::ConvolutionLaunch;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::components::{
-    self, AvailableLineSizes, MatmulIdent, MatmulPrecision, MatmulSelection,
+    self, AvailableLineSizes, InputPrecision, LhsG, MatmulElems, MatmulIdent, MatmulPrecision,
+    MatmulSelection, RhsG,
 };
 
 use super::{
@@ -18,7 +19,10 @@ use super::{
     base::{ConvolutionProblem, Dimensionality},
 };
 
-type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<<MP as MatmulPrecision>::EI>;
+type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<
+    <<MP as MatmulPrecision>::Lhs as InputPrecision>::Global,
+    <<MP as MatmulPrecision>::Rhs as InputPrecision>::Global,
+>;
 type Output<Alg, MP> =
     <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;
 
@@ -99,8 +103,8 @@ where
     let kernel_shape = &weight.shape[1..dim_c];
     let out_shape = &out.shape[1..dim_c];
 
-    let input = Alg::into_tensor_handle::<R, MP::EI>(client, input, MatmulIdent::Lhs);
-    let weight = Alg::into_tensor_handle::<R, MP::EI>(client, weight, MatmulIdent::Rhs);
+    let input = Alg::into_tensor_handle::<R, LhsG<MP>>(client, input, MatmulIdent::Lhs);
+    let weight = Alg::into_tensor_handle::<R, RhsG<MP>>(client, weight, MatmulIdent::Rhs);
 
     let plane_dim = client.properties().hardware.plane_size_max;
 
@@ -123,19 +127,26 @@ where
         dimensionality,
     };
 
-    let selection = Alg::selection::<R>(
-        client,
-        &problem,
-        plane_dim,
-        MP::ES::as_elem_native_unchecked(),
-        MP::EA::as_elem_native_unchecked(),
-    );
+    let selection = Alg::selection::<R>(client, &problem, plane_dim, MatmulElems::new::<MP>());
 
-    let launch = if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
+    let lhs_is_f32 = TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>();
+    let rhs_is_f32 = TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>();
+
+    let launch = if lhs_is_f32 || rhs_is_f32 {
         if tf32::is_supported(client) {
-            launch_kernel::<R, (MP::EI, tf32, f32, MP::EO), Alg>
+            if lhs_is_f32 && rhs_is_f32 {
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, tf32, f32, MP::EO), Alg>
+            } else if lhs_is_f32 {
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, f32, f32, MP::EO), Alg>
+            } else {
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, tf32, f32, MP::EO), Alg>
+            }
+        } else if lhs_is_f32 && rhs_is_f32 {
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f16, f32, MP::EO), Alg>
+        } else if lhs_is_f32 {
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f32, f32, MP::EO), Alg>
         } else {
-            launch_kernel::<R, (MP::EI, f16, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, f16, f32, MP::EO), Alg>
         }
     } else {
         launch_kernel::<R, MP, Alg>
@@ -178,7 +189,8 @@ where
     };
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &MP::EI::as_elem_native_unchecked(),
+        &LhsG::<MP>::as_elem_native_unchecked(),
+        &RhsG::<MP>::as_elem_native_unchecked(),
         &MP::EO::as_elem_native_unchecked(),
     )
     .filter_lhs_with_tensor(input.strides, input.shape, problem.lhs_layout)

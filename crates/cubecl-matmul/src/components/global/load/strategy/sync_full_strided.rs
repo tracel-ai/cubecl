@@ -1,13 +1,12 @@
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{GlobalConfig, Quantization, RoleRule};
+use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
+use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{MatmulPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -49,12 +48,12 @@ impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
 #[cube]
 impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = SyncFullStridedJob;
+    type Job<IP: InputPrecision> = SyncFullStridedJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP> {
+    ) -> Self::Job<IP> {
         let line_size = config.global_line_size(ident);
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();
@@ -90,13 +89,12 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for SyncFullStridedJob {
+impl<IP: InputPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStridedJob {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
-        quantization: &CubeOption<Quantization<MP>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
@@ -106,10 +104,7 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for SyncFullStride
             comptime!(config.global_memory_config(this.ident)),
         );
 
-        stage.as_slice_mut(this.line_size)[unit_position] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.ident),
-            CubeOption::None => Line::cast_from(line_read),
-        }
+        stage.as_slice_mut(this.line_size)[unit_position] = Line::cast_from(line_read);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

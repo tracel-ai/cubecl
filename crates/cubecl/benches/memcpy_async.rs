@@ -727,6 +727,7 @@ fn launch_ref<R: Runtime, E: Float>(
 
 impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     type Input = (TensorHandle<R, E>, TensorHandle<R, E>);
+    type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
@@ -768,7 +769,8 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     }
 
     fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args))
+        self.client
+            .profile(|| self.execute(args), "memcpy-async-bench")
     }
 }
 

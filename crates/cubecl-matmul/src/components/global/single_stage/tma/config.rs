@@ -3,7 +3,7 @@ use std::any::TypeId;
 use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
+    LhsG, LhsS, LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout, RhsG, RhsS,
     error::{MatmulAvailabilityError, MatmulSetupError},
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
@@ -156,21 +156,15 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+        let lhs_g_id = TypeId::of::<LhsG<MP>>();
+        let lhs_s_id = TypeId::of::<LhsS<MP>>();
+        let rhs_g_id = TypeId::of::<RhsG<MP>>();
+        let rhs_s_id = TypeId::of::<RhsS<MP>>();
 
-        if ei_id != es_id && !is_tf32 {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TmaUnavailable,
-            ));
-        }
+        let lhs_is_tf32 = lhs_g_id == TypeId::of::<f32>() && lhs_s_id == TypeId::of::<tf32>();
+        let rhs_is_tf32 = rhs_g_id == TypeId::of::<f32>() && rhs_s_id == TypeId::of::<tf32>();
 
-        let ei_id = TypeId::of::<MP::EI>();
-        let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
-
-        if ei_id != es_id && !is_tf32 {
+        if (lhs_g_id != lhs_s_id && !lhs_is_tf32) || (rhs_g_id != rhs_s_id && !rhs_is_tf32) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TmaUnavailable,
             ));

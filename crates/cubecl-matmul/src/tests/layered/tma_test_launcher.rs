@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
+use crate::MatmulInputHandleRef;
 use crate::components::AvailableLineSizes;
 use crate::components::MatmulIdent;
 use crate::components::MatmulProblem;
@@ -44,22 +45,23 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let elem_size = size_of::<P::EG>();
-    let lhs_handle = TensorHandleRef {
+    let lhs_handle = MatmulInputHandleRef::Normal(TensorHandleRef {
         handle: &lhs.handle,
         strides: &lhs.strides,
         shape: &lhs.shape,
         elem_size,
         runtime: PhantomData,
-    };
-    let rhs_handle = TensorHandleRef {
+    });
+    let rhs_handle = MatmulInputHandleRef::Normal(TensorHandleRef {
         handle: &rhs.handle,
         strides: &rhs.strides,
         shape: &rhs.shape,
         elem_size,
         runtime: PhantomData,
-    };
+    });
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
+        &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
         &P::EG::as_elem_native_unchecked(),
     );
@@ -70,7 +72,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::ES, P::EA, P::EG), R>(
+    let config = match A::setup::<(P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), R>(
         &client,
         &problem,
         &selection,
@@ -90,15 +92,8 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     let line_sizes = config.line_sizes();
 
-    let inputs = TensorMapInputs::create(
-        &lhs_handle,
-        &None,
-        &rhs_handle,
-        &None,
-        &selection,
-        &problem,
-        &line_sizes,
-    );
+    let inputs =
+        TensorMapInputs::create(&lhs_handle, &rhs_handle, &selection, &problem, &line_sizes);
     let output = unsafe {
         TensorArg::<R>::from_raw_parts::<P::EG>(
             &out.handle,
@@ -113,7 +108,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     );
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), TensorMapArgs), R>(
+        A::BatchMatmul::launch_unchecked::<
+            ((P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), TensorMapArgs),
+            R,
+        >(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -126,13 +124,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     P::assert_result::<R>(
         &lhs.original_data.unwrap(),
-        lhs.quant_params,
         &rhs.original_data.unwrap(),
-        rhs.quant_params,
         &problem,
         &client,
         out.handle,
-        out.quant_params,
         &out.shape,
         &out.strides,
     );
@@ -179,7 +174,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Rhs => {
@@ -217,7 +211,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Out => {
@@ -234,7 +227,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: None,
-                quant_params: None,
             }
         }
     }

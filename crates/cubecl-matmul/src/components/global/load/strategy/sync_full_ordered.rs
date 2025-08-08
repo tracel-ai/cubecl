@@ -3,7 +3,7 @@ use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
+    FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use cubecl_core as cubecl;
@@ -85,12 +85,12 @@ impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
 #[cube]
 impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
     type TilingLayout = ContiguousTilingLayout<OrderedTilingOrder>;
-    type Job<MP: MatmulPrecision> = sync_full_tilewise::SyncFullTilewiseJob;
+    type Job<IP: InputPrecision> = sync_full_tilewise::SyncFullTilewiseJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP> {
+    ) -> Self::Job<IP> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);

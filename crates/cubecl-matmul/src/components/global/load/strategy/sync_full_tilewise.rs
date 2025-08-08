@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
+use crate::components::global::RoleRule;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{Quantization, RoleRule};
 use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatmulPrecision, TilingScheme,
+    FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, memory::TensorReader},
@@ -12,7 +12,6 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -76,12 +75,12 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 #[cube]
 impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = SyncFullTilewiseJob;
+    type Job<IP: InputPrecision> = SyncFullTilewiseJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP> {
+    ) -> Self::Job<IP> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
@@ -128,15 +127,14 @@ pub struct SyncFullTilewiseJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>>
+impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
     for SyncFullTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
@@ -150,14 +148,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config.stage_memory_config(),
         );
 
-        SyncFullTilewiseJob::load_and_store_line::<MP, TO, G>(
+        SyncFullTilewiseJob::load_and_store_line::<IP, TO, G>(
             this,
             tile,
             line_index_within_tile,
             nth_tile_for_this_plane * this.num_lines_per_tile,
             tensor_reader,
             stage,
-            quantization,
             config,
         );
     }
@@ -170,14 +167,13 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
 #[cube]
 impl SyncFullTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<MP: MatmulPrecision, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
-        quantization: &CubeOption<Quantization<MP>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let line_read = tensor_reader.load_coalesced_in_tile(
@@ -189,9 +185,6 @@ impl SyncFullTilewiseJob {
 
         let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;
 
-        stage.as_slice_mut(this.line_size)[offset] = match quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read, this.ident),
-            CubeOption::None => Line::cast_from(line_read),
-        };
+        stage.as_slice_mut(this.line_size)[offset] = Line::cast_from(line_read);
     }
 }

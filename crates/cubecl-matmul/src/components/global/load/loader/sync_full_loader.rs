@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
+use crate::components::InputPrecision;
+use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
-use crate::components::global::Quantization;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::load::StageBuffer;
@@ -13,7 +14,6 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
-use crate::components::{MatmulIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -28,13 +28,13 @@ pub trait SyncFullLoadingStrategy:
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision>: LoadingJob<MP, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: LoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP>;
+    ) -> Self::Job<IP>;
 }
 
 #[derive(Clone, CubeType)]
@@ -42,11 +42,10 @@ pub trait SyncFullLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
-    tensor_reader: TensorReader<MP::EI>,
-    stage_memory: StageMemory<MP::ES, L::TilingLayout>,
-    loading_job: CubeOption<L::Job<MP>>,
-    quantization: CubeOption<Quantization<MP>>,
+pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
+    tensor_reader: TensorReader<IP::Global>,
+    stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
+    loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
@@ -54,14 +53,13 @@ pub struct SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadi
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<MP, G, L> {
+impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<IP, G, L> {
     /// Create a new SyncFullLoader
     pub fn new(
-        tensor: VirtualTensor<MP::EI>,
+        tensor: VirtualTensor<IP::Global>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -73,22 +71,21 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<MP, G>(ident, config)),
+            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
             false => CubeOption::new_None(),
         };
 
-        SyncFullLoader::<MP, G, L> {
+        SyncFullLoader::<IP, G, L> {
             tensor_reader,
             stage_memory,
             loading_job,
-            quantization,
             ident,
             _phantom: PhantomData::<(G, L)>,
         }
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(this: &Self) -> FullStageToTileReader<MP::ES, L::TilingLayout> {
+    pub fn reader(this: &Self) -> FullStageToTileReader<IP::Stage, L::TilingLayout> {
         FullStageToTileReader::new(this.stage_memory, comptime!(this.ident.into_stage()))
     }
 
@@ -101,7 +98,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         let mut loading_job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<MP, G>(this.ident, config),
+            CubeOption::None => L::new_job::<IP, G>(this.ident, config),
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -110,12 +107,11 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in 0..len {
-            L::Job::<MP>::execute_task::<G>(
+            L::Job::<IP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
                 &this.tensor_reader,
                 &mut this.stage_memory,
-                &this.quantization,
                 config,
             );
             comptime![task_id += 1];
@@ -124,10 +120,10 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullL
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
-    for SyncFullLoader<MP, G, L>
+impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
+    for SyncFullLoader<IP, G, L>
 {
-    type JobIterator = SyncFullLoaderJobIterator<MP, L>;
+    type JobIterator = SyncFullLoaderJobIterator<IP, L>;
 
     fn create_job_iterator(
         this: &Self,
@@ -136,12 +132,12 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
     ) -> Self::JobIterator {
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<MP, G>(this.ident, config),
+            CubeOption::None => L::new_job::<IP, G>(this.ident, config),
         };
 
         let num_tasks = L::Job::task_count(&job);
 
-        SyncFullLoaderJobIterator::<MP, L> {
+        SyncFullLoaderJobIterator::<IP, L> {
             job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
@@ -150,17 +146,16 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
 
     fn execute_task(
         this: &mut Self,
-        job_iterator: &mut SyncFullLoaderJobIterator<MP, L>,
+        job_iterator: &mut SyncFullLoaderJobIterator<IP, L>,
         #[comptime] config: G,
     ) {
         let task_id = job_iterator.current.read().counter;
 
-        L::Job::<MP>::execute_task::<G>(
+        L::Job::<IP>::execute_task::<G>(
             &mut job_iterator.job,
             task_id,
             &this.tensor_reader,
             &mut this.stage_memory,
-            &this.quantization,
             config,
         );
 
@@ -181,12 +176,11 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in task_counter..job_iterator.num_tasks {
-            L::Job::<MP>::execute_task::<G>(
+            L::Job::<IP>::execute_task::<G>(
                 &mut job_iterator.job,
                 task_id,
                 &this.tensor_reader,
                 &mut this.stage_memory,
-                &this.quantization,
                 config,
             );
             comptime![task_id += 1];
@@ -212,16 +206,16 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
 
 #[derive(CubeType)]
 /// A comptime iterator over a job for sync full loader
-pub struct SyncFullLoaderJobIterator<MP: MatmulPrecision, L: SyncFullLoadingStrategy> {
-    job: L::Job<MP>,
+pub struct SyncFullLoaderJobIterator<IP: InputPrecision, L: SyncFullLoadingStrategy> {
+    job: L::Job<IP>,
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, L: SyncFullLoadingStrategy> JobIterator
-    for SyncFullLoaderJobIterator<MP, L>
+impl<IP: InputPrecision, L: SyncFullLoadingStrategy> JobIterator
+    for SyncFullLoaderJobIterator<IP, L>
 {
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter

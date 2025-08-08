@@ -5,7 +5,6 @@ pub mod args;
 pub mod load;
 pub mod memory;
 pub mod multi_stage;
-pub mod quantization;
 pub mod single_stage;
 
 mod accumulator_loader;
@@ -18,7 +17,6 @@ mod write;
 pub use accumulator_loader::*;
 pub use base::*;
 pub use copy_mechanism::*;
-pub use quantization::*;
 pub use shared::*;
 pub use specialization::*;
 pub use write::*;

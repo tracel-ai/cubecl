@@ -16,7 +16,7 @@ use cubecl_matmul::tests::test_utils::Sample;
 
 use super::test_utils::TestPrecision;
 
-type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
+type Input<Args, Lhs, Rhs> = <Args as MatmulArgs>::Input<Lhs, Rhs>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 /// Test the correctness of the specified Matmul on the given device,
@@ -30,7 +30,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     Args: MatmulArgs,
     P: TestPrecision,
     R: Runtime,
-    Args::Input<P::EG>: ConvInputsLaunch,
+    Args::Input<P::EG, P::EG>: ConvInputsLaunch,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
@@ -58,20 +58,23 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     .pick_max()
     .unwrap();
 
-    let config =
-        match A::setup::<R, (P::EG, P::ES, f32, P::EG)>(&client, &problem, &selection, &line_sizes)
-        {
-            Ok(config) => config,
-            Err(err) => {
-                let msg = format!("Can't launch the test: {err}");
-                if panic_on_launch_err {
-                    panic!("{msg}");
-                } else {
-                    println!("{msg}");
-                    return;
-                }
+    let config = match A::setup::<R, (P::EG, P::EG, P::ES, P::ES, f32, P::EG)>(
+        &client,
+        &problem,
+        &selection,
+        &line_sizes,
+    ) {
+        Ok(config) => config,
+        Err(err) => {
+            let msg = format!("Can't launch the test: {err}");
+            if panic_on_launch_err {
+                panic!("{msg}");
+            } else {
+                println!("{msg}");
+                return;
             }
-        };
+        }
+    };
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = unsafe {
@@ -90,7 +93,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let lhs_handle = lhs_handle.as_ref();
     let rhs_handle = rhs_handle.as_ref();
 
-    let inputs = <Input<Args, P::EG> as ConvInputsLaunch>::create(
+    let inputs = <Input<Args, P::EG, P::EG> as ConvInputsLaunch>::create(
         &lhs_handle,
         &rhs_handle,
         &selection,
@@ -105,7 +108,10 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     );
 
     unsafe {
-        A::GlobalConvolution::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), Args), R>(
+        A::GlobalConvolution::launch_unchecked::<
+            ((P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), Args),
+            R,
+        >(
             &client,
             config.cube_dim(),
             A::cube_count(&selection, &problem),
@@ -149,7 +155,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides: handle.strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Rhs => {
@@ -167,7 +172,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides: handle.strides,
                 original_data: Some(original_data),
-                quant_params: None,
             }
         }
         MatmulIdent::Out => {
@@ -185,7 +189,6 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 shape,
                 strides,
                 original_data: None,
-                quant_params: None,
             }
         }
     }

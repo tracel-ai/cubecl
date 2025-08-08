@@ -2,9 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::Elem;
 
-use crate::components::MatmulSelection;
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::sync_partial_cyclic::SyncPartialCyclicLoading;
 use crate::components::global::load::sync_partial_tilewise::SyncPartialTilewiseLoading;
@@ -12,6 +10,7 @@ use crate::components::global::multi_stage::double_buffering::DoubleBufferingMat
 use crate::components::stage::{
     ColMajorTilingOrder, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
+use crate::components::{MatmulElems, MatmulSelection};
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
@@ -57,16 +56,14 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            elem_stage,
-            elem_acc,
+            elems,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {
@@ -99,16 +96,14 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            elem_stage,
-            elem_acc,
+            elems,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {
@@ -140,16 +135,14 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            elem_stage,
-            elem_acc,
+            elems,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {

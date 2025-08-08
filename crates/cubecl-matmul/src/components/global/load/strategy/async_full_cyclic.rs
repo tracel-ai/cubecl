@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
+    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy, memory::TensorReader,
     },
@@ -39,9 +39,9 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 #[cube]
 impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = AsyncFullCyclicJob;
+    type Job<IP: InputPrecision> = AsyncFullCyclicJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullCyclicJob {
@@ -106,14 +106,14 @@ pub struct AsyncFullCyclicJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingLayout<TO>>
+impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
     for AsyncFullCyclicJob
 {
-    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, ContiguousTilingLayout<TO>>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
