@@ -1,6 +1,12 @@
 use tracel_llvm::melior::{
     Context, ExecutionEngine,
-    dialect::{func, llvm},
+    dialect::{
+        func,
+        llvm::{
+            self,
+            attributes::{Linkage, linkage},
+        },
+    },
     ir::{
         BlockLike, Identifier, Location, Region,
         attribute::{StringAttribute, TypeAttribute},
@@ -12,10 +18,8 @@ use crate::compute::compute_task::sync_cube;
 
 pub fn register_external_function(execution_engine: &ExecutionEngine) {
     unsafe {
-        execution_engine.register_symbol("printf", libc::printf as *mut ());
         execution_engine.register_symbol("sync_cube", sync_cube as *mut ());
         // This is only there to fool the execution engine to generate .so for inspection even if symbol resolution will probably not work.
-        execution_engine.register_symbol("_mlir_printf", libc::printf as *mut ());
         execution_engine.register_symbol("_mlir_sync_cube", sync_cube as *mut ());
     }
 }
@@ -36,8 +40,8 @@ pub fn add_external_function_to_module<'a>(
         func_type,
         Region::new(),
         &[(
-            Identifier::new(context, "sym_visibility"),
-            StringAttribute::new(context, "private").into(),
+            Identifier::new(&context, "linkage"),
+            linkage(&context, Linkage::External),
         )],
         Location::unknown(context),
     ));

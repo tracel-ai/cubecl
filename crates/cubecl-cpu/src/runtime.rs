@@ -36,7 +36,7 @@ type Channel = MutexComputeChannel<Server>;
 
 fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
-    let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
+    let max_cube_count = CubeCount::Static(64, 64, 64);
     let system = System::new_all();
     let max_shared_memory_size = system
         .cgroup_limits()
