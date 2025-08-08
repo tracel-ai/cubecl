@@ -191,7 +191,7 @@ impl Variable {
                 (_, Scalar(_)) => format!("{item}({self}.x)"),
 
                 // Vec to vec
-                _ => format!("{item}({self})") 
+                _ => format!("{item}({self})"),
             }
         } else {
             format!("{self}")
