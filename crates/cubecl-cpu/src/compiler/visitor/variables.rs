@@ -141,22 +141,13 @@ impl<'a> Visitor<'a> {
                 .shared_memory_values
                 .get(&id)
                 .expect("Variable should have been declared before"),
-<<<<<<< HEAD
-            VariableKind::LocalMut { id } => *self
-                .variables
-                .mutable
-                .get(&id)
-                .expect("Variable should have been declared before"),
+            VariableKind::LocalMut { .. } => self.get_mutable_memory(variable, 1),
+            VariableKind::LocalArray { length, .. } => self.get_mutable_memory(variable, length),
             VariableKind::ConstantArray {
                 id,
                 length,
                 unroll_factor,
             } => {
-=======
-            VariableKind::LocalMut { .. } => self.get_mutable_memory(variable, 1),
-            VariableKind::LocalArray { length, .. } => self.get_mutable_memory(variable, length),
-            VariableKind::ConstantArray { id, length } => {
->>>>>>> 8ab08314 (feat: add local array support)
                 let name = id.to_string();
                 let r#type = self
                     .variables

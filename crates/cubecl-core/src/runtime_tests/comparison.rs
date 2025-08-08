@@ -39,7 +39,7 @@ macro_rules! test_binary_impl {
                 };
 
 
-                let actual = client.read_one(output_handle.binding());
+                let actual = client.read_one(output_handle);
                 let actual = u32::from_bytes(&actual);
                 for i in 0..lhs.len() {
                     let l = lhs[i];

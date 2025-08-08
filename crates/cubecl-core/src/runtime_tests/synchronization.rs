@@ -25,7 +25,7 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) 
         unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
 
     let expected: Vec<u32> = (0..16)
@@ -65,7 +65,7 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::C
         unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
     );
 
-    let actual = client.read_one(handle.binding());
+    let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
 
     let expected: Vec<u32> = (0..8)
