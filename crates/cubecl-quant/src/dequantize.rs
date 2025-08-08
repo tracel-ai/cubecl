@@ -1,11 +1,12 @@
 #![allow(missing_docs)] // pub cube modules
 
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
 
 use crate::{
     qparams::QParams,
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
+    utils::strided_layout,
 };
 use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
 use half::{bf16, f16};
@@ -155,59 +156,73 @@ fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     output[out_pos] = dequantize_symmetric::<F, FS>(Line::cast_from(input[in_pos]), scale);
 }
 
+#[allow(clippy::result_large_err)]
 /// Convert the tensor back to a higher precision data type.
-pub fn dequantize<R: Runtime, F: Float>(tensor: &TensorHandleRef<R>, output: &TensorHandleRef<R>) {
-    let shape = tensor.shape.clone();
-
-    match tensor.dtype {
-        DType::QFloat(scheme) => match scheme {
-            QuantScheme {
-                value: QuantValue::QInt8,
-                store: QuantStore::U32,
-                ..
-            } => match scheme.param {
-                QuantParam::F32 => dequantize_packed::<R, F, f32>(tensor, output),
-                QuantParam::F16 => dequantize_packed::<R, F, f16>(tensor, output),
-                QuantParam::BF16 => dequantize_packed::<R, F, bf16>(tensor, output),
-            },
-            QuantScheme {
-                value: QuantValue::QInt8,
-                store: QuantStore::Native,
-                ..
-            } => {
-                if !i8::is_supported(&tensor.client) {
-                    panic!("QInt8 is not supported for native quantization");
-                }
-
-                match scheme.param {
-                    QuantParam::F32 => dequantize_native::<R, F, f32>(tensor, output),
-                    QuantParam::F16 => dequantize_native::<R, F, f16>(tensor, output),
-                    QuantParam::BF16 => dequantize_native::<R, F, bf16>(tensor, output),
-                }
+pub fn launch<R: Runtime, F: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: &TensorHandleRef<R>,
+    output: &TensorHandleRef<R>,
+    scale: &TensorHandleRef<'_, R>,
+    scheme: &QuantScheme,
+) {
+    match scheme {
+        QuantScheme {
+            value: QuantValue::QInt8,
+            store: QuantStore::U32,
+            ..
+        } => match scheme.param {
+            QuantParam::F32 => dequantize_packed::<R, F, f32>(client, input, scheme, scale, output),
+            QuantParam::F16 => dequantize_packed::<R, F, f16>(client, input, scheme, scale, output),
+            QuantParam::BF16 => {
+                dequantize_packed::<R, F, bf16>(client, input, scheme, scale, output)
             }
         },
-        _ => panic!("Expected QFloat dtype"),
+        QuantScheme {
+            value: QuantValue::QInt8,
+            store: QuantStore::Native,
+            ..
+        } => {
+            if !i8::is_supported(&client) {
+                panic!("QInt8 is not supported for native quantization");
+            }
+
+            match scheme.param {
+                QuantParam::F32 => {
+                    dequantize_native::<R, F, f32>(client, input, scheme, scale, output)
+                }
+                QuantParam::F16 => {
+                    dequantize_native::<R, F, f16>(client, input, scheme, scale, output)
+                }
+                QuantParam::BF16 => {
+                    dequantize_native::<R, F, bf16>(client, input, scheme, scale, output)
+                }
+            }
+        }
     }
 }
 
-fn dequantize_packed<R, F, FS>(tensor: CubeTensor<R>, output: CubeTensor<R>) -> CubeTensor<R>
-where
-    R: CubeRuntime,
-    F: FloatElement,
-    FS: FloatElement,
-{
+fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: &TensorHandleRef<R>,
+    scheme: &QuantScheme,
+    scale: &TensorHandleRef<'_, R>,
+    output: &TensorHandleRef<R>,
+) {
     // The actual number of elements is 1/4 (four int8 values packed in a single u32)
     // so we choose a line size to match a valid input binding size.
-    let num_out_elems = tensor.shape.num_elements();
-    let num_elems = usize::div_ceil(num_out_elems, 4);
+    let num_out_elems: usize = input.shape.iter().product();
+    let num_quants = (scheme.size_bits_stored() / scheme.size_bits_value()) as u8;
+    let num_elems_input = num_out_elems / num_quants as usize;
     let line_size_in = 1;
+    // let line_size = tensor_line_size_parallel(
+    //     R::line_size_elem(&F::as_elem_native_unchecked()),
+    //     input.shape,
+    //     input.strides,
+    //     input.shape.len() - 1,
+    // );
     let cube_dim = CubeDim::default();
-    let cube_count = calculate_cube_count_elemwise(num_elems / line_size_in as usize, cube_dim);
-
-    let scheme = match tensor.dtype {
-        DType::QFloat(s) => s,
-        _ => panic!("Expected QFloat dtype"),
-    };
+    let cube_count =
+        calculate_cube_count_elemwise(num_elems_input / line_size_in as usize, cube_dim);
 
     // Output line size selected based on the number of packed values per storage type
     let num_quants = (scheme.size_bits_stored() / scheme.size_bits_value()) as u8;
@@ -224,18 +239,15 @@ where
             store: QuantStore::U32,
             ..
         } => {
-            super::check_block_size_compat(&scheme, num_quants as usize); // 32 / 8 = 4
-            let scales = tensor.scales().unwrap();
-
             unsafe {
                 dequantize_symmetric_packed_kernel::launch_unchecked::<F, FS, R>(
-                    &tensor.client,
+                    &client,
                     cube_count,
                     cube_dim,
-                    tensor.as_tensor_arg::<u32>(line_size_in),
-                    scales.as_tensor_arg::<FS>(1),
-                    output.as_tensor_arg::<F>(line_size_out),
-                    scheme,
+                    input.as_tensor_arg(line_size_in),
+                    scale.as_tensor_arg(1),
+                    output.as_tensor_arg(line_size_out),
+                    *scheme,
                 )
             };
         }
@@ -244,27 +256,25 @@ where
             ..
         } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
     }
-
-    output
 }
 
-fn dequantize_native<R, F, FS>(tensor: CubeTensor<R>, output: CubeTensor<R>) -> CubeTensor<R>
-where
-    R: CubeRuntime,
-    F: FloatElement,
-    FS: FloatElement,
-{
-    let num_elems = tensor.shape.num_elements();
-    let line_size = max_line_size(&tensor);
+fn dequantize_native<R: Runtime, F: Float, FS: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: &TensorHandleRef<R>,
+    scheme: &QuantScheme,
+    scale: &TensorHandleRef<'_, R>,
+    output: &TensorHandleRef<R>,
+) {
+    let num_elems: usize = input.shape.iter().product();
+    let line_size = tensor_line_size_parallel(
+        R::line_size_elem(&F::as_elem_native_unchecked()),
+        input.shape,
+        input.strides,
+        input.shape.len() - 1,
+    );
+    let out_layout = strided_layout(client, output);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
-
-    let out_layout = strided_layout(&output);
-
-    let scheme = match tensor.dtype {
-        DType::QFloat(s) => s,
-        _ => panic!("Expected QFloat dtype"),
-    };
 
     match scheme {
         QuantScheme {
@@ -274,21 +284,17 @@ where
             store: QuantStore::Native,
             ..
         } => {
-            // We could use line_size = block_size if it's in the supported line sizes.. but let's keep it simple
-            super::check_block_size_compat(&scheme, line_size as usize);
-            let scales = tensor.scales().unwrap();
-
             unsafe {
                 dequantize_symmetric_int8_native_kernel::launch_unchecked::<F, FS, R>(
-                    &tensor.client,
+                    &client,
                     cube_count,
                     cube_dim,
-                    tensor.as_tensor_arg::<i8>(line_size),
-                    scales.as_tensor_arg::<FS>(1),
-                    output.as_tensor_arg::<F>(line_size),
+                    input.as_tensor_arg(line_size),
+                    scale.as_tensor_arg(1),
+                    output.as_tensor_arg(line_size),
                     out_layout,
-                    scheme,
-                    Some(tensor.shape.num_dims() as u32),
+                    *scheme,
+                    Some(input.shape.len() as u32),
                 )
             };
         }
@@ -297,6 +303,4 @@ where
             ..
         } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
     }
-
-    output
 }

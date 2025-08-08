@@ -8,3 +8,20 @@ pub mod quantize;
 pub mod qparams;
 
 pub mod scheme;
+
+pub(crate) mod utils {
+    use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
+    use cubecl_std::tensor::StridedLayoutArgs;
+
+    pub(crate) fn strided_layout<'a, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        tensor: &TensorHandleRef<R>,
+    ) -> StridedLayoutArgs<'a, R> {
+        let rank = tensor.shape.len();
+        if rank <= 1 || tensor.shape[rank - 1] == tensor.strides[rank - 2] {
+            StridedLayoutArgs::none()
+        } else {
+            StridedLayoutArgs::strided(client, tensor.shape[rank - 1] as u32)
+        }
+    }
+}

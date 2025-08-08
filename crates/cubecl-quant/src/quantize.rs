@@ -2,11 +2,11 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_std::tensor::StridedLayoutArgs;
 use cubecl_std::tensor::into_contiguous;
 use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
+use crate::utils::strided_layout;
 use half::{bf16, f16};
 
 #[cube]
@@ -348,17 +348,5 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
             store: QuantStore::Native,
             ..
         } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
-    }
-}
-
-pub fn strided_layout<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    tensor: &TensorHandleRef<R>,
-) -> StridedLayoutArgs<'a, R> {
-    let rank = tensor.shape.len();
-    if rank <= 1 || tensor.shape[rank - 1] == tensor.strides[rank - 2] {
-        StridedLayoutArgs::none()
-    } else {
-        StridedLayoutArgs::strided(client, tensor.shape[rank - 1] as u32)
     }
 }
