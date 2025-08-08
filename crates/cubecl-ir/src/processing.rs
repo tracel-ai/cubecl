@@ -365,6 +365,14 @@ impl ScopeProcessing {
                     CoopMma::Cast { .. } => {
                         // Nothing to do.
                     }
+                    CoopMma::RowIndex { lane_id, i, .. } => {
+                        sanitize_constant_scalar_ref_elem(lane_id, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(i, Elem::UInt(UIntKind::U32));
+                    }
+                    CoopMma::ColIndex { lane_id, i, .. } => {
+                        sanitize_constant_scalar_ref_elem(lane_id, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(i, Elem::UInt(UIntKind::U32));
+                    }
                 },
                 Operation::NonSemantic(_) => {
                     // Nothing to do.

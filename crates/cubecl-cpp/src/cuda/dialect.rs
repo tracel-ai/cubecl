@@ -1,14 +1,14 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::ir::Id;
+use cubecl_core::ir::{Id, Processor};
 
 use crate::{
     Dialect,
-    cuda::ptx::TMA_LOAD_IM2COL,
+    cuda::{processors::CudaMmaProcessor, ptx::TMA_LOAD_IM2COL},
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind,
-        Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary,
+        DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind,
+        FP6Kind, FP8Kind, Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
@@ -503,5 +503,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
         arch: &CudaArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
+    }
+}
+
+impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for CudaDialect<M> {
+    fn processors() -> Vec<Box<dyn Processor>> {
+        vec![Box::new(CudaMmaProcessor)]
     }
 }

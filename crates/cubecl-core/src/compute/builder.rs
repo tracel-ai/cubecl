@@ -1,8 +1,11 @@
-use std::sync::atomic::{AtomicI8, Ordering};
+use std::{
+    rc::Rc,
+    sync::atomic::{AtomicI8, Ordering},
+};
 
 use alloc::collections::BTreeMap;
 
-use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
+use cubecl_ir::{ExpandElement, RuntimeProperties, Scope, Variable, VariableKind};
 use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
 use crate::ir::{Elem, Id, Item};
@@ -103,6 +106,10 @@ impl KernelBuilder {
             has_extended_meta: false,
         });
         self.scope.input(id, item)
+    }
+
+    pub fn runtime_properties(&mut self, properties: RuntimeProperties) {
+        self.scope.runtime_properties = Rc::new(properties);
     }
 
     /// Build the [kernel definition](KernelDefinition).

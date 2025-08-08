@@ -2,7 +2,10 @@ use alloc::{borrow::Cow, rc::Rc, string::ToString, vec::Vec};
 use core::{any::TypeId, cell::RefCell, fmt::Display};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, SourceLoc, TypeHash};
+use crate::{
+    BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, RuntimeProperties, SourceLoc,
+    TypeHash,
+};
 
 use super::{
     Allocator, Elem, Id, Instruction, Item, Variable, VariableKind, processing::ScopeProcessing,
@@ -34,6 +37,7 @@ pub struct Scope {
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
+    pub runtime_properties: Rc<RuntimeProperties>,
 }
 
 /// Debug related fields, most of these are global
@@ -99,6 +103,7 @@ impl Scope {
                 entry_loc: None,
             },
             typemap: Default::default(),
+            runtime_properties: Rc::new(Default::default()),
         }
     }
 
@@ -207,6 +212,7 @@ impl Scope {
             allocator: self.allocator.clone(),
             debug: self.debug.clone(),
             typemap: self.typemap.clone(),
+            runtime_properties: self.runtime_properties.clone(),
         }
     }
 

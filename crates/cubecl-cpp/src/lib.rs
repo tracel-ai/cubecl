@@ -10,9 +10,9 @@ pub use shared::{Dialect, DialectWmmaCompiler};
 /// Format CPP code.
 pub mod formatter;
 
-#[cfg(feature = "cuda")]
+//#[cfg(feature = "cuda")]
 pub mod cuda;
-#[cfg(feature = "hip")]
+//#[cfg(feature = "hip")]
 pub mod hip;
 #[cfg(feature = "metal")]
 pub mod metal;

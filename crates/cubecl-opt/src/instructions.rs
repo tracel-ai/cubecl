@@ -309,6 +309,14 @@ impl Optimizer {
             CoopMma::Cast { input } => {
                 visit_read(self, input);
             }
+            CoopMma::RowIndex { lane_id, i, .. } => {
+                visit_read(self, lane_id);
+                visit_read(self, i);
+            }
+            CoopMma::ColIndex { lane_id, i, .. } => {
+                visit_read(self, lane_id);
+                visit_read(self, i);
+            }
         }
     }
 

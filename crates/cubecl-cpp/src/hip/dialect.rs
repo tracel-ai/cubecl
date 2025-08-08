@@ -2,11 +2,11 @@ use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::ir::Id;
+use cubecl_core::ir::{Id, Processor};
 
 use crate::shared::{
-    Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable, unary,
-    variable_to_frag,
+    Component, DialectInstructions, DialectProcessors, Elem, Instruction, SharedMemory, Variable,
+    unary, variable_to_frag,
 };
 use crate::{
     Dialect,
@@ -508,5 +508,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
         arch: &AMDArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
+    }
+}
+
+impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
+    fn processors() -> Vec<Box<dyn Processor>> {
+        Vec::new()
     }
 }

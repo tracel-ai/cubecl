@@ -9,7 +9,7 @@ use cubecl_core::{
     AtomicFeature, Feature,
     ir::{Elem, FloatKind},
 };
-use cubecl_core::{CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, ir::RuntimeProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -121,6 +121,13 @@ impl Runtime for WgpuRuntime {
             .into_iter()
             .collect();
         adapters.len()
+    }
+
+    fn compile_properties() -> RuntimeProperties {
+        RuntimeProperties {
+            // Values are irrelevant, since no wgsl backends currently support manual mma
+            mma: Default::default(),
+        }
     }
 }
 

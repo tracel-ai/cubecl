@@ -302,27 +302,32 @@ for (int i = 0; i < {reg_count}; ++i) {{
     }
 }
 
-fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler>>) -> u8 {
-    let m = frag.m as u32;
-    let n = frag.n as u32;
-    let k = frag.k as u32;
-    let elements = match frag.ident {
+fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler>>) -> u32 {
+    let Fragment {
+        ident,
+        m,
+        n,
+        k,
+        elem,
+        ..
+    } = frag;
+    let elements = match ident {
         FragmentIdent::A => m * k,
         FragmentIdent::B => k * n,
         FragmentIdent::Accumulator => m * n,
         _ => unreachable!(),
     };
-    let bits_per_elem = match frag.elem {
+    let bits_per_elem = match elem {
         Elem::F16 | Elem::BF16 => 16,
         Elem::F32 | Elem::TF32 => 32,
-        _ => panic!("unsupported WMMA element {:?}", frag.elem),
+        _ => panic!("unsupported WMMA element {:?}", elem),
     };
     // TODO: retrieve the warp size from the compiler CompilationOptions
     let lanes_per_reg = 32 / bits_per_elem;
     // choose threads-per-frag:
     // - accumulators always use 32 lanes
     // - A/B use 16 lanes _except_ TF32 (k=8) which also uses 32 lanes
-    let threads_per_frag = match frag.ident {
+    let threads_per_frag = match ident {
         FragmentIdent::Accumulator => 32,
         FragmentIdent::A | FragmentIdent::B => {
             if frag.elem == Elem::TF32 {
@@ -333,8 +338,8 @@ fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler
         }
         _ => unreachable!(),
     };
-    let regs = elements / (lanes_per_reg * threads_per_frag);
-    regs as u8
+
+    elements / (lanes_per_reg * threads_per_frag)
 }
 
 fn get_type_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {

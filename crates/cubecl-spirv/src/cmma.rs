@@ -34,6 +34,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 offset,
             } => self.compile_store(mat, out, stride, offset, layout),
             CoopMma::Cast { input } => self.compile_cast(input, out),
+            CoopMma::RowIndex { .. } | CoopMma::ColIndex { .. } => {
+                panic!("Manual register management not currently supported in SPIR-V")
+            }
         }
     }
 
@@ -211,7 +214,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             CooperativeMatrixUse::MatrixAKHR => mat.m,
             CooperativeMatrixUse::MatrixBKHR => mat.k,
             CooperativeMatrixUse::MatrixAccumulatorKHR => mat.m,
-        } as u32;
+        };
         self.const_u32(rows)
     }
 
@@ -220,7 +223,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             CooperativeMatrixUse::MatrixAKHR => mat.k,
             CooperativeMatrixUse::MatrixBKHR => mat.n,
             CooperativeMatrixUse::MatrixAccumulatorKHR => mat.n,
-        } as u32;
+        };
         self.const_u32(columns)
     }
 

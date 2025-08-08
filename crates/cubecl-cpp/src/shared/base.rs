@@ -254,7 +254,11 @@ impl<D: Dialect> CppCompiler<D> {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let processing = scope.process([&*checked_io]);
+        let dialect_processors = D::processors();
+        let mut processors: Vec<&dyn Processor> = vec![&*checked_io];
+        processors.extend(dialect_processors.iter().map(|it| &**it));
+
+        let processing = scope.process(processors);
 
         for var in processing.variables {
             instructions.push(Instruction::DeclareVariable {
@@ -647,6 +651,9 @@ impl<D: Dialect> CppCompiler<D> {
                 input: self.compile_variable(input),
                 output: out,
             },
+            gpu::CoopMma::RowIndex { .. } | gpu::CoopMma::ColIndex { .. } => {
+                panic!("Row/Col index should be handled by processors")
+            }
         };
 
         D::register_wmma_instruction_extension(&mut self.extensions, &inst);

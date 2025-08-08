@@ -5,9 +5,10 @@ use crate::{
     Dialect,
     shared::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
-        FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
-        SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
+        Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
+        SharedMemory, SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction,
+        wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -1044,3 +1045,9 @@ impl DialectWmmaCompiler<Self> for MslDialect {
 }
 
 // Coop Matrices dialect
+
+impl DialectProcessors<Self> for MslDialect {
+    fn processors() -> Vec<Box<dyn gpu::Processor>> {
+        Vec::new()
+    }
+}

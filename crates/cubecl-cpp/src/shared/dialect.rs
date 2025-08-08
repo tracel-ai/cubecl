@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
 
-use cubecl_core::ir::Id;
+use cubecl_core::ir::{Id, Processor};
 
 use crate::shared::FmtLeft;
 
@@ -20,6 +20,7 @@ pub trait Dialect:
     + DialectCubeBuiltins<Self>
     + DialectInstructions<Self>
     + DialectWmmaCompiler<Self>
+    + DialectProcessors<Self>
     + Default
     + Clone
     + Copy
@@ -693,4 +694,9 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         instruction: &WmmaInstruction<D>,
     ) -> std::fmt::Result;
     fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
+}
+
+// Processors
+pub trait DialectProcessors<D: Dialect> {
+    fn processors() -> Vec<Box<dyn Processor>>;
 }
