@@ -40,8 +40,8 @@ pub fn add_external_function_to_module<'a>(
         func_type,
         Region::new(),
         &[(
-            Identifier::new(&context, "linkage"),
-            linkage(&context, Linkage::External),
+            Identifier::new(context, "linkage"),
+            linkage(context, Linkage::External),
         )],
         Location::unknown(context),
     ));

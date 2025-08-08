@@ -45,7 +45,7 @@ fn kernel_test_finished_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>)
     }
     sync_cube();
     sync_cube();
-    if UNIT_POS > 0 {
+    if UNIT_POS != 0 {
         out[UNIT_POS] = buffer[UNIT_POS - 1] + buffer[UNIT_POS];
     }
     sync_cube();
