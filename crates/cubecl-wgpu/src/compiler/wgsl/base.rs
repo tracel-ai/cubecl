@@ -1,4 +1,4 @@
-use crate::compiler::wgsl::Item::{Scalar, Vec2, Vec3, Vec4};
+use crate::compiler::wgsl::Item::Scalar;
 use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, UIntKind};
 use std::fmt::Display;
 
