@@ -249,7 +249,9 @@ impl Runtime for HipRuntime {
         RuntimeProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
-                const_plane_size: 32,
+                // HIP replicates matrix data twice, once in each half-warp. So the effective warp
+                // size is 16
+                const_plane_size: 16,
                 register_layout_a: MatrixLayout::ColMajor,
                 register_layout_b: MatrixLayout::RowMajor,
                 register_layout_acc: MatrixLayout::RowMajor,
