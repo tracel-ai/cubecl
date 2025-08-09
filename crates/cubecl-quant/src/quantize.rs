@@ -305,17 +305,11 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
     out_scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
 ) {
-    println!("{input:?}");
-    println!("{output:?}");
-    println!("{out_scale:?}");
     let input = into_contiguous::<R, F>(client, input);
     let num_elems: usize = output.shape.iter().product();
 
     let num_quants = scheme.num_quants() as u8;
-    let use_packed_line_size =
-        num_elems % num_quants as usize == 0 && R::supported_line_sizes().contains(&num_quants);
-
-    let line_size = if use_packed_line_size { num_quants } else { 1 };
+    let line_size = num_quants;
 
     let cube_dim = CubeDim::default();
     let cube_count =
