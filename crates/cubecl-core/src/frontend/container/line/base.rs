@@ -252,6 +252,14 @@ impl<P: CubePrimitive> CubeType for Line<P> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
+impl<P: CubePrimitive> CubeType for &Line<P> {
+    type ExpandType = ExpandElementTyped<Line<P>>;
+}
+
+impl<P: CubePrimitive> CubeType for &mut Line<P> {
+    type ExpandType = ExpandElementTyped<Line<P>>;
+}
+
 impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
     fn elem_into_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         P::elem_into_mut(scope, elem)

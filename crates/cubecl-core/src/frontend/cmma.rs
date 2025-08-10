@@ -633,10 +633,11 @@ pub mod cast {
 #[allow(unused_variables)]
 pub fn execute_manual<AB: CubePrimitive, CD: CubePrimitive>(
     matrix: &MmaDefinition<AB, CD>,
-    a_registers: Sequence<Line<AB>>,
-    b_registers: Sequence<Line<AB>>,
-    c_registers: Sequence<Line<CD>>,
-) -> Sequence<Line<CD>> {
+    a_registers: &Sequence<Line<AB>>,
+    b_registers: &Sequence<Line<AB>>,
+    c_registers: &Sequence<Line<CD>>,
+    d_registers: &mut Sequence<Line<CD>>,
+) {
     unexpanded!()
 }
 
@@ -654,7 +655,8 @@ pub mod execute_manual {
         a_registers: SequenceExpand<Line<AB>>,
         b_registers: SequenceExpand<Line<AB>>,
         c_registers: SequenceExpand<Line<CD>>,
-    ) -> SequenceExpand<Line<CD>> {
+        d_registers: SequenceExpand<Line<CD>>,
+    ) {
         let acc_elems = matrix
             .clone()
             .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
@@ -662,25 +664,21 @@ pub mod execute_manual {
             .clone()
             .__expand_line_size_method(scope, MatrixIdent::Accumulator);
         let num_registers = acc_elems / acc_line_size;
-        let mut d_registers = Vec::new();
-        let mut d_registers_out = Sequence::<Line<CD>>::__expand_new(scope);
-
-        for _ in 0..num_registers {
-            let expand = Line::<CD>::__expand_empty(scope, acc_line_size);
-            d_registers.push(*expand.expand);
-            d_registers_out.__expand_push_method(scope, expand);
-        }
 
         let a_registers = a_registers
-            .into_iter()
+            .iter_cloned()
             .map(|it| *it.expand)
             .collect::<Vec<_>>();
         let b_registers = b_registers
-            .into_iter()
+            .iter_cloned()
             .map(|it| *it.expand)
             .collect::<Vec<_>>();
         let c_registers = c_registers
-            .into_iter()
+            .iter_cloned()
+            .map(|it| *it.expand)
+            .collect::<Vec<_>>();
+        let d_registers = d_registers
+            .iter_cloned()
             .map(|it| *it.expand)
             .collect::<Vec<_>>();
 
@@ -701,8 +699,6 @@ pub mod execute_manual {
             c_registers,
             d_registers,
         }));
-
-        d_registers_out
     }
 }
 

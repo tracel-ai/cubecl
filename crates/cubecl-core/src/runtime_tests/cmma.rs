@@ -6,7 +6,7 @@ use cubecl::{
     prelude::*,
 };
 
-use cubecl_ir::{MatrixIdent, MatrixLayout};
+use cubecl_ir::MatrixIdent;
 use half::{bf16, f16};
 
 #[cube(launch)]
@@ -831,7 +831,19 @@ pub fn kernel_manual<C: CubePrimitive>(
     let d_elems = def.elems_per_lane(MatrixIdent::Accumulator);
     let d_line_size = def.line_size(MatrixIdent::Accumulator);
     let d_lines = comptime!(d_elems / d_line_size);
-    let d_registers = cmma::execute_manual::<C, f32>(&def, a_registers, b_registers, c_registers);
+    let mut d_registers = Sequence::<Line<f32>>::new();
+    #[unroll]
+    for _ in 0..d_lines {
+        d_registers.push(Line::empty(d_line_size))
+    }
+
+    cmma::execute_manual::<C, f32>(
+        &def,
+        &a_registers,
+        &b_registers,
+        &c_registers,
+        &mut d_registers,
+    );
 
     #[unroll]
     for i in 0..d_lines {
@@ -897,12 +909,12 @@ pub fn test_cmma_manual<R: Runtime>(
 
     // Calculate expected results (row-major order)
     let mut expected = Vec::with_capacity(m * n);
-    for i in 0..m as usize {
+    for i in 0..m {
         // For each output row (16 rows)
-        for j in 0..n as usize {
+        for j in 0..n {
             // For each output column (8 columns)
             let mut sum = 0.0;
-            for l in 0..k as usize {
+            for l in 0..k {
                 // Dot product over k-dimension
                 let lhs_val = (i * 2 + l) as f32; // LHS[i, l]
                 let rhs_val = (l * 3 + j) as f32; // RHS[l, j]
