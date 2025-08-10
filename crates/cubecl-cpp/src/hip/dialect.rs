@@ -170,6 +170,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     variable_to_frag(output),
                 )))
             }
+            shared::WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => todo!(),
         };
         if !extensions.contains(&extension) {
             extensions.push(extension);

@@ -5,6 +5,8 @@ use cubecl::{
     ir::{Elem, FloatKind},
     prelude::*,
 };
+
+use cubecl_ir::{MatrixIdent, MatrixLayout};
 use half::{bf16, f16};
 
 #[cube(launch)]
@@ -762,6 +764,157 @@ pub fn test_cmma_strided<R: Runtime>(
     assert_eq!(expected, actual);
 }
 
+#[cube(launch)]
+pub fn kernel_manual<C: CubePrimitive>(
+    a: &Tensor<C>,
+    b: &Tensor<C>,
+    c: &Tensor<f32>,
+    out: &mut Tensor<f32>,
+    #[comptime] size_m: u32,
+    #[comptime] size_n: u32,
+    #[comptime] size_k: u32,
+) {
+    let def = cmma::MmaDefinition::<C, f32>::new(size_m, size_n, size_k);
+    let lane_id = UNIT_POS_PLANE;
+
+    let a_elems = def.elems_per_lane(MatrixIdent::A);
+    let a_line_size = def.line_size(MatrixIdent::A);
+    let a_lines = comptime!(a_elems / a_line_size);
+    let mut a_registers = Sequence::<Line<C>>::new();
+    #[unroll]
+    for i in 0..a_lines {
+        let mut reg = Line::empty(a_line_size);
+        #[unroll]
+        for k in 0..a_line_size {
+            let n_elem = i * a_line_size + k;
+            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::A);
+            let value = a[row * size_k + col];
+            reg[k] = value;
+        }
+        a_registers.push(reg)
+    }
+
+    let b_elems = def.elems_per_lane(MatrixIdent::B);
+    let b_line_size = def.line_size(MatrixIdent::B);
+    let b_lines = comptime!(b_elems / b_line_size);
+    let mut b_registers = Sequence::<Line<C>>::new();
+    #[unroll]
+    for i in 0..b_lines {
+        let mut reg = Line::empty(b_line_size);
+        #[unroll]
+        for k in 0..b_line_size {
+            let n_elem = i * b_line_size + k;
+            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::B);
+            let value = b[row * size_n + col];
+            reg[k] = value;
+        }
+        b_registers.push(reg)
+    }
+
+    let c_elems = def.elems_per_lane(MatrixIdent::Accumulator);
+    let c_line_size = def.line_size(MatrixIdent::Accumulator);
+    let c_lines = comptime!(c_elems / c_line_size);
+    let mut c_registers = Sequence::<Line<f32>>::new();
+    #[unroll]
+    for i in 0..c_lines {
+        let mut reg = Line::empty(c_line_size);
+        #[unroll]
+        for k in 0..c_line_size {
+            let n_elem = i * c_line_size + k;
+            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            let value = c[row * size_n + col];
+            reg[k] = value;
+        }
+        c_registers.push(reg)
+    }
+
+    let d_elems = def.elems_per_lane(MatrixIdent::Accumulator);
+    let d_line_size = def.line_size(MatrixIdent::Accumulator);
+    let d_lines = comptime!(d_elems / d_line_size);
+    let d_registers = cmma::execute_manual::<C, f32>(&def, a_registers, b_registers, c_registers);
+
+    #[unroll]
+    for i in 0..d_lines {
+        let reg = d_registers.index(i);
+        #[unroll]
+        for k in 0..d_line_size {
+            let n_elem = i * d_line_size + k;
+            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            out[row * size_n + col] = reg[k];
+        }
+    }
+}
+
+pub fn test_cmma_manual<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    cube_dimensions: CubeDim,
+) {
+    let (m, n, k) = (16, 8, 16);
+    let (t_m, t_n, t_k) = (16, 16, 16);
+    if !client.properties().feature_enabled(Feature::Cmma {
+        a: Elem::Float(FloatKind::F16),
+        b: Elem::Float(FloatKind::F16),
+        c: Elem::Float(FloatKind::F32),
+        m: t_m as u8,
+        k: t_k as u8,
+        n: t_n as u8,
+    }) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    // LHS: 16x16 matrix where each element = (row_index * 2) + column_index
+    let lhs: Vec<f16> = (0..m)
+        .flat_map(|i| (0..k).map(move |j| f16::from_f32((i * 2 + j) as f32)))
+        .collect();
+
+    // RHS: 16x8 matrix where each element = (row_index * 3) + column_index
+    let rhs: Vec<f16> = (0..k)
+        .flat_map(|i| (0..n).map(move |j| f16::from_f32((i * 3 + j) as f32)))
+        .collect();
+
+    let lhs = client.create(f16::as_bytes(&lhs));
+    let rhs = client.create(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+
+    unsafe {
+        kernel_manual::launch::<f16, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            TensorArg::from_raw_parts::<f16>(&lhs, &[k, 1], &[m, k], 1),
+            TensorArg::from_raw_parts::<f16>(&rhs, &[n, 1], &[k, n], 1),
+            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            m as u32,
+            n as u32,
+            k as u32,
+        )
+    };
+
+    let actual = client.read_one(out);
+    let actual = f32::from_bytes(&actual);
+
+    // Calculate expected results (row-major order)
+    let mut expected = Vec::with_capacity(m * n);
+    for i in 0..m as usize {
+        // For each output row (16 rows)
+        for j in 0..n as usize {
+            // For each output column (8 columns)
+            let mut sum = 0.0;
+            for l in 0..k as usize {
+                // Dot product over k-dimension
+                let lhs_val = (i * 2 + l) as f32; // LHS[i, l]
+                let rhs_val = (l * 3 + j) as f32; // RHS[l, j]
+                sum += lhs_val * rhs_val;
+            }
+            expected.push(sum);
+        }
+    }
+
+    assert_eq!(expected, actual);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_cmma {
@@ -831,6 +984,16 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_cmma_strided::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[test]
+        fn test_cmma_manual() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_cmma_manual::<TestRuntime>(
                 client,
                 cube_dimensions,
             );

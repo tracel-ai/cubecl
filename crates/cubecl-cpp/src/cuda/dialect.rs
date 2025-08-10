@@ -4,7 +4,11 @@ use cubecl_core::ir::{Id, Processor};
 
 use crate::{
     Dialect,
-    cuda::{processors::CudaMmaProcessor, ptx::TMA_LOAD_IM2COL},
+    cuda::{
+        extension::{Fragment, MmaExecute, MmaExtension},
+        processors::CudaMmaProcessor,
+        ptx::TMA_LOAD_IM2COL,
+    },
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind,
@@ -24,7 +28,7 @@ impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
 }
 
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
-    type Extension = Extension;
+    type Extension = Extension<Self>;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <cuda_runtime.h>\n")?;
@@ -68,9 +72,15 @@ alignas(64) unsigned long long int opaque[16];
     }
 
     fn compile_extensions(
-        _f: &mut std::fmt::Formatter<'_>,
-        _extensions: &[Self::Extension],
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
     ) -> std::fmt::Result {
+        for extension in extensions {
+            match extension {
+                Extension::NoExtension => {}
+                Extension::Mma(mma) => mma.format_extension(f)?,
+            }
+        }
         Ok(())
     }
 
@@ -85,6 +95,36 @@ alignas(64) unsigned long long int opaque[16];
         _instruction: &WarpInstruction<Self>,
     ) {
     }
+
+    fn register_wmma_instruction_extension(
+        extensions: &mut Vec<Self::Extension>,
+        instruction: &shared::WmmaInstruction<Self>,
+    ) {
+        if let shared::WmmaInstruction::ExecuteManual {
+            shape,
+            frag_a,
+            frag_b,
+            frag_c,
+            frag_d,
+        } = instruction
+        {
+            let ext = Extension::Mma(MmaExtension::Execute(MmaExecute::new(
+                *shape,
+                vars_to_frag(frag_a),
+                vars_to_frag(frag_b),
+                vars_to_frag(frag_c),
+                vars_to_frag(frag_d),
+            )));
+            if !extensions.contains(&ext) {
+                extensions.push(ext);
+            }
+        }
+    }
+}
+
+fn vars_to_frag<D: Dialect>(vars: &[Variable<D>]) -> Fragment<D> {
+    let elem = vars[0].elem();
+    Fragment(elem)
 }
 
 // Types

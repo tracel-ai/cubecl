@@ -60,8 +60,27 @@ pub struct Fragment<D: Dialect> {
     pub layout: Option<FragmentLayout<D>>,
 }
 
+#[derive(new, Debug, Clone, PartialEq, Eq, Copy)]
+pub struct MmaShape<D: Dialect> {
+    pub m: u32,
+    pub n: u32,
+    pub k: u32,
+    _d: PhantomData<D>,
+}
+
+impl<D: Dialect> MmaShape<D> {
+    pub fn num_elems(&self, ident: FragmentIdent<D>) -> u32 {
+        match ident {
+            FragmentIdent::A => self.m * self.k,
+            FragmentIdent::B => self.k * self.n,
+            FragmentIdent::Accumulator => self.m * self.n,
+            _ => unimplemented!(),
+        }
+    }
+}
+
 /// Warp Matrix-Multiply and Accumulate Instruction.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WmmaInstruction<D: Dialect> {
     /// Fill the fragment with the value.
     Fill {
@@ -85,6 +104,16 @@ pub enum WmmaInstruction<D: Dialect> {
         frag_c: Variable<D>,
         frag_d: Variable<D>,
         warp_size: u32,
+    },
+    /// Executes D=A*B+C using manually managed registers;
+    ///
+    /// For implementing a matmul, `D=C` : `C+=A*B`
+    ExecuteManual {
+        shape: MmaShape<D>,
+        frag_a: Vec<Variable<D>>,
+        frag_b: Vec<Variable<D>>,
+        frag_c: Vec<Variable<D>>,
+        frag_d: Vec<Variable<D>>,
     },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {
@@ -202,7 +231,6 @@ pub mod wmma_api_base {
             WmmaInstruction::Fill { frag, value } => {
                 writeln!(f, "{namespace}::fill_fragment({frag}, {value});")
             }
-
             WmmaInstruction::Load {
                 frag,
                 value,
@@ -225,7 +253,6 @@ pub mod wmma_api_base {
                     )
                 }
             }
-
             WmmaInstruction::Load {
                 frag,
                 value,
@@ -252,7 +279,6 @@ pub mod wmma_api_base {
                     )
                 }
             }
-
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
@@ -263,7 +289,6 @@ pub mod wmma_api_base {
                 f,
                 "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
             ),
-
             WmmaInstruction::Store {
                 output,
                 frag,
@@ -326,6 +351,13 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
                     }
                 }
             }
+            WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => todo!(),
         }
     }
 }

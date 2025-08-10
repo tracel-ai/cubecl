@@ -1011,6 +1011,13 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     }
                 }
             }
+            WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => todo!(),
         }
     }
 

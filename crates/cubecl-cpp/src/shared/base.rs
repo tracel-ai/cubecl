@@ -14,6 +14,8 @@ use cubecl_core::{
 };
 use cubecl_runtime::DeviceProperties;
 
+use crate::shared::MmaShape;
+
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect,
     Elem, FP6Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
@@ -599,7 +601,7 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
-        let out = self.compile_variable(out.unwrap());
+        let out = self.compile_variable(out.unwrap_or_else(|| 0.into()));
 
         let inst = match cmma {
             gpu::CoopMma::Fill { value } => WmmaInstruction::Fill {
@@ -629,6 +631,32 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_d: out,
                 warp_size: self.compilation_options.warp_size,
             },
+            gpu::CoopMma::ExecuteManual {
+                matrix,
+                a_registers,
+                b_registers,
+                c_registers,
+                d_registers,
+            } => WmmaInstruction::ExecuteManual {
+                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                frag_a: a_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_b: b_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_c: c_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_d: d_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+            },
+
             gpu::CoopMma::Store {
                 mat,
                 stride,

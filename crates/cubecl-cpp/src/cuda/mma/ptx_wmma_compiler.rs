@@ -1,5 +1,5 @@
 use crate::{
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{CudaDialect, arch::CudaArchitecture, ptx::comma_separated},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
         FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction,
@@ -164,6 +164,24 @@ asm volatile(
     : {in_constraints_a}, {in_constraints_b}, {in_constraints_c}
 );
 "#
+                )
+            }
+            WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => {
+                let ab_elem = frag_a[0].elem();
+                let cd_elem = frag_c[0].elem();
+                let args = frag_a.iter().chain(frag_b).chain(frag_c).chain(frag_d);
+                let args =
+                    comma_separated(args.map(|it| format!("reinterpret_cast<uint32&>({it})")));
+                write!(
+                    f,
+                    "__mma_m16n8k{}_{}_{}({args});",
+                    shape.k, ab_elem, cd_elem
                 )
             }
             WmmaInstruction::Store {

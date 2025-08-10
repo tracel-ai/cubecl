@@ -50,7 +50,10 @@ use super::{
     CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, ReadOnly, Slice, SliceExpand,
     SliceMut,
 };
-use crate::{self as cubecl};
+use crate::{
+    self as cubecl,
+    prelude::{Line, Sequence},
+};
 use crate::{
     ir::{self, Instruction},
     unexpanded,
@@ -70,14 +73,11 @@ pub struct Matrix<C: CubeType> {
     _c: PhantomData<C>,
 }
 
-/// A matrix represent a 2D grid of numbers. This represents a matrix layout without a specific
-/// backing structure containing the backing data. Allows manual handling of matrix data.
-///
-/// They can either be in a [row major](MatrixLayout::RowMajor) or a
-/// [column major](MatrixLayout::ColMajor) format.
+/// Defines a matrix multiplication operation, including the input and output type, and the shape
 #[derive(Copy, Clone)]
-pub struct MatrixDefinition<C: CubeType> {
-    _c: PhantomData<C>,
+pub struct MmaDefinition<AB: CubeType, CD: CubeType> {
+    _ab: PhantomData<AB>,
+    _cd: PhantomData<CD>,
 }
 
 /// Expand type of [Matrix].
@@ -87,11 +87,16 @@ pub struct MatrixExpand<C: CubeType> {
     _c: PhantomData<C>,
 }
 
-/// Expand type of [MatrixDefinition].
+/// Expand type of [MmaDefinition].
 #[derive(Debug)]
-pub struct MatrixDefinitionExpand<C: CubeType> {
-    matrix: ir::Matrix,
-    _c: PhantomData<C>,
+pub struct MmaDefinitionExpand<AB: CubeType, CD: CubeType> {
+    pub m: u32,
+    pub n: u32,
+    pub k: u32,
+    pub ab_elem: Elem,
+    pub cd_elem: Elem,
+    _ab: PhantomData<AB>,
+    _cd: PhantomData<CD>,
 }
 
 impl<C: CubeType> Clone for MatrixExpand<C> {
@@ -104,11 +109,16 @@ impl<C: CubeType> Clone for MatrixExpand<C> {
     }
 }
 
-impl<C: CubeType> Clone for MatrixDefinitionExpand<C> {
+impl<AB: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<AB, CD> {
     fn clone(&self) -> Self {
         Self {
-            matrix: self.matrix,
-            _c: self._c,
+            m: self.m,
+            n: self.n,
+            k: self.k,
+            ab_elem: self.ab_elem,
+            cd_elem: self.cd_elem,
+            _ab: PhantomData,
+            _cd: PhantomData,
         }
     }
 }
@@ -117,8 +127,8 @@ impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand<C>;
 }
 
-impl<C: CubeType> CubeType for MatrixDefinition<C> {
-    type ExpandType = MatrixDefinitionExpand<C>;
+impl<AB: CubeType, CD: CubeType> CubeType for MmaDefinition<AB, CD> {
+    type ExpandType = MmaDefinitionExpand<AB, CD>;
 }
 
 impl<C: CubeType> IntoMut for MatrixExpand<C> {
@@ -133,13 +143,13 @@ impl<C: CubeType> CubeDebug for MatrixExpand<C> {
     }
 }
 
-impl<C: CubeType> IntoMut for MatrixDefinitionExpand<C> {
+impl<AB: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<AB, CD> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<C: CubeType> CubeDebug for MatrixDefinitionExpand<C> {}
+impl<AB: CubeType, CD: CubeType> CubeDebug for MmaDefinitionExpand<AB, CD> {}
 
 #[cube]
 impl<C: CubePrimitive> Matrix<C> {
@@ -249,7 +259,7 @@ impl<C: CubePrimitive> Matrix<C> {
 }
 
 #[cube]
-impl<C: CubePrimitive> MatrixDefinition<C> {
+impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     /// Create a new matrix definition that is going to be used in the manual
     /// [matrix-multiply and accumulate](execute_manual()) function.
     ///
@@ -266,48 +276,69 @@ impl<C: CubePrimitive> MatrixDefinition<C> {
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
-    pub fn new(
-        #[comptime] ident: MatrixIdent,
-        #[comptime] m: u32,
-        #[comptime] n: u32,
-        #[comptime] k: u32,
-    ) -> Self {
+    pub fn new(#[comptime] m: u32, #[comptime] n: u32, #[comptime] k: u32) -> Self {
         intrinsic!(|scope| {
-            let elem = C::as_elem(scope);
-            let layout = match ident {
-                MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
-                MatrixIdent::B => scope.runtime_properties.mma.register_layout_b,
-                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_layout_acc,
-            };
-            let matrix = ir::Matrix::new(ident, m, n, k, elem, layout);
-            MatrixDefinitionExpand {
-                matrix,
-                _c: PhantomData,
+            let ab_elem = AB::as_elem(scope);
+            let cd_elem = CD::as_elem(scope);
+
+            MmaDefinitionExpand {
+                m,
+                n,
+                k,
+                ab_elem,
+                cd_elem,
+                _ab: PhantomData,
+                _cd: PhantomData,
+            }
+        })
+    }
+
+    /// Number of elements in the matrix
+    #[allow(unused)]
+    pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
+        intrinsic!(|scope| {
+            match ident {
+                MatrixIdent::A => self.m * self.k,
+                MatrixIdent::B => self.k * self.n,
+                MatrixIdent::Accumulator => self.m * self.n,
             }
         })
     }
 
     /// Returns the number of elements handled by each lane. Should be packed into `Line`s of size
     /// `line_size` with [`line_layout`].
-    pub fn elems_per_lane(&self) -> comptime_type!(u32) {
+    #[allow(unused)]
+    pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
-            let elems = self.matrix.num_elems();
+            let elems = self.__expand_num_elems_method(scope, ident);
             let plane_dim = scope.runtime_properties.mma.const_plane_size;
             elems / plane_dim
         })
     }
 
     /// The layout of each line in this matrix (row major or column major)
-    pub fn line_layout(&self) -> comptime_type!(MatrixLayout) {
-        intrinsic!(|_| { self.matrix.layout })
+    #[allow(unused)]
+    pub fn line_layout(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(MatrixLayout) {
+        intrinsic!(|scope| {
+            match ident {
+                MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
+                MatrixIdent::B => scope.runtime_properties.mma.register_layout_b,
+                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_layout_acc,
+            }
+        })
     }
 
     /// Number of elements in each line passed to the execute function
-    pub fn line_size(&self) -> comptime_type!(u32) {
+    #[allow(unused_variables)]
+    pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
-            let bits = Elem::size_bits(&self.matrix.elem) as u32;
+            let bits = match ident {
+                MatrixIdent::A | MatrixIdent::B => Elem::size_bits(&self.ab_elem) as u32,
+                MatrixIdent::Accumulator => Elem::size_bits(&self.cd_elem) as u32,
+            };
             let register_size = scope.runtime_properties.mma.register_size_bits;
-            register_size / bits
+            // div_ceil for potential compatiblity with f64
+            register_size.div_ceil(bits)
         })
     }
 
@@ -315,10 +346,33 @@ impl<C: CubePrimitive> MatrixDefinition<C> {
     /// Each lane contains [`elems_per_lane`] elements in [`line_size`] chunks.
     /// Returns (`row_idx`, `col_idx`)
     #[allow(unused_variables)]
-    pub fn indices_of_nth(&self, lane_id: u32, elem_idx: u32) -> (u32, u32) {
+    pub fn indices_of_nth(
+        &self,
+        lane_id: u32,
+        elem_idx: u32,
+        #[comptime] ident: MatrixIdent,
+    ) -> (u32, u32) {
         intrinsic!(|scope| {
             let lane_id: ExpandElement = lane_id.into();
             let elem_idx: ExpandElement = elem_idx.into();
+
+            let elem = match ident {
+                MatrixIdent::A | MatrixIdent::B => self.ab_elem,
+                MatrixIdent::Accumulator => self.cd_elem,
+            };
+            let layout = match ident {
+                MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
+                MatrixIdent::B => scope.runtime_properties.mma.register_layout_b,
+                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_layout_acc,
+            };
+            let matrix = cubecl_ir::Matrix {
+                ident,
+                m: self.m,
+                n: self.n,
+                k: self.k,
+                elem,
+                layout,
+            };
 
             let row = scope.create_local(Item::new(u32::as_elem(scope)));
             let col = scope.create_local(Item::new(u32::as_elem(scope)));
@@ -326,7 +380,7 @@ impl<C: CubePrimitive> MatrixDefinition<C> {
                 CoopMma::RowIndex {
                     lane_id: *lane_id,
                     i: *elem_idx,
-                    matrix: self.matrix,
+                    matrix,
                 },
                 *row,
             ));
@@ -334,7 +388,7 @@ impl<C: CubePrimitive> MatrixDefinition<C> {
                 CoopMma::ColIndex {
                     lane_id: *lane_id,
                     i: *elem_idx,
-                    matrix: self.matrix,
+                    matrix,
                 },
                 *col,
             ));
@@ -571,6 +625,84 @@ pub mod cast {
         scope.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
 
         output
+    }
+}
+
+/// Manually execute a low level `mma` operation with manually managed registers. Register layout
+/// and index mapping can be retrieved from the [`MatrixDefinition`]
+#[allow(unused_variables)]
+pub fn execute_manual<AB: CubePrimitive, CD: CubePrimitive>(
+    matrix: &MmaDefinition<AB, CD>,
+    a_registers: Sequence<Line<AB>>,
+    b_registers: Sequence<Line<AB>>,
+    c_registers: Sequence<Line<CD>>,
+) -> Sequence<Line<CD>> {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [execute_manual()].
+pub mod execute_manual {
+    use crate::prelude::SequenceExpand;
+
+    use super::*;
+
+    /// Expand method of [execute_manual()].
+    #[allow(unused_variables)]
+    pub fn expand<AB: CubePrimitive, CD: CubePrimitive>(
+        scope: &mut Scope,
+        matrix: MmaDefinitionExpand<AB, CD>,
+        a_registers: SequenceExpand<Line<AB>>,
+        b_registers: SequenceExpand<Line<AB>>,
+        c_registers: SequenceExpand<Line<CD>>,
+    ) -> SequenceExpand<Line<CD>> {
+        let acc_elems = matrix
+            .clone()
+            .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
+        let acc_line_size = matrix
+            .clone()
+            .__expand_line_size_method(scope, MatrixIdent::Accumulator);
+        let num_registers = acc_elems / acc_line_size;
+        let mut d_registers = Vec::new();
+        let mut d_registers_out = Sequence::<Line<CD>>::__expand_new(scope);
+
+        for _ in 0..num_registers {
+            let expand = Line::<CD>::__expand_empty(scope, acc_line_size);
+            d_registers.push(*expand.expand);
+            d_registers_out.__expand_push_method(scope, expand);
+        }
+
+        let a_registers = a_registers
+            .into_iter()
+            .map(|it| *it.expand)
+            .collect::<Vec<_>>();
+        let b_registers = b_registers
+            .into_iter()
+            .map(|it| *it.expand)
+            .collect::<Vec<_>>();
+        let c_registers = c_registers
+            .into_iter()
+            .map(|it| *it.expand)
+            .collect::<Vec<_>>();
+
+        // Only shape is actually used
+        let matrix = cubecl_ir::Matrix {
+            ident: MatrixIdent::A,
+            m: matrix.m,
+            n: matrix.n,
+            k: matrix.k,
+            elem: matrix.ab_elem,
+            layout: MatrixLayout::ColMajor,
+        };
+
+        scope.register(Instruction::no_out(CoopMma::ExecuteManual {
+            matrix,
+            a_registers,
+            b_registers,
+            c_registers,
+            d_registers,
+        }));
+
+        d_registers_out
     }
 }
 

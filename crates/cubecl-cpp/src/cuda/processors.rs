@@ -48,7 +48,7 @@ impl Processor for CudaMmaProcessor {
                     let i = ExpandElement::Plain(i);
                     let elems_per_reg = 32 / matrix.elem.size_bits();
                     let mut scope = Scope::root(false).with_allocator(allocator.clone());
-                    let row_idx: ExpandElement = col_index::expand(
+                    let col_idx: ExpandElement = col_index::expand(
                         &mut scope,
                         lane_id.into(),
                         i.into(),
@@ -65,7 +65,7 @@ impl Processor for CudaMmaProcessor {
                     }
 
                     processing.instructions.push(Instruction::new(
-                        Operation::Copy(*row_idx),
+                        Operation::Copy(*col_idx),
                         instruction.out(),
                     ));
                 }
@@ -117,7 +117,7 @@ fn col_index(
         MatrixIdent::A => {
             let thread_id_in_group = lane_id % 4;
             let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
-            let group_2 = (i / 2 * elems_per_reg) & 1;
+            let group_2 = (i / (2 * elems_per_reg)) & 1;
             offset + 4 * elems_per_reg * group_2
         }
         MatrixIdent::B => lane_id >> 2,

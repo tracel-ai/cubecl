@@ -108,6 +108,14 @@ pub enum CoopMma {
         i: Variable,
         matrix: Matrix,
     },
+    /// Manual execute. No out because we don't have native composites, and out is multiple variables.
+    ExecuteManual {
+        matrix: Matrix,
+        a_registers: Vec<Variable>,
+        b_registers: Vec<Variable>,
+        c_registers: Vec<Variable>,
+        d_registers: Vec<Variable>,
+    },
 }
 
 impl OperationReflect for CoopMma {
@@ -122,6 +130,7 @@ impl OperationReflect for CoopMma {
             CoopMma::Fill { value } => Some(vec![*value]),
             CoopMma::Load { .. }
             | CoopMma::Execute { .. }
+            | CoopMma::ExecuteManual { .. }
             | CoopMma::Store { .. }
             | CoopMma::RowIndex { .. }
             | CoopMma::ColIndex { .. } => None,
@@ -134,6 +143,7 @@ impl OperationReflect for CoopMma {
             CmmaOpCode::Fill => Some(CoopMma::Fill { value: args[0] }),
             CmmaOpCode::Load
             | CmmaOpCode::Execute
+            | CmmaOpCode::ExecuteManual
             | CmmaOpCode::Store
             | CmmaOpCode::RowIndex
             | CmmaOpCode::ColIndex => None,
@@ -165,6 +175,28 @@ impl Display for CoopMma {
                 mat_b,
                 mat_c,
             } => write!(f, "execute_cmma({mat_a}, {mat_b}, {mat_c})"),
+            CoopMma::ExecuteManual {
+                matrix,
+                a_registers,
+                b_registers,
+                c_registers,
+                d_registers,
+            } => {
+                let frag_a = comma_separated(a_registers.iter().map(|it| format!("{it}")));
+                let frag_b = comma_separated(b_registers.iter().map(|it| format!("{it}")));
+                let frag_c = comma_separated(c_registers.iter().map(|it| format!("{it}")));
+                let frag_d = comma_separated(d_registers.iter().map(|it| format!("{it}")));
+                write!(
+                    f,
+                    "execute_manual_mma(
+                    matrix: {matrix:?},
+                    frag_a: [{frag_a}],
+                    frag_b: [{frag_b}],
+                    frag_c: [{frag_c}],
+                    frag_d: [{frag_d}]
+                )"
+                )
+            }
             CoopMma::Store {
                 mat,
                 stride,
@@ -185,4 +217,8 @@ impl Display for CoopMma {
             }
         }
     }
+}
+
+fn comma_separated(it: impl IntoIterator<Item = String>) -> String {
+    it.into_iter().collect::<Vec<_>>().join(", ")
 }

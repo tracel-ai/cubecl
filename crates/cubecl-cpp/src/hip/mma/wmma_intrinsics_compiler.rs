@@ -395,6 +395,13 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let name = extension.fn_name();
                 writeln!(f, "{name}({input}, {output});")
             }
+            WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => todo!(),
         }
     }
 
