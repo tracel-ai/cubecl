@@ -4,15 +4,18 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::{Id, Processor};
 
-use crate::shared::{
-    Component, DialectInstructions, DialectProcessors, Elem, Instruction, SharedMemory, Variable,
-    unary, variable_to_frag,
-};
 use crate::{
     Dialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
         DialectWmmaCompiler, Flags, Item,
+    },
+};
+use crate::{
+    hip::processors::HipMmaProcessor,
+    shared::{
+        Component, DialectInstructions, DialectProcessors, Elem, Instruction, SharedMemory,
+        Variable, unary, variable_to_frag,
     },
 };
 
@@ -553,6 +556,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
-        Vec::new()
+        vec![Box::new(HipMmaProcessor)]
     }
 }
