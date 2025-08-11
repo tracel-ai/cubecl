@@ -46,8 +46,7 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
     #[comptime] scheme: QuantScheme,
 ) -> Line<F> {
     let qparams = QParams::new(scheme);
-    let scale = qparams.scale(scales, position);
-    dequantize_packed_value::<F, FS, QI>(values, scale, scheme)
+    dequantize_packed_value::<F, FS, QI>(values, scales, qparams, position, scheme)
 }
 
 /// Dequantize a single packed value using the scale provided.
@@ -57,29 +56,34 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
 #[cube]
 pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
-    scale: FS,
+    scales: &Tensor<FS>,
+    qparams: QParams,
+    position: u32,
     #[comptime] scheme: QuantScheme,
 ) -> Line<F> {
     // TODO: q_store_type: QuantStoreType::Native
     let line_size_values = values.line_size();
+    let num_quants = comptime!(qparams.num_quants);
     if comptime!(line_size_values == 1) {
         let floats = unpack_q::<F, QS>(values[0], scheme.value);
+        let scale = qparams.scale(scales, position);
         dequantize_symmetric::<F, FS>(floats, scale)
     } else {
-        let mut tmp = Line::empty(line_size_values);
+        let mut tmp = Line::empty(comptime!(line_size_values * num_quants));
 
         #[unroll]
-        for i in 0..1 {
+        for i in 0..line_size_values {
             let floats = unpack_q::<F, QS>(values[i], scheme.value);
-            let ls = floats.line_size();
+            let scale = qparams.scale(scales, (position * line_size_values) + i);
+            let values = dequantize_symmetric::<F, FS>(floats, scale);
 
             #[unroll]
-            for j in 0..ls {
-                tmp[i * line_size_values + j] = floats[j];
+            for j in 0..num_quants {
+                tmp[i * line_size_values + j] = values[j];
             }
         }
 
-        dequantize_symmetric::<F, FS>(tmp, scale)
+        tmp
     }
 }
 
@@ -130,17 +134,18 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
         terminate!();
     }
 
-    // Input line size = 1
+    let line_size_in = input.line_size();
     let qparams = QParams::new(scheme);
     let num_quants = comptime!(qparams.num_quants);
-    let scale = qparams.scale(scales, ABSOLUTE_POS);
     let values = input[ABSOLUTE_POS];
 
-    let out = dequantize_packed_value::<F, FS, u32>(values, scale, scheme);
+    let out = dequantize_packed_value::<F, FS, u32>(values, scales, qparams, ABSOLUTE_POS, scheme);
 
-    if comptime!(output.line_size() == num_quants) {
+    if comptime!(output.line_size() == num_quants * line_size_in) {
         output[ABSOLUTE_POS] = out;
     } else {
+        panic!("Here");
+
         #[unroll]
         for i in 0..out.size() {
             output[ABSOLUTE_POS * out.size() + i] = Line::cast_from(out[i]);
@@ -232,13 +237,13 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     let num_elems_input: usize = input.shape.iter().product();
 
     // TODO: Fix line size handling in kernel.
-    // let mut line_size_in = tensor_line_size_parallel(
-    //     R::line_size_elem(&F::as_elem_native_unchecked()),
-    //     input.shape,
-    //     input.strides,
-    //     input.shape.len() - 1,
-    // );
-    let mut line_size_in = 1;
+    let mut line_size_in = tensor_line_size_parallel(
+        R::line_size_elem(&F::as_elem_native_unchecked()),
+        input.shape,
+        input.strides,
+        input.shape.len() - 1,
+    );
+    // let mut line_size_in = 1;
     let num_quants = scheme.num_quants() as u8;
     let mut line_size_out = line_size_in * num_quants;
     let rank = output.shape.len();
