@@ -68,7 +68,7 @@ impl<'a> Visitor<'a> {
         } else {
             panic!("Impossible comparison");
         };
-
+        let value = self.cast_to_u8(value, out.item);
         self.insert_variable(out, value);
     }
 }

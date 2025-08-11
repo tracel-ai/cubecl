@@ -10,14 +10,11 @@ use crate::components::{
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
-use crate::components::{MatmulIdent, MatmulLineSizes, MatmulSelection};
-use cubecl_std::{
-    CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
-};
+use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
 
-use super::{GlobalWriter, Quantization, load::LoaderMode};
+use super::{GlobalWriter, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -89,23 +86,21 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         m_offset: u32,
         k_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         k_offset: u32,
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 

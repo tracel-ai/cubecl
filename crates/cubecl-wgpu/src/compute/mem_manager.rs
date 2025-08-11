@@ -1,6 +1,6 @@
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, Handle},
+    server::{Binding, Handle, IoError},
 };
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement, StorageExclude},
@@ -45,13 +45,22 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn reserve(&mut self, size: u64, exclude_pending_operations: bool) -> Handle {
+    pub(crate) fn reserve(
+        &mut self,
+        size: u64,
+        exclude_pending_operations: bool,
+    ) -> Result<Handle, IoError> {
         let exclude = if exclude_pending_operations {
             Some(&self.pending_operations)
         } else {
             None
         };
-        Handle::new(self.memory_pool.reserve(size, exclude), None, None, size)
+        Ok(Handle::new(
+            self.memory_pool.reserve(size, exclude)?,
+            None,
+            None,
+            size,
+        ))
     }
 
     pub(crate) fn get_resource(&mut self, binding: Binding) -> WgpuResource {

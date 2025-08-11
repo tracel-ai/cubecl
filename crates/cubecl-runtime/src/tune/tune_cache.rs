@@ -142,13 +142,12 @@ impl<K: AutotuneKey> TuneCache<K> {
             checksum: checksum_state,
             ..
         } = val
+            && let ChecksumState::ToBeVerified(checksum_expected) = checksum_state
         {
-            if let ChecksumState::ToBeVerified(checksum_expected) = checksum_state {
-                if checksum_expected == checksum {
-                    *checksum_state = ChecksumState::Match;
-                } else {
-                    *checksum_state = ChecksumState::NoMatch;
-                }
+            if checksum_expected == checksum {
+                *checksum_state = ChecksumState::Match;
+            } else {
+                *checksum_state = ChecksumState::NoMatch;
             }
         }
     }

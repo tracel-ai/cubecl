@@ -7,7 +7,7 @@ use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources, tile::tile_data::Tile,
 };
-use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{LhsS, MatmulLineSizes, MatmulSelection, RhsS};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -78,7 +78,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
     /// Fill the container of Lhs with tile data
-    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs(tile: &Tile<LhsS<MP>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     fn allocate_fill_cast_lhs<EI: Numeric>(
         tile: &Tile<EI>,
@@ -94,7 +94,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of Rhs with tile data
-    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs(tile: &Tile<RhsS<MP>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Allocate the container to receive the execution output.
     ///

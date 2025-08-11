@@ -2,48 +2,40 @@ use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_matmul::components::{MatmulIdent, StageIdent};
-use cubecl_std::{CubeOption, FastDivmod};
+use cubecl_matmul::components::{InputPrecision, MatmulIdent, StageIdent};
+use cubecl_std::FastDivmod;
 
 use crate::base::RuntimeArgs;
+use cubecl_matmul::components::stage::FullStageToTileReader;
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
-use cubecl_matmul::components::{
-    MatmulPrecision, global::Quantization, stage::FullStageToTileReader,
-};
 use cubecl_matmul::components::{
     global::{self, memory::MappedTensorReader},
     stage::{ContiguousTilingLayout, StageConfig, StageMemory},
 };
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaWeightTiling>;
+pub type TmaWeightReader<IP> =
+    FullStageToTileReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
-pub struct TmaWeightLoader<MP: MatmulPrecision, S: StageConfig> {
-    pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stages: Sequence<StageMemory<MP::ES, TmaWeightTiling>>,
+pub struct TmaWeightLoader<IP: InputPrecision, S: StageConfig> {
+    pub tensor_view: MappedTensorReader<IP::Global>,
+    pub stages: Sequence<StageMemory<IP::Stage, TmaWeightTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
+impl<IP: InputPrecision, S: StageConfig> TmaWeightLoader<IP, S> {
     pub fn new<G: global::GlobalConfig>(
-        tensor: TensorMap<MP::EI>,
+        tensor: TensorMap<IP::Global>,
         x: u32,
         y: u32,
-        quantization: CubeOption<Quantization<MP>>,
         runtime_args: &RuntimeArgs,
         #[comptime] num_stages: u32,
         #[comptime] config: G,
     ) -> Self {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let mut stages = Sequence::new();
 
         #[unroll]
@@ -57,7 +49,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, 0);
 
-        TmaWeightLoader::<MP, S> {
+        TmaWeightLoader::<IP, S> {
             tensor_view,
             stages,
             padded_channels: runtime_args.padded_channels,
@@ -67,7 +59,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
     pub fn fill_stage(
         this: &mut Self,
-        barrier: &Barrier<MP::ES>,
+        barrier: &Barrier<IP::Stage>,
         #[comptime] stage_idx: u32,
         #[comptime] config: S,
     ) {
@@ -95,8 +87,8 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
         }
     }
 
-    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaWeightReader<MP> {
-        TmaWeightReader::<MP>::new(*this.stages.index(stage_idx), StageIdent::Rhs)
+    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaWeightReader<IP> {
+        TmaWeightReader::<IP>::new(*this.stages.index(stage_idx), StageIdent::Rhs)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {

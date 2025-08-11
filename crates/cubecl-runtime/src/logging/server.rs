@@ -93,41 +93,41 @@ impl ServerLogger {
     where
         I: Display,
     {
-        if let Some(channel) = &self.log_channel {
-            if self.log_compile_info {
-                // Channel will never be full, don't care if it's closed.
-                let _ = channel.try_send(LogMessage::Compilation(arg.to_string()));
-            }
+        if let Some(channel) = &self.log_channel
+            && self.log_compile_info
+        {
+            // Channel will never be full, don't care if it's closed.
+            let _ = channel.try_send(LogMessage::Compilation(arg.to_string()));
         }
     }
 
     /// Register a profiled task without timing.
     pub fn register_execution(&self, name: impl Display) {
-        if let Some(channel) = &self.log_channel {
-            if matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly)) {
-                // Channel will never be full, don't care if it's closed.
-                let _ = channel.try_send(LogMessage::Execution(name.to_string()));
-            }
+        if let Some(channel) = &self.log_channel
+            && matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly))
+        {
+            // Channel will never be full, don't care if it's closed.
+            let _ = channel.try_send(LogMessage::Execution(name.to_string()));
         }
     }
 
     /// Register a profiled task.
     pub fn register_profiled(&self, name: impl Display, duration: ProfileDuration) {
-        if let Some(channel) = &self.log_channel {
-            if self.profile_level.is_some() {
-                // Channel will never be full, don't care if it's closed.
-                let _ = channel.try_send(LogMessage::Profile(name.to_string(), duration));
-            }
+        if let Some(channel) = &self.log_channel
+            && self.profile_level.is_some()
+        {
+            // Channel will never be full, don't care if it's closed.
+            let _ = channel.try_send(LogMessage::Profile(name.to_string(), duration));
         }
     }
 
     /// Show the profiling summary if activated and reset its state.
     pub fn profile_summary(&self) {
-        if let Some(channel) = &self.log_channel {
-            if self.profile_level.is_some() {
-                // Channel will never be full, don't care if it's closed.
-                let _ = channel.try_send(LogMessage::ProfileSummary);
-            }
+        if let Some(channel) = &self.log_channel
+            && self.profile_level.is_some()
+        {
+            // Channel will never be full, don't care if it's closed.
+            let _ = channel.try_send(LogMessage::ProfileSummary);
         }
     }
 }

@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
-    ir::Elem,
     prelude::{Numeric, TensorHandleRef},
 };
 
@@ -13,7 +12,7 @@ use crate::{
 };
 
 use cubecl_matmul::components::{
-    MatmulIdent, MatmulSelection,
+    MatmulElems, MatmulIdent, MatmulSelection,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
     tile::TileMatmulFamily,
@@ -54,9 +53,8 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        matmul_elems: MatmulElems,
     ) -> MatmulSelection {
-        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, elem_stage, elem_acc)
+        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, matmul_elems)
     }
 }

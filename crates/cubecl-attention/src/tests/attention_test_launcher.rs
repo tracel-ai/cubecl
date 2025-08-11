@@ -1,9 +1,10 @@
 use cubecl_core::prelude::*;
+use cubecl_core::server::Allocation;
 use cubecl_core::{CubeElement, server};
 
 use crate::components::args::TensorInputsLaunch;
-use crate::components::batch::BatchAttentionFamily;
 use crate::components::batch::BatchAttentionConfig;
+use crate::components::batch::BatchAttentionFamily;
 use crate::components::{AttentionProblem, AttentionSelection};
 use crate::components::{AvailableLineSizes, FlashIdent};
 use crate::kernels::Algorithm;
@@ -149,13 +150,13 @@ where
 {
     let tensor_shape = shape(problem, ident);
     let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
-    let data = client.read_one(handle.handle.binding());
+    let data = client.read_one(handle.handle);
     let data = T::from_bytes(&data);
     let original_data = data.to_owned();
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();
     let elem_size = std::mem::size_of::<T>();
-    let (handle, strides) = client.create_tensor(data_bytes, shape, elem_size);
+    let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
 
     TensorRawParts {
         handle,
@@ -175,7 +176,7 @@ fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
     let data_bytes = P::EG::as_bytes(&data);
     let shape = tensor_shape.as_slice();
     let elem_size = std::mem::size_of::<P::EG>();
-    let (handle, strides) = client.create_tensor(data_bytes, shape, elem_size);
+    let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
 
     TensorRawParts {
         handle,

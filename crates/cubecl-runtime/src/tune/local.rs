@@ -63,20 +63,20 @@ where
 
         static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
 
-        if let Some(sets) = sets.as_ref() {
-            if let Some(set) = sets.get(&type_id) {
-                return set.clone().downcast().expect(DOWNCAST_ERROR);
-            }
+        if let Some(sets) = sets.as_ref()
+            && let Some(set) = sets.get(&type_id)
+        {
+            return set.clone().downcast().expect(DOWNCAST_ERROR);
         };
 
         core::mem::drop(sets);
 
         let mut sets = self.sets.write();
 
-        if let Some(sets) = sets.as_ref() {
-            if let Some(set) = sets.get(&type_id) {
-                return set.clone().downcast().expect(DOWNCAST_ERROR);
-            }
+        if let Some(sets) = sets.as_ref()
+            && let Some(set) = sets.get(&type_id)
+        {
+            return set.clone().downcast().expect(DOWNCAST_ERROR);
         };
 
         let content = Arc::new(init_set());

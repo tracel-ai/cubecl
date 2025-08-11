@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatmulPrecision, MatrixLayout,
+    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
@@ -27,9 +27,9 @@ impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
 #[cube]
 impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = AsynFullMaximizeSliceLengthJob;
+    type Job<IP: InputPrecision> = AsynFullMaximizeSliceLengthJob;
 
-    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<IP: InputPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsynFullMaximizeSliceLengthJob {
@@ -69,14 +69,14 @@ pub struct AsynFullMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
+impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsynFullMaximizeSliceLengthJob
 {
-    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut StageMemory<MP::ES, StridedTilingLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
+        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
@@ -84,7 +84,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices % this.unit_count == 0) {
-            load_nth_slice::<MP::EI, MP::ES, CM, G>(
+            load_nth_slice::<IP::Global, IP::Stage, CM, G>(
                 nth_slice,
                 tensor_reader,
                 stage,
@@ -94,7 +94,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout>
             );
         } else {
             if nth_slice < this.num_slices {
-                load_nth_slice::<MP::EI, MP::ES, CM, G>(
+                load_nth_slice::<IP::Global, IP::Stage, CM, G>(
                     nth_slice,
                     tensor_reader,
                     stage,

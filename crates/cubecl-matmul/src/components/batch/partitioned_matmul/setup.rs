@@ -7,8 +7,8 @@ use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatm
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
 use crate::components::{
-    Args, EA, EI, EO, ES, InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSelection,
-    MatmulSpec, OutputRuntimeArg,
+    Args, EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulPrecision, MatmulProblem, MatmulSelection,
+    MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
 };
 use crate::components::{MatmulLineSizes, MatmulSetupError};
 use cubecl_core::prelude::*;
@@ -52,7 +52,17 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         config: Self::Config,
     ) {
         unsafe {
-            matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+            matmul::launch_unchecked::<
+                Args<MS>,
+                LhsG<MS>,
+                RhsG<MS>,
+                LhsS<MS>,
+                RhsS<MS>,
+                EA<MS>,
+                EO<MS>,
+                Self,
+                R,
+            >(
                 client,
                 cube_count,
                 cube_dim,

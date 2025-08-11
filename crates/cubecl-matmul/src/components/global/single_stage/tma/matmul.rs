@@ -1,17 +1,21 @@
+use crate::components::LhsG;
+use crate::components::LhsS;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
+use crate::components::RhsG;
+use crate::components::RhsS;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::TmaLoader;
+use crate::components::global::load::TmaReader;
 use crate::components::global::load::arrive_tma;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
-use crate::components::global::{Quantization, load::TmaReader};
 use crate::components::stage::StageMatmul;
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
+use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
@@ -19,18 +23,17 @@ use crate::components::global::GlobalConfig;
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using tma loading
 pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
-    _ms: PhantomData<MP>,
-    _stage_matmul: PhantomData<SMM>,
+    _phantom: PhantomData<(MP, SMM)>,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<MP, LhsReader = TmaReader<MP>, RhsReader = TmaReader<MP>>,
+    SMM: StageMatmul<MP, LhsReader = TmaReader<MP::Lhs>, RhsReader = TmaReader<MP::Rhs>>,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
-    type LhsLoader = TmaLoader<MP, Self::Config>;
-    type RhsLoader = TmaLoader<MP, Self::Config>;
+    type LhsLoader = TmaLoader<MP::Lhs, Self::Config>;
+    type RhsLoader = TmaLoader<MP::Rhs, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -52,18 +55,20 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
-        let barrier = Barrier::<MP::ES>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let barrier_lhs = Barrier::<LhsS<MP>>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let barrier_rhs = Barrier::<RhsS<MP>>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
 
             // Start loading
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_lhs, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_rhs, config);
 
-            arrive_tma::<MP::ES>(&barrier, num_elems_stages);
+            arrive_tma::<LhsS<MP>>(&barrier_lhs, num_elems_stages);
+            arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_stages);
 
-            barrier.wait();
+            barrier_lhs.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
@@ -85,12 +90,11 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
@@ -98,19 +102,17 @@ where
             x_offset,
             y_offset,
             nth_batch,
-            quantization,
             MatmulIdent::Lhs,
             config,
         )
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
@@ -118,7 +120,6 @@ where
             x_offset,
             y_offset,
             nth_batch,
-            quantization,
             MatmulIdent::Rhs,
             config,
         )

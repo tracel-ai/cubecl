@@ -253,6 +253,7 @@ mod indexation {
                         list: *self.expand,
                         index: i.expand.consume(),
                         line_size: 0,
+                        unroll_factor: 1,
                     }),
                     *out,
                 ));
@@ -276,6 +277,7 @@ mod indexation {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
                         line_size: 0,
+                        unroll_factor: 1,
                     }),
                     *self.expand,
                 ));

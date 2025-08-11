@@ -4,7 +4,7 @@ use std::ffi::{c_longlong, c_void};
 #[derive(Debug, Clone)]
 pub struct MemRef<const N_DIMS: usize> {
     /// Pointer to the allocated memory
-    allocated: *mut c_void,
+    pub allocated: *mut c_void,
     /// Aligned pointer to the allocated memory in our case almost always the same as the allocated pointer
     aligned: *mut c_void,
     /// Offset from the start that is almost always zero for CubeCL CPU allocator

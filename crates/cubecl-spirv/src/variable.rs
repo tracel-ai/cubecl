@@ -357,7 +357,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Variable::LocalBinding { id, item, variable }
             }
             ir::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
-            ir::VariableKind::ConstantArray { id, length } => {
+            ir::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_item(item);
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
@@ -365,6 +365,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             ir::VariableKind::SharedMemory {
                 id,
                 length,
+                unroll_factor,
                 alignment,
             } => {
                 let item = self.compile_item(item);
@@ -375,7 +376,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let arr = Array {
                         id: arr_id,
                         item: item.clone(),
-                        len: length,
+                        len: length * unroll_factor,
                         var: variable,
                         alignment,
                     };
@@ -384,7 +385,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 Variable::SharedMemory(id, item, length)
             }
-            ir::VariableKind::LocalArray { id, length } => {
+            ir::VariableKind::LocalArray {
+                id,
+                length,
+                unroll_factor,
+            } => {
                 let item = self.compile_item(item);
                 let id = if let Some(arr) = self.state.local_arrays.get(&id) {
                     arr.id
@@ -396,7 +401,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let arr = Array {
                         id: arr_id,
                         item: item.clone(),
-                        len: length,
+                        len: length * unroll_factor,
                         var: variable,
                         alignment: None,
                     };

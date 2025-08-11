@@ -1,17 +1,17 @@
+use crate::components::global::Specializer;
 use crate::components::global::load::{StageBuffer, SyncPartialLoader, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::components::global::{Quantization, Specializer};
 use crate::components::stage::PartialStageToTileReader;
-use crate::components::{MatmulIdent, global};
+use crate::components::{LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
@@ -35,15 +35,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = PartialStageToTileReader<MP::ES, LL::TilingLayout>,
-            RhsReader = PartialStageToTileReader<MP::ES, RL::TilingLayout>,
+            LhsReader = PartialStageToTileReader<LhsS<MP>, LL::TilingLayout>,
+            RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncPartialLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncPartialLoader<MP, Self::Config, RL>;
+    type LhsLoader = SyncPartialLoader<MP::Lhs, Self::Config, LL>;
+    type RhsLoader = SyncPartialLoader<MP::Rhs, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -150,40 +150,36 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        SyncPartialLoader::<MP, Self::Config, LL>::new(
+        SyncPartialLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs,
             x_offset,
             y_offset,
             batch_offset,
-            quantization,
             MatmulIdent::Lhs,
             config,
         )
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        SyncPartialLoader::<MP, Self::Config, RL>::new(
+        SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs,
             x_offset,
             y_offset,
             batch_offset,
-            quantization,
             MatmulIdent::Rhs,
             config,
         )

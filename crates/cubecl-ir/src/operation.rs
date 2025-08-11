@@ -126,7 +126,18 @@ impl Display for Instruction {
             }
             _ => {
                 if let Some(out) = self.out {
-                    write!(f, "{out} = {}", self.operation)
+                    let mut vars_str = String::new();
+                    for (i, var) in self.operation.args().unwrap_or_default().iter().enumerate() {
+                        if i != 0 {
+                            vars_str.push_str(", ");
+                        }
+                        vars_str.push_str(&var.item.to_string());
+                    }
+                    write!(
+                        f,
+                        "{out} = {} : ({}) -> ({})",
+                        self.operation, vars_str, out.item
+                    )
                 } else {
                     write!(f, "{}", self.operation)
                 }
@@ -175,7 +186,8 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 pub struct IndexOperator {
     pub list: Variable,
     pub index: Variable,
-    pub line_size: u32, // 0 == same as list.
+    pub line_size: u32,     // 0 == same as list.
+    pub unroll_factor: u32, // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -185,7 +197,8 @@ pub struct IndexAssignOperator {
     // list is out.
     pub index: Variable,
     pub value: Variable,
-    pub line_size: u32, // 0 == same as list.
+    pub line_size: u32,     // 0 == same as list.
+    pub unroll_factor: u32, // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

@@ -146,29 +146,25 @@ impl GenericAnalysis {
         let mut map = HashMap::new();
 
         for param in generics.params.pairs() {
-            if let syn::GenericParam::Type(type_param) = param.value() {
-                if let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first() {
-                    if let Some(bound) = trait_bound.path.get_ident() {
-                        let name = bound.to_string();
-                        let index = map.len() as u8;
+            if let syn::GenericParam::Type(type_param) = param.value()
+                && let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
+                && let Some(bound) = trait_bound.path.get_ident()
+            {
+                let name = bound.to_string();
+                let index = map.len() as u8;
 
-                        match name.as_str() {
-                            "Float" => {
-                                map.insert(
-                                    type_param.ident.clone(),
-                                    parse_quote!(FloatExpand<#index>),
-                                );
-                            }
-                            "Numeric" => {
-                                map.insert(
-                                    type_param.ident.clone(),
-                                    parse_quote!(NumericExpand<#index>),
-                                );
-                            }
-                            _ => {}
-                        };
+                match name.as_str() {
+                    "Float" => {
+                        map.insert(type_param.ident.clone(), parse_quote!(FloatExpand<#index>));
                     }
-                }
+                    "Numeric" => {
+                        map.insert(
+                            type_param.ident.clone(),
+                            parse_quote!(NumericExpand<#index>),
+                        );
+                    }
+                    _ => {}
+                };
             };
         }
 
@@ -294,15 +290,14 @@ impl KernelParam {
     ///
     /// Useful when the param is used in functions or methods associated to the expand type.
     pub fn plain_normalized_self(&mut self) {
-        if let Type::Path(pat) = &self.ty {
-            if pat
+        if let Type::Path(pat) = &self.ty
+            && pat
                 .path
                 .get_ident()
                 .filter(|ident| *ident == "Self")
                 .is_some()
-            {
-                self.normalized_ty = self.ty.clone();
-            }
+        {
+            self.normalized_ty = self.ty.clone();
         }
     }
 }
@@ -346,15 +341,14 @@ impl KernelSignature {
 
     /// If the type is self, we set the returns type to plain instead of expand type.
     pub fn plain_returns_self(&mut self) {
-        if let Type::Path(pat) = self.returns.ty() {
-            if pat
+        if let Type::Path(pat) = self.returns.ty()
+            && pat
                 .path
                 .get_ident()
                 .filter(|ident| *ident == "Self")
                 .is_some()
-            {
-                self.returns = KernelReturns::Plain(self.returns.ty());
-            }
+        {
+            self.returns = KernelReturns::Plain(self.returns.ty());
         }
     }
 }
@@ -445,20 +439,20 @@ impl Launch {
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.
-        if args.is_launch() {
-            if let ReturnType::Type(arrow, ty) = &ret {
-                // Span both the arrow and the return type
-                let mut ts = arrow.to_token_stream();
-                ts.extend(ty.into_token_stream());
+        if args.is_launch()
+            && let ReturnType::Type(arrow, ty) = &ret
+        {
+            // Span both the arrow and the return type
+            let mut ts = arrow.to_token_stream();
+            ts.extend(ty.into_token_stream());
 
-                return Err(syn::Error::new_spanned(
-                    ts,
-                    format!(
-                        "This is a launch kernel and cannot have a return type. Remove `-> {}`. Use mutable output arguments instead in order to get values out from kernels.",
-                        ty.into_token_stream()
-                    ),
-                ));
-            }
+            return Err(syn::Error::new_spanned(
+                ts,
+                format!(
+                    "This is a launch kernel and cannot have a return type. Remove `-> {}`. Use mutable output arguments instead in order to get values out from kernels.",
+                    ty.into_token_stream()
+                ),
+            ));
         }
 
         let mut kernel_generics = func.sig.generics.clone();

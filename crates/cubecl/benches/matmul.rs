@@ -3,7 +3,8 @@ use cubecl::prelude::*;
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
-    LoadingPrecomputeStrategy, MatmulPrecision, MatmulSelection, StageSize, TilingScheme,
+    LhsG, LoadingPrecomputeStrategy, MatmulElems, MatmulPrecision, MatmulSelection, RhsG,
+    StageSize, TilingScheme,
 };
 use cubecl_matmul::kernels::layered::double_buffering::DoubleBufferingArgs;
 use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
@@ -15,6 +16,9 @@ use cubecl_matmul::kernels::layered::{
 };
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
 use cubecl_matmul::{self as matmul};
+use cubecl_matmul::{
+    self as matmul, MatmulInputHandle, SyncLoadingStrategy, SyncPartialLoadingStrategy,
+};
 use cubecl_matmul::{self as matmul, SyncLoadingStrategy, SyncPartialLoadingStrategy};
 use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
 use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
@@ -29,62 +33,52 @@ use cubecl_std::tensor::TensorHandle;
 use cubecl_random::random_uniform;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Output = ();
     type Input = (
-        TensorHandle<R, MP::EI>,
-        Option<TensorHandle<R, f32>>,
-        TensorHandle<R, MP::EI>,
-        Option<TensorHandle<R, f32>>,
+        MatmulInputHandle<R, LhsG<MP>>,
+        MatmulInputHandle<R, RhsG<MP>>,
     );
+    type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let mut lhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.m, self.k]);
+        let mut lhs = TensorHandle::<R, LhsG<MP>>::empty(&client, vec![self.b, self.m, self.k]);
         if self.tl {
             let len = lhs.shape.len();
             lhs.strides.swap(len - 2, len - 1);
         }
-        random_uniform::<R, MP::EI>(
+        random_uniform::<R, LhsG<MP>>(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            LhsG::<MP>::from_int(0),
+            LhsG::<MP>::from_int(1),
             lhs.as_ref(),
         );
 
-        let mut rhs = TensorHandle::<R, MP::EI>::empty(&client, vec![self.b, self.k, self.n]);
+        let mut rhs = TensorHandle::<R, RhsG<MP>>::empty(&client, vec![self.b, self.k, self.n]);
 
         if self.tr {
             let len = rhs.shape.len();
             rhs.strides.swap(len - 2, len - 1);
         }
 
-        random_uniform::<R, MP::EI>(
+        random_uniform::<R, RhsG<MP>>(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            RhsG::<MP>::from_int(0),
+            RhsG::<MP>::from_int(1),
             rhs.as_ref(),
         );
 
-        (lhs, None, rhs, None)
+        (
+            MatmulInputHandle::Normal(lhs),
+            MatmulInputHandle::Normal(rhs),
+        )
     }
 
-    fn execute(
-        &self,
-        (lhs, lhs_scale, rhs, rhs_scale): Self::Input,
-    ) -> Result<Self::Output, String> {
+    fn execute(&self, (lhs, rhs): Self::Input) -> Result<Self::Output, String> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        match matmul::launch::<R, MP>(
-            &self.strategy,
-            &self.client,
-            lhs,
-            lhs_scale,
-            rhs,
-            rhs_scale,
-            out,
-        ) {
+        match matmul::launch::<R, MP>(&self.strategy, &self.client, lhs, rhs, out) {
             Ok(_) => Ok(()),
             Err(err) => Err(format!("{err:?}")),
         }
@@ -93,14 +87,19 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     fn name(&self) -> String {
         let client = R::client(&self.device);
 
+        let matmul_elems = MatmulElems::new::<MP>();
+
         format!(
-            "{}-matmul{}-{}-{}-{}-{}-{:?}",
+            "{}-matmul-Lhs<{}-{}-{}>-Rhs<{}-{}-{}>-{}-{}-{:?}",
             R::name(&client),
-            if MP::QUANTIZED { "-quantized" } else { "" },
-            MP::EI::as_elem_native_unchecked(),
-            MP::ES::as_elem_native_unchecked(),
-            MP::EA::as_elem_native_unchecked(),
-            MP::EO::as_elem_native_unchecked(),
+            matmul_elems.lhs_global,
+            matmul_elems.lhs_stage,
+            matmul_elems.lhs_register,
+            matmul_elems.rhs_global,
+            matmul_elems.rhs_stage,
+            matmul_elems.rhs_register,
+            matmul_elems.acc,
+            matmul_elems.out,
             self.strategy
         )
         .to_lowercase()

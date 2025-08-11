@@ -82,7 +82,7 @@ impl MlirEngine {
             self.0
                 .execution_engine
                 .invoke_packed("kernel", &mut mlir_data.args_second_indirection)
-                .unwrap()
+                .unwrap();
         }
     }
 }

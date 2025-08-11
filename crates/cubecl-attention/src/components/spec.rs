@@ -39,7 +39,12 @@ pub trait AttentionPrecision: Send + Sync + Copy + 'static {
     /// Element type of the output tensor of the kernel.
     type EO: Float;
 
-    type MatmulPrecision: MatmulPrecision<EI = Self::EI, ES = Self::ES, EA = Self::EA, EO = Self::EO>;
+    type MatmulPrecision: MatmulPrecision<
+            Lhs = (Self::EI, Self::ES),
+            Rhs = (Self::EI, Self::ES),
+            EA = Self::EA,
+            EO = Self::EO,
+        >;
 }
 
 impl AttentionPrecision for f16 {
@@ -105,7 +110,7 @@ impl<AP: AttentionPrecision, ES: Float> AttentionPrecision for ReplaceES<AP, ES>
     type ES = ES;
     type EA = AP::EA;
     type EO = AP::EO;
-    type MatmulPrecision = (Self::EI, ES, Self::EA, Self::EO);
+    type MatmulPrecision = (Self::EI, Self::EI, ES, ES, Self::EA, Self::EO);
 }
 
 impl<EI: Float, EM: Numeric, ES: Float, EA: Float, EO: Float> AttentionPrecision
@@ -116,7 +121,7 @@ impl<EI: Float, EM: Numeric, ES: Float, EA: Float, EO: Float> AttentionPrecision
     type ES = ES;
     type EA = EA;
     type EO = EO;
-    type MatmulPrecision = (EI, ES, EA, EO);
+    type MatmulPrecision = (EI, EI, ES, ES, EA, EO);
 }
 
 /// Input argument

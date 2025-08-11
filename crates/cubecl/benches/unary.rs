@@ -24,6 +24,7 @@ fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
 
 impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     type Input = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
+    type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
@@ -72,7 +73,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args))
+        self.client.profile(|| self.execute(args), "unary-bench")
     }
 }
 

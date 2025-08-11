@@ -7,17 +7,17 @@ use cubecl_std::{
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
-use super::Quantization;
-use crate::components::{self, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSelection};
+use crate::{
+    MatmulInputHandleRef,
+    components::{self, MatmulLineSizes, MatmulProblem, MatmulSelection},
+};
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteInputsFactory: LaunchArg {
     fn create<'a, R: Runtime>(
-        lhs: &'a TensorHandleRef<'a, R>,
-        lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        rhs: &'a TensorHandleRef<'a, R>,
-        rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
+        lhs: &'a MatmulInputHandleRef<'a, R>,
+        rhs: &'a MatmulInputHandleRef<'a, R>,
         selection: &MatmulSelection,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
@@ -39,92 +39,119 @@ pub trait ConcreteOutputFactory: LaunchArg {
 /// Arguments for the matrix multiplication algorithm.
 pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input<EI: Numeric>: LaunchArg + CubeType;
+    type Input<Lhs: Numeric, Rhs: Numeric>: LaunchArg + CubeType;
     /// Type used for the output.
     type Output<EO: Numeric>: LaunchArg + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
     /// [tensor outputs](TensorOutput) .
-    type State<EI: Numeric, EO: Numeric>: CubeType;
+    type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric>: CubeType;
 
     /// Init the state.
-    fn init_state<EI: Numeric, EO: Numeric>(
-        input: &Self::Input<EI>,
+    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        input: &Self::Input<Lhs, Rhs>,
         output: &mut Self::Output<EO>,
-    ) -> Self::State<EI, EO>;
+    ) -> Self::State<Lhs, Rhs, EO>;
 
     /// Read the line of the lhs tensor using the state at the given coordinate.
-    fn read_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, coordinate: u32)
-    -> Line<EI>;
+    fn read_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        coordinate: u32,
+    ) -> Line<Lhs>;
     /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, coordinate: u32)
-    -> Line<EI>;
+    fn read_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        coordinate: u32,
+    ) -> Line<Rhs>;
 
     /// Read the line of the lhs tensor using the state at the given coordinate.
-    fn read_window_lhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_window_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         start: u32,
         end: u32,
-    ) -> Slice<Line<EI>>;
+    ) -> Slice<Line<Lhs>>;
 
     /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_window_rhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_window_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         start: u32,
         end: u32,
-    ) -> Slice<Line<EI>>;
+    ) -> Slice<Line<Rhs>>;
 
     /// Reinterpret lhs as tensor map
-    fn as_tensor_map_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
+    fn as_tensor_map_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> TensorMap<Lhs>;
 
     /// Reinterpret rhs as tensor map
-    fn as_tensor_map_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI>;
+    fn as_tensor_map_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> TensorMap<Rhs>;
 
     /// Write the line to the output at the given coordinate using the state.
-    fn write_out<EI: Numeric, EO: Numeric>(
-        state: &mut Self::State<EI, EO>,
+    fn write_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &mut Self::State<Lhs, Rhs, EO>,
         coordinate: u32,
         value: Line<EO>,
     );
 
     /// Get the rank of the lhs tensor using the state.
-    fn rank_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn rank_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32;
     /// Get the rank of the rhs tensor using the state.
-    fn rank_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn rank_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32;
     /// Get the rank of the out tensor using the state.
-    fn rank_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn rank_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32;
 
     /// Get the length of the lhs tensor using the state.
-    fn len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn len_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32;
     /// Get the length of the rhs tensor using the state.
-    fn len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn len_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32;
     /// Get the length of the out tensor using the state.
-    fn len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn len_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32;
 
     /// Get the buffer length of the lhs tensor using the state.
-    fn buffer_len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn buffer_len_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32;
     /// Get the buffer length of the rhs tensor using the state.
-    fn buffer_len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn buffer_len_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32;
     /// Get the buffer length of the out tensor using the state.
-    fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32;
+    fn buffer_len_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32;
 
     /// Get the shape of the lhs tensor using the state.
-    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    fn shape_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        axis: u32,
+    ) -> u32;
     /// Get the shape of the rhs tensor using the state.
-    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    fn shape_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        axis: u32,
+    ) -> u32;
     /// Get the shape of the out tensor using the state.
-    fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    fn shape_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        axis: u32,
+    ) -> u32;
 
     /// Get the stride of the lhs tensor using the state.
-    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    fn stride_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        axis: u32,
+    ) -> u32;
     /// Get the stride of the rhs tensor using the state.
-    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+    fn stride_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        axis: u32,
+    ) -> u32;
     /// Get the stride of the out tensor using the state.
-    fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
-
-    /// It is the responsibility of the caller to ensure it is safe to call this function.
-    /// That is, when a matmul is indeed quantized. Else, it will most likely results in
-    /// out-of-bound memory access.
-    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP>;
+    fn stride_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        axis: u32,
+    ) -> u32;
 }
 
 #[derive(Clone, Copy)]
@@ -137,23 +164,34 @@ pub enum TensorInputIdent {
 /// Tensor input representation.
 ///
 /// You can use the tensor input as if it was a pointer to the actually tensor.
-pub struct TensorInput<EI: Numeric, EO: Numeric, GA: MatmulArgs> {
-    state: *const GA::State<EI, EO>,
-    ident: TensorInputIdent,
+pub struct TensorLhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> {
+    state: *const GA::State<Lhs, Rhs, EO>,
 }
 
-impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperations<EI>
-    for TensorInput<EI, EO, MA>
+/// Tensor input representation.
+///
+/// You can use the tensor input as if it was a pointer to the actually tensor.
+pub struct TensorRhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> {
+    state: *const GA::State<Lhs, Rhs, EO>,
+}
+
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperations<Lhs>
+    for TensorLhs<Lhs, Rhs, EO, MA>
 {
 }
 
-impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperations<EO>
-    for TensorOutput<EI, EO, MA>
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperations<Rhs>
+    for TensorRhs<Lhs, Rhs, EO, MA>
 {
 }
 
-impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EO>
-    for TensorOutputExpand<EI, EO, MA>
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperations<EO>
+    for TensorOutput<Lhs, Rhs, EO, MA>
+{
+}
+
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EO>
+    for TensorOutputExpand<Lhs, Rhs, EO, MA>
 {
     fn __expand_read_method(
         &self,
@@ -217,30 +255,30 @@ impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EO>
     }
 }
 
-impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EI>
-    for TensorInputExpand<EI, EO, MA>
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<Lhs>
+    for TensorLhsExpand<Lhs, Rhs, EO, MA>
 {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Line<EI>> {
-        TensorInputExpand::__expand_read_method(self.clone(), scope, index)
+    ) -> ExpandElementTyped<Line<Lhs>> {
+        TensorLhsExpand::__expand_read_method(self.clone(), scope, index)
     }
     fn __expand_read_window_method(
         &self,
         context: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
-    ) -> SliceExpand<Line<EI>, ReadOnly> {
-        TensorInputExpand::__expand_read_window_method(self.clone(), context, start, end)
+    ) -> SliceExpand<Line<Lhs>, ReadOnly> {
+        TensorLhsExpand::__expand_read_window_method(self.clone(), context, start, end)
     }
 
     fn __expand_write_method(
         &self,
         _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
-        _value: ExpandElementTyped<Line<EI>>,
+        _value: ExpandElementTyped<Line<Lhs>>,
     ) {
         panic!("Can't write to input tensor");
     }
@@ -250,7 +288,7 @@ impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EI>
         scope: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_shape_method(self.clone(), scope, axis)
+        TensorLhsExpand::__expand_shape_method(self.clone(), scope, axis)
     }
 
     fn __expand_stride_method(
@@ -258,26 +296,90 @@ impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EI>
         scope: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_stride_method(self.clone(), scope, axis)
+        TensorLhsExpand::__expand_stride_method(self.clone(), scope, axis)
     }
 
     fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_rank_method(self.clone(), scope)
+        TensorLhsExpand::__expand_rank_method(self.clone(), scope)
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_len_method(self.clone(), scope)
+        TensorLhsExpand::__expand_len_method(self.clone(), scope)
     }
 
     fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_buffer_len_method(self.clone(), scope)
+        TensorLhsExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
     fn __expand_as_tensor_map_method(
         &self,
         scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<EI>> {
-        TensorInputExpand::__expand_as_tensor_map_method(self.clone(), scope)
+    ) -> ExpandElementTyped<TensorMap<Lhs>> {
+        TensorLhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
+    }
+}
+
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<Rhs>
+    for TensorRhsExpand<Lhs, Rhs, EO, MA>
+{
+    fn __expand_read_method(
+        &self,
+        scope: &mut Scope,
+        index: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Line<Rhs>> {
+        TensorRhsExpand::__expand_read_method(self.clone(), scope, index)
+    }
+    fn __expand_read_window_method(
+        &self,
+        context: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> SliceExpand<Line<Rhs>, ReadOnly> {
+        TensorRhsExpand::__expand_read_window_method(self.clone(), context, start, end)
+    }
+
+    fn __expand_write_method(
+        &self,
+        _scope: &mut Scope,
+        _index: ExpandElementTyped<u32>,
+        _value: ExpandElementTyped<Line<Rhs>>,
+    ) {
+        panic!("Can't write to input tensor");
+    }
+
+    fn __expand_shape_method(
+        &self,
+        scope: &mut Scope,
+        axis: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<u32> {
+        TensorRhsExpand::__expand_shape_method(self.clone(), scope, axis)
+    }
+
+    fn __expand_stride_method(
+        &self,
+        scope: &mut Scope,
+        axis: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<u32> {
+        TensorRhsExpand::__expand_stride_method(self.clone(), scope, axis)
+    }
+
+    fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorRhsExpand::__expand_rank_method(self.clone(), scope)
+    }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorRhsExpand::__expand_len_method(self.clone(), scope)
+    }
+
+    fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorRhsExpand::__expand_buffer_len_method(self.clone(), scope)
+    }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<Rhs>> {
+        TensorRhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
 
@@ -288,118 +390,128 @@ impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EI>
 /// # Warning
 ///
 /// There is no mutability guarantee.
-pub struct TensorOutput<EI: Numeric, EO: Numeric, GA: MatmulArgs> {
-    state: *mut GA::State<EI, EO>,
+pub struct TensorOutput<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> {
+    state: *mut GA::State<Lhs, Rhs, EO>,
 }
 
-/// Expand type for [tensor input](TensorInput).
-pub struct TensorInputExpand<EI: Numeric, EO: Numeric, GA: MatmulArgs> {
-    state: <GA::State<EI, EO> as CubeType>::ExpandType,
-    ident: TensorInputIdent,
+/// Expand type for [tensor lhs](TensorLhs).
+pub struct TensorLhsExpand<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> {
+    state: <GA::State<Lhs, Rhs, EO> as CubeType>::ExpandType,
+}
+
+/// Expand type for [tensor rhs](TensorRhs).
+pub struct TensorRhsExpand<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> {
+    state: <GA::State<Lhs, Rhs, EO> as CubeType>::ExpandType,
 }
 
 /// Expand type for [tensor output](TensorOutput).
-pub struct TensorOutputExpand<EI: Numeric, EO: Numeric, GA: MatmulArgs> {
-    state: <GA::State<EI, EO> as CubeType>::ExpandType,
+pub struct TensorOutputExpand<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> {
+    state: <GA::State<Lhs, Rhs, EO> as CubeType>::ExpandType,
 }
 
 #[cube]
-impl<EI: Numeric, EO: Numeric, MA: MatmulArgs> TensorInput<EI, EO, MA> {
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorLhs<Lhs, Rhs, EO, MA> {
     /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
-    pub fn new(
-        state: &MA::State<EI, EO>,
-        #[comptime] ident: TensorInputIdent,
-    ) -> TensorInput<EI, EO, MA> {
-        TensorInput::<EI, EO, MA> { state, ident }
+    pub fn new(state: &MA::State<Lhs, Rhs, EO>) -> TensorLhs<Lhs, Rhs, EO, MA> {
+        TensorLhs::<Lhs, Rhs, EO, MA> { state }
     }
 
     //// Read the tensor at the given coordinate.
-    pub fn read_window(&self, start: u32, end: u32) -> Slice<Line<EI>> {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::read_window_lhs(&(*self.state), start, end),
-                TensorInputIdent::Rhs => MA::read_window_rhs(&(*self.state), start, end),
-            }
-        }
+    pub fn read_window(&self, start: u32, end: u32) -> Slice<Line<Lhs>> {
+        unsafe { MA::read_window_lhs(&(*self.state), start, end) }
     }
 
     /// Read the tensor at the given coordinate.
-    pub fn read(&self, coordinate: u32) -> Line<EI> {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::read_lhs(&(*self.state), coordinate),
-                TensorInputIdent::Rhs => MA::read_rhs(&(*self.state), coordinate),
-            }
-        }
+    pub fn read(&self, coordinate: u32) -> Line<Lhs> {
+        unsafe { MA::read_lhs(&(*self.state), coordinate) }
     }
 
     /// Get the shape of the tensor at the given axis.
     pub fn shape(&self, axis: u32) -> u32 {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::shape_lhs(&(*self.state), axis),
-                TensorInputIdent::Rhs => MA::shape_rhs(&(*self.state), axis),
-            }
-        }
+        unsafe { MA::shape_lhs(&(*self.state), axis) }
     }
 
     /// Get the stride of the tensor at the given axis.
     pub fn stride(&self, axis: u32) -> u32 {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::stride_lhs(&(*self.state), axis),
-                TensorInputIdent::Rhs => MA::stride_rhs(&(*self.state), axis),
-            }
-        }
+        unsafe { MA::stride_lhs(&(*self.state), axis) }
     }
 
     /// Get the rank of the tensor.
     pub fn rank(&self) -> u32 {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::rank_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::rank_rhs(&(*self.state)),
-            }
-        }
+        unsafe { MA::rank_lhs(&(*self.state)) }
     }
 
     /// Get the length of the tensor.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::len_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::len_rhs(&(*self.state)),
-            }
-        }
+        unsafe { MA::len_lhs(&(*self.state)) }
     }
 
     /// Get the buffer length of the tensor.
     pub fn buffer_len(&self) -> u32 {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::buffer_len_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::buffer_len_rhs(&(*self.state)),
-            }
-        }
+        unsafe { MA::buffer_len_lhs(&(*self.state)) }
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<EI> {
-        unsafe {
-            match comptime![&self.ident] {
-                TensorInputIdent::Lhs => MA::as_tensor_map_lhs(&(*self.state)),
-                TensorInputIdent::Rhs => MA::as_tensor_map_rhs(&(*self.state)),
-            }
-        }
+    pub fn as_tensor_map(&self) -> TensorMap<Lhs> {
+        unsafe { MA::as_tensor_map_lhs(&(*self.state)) }
     }
 }
 
 #[cube]
-impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> TensorOutput<EI, EO, GA> {
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorRhs<Lhs, Rhs, EO, MA> {
+    /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
+    pub fn new(state: &MA::State<Lhs, Rhs, EO>) -> TensorRhs<Lhs, Rhs, EO, MA> {
+        TensorRhs::<Lhs, Rhs, EO, MA> { state }
+    }
+
+    //// Read the tensor at the given coordinate.
+    pub fn read_window(&self, start: u32, end: u32) -> Slice<Line<Rhs>> {
+        unsafe { MA::read_window_rhs(&(*self.state), start, end) }
+    }
+
+    /// Read the tensor at the given coordinate.
+    pub fn read(&self, coordinate: u32) -> Line<Rhs> {
+        unsafe { MA::read_rhs(&(*self.state), coordinate) }
+    }
+
+    /// Get the shape of the tensor at the given axis.
+    pub fn shape(&self, axis: u32) -> u32 {
+        unsafe { MA::shape_rhs(&(*self.state), axis) }
+    }
+
+    /// Get the stride of the tensor at the given axis.
+    pub fn stride(&self, axis: u32) -> u32 {
+        unsafe { MA::stride_rhs(&(*self.state), axis) }
+    }
+
+    /// Get the rank of the tensor.
+    pub fn rank(&self) -> u32 {
+        unsafe { MA::rank_rhs(&(*self.state)) }
+    }
+
+    /// Get the length of the tensor.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        unsafe { MA::len_rhs(&(*self.state)) }
+    }
+
+    /// Get the buffer length of the tensor.
+    pub fn buffer_len(&self) -> u32 {
+        unsafe { MA::buffer_len_rhs(&(*self.state)) }
+    }
+
+    /// Get the buffer length of the tensor.
+    pub fn as_tensor_map(&self) -> TensorMap<Rhs> {
+        unsafe { MA::as_tensor_map_rhs(&(*self.state)) }
+    }
+}
+
+#[cube]
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> TensorOutput<Lhs, Rhs, EO, GA> {
     /// Create a [tensor output](TensorOutput) from the state.
-    pub fn new(state: &mut GA::State<EI, EO>) -> TensorOutput<EI, EO, GA> {
-        TensorOutput::<EI, EO, GA> { state }
+    pub fn new(state: &mut GA::State<Lhs, Rhs, EO>) -> TensorOutput<Lhs, Rhs, EO, GA> {
+        TensorOutput::<Lhs, Rhs, EO, GA> { state }
     }
 
     /// Write the value to tensor at the given coordinate.
@@ -442,30 +554,28 @@ pub struct TensorArgs;
 
 #[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
-pub struct TensorInputs<EG: Numeric> {
+pub struct TensorInputs<Lhs: Numeric, Rhs: Numeric> {
     /// The lhs tensor.
-    pub lhs: Tensor<Line<EG>>,
+    pub lhs: Tensor<Line<Lhs>>,
     pub lhs_scale: CubeOption<Tensor<f32>>,
     /// The rhs tensor.
-    pub rhs: Tensor<Line<EG>>,
+    pub rhs: Tensor<Line<Rhs>>,
     pub rhs_scale: CubeOption<Tensor<f32>>,
 }
 
-impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
+impl<Lhs: Numeric, Rhs: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs> {
     fn create<'a, R: Runtime>(
-        lhs: &'a TensorHandleRef<'a, R>,
-        lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        rhs: &'a TensorHandleRef<'a, R>,
-        rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
+        lhs: &'a MatmulInputHandleRef<'a, R>,
+        rhs: &'a MatmulInputHandleRef<'a, R>,
         _selection: &MatmulSelection,
         _problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
-            lhs.as_tensor_arg(line_sizes.lhs),
-            lhs_scale.as_ref().map(|it| it.as_tensor_arg(1)).into(),
-            rhs.as_tensor_arg(line_sizes.rhs),
-            rhs_scale.as_ref().map(|it| it.as_tensor_arg(1)).into(),
+            lhs.data().as_tensor_arg(line_sizes.lhs),
+            lhs.scale().map(|it| it.as_tensor_arg(1)).into(),
+            rhs.data().as_tensor_arg(line_sizes.rhs),
+            rhs.scale().map(|it| it.as_tensor_arg(1)).into(),
         )
     }
 }
@@ -484,19 +594,19 @@ impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
 #[cube]
 impl MatmulArgs for TensorArgs {
     type Output<EO: Numeric> = Tensor<Line<EO>>;
-    type Input<EI: Numeric> = TensorInputs<EI>;
-    type State<EI: Numeric, EO: Numeric> = (
-        *const Tensor<Line<EI>>,
-        *const Tensor<Line<EI>>,
+    type Input<Lhs: Numeric, Rhs: Numeric> = TensorInputs<Lhs, Rhs>;
+    type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = (
+        *const Tensor<Line<Lhs>>,
+        *const Tensor<Line<Rhs>>,
         *mut Tensor<Line<EO>>,
         CubeOption<f32>,
         CubeOption<f32>,
     );
 
-    fn init_state<EI: Numeric, EO: Numeric>(
-        input: &Self::Input<EI>,
+    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        input: &Self::Input<Lhs, Rhs>,
         output: &mut Self::Output<EO>,
-    ) -> Self::State<EI, EO> {
+    ) -> Self::State<Lhs, Rhs, EO> {
         let lhs_scale = match &input.lhs_scale {
             CubeOption::Some(scale) => CubeOption::new_Some(scale[0]),
             CubeOption::None => CubeOption::new_None(),
@@ -508,129 +618,143 @@ impl MatmulArgs for TensorArgs {
         (&input.lhs, &input.rhs, output, lhs_scale, rhs_scale)
     }
 
-    fn read_lhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         coordinate: u32,
-    ) -> Line<EI> {
+    ) -> Line<Lhs> {
         unsafe { (*state.0)[coordinate] }
     }
 
-    fn read_rhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         coordinate: u32,
-    ) -> Line<EI> {
+    ) -> Line<Rhs> {
         unsafe { (*state.1)[coordinate] }
     }
 
-    fn read_window_lhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_window_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         start: u32,
         end: u32,
-    ) -> Slice<Line<EI>> {
+    ) -> Slice<Line<Lhs>> {
         unsafe { (*state.0).slice(start, end) }
     }
 
     /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_window_rhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_window_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         start: u32,
         end: u32,
-    ) -> Slice<Line<EI>> {
+    ) -> Slice<Line<Rhs>> {
         unsafe { (*state.1).slice(start, end) }
     }
 
-    fn as_tensor_map_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> TensorMap<EI> {
+    fn as_tensor_map_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> TensorMap<Lhs> {
         comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
         #[allow(unreachable_code)]
         TensorMap::dummy()
     }
 
-    fn as_tensor_map_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> TensorMap<EI> {
+    fn as_tensor_map_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> TensorMap<Rhs> {
         comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
         #[allow(unreachable_code)]
         TensorMap::dummy()
     }
 
-    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn shape_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.0).shape(dim) }
     }
 
-    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn shape_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.1).shape(dim) }
     }
 
-    fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn shape_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.2).shape(dim) }
     }
 
-    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn stride_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.0).stride(dim) }
     }
 
-    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn stride_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.1).stride(dim) }
     }
 
-    fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn stride_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.2).stride(dim) }
     }
 
-    fn write_out<EI: Numeric, EO: Numeric>(
-        state: &mut Self::State<EI, EO>,
+    fn write_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &mut Self::State<Lhs, Rhs, EO>,
         coordinate: u32,
         value: Line<EO>,
     ) {
         unsafe { (*state.2)[coordinate] = value }
     }
 
-    fn rank_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn rank_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.0).rank() }
     }
 
-    fn rank_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn rank_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.1).rank() }
     }
 
-    fn rank_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn rank_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.2).rank() }
     }
 
-    fn len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn len_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.0).len() }
     }
 
-    fn len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn len_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.1).len() }
     }
 
-    fn len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn len_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.2).len() }
     }
 
-    fn buffer_len_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn buffer_len_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unsafe { (*state.0).buffer_len() }
     }
 
-    fn buffer_len_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn buffer_len_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unsafe { (*state.1).buffer_len() }
     }
 
-    fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn buffer_len_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unsafe { (*state.2).buffer_len() }
-    }
-
-    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
-        // TODO Currently, this assume that the scaling is always the last value in the buffer.
-        //      Also, in burn the scaling is presently fix to f32, hence the extra conversions.
-
-        let (_, _, _, scaling_lhs, scaling_rhs) = *state;
-        let scaling_lhs = scaling_lhs.unwrap();
-        let scaling_rhs = scaling_rhs.unwrap();
-
-        Quantization::<MP> {
-            scaling_lhs: MP::ES::cast_from(scaling_lhs),
-            scaling_rhs: MP::ES::cast_from(scaling_rhs),
-        }
     }
 }
 
@@ -642,23 +766,24 @@ pub struct TensorMapArgs;
 
 #[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
-pub struct TensorMapInputs<EG: Numeric> {
+pub struct TensorMapInputs<Lhs: Numeric, Rhs: Numeric> {
     /// The lhs tensor.
-    pub lhs: TensorMap<EG>,
+    pub lhs: TensorMap<Lhs>,
     /// The rhs tensor.
-    pub rhs: TensorMap<EG>,
+    pub rhs: TensorMap<Rhs>,
 }
 
-impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
+impl<Lhs: Numeric, Rhs: Numeric> ConcreteInputsFactory for TensorMapInputs<Lhs, Rhs> {
     fn create<'a, R: Runtime>(
-        lhs: &'a TensorHandleRef<'a, R>,
-        _lhs_scale: &'a Option<TensorHandleRef<'a, R>>,
-        rhs: &'a TensorHandleRef<'a, R>,
-        _rhs_scale: &'a Option<TensorHandleRef<'a, R>>,
+        lhs_handle: &'a MatmulInputHandleRef<'a, R>,
+        rhs_handle: &'a MatmulInputHandleRef<'a, R>,
         selection: &MatmulSelection,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
+        let lhs = lhs_handle.data();
+        let rhs = rhs_handle.data();
+
         let tiling_scheme = selection.tiling_scheme;
         let stage_m = tiling_scheme.elements_in_stage_m();
         let stage_n = tiling_scheme.elements_in_stage_n();
@@ -680,7 +805,8 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
             }
         };
 
-        let elem_size = size_of::<EG>();
+        let lhs_elem_size = size_of::<Lhs>();
+        let rhs_elem_size = size_of::<Rhs>();
 
         let lhs_rank = lhs.shape.len();
         let mut lhs_shape = vec![
@@ -726,15 +852,20 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
             }
         }
 
-        let prefetch_lhs = prefetch(stage_size_lhs[2] as usize * elem_size);
-        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * elem_size);
+        let prefetch_lhs = prefetch(stage_size_lhs[2] as usize * lhs_elem_size);
+        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * rhs_elem_size);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
-        let elem = if TypeId::of::<EG>() == TypeId::of::<f32>() {
+        let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
             tf32::as_elem_native_unchecked()
         } else {
-            EG::as_elem_native_unchecked()
+            Lhs::as_elem_native_unchecked()
+        };
+        let rhs_elem = if TypeId::of::<Rhs>() == TypeId::of::<f32>() {
+            tf32::as_elem_native_unchecked()
+        } else {
+            Rhs::as_elem_native_unchecked()
         };
 
         let meta_lhs = TensorMapMeta {
@@ -749,7 +880,7 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
             swizzle: TensorMapSwizzle::None,
             prefetch: prefetch_lhs,
             oob_fill: OobFill::Zero,
-            elem,
+            elem: lhs_elem,
         };
 
         let meta_rhs = TensorMapMeta {
@@ -764,7 +895,7 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
             swizzle: TensorMapSwizzle::None,
             prefetch: prefetch_rhs,
             oob_fill: OobFill::Zero,
-            elem,
+            elem: rhs_elem,
         };
 
         let lhs = TensorMapArg {
@@ -782,184 +913,271 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
 
 #[cube]
 impl MatmulArgs for TensorMapArgs {
-    type Input<EI: Numeric> = TensorMapInputs<EI>;
+    type Input<Lhs: Numeric, Rhs: Numeric> = TensorMapInputs<Lhs, Rhs>;
     type Output<EO: Numeric> = Tensor<Line<EO>>;
-    type State<EI: Numeric, EO: Numeric> = (
-        *const TensorMap<EI>,
-        *const TensorMap<EI>,
+    type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = (
+        *const TensorMap<Lhs>,
+        *const TensorMap<Rhs>,
         *mut Tensor<Line<EO>>,
     );
 
-    fn init_state<EI: Numeric, EO: Numeric>(
-        input: &Self::Input<EI>,
+    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        input: &Self::Input<Lhs, Rhs>,
         output: &mut Self::Output<EO>,
-    ) -> Self::State<EI, EO> {
+    ) -> Self::State<Lhs, Rhs, EO> {
         (&input.lhs, &input.rhs, output)
     }
 
-    fn read_lhs<EI: Numeric, EO: Numeric>(
-        _state: &Self::State<EI, EO>,
+    fn read_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
         _coordinate: u32,
-    ) -> Line<EI> {
+    ) -> Line<Lhs> {
         unimplemented!("Can't directly read from TensorMap")
     }
 
-    fn read_rhs<EI: Numeric, EO: Numeric>(
-        _state: &Self::State<EI, EO>,
+    fn read_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
         _coordinate: u32,
-    ) -> Line<EI> {
+    ) -> Line<Rhs> {
         unimplemented!("Can't directly read from TensorMap")
     }
 
     #[allow(unused)]
-    fn read_window_lhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_window_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         start: u32,
         end: u32,
-    ) -> Slice<Line<EI>> {
+    ) -> Slice<Line<Lhs>> {
         unimplemented!("Can't directly read from TensorMap")
     }
 
     /// Read the line of the rhs tensor using the state at the given coordinate.
     #[allow(unused)]
-    fn read_window_rhs<EI: Numeric, EO: Numeric>(
-        state: &Self::State<EI, EO>,
+    fn read_window_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
         start: u32,
         end: u32,
-    ) -> Slice<Line<EI>> {
+    ) -> Slice<Line<Rhs>> {
         unimplemented!("Can't directly read from TensorMap")
     }
 
-    fn as_tensor_map_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI> {
+    fn as_tensor_map_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> TensorMap<Lhs> {
         unsafe { *state.0 }
     }
 
-    fn as_tensor_map_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI> {
+    fn as_tensor_map_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> TensorMap<Rhs> {
         unsafe { *state.1 }
     }
 
-    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn shape_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.0).shape(dim) }
     }
 
-    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn shape_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { (*state.1).shape(dim) }
     }
 
-    fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn shape_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { &*state.2 }.shape(dim)
     }
 
-    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn stride_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { &*state.0 }.stride(dim)
     }
 
-    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn stride_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { &*state.1 }.stride(dim)
     }
 
-    fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+    fn stride_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+        dim: u32,
+    ) -> u32 {
         unsafe { &*state.2 }.stride(dim)
     }
 
-    fn write_out<EI: Numeric, EO: Numeric>(
-        state: &mut Self::State<EI, EO>,
+    fn write_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &mut Self::State<Lhs, Rhs, EO>,
         coordinate: u32,
         value: Line<EO>,
     ) {
         unsafe { (*state.2)[coordinate] = value }
     }
 
-    fn rank_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
+    fn rank_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unimplemented!("Can't read metadata from TensorMap")
     }
 
-    fn rank_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
+    fn rank_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unimplemented!("Can't read metadata from TensorMap")
     }
 
-    fn rank_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn rank_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.2).rank() }
     }
 
-    fn len_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
+    fn len_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(_state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unimplemented!("Can't read metadata from TensorMap")
     }
 
-    fn len_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
+    fn len_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(_state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unimplemented!("Can't read metadata from TensorMap")
     }
 
-    fn len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn len_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(state: &Self::State<Lhs, Rhs, EO>) -> u32 {
         unsafe { (*state.2).len() }
     }
 
-    fn buffer_len_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
+    fn buffer_len_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unimplemented!("Can't read metadata from TensorMap")
     }
 
-    fn buffer_len_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
+    fn buffer_len_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unimplemented!("Can't read metadata from TensorMap")
     }
 
-    fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
+    fn buffer_len_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> u32 {
         unsafe { (*state.2).buffer_len() }
-    }
-
-    fn quantization<MP: MatmulPrecision>(_state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
-        todo!("Quantized TMA not yet supported")
     }
 }
 
-mod __input {
+mod __lhs {
     use super::*;
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> CubeType for TensorInput<EI, EO, GA> {
-        type ExpandType = TensorInputExpand<EI, EO, GA>;
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> CubeType
+        for TensorLhs<Lhs, Rhs, EO, GA>
+    {
+        type ExpandType = TensorLhsExpand<Lhs, Rhs, EO, GA>;
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Clone for TensorInputExpand<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Clone
+        for TensorLhsExpand<Lhs, Rhs, EO, GA>
+    {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                ident: self.ident,
             }
         }
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> IntoMut for TensorInputExpand<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> IntoMut
+        for TensorLhsExpand<Lhs, Rhs, EO, GA>
+    {
         fn into_mut(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.into_mut(scope);
             self
         }
     }
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug for TensorInputExpand<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug
+        for TensorLhsExpand<Lhs, Rhs, EO, GA>
+    {
         fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
             self.state.set_debug_name(scope, name);
         }
     }
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Clone for TensorInput<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Clone
+        for TensorLhs<Lhs, Rhs, EO, GA>
+    {
         fn clone(&self) -> Self {
             *self
         }
     }
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Copy for TensorInput<EI, EO, GA> {}
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Copy for TensorLhs<Lhs, Rhs, EO, GA> {}
+}
+
+mod __rhs {
+    use super::*;
+
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> CubeType
+        for TensorRhs<Lhs, Rhs, EO, GA>
+    {
+        type ExpandType = TensorRhsExpand<Lhs, Rhs, EO, GA>;
+    }
+
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Clone
+        for TensorRhsExpand<Lhs, Rhs, EO, GA>
+    {
+        fn clone(&self) -> Self {
+            Self {
+                state: self.state.clone(),
+            }
+        }
+    }
+
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> IntoMut
+        for TensorRhsExpand<Lhs, Rhs, EO, GA>
+    {
+        fn into_mut(mut self, scope: &mut Scope) -> Self {
+            self.state = self.state.into_mut(scope);
+            self
+        }
+    }
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug
+        for TensorRhsExpand<Lhs, Rhs, EO, GA>
+    {
+        fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+            self.state.set_debug_name(scope, name);
+        }
+    }
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Clone
+        for TensorRhs<Lhs, Rhs, EO, GA>
+    {
+        fn clone(&self) -> Self {
+            *self
+        }
+    }
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Copy for TensorRhs<Lhs, Rhs, EO, GA> {}
 }
 
 mod __output {
     use super::*;
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> CubeType for TensorOutput<EI, EO, GA> {
-        type ExpandType = TensorOutputExpand<EI, EO, GA>;
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> CubeType
+        for TensorOutput<Lhs, Rhs, EO, GA>
+    {
+        type ExpandType = TensorOutputExpand<Lhs, Rhs, EO, GA>;
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Clone for TensorOutput<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Clone
+        for TensorOutput<Lhs, Rhs, EO, GA>
+    {
         fn clone(&self) -> Self {
             *self
         }
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Clone for TensorOutputExpand<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Clone
+        for TensorOutputExpand<Lhs, Rhs, EO, GA>
+    {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
@@ -967,18 +1185,25 @@ mod __output {
         }
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> IntoMut for TensorOutputExpand<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> IntoMut
+        for TensorOutputExpand<Lhs, Rhs, EO, GA>
+    {
         fn into_mut(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.into_mut(scope);
             self
         }
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug for TensorOutputExpand<EI, EO, GA> {
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug
+        for TensorOutputExpand<Lhs, Rhs, EO, GA>
+    {
         fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
             self.state.set_debug_name(scope, name);
         }
     }
 
-    impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> Copy for TensorOutput<EI, EO, GA> {}
+    impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> Copy
+        for TensorOutput<Lhs, Rhs, EO, GA>
+    {
+    }
 }

@@ -230,14 +230,16 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         {
             match serde_json::from_slice::<Entry<K, V>>(&bytes[start..start + pos]) {
                 Ok(entry) => {
-                    if let Some(insert) = &new_insert {
-                        if result.is_ok() && insert.0 == &entry.key && insert.1 != &entry.value {
-                            result = Err(CacheError::KeyOutOfSync {
-                                key: entry.key.clone(),
-                                value_previous: entry.value.clone(),
-                                value_updated: insert.1.clone(),
-                            })
-                        }
+                    if let Some(insert) = &new_insert
+                        && result.is_ok()
+                        && insert.0 == &entry.key
+                        && insert.1 != &entry.value
+                    {
+                        result = Err(CacheError::KeyOutOfSync {
+                            key: entry.key.clone(),
+                            value_previous: entry.value.clone(),
+                            value_updated: insert.1.clone(),
+                        })
                     }
                     self.in_memory_cache.insert(entry.key, entry.value);
                 }

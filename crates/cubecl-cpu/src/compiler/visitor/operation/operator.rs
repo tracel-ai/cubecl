@@ -91,6 +91,7 @@ impl<'a> Visitor<'a> {
             }
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
+                let condition = self.cast_to_bool(condition, select.cond.item);
                 let (then, or_else) = self.get_binary_op_variable(select.then, select.or_else);
                 let value = self.append_operation_with_result(arith::select(
                     condition,
@@ -112,6 +113,7 @@ impl<'a> Visitor<'a> {
         let vector_type = index.list.item.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
+            // Check llvm extractelement to try supporting dynamic index
             let zero =
                 DenseI64ArrayAttribute::new(self.context, &[Visitor::into_i64(index.index)]).into();
             // Extract operation on vector with dynamic indexes is badly supported by MLIR
