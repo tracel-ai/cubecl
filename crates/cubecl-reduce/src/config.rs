@@ -7,7 +7,6 @@ use cubecl_std::tensor::is_contiguous;
 use crate::ReduceStrategy;
 
 // TODO: Should we allows the user to change that?
-const DEFAULT_CUBE_DIM: CubeDim = CubeDim::new_2d(32, 8);
 const DEFAULT_PLANE_COUNT: u32 = 8;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -177,7 +176,8 @@ impl ReduceConfig {
             let plane_dim = client.properties().hardware.plane_size_min;
             CubeDim::new_2d(plane_dim, DEFAULT_PLANE_COUNT)
         } else {
-            DEFAULT_CUBE_DIM
+            let plane_dim = client.properties().hardware.plane_size_max;
+            CubeDim::new_2d(plane_dim, DEFAULT_PLANE_COUNT)
         };
         self
     }
