@@ -7,9 +7,6 @@ pub use reinterpret_slice::*;
 mod fast_math;
 pub use fast_math::*;
 
-mod quantization;
-pub use quantization::*;
-
 mod option;
 pub use option::*;
 

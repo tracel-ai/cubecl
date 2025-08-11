@@ -20,10 +20,6 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
         self.global_config
     }
 
-    fn quantized(&self) -> bool {
-        self.global_config().quantized()
-    }
-
     fn cube_dim(&self) -> CubeDim {
         self.global_config.cube_dim()
     }

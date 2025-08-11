@@ -10,8 +10,8 @@ use crate::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    AvailableLineSizes, EA, EI, EO, ES, InputRuntimeArg, MatmulIdent, MatmulLineSizes,
-    MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg,
+    AvailableLineSizes, EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulIdent, MatmulLineSizes,
+    MatmulPrecision, MatmulSelection, MatmulSetupError, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     global::{
         AccumulatorLoader, GlobalConfig,
         load::{NoLoadingValidation, SyncFullLoader, sync_full_cyclic},
@@ -45,14 +45,14 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP> for SimpleConvolution<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullStageToTileReader<MP::ES, ConvTilingLayout>,
-            RhsReader = FullStageToTileReader<MP::ES, ConvTilingLayout>,
+            LhsReader = FullStageToTileReader<LhsS<MP>, ConvTilingLayout>,
+            RhsReader = FullStageToTileReader<RhsS<MP>, ConvTilingLayout>,
         >,
 {
-    type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
+    type LhsLoader = SimpleIm2colLoader<MP::Lhs, Self::Config>;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
     type RhsLoader = SyncFullLoader<
-        MP,
+        MP::Rhs,
         Self::Config,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
@@ -117,7 +117,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EI>,
+        lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
@@ -127,21 +127,13 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            0,
-            CubeOption::new_None(),
-            MatmulIdent::Rhs,
-            config,
-        )
+        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
     }
 
     fn init_bias_loader(
@@ -250,7 +242,17 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         );
 
         unsafe {
-            implicit_conv::launch_unchecked::<MS::Args, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+            implicit_conv::launch_unchecked::<
+                MS::Args,
+                LhsG<MS>,
+                RhsG<MS>,
+                LhsS<MS>,
+                RhsS<MS>,
+                EA<MS>,
+                EO<MS>,
+                Self,
+                R,
+            >(
                 client,
                 cube_count,
                 cube_dim,

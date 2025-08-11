@@ -4,7 +4,9 @@ use cubecl_core::ir::{Elem, FloatKind};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{MatmulPrecision, MatrixLayout, StageIdent, TileSize, TilingScheme};
+use crate::components::{
+    LhsR, MatmulElems, MatmulPrecision, MatrixLayout, RhsR, StageIdent, TileSize, TilingScheme,
+};
 use cubecl_core::frontend::CubePrimitive;
 
 /// Execution mode for the RegisterMatmul
@@ -163,25 +165,28 @@ impl RegisterConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let es = MP::ES::as_elem_native().expect("to be a native type");
-        let ea = MP::EA::as_elem_native().expect("to be a native type");
+        let elems = MatmulElems::new::<MP>();
 
-        let es = match es {
+        let lhs = match elems.lhs_register {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => es,
+            _ => elems.lhs_register,
+        };
+        let rhs = match elems.rhs_register {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => elems.rhs_register,
         };
 
-        let ea = match ea {
+        let output = match elems.acc {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => ea,
+            _ => elems.acc,
         };
 
-        if !(MP::ES::is_supported(client) && MP::EA::is_supported(client)) {
+        if !(LhsR::<MP>::is_supported(client)
+            && RhsR::<MP>::is_supported(client)
+            && MP::EA::is_supported(client))
+        {
             return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TypesUnavailable {
-                    input: es,
-                    output: ea,
-                },
+                MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));
         }
 

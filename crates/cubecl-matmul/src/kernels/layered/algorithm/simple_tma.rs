@@ -1,10 +1,10 @@
 use core::marker::PhantomData;
 
-use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::single_stage::tma::SimpleTmaMatmulFamily,
         stage::{FullReaderFamily, PlaneMatmulFamily},
@@ -33,17 +33,9 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         _args: &Self::SelectionArgs,
     ) -> MatmulSelection {
-        plane_matmul_selection::<TMM, R>(
-            client,
-            problem,
-            plane_dim,
-            elem_stage,
-            elem_acc,
-            Default::default(),
-        )
+        plane_matmul_selection::<TMM, R>(client, problem, plane_dim, elems, Default::default())
     }
 }

@@ -2,13 +2,12 @@ use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_std::CubeOption;
 
+use crate::components::MatrixLayout;
 use crate::components::stage::{
     FullStageToTileReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
 };
-use crate::components::{MatmulIdent, StageIdent};
-use crate::components::{MatmulPrecision, MatrixLayout, global::Quantization};
+use crate::components::{InputPrecision, MatmulIdent, StageIdent};
 use crate::components::{
     global::{GlobalConfig, memory::MappedTensorReader},
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageMemory, TilingOrder},
@@ -17,7 +16,7 @@ use crate::components::{
 /// TMA uses contiguous tiling, but with a special tiling order
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
 /// TMA uses standard full stage to tile reader
-pub type TmaReader<MP> = FullStageToTileReader<<MP as MatmulPrecision>::ES, TmaTiling>;
+pub type TmaReader<IP> = FullStageToTileReader<<IP as InputPrecision>::Stage, TmaTiling>;
 
 #[derive(CubeType, Clone, Copy)]
 /// A special tiling order where:
@@ -87,9 +86,9 @@ impl TilingOrder for TmaTilingOrder {
 
 #[derive(CubeType)]
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
-pub struct TmaLoader<MP: MatmulPrecision, G: GlobalConfig> {
-    pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stage: StageMemory<MP::ES, TmaTiling>,
+pub struct TmaLoader<IP: InputPrecision, G: GlobalConfig> {
+    pub tensor_view: MappedTensorReader<IP::Global>,
+    pub stage: StageMemory<IP::Stage, TmaTiling>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
@@ -97,23 +96,16 @@ pub struct TmaLoader<MP: MatmulPrecision, G: GlobalConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
+impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
     /// Create a TmaLoader
     pub fn new(
-        tensor: TensorMap<MP::EI>,
+        tensor: TensorMap<IP::Global>,
         x: u32,
         y: u32,
         batch: u32,
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let stage = StageMemory::new_aligned::<G::StageMemoryConfig>(
             comptime!(ident.into_stage()),
             128u32,
@@ -122,7 +114,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
 
-        TmaLoader::<MP, G> {
+        TmaLoader::<IP, G> {
             tensor_view,
             stage,
             ident,
@@ -131,7 +123,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
     }
 
     /// Fill the full stage memory
-    pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: G) {
+    pub fn fill_stage(this: &mut Self, barrier: &Barrier<IP::Stage>, #[comptime] config: G) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident);
             let stage_ident = comptime!(ident.into_stage());
@@ -171,8 +163,8 @@ impl<MP: MatmulPrecision, G: GlobalConfig> TmaLoader<MP, G> {
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(this: &Self) -> TmaReader<MP> {
-        TmaReader::<MP>::new(this.stage, comptime!(this.ident.into_stage()))
+    pub fn reader(this: &Self) -> TmaReader<IP> {
+        TmaReader::<IP>::new(this.stage, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

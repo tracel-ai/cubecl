@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::Elem;
 
 use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
 use crate::components::global::load::sync_partial_cyclic::SyncPartialCyclicLoading;
@@ -10,7 +9,7 @@ use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmu
 use crate::components::stage::{
     FullReaderFamily, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
-use crate::components::{MatmulProblem, MatmulSelection};
+use crate::components::{MatmulElems, MatmulProblem, MatmulSelection};
 use crate::components::{MultiRowStrategy, tile};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
@@ -45,16 +44,14 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            elem_stage,
-            elem_acc,
+            elems,
             PlaneMatmulSelectionOptions {
                 partition_k: args.partition_k,
                 row_count: args.row_count,

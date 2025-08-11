@@ -3,10 +3,9 @@ use crate::components::global::GlobalMatmulFamily;
 use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
-    AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSelection,
-    MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSetupError,
 };
-use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 
 /// Specifications for a matmul algorithm
@@ -30,8 +29,7 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection;
 

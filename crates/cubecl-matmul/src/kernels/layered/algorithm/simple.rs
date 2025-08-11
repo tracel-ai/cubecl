@@ -1,9 +1,9 @@
-use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem};
+use cubecl_core::{Feature, Runtime, client::ComputeClient};
 use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulProblem, MatmulSelection, MultiRowStrategy, TilingScheme,
+        MatmulElems, MatmulProblem, MatmulSelection, MultiRowStrategy, TilingScheme,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -58,16 +58,15 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        elem_stage: Elem,
-        elem_acc: Elem,
+        elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         if args.multi_rows {
             let supported = |m: u8, n: u8, k: u8| {
                 client.properties().feature_enabled(Feature::Cmma {
-                    a: elem_stage,
-                    b: elem_stage,
-                    c: elem_acc,
+                    a: elems.lhs_register,
+                    b: elems.rhs_register,
+                    c: elems.acc,
                     m,
                     n,
                     k,
@@ -128,8 +127,7 @@ where
                     client,
                     problem,
                     plane_dim,
-                    elem_stage,
-                    elem_acc,
+                    elems,
                     PlaneMatmulSelectionOptions {
                         partition_buffering: Some(PartitionBuffering::Single),
                         multi_row_strategy: MultiRowStrategy::Always(2),
@@ -143,8 +141,7 @@ where
                 client,
                 problem,
                 plane_dim,
-                elem_stage,
-                elem_acc,
+                elems,
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     ..Default::default()

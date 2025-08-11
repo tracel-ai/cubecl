@@ -1,10 +1,10 @@
-use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+use cubecl_core::{Runtime, client::ComputeClient};
 
 use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulProblem, MatmulSelection,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
@@ -54,8 +54,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _elem_stage: Elem,
-        _elem_acc: Elem,
+        _elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> MatmulSelection {
         unit_matmul_selection::<R>(

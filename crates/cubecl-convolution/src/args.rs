@@ -21,7 +21,7 @@ pub trait ConvInputsLaunch: LaunchArg {
     ) -> Self::RuntimeArg<'a, R>;
 }
 
-impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
+impl<Lhs: Numeric, Rhs: Numeric> ConvInputsLaunch for TensorInputs<Lhs, Rhs> {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
@@ -38,7 +38,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorInputs<EI> {
     }
 }
 
-impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
+impl<Lhs: Numeric, Rhs: Numeric> ConvInputsLaunch for TensorMapInputs<Lhs, Rhs> {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
@@ -52,7 +52,8 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         let tile_size_k = tiling_scheme.elements_in_tile_k();
         let stage_size_rhs = vec![stage_n, 1, tile_size_k];
 
-        let elem_size = size_of::<EI>();
+        let lhs_elem_size = size_of::<Lhs>();
+        let rhs_elem_size = size_of::<Rhs>();
 
         fn prefetch(bytes: usize) -> TensorMapPrefetch {
             match bytes {
@@ -63,15 +64,15 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             }
         }
 
-        let prefetch_lhs = prefetch(tile_size_k as usize * elem_size);
-        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * elem_size);
+        let prefetch_lhs = prefetch(tile_size_k as usize * lhs_elem_size);
+        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * rhs_elem_size);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
-        let elem = if TypeId::of::<EI>() == TypeId::of::<f32>() {
+        let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
             tf32::as_elem_native_unchecked()
         } else {
-            EI::as_elem_native_unchecked()
+            Lhs::as_elem_native_unchecked()
         };
 
         let mut elem_stride = vec![1; 2 + problem.stride.len()];
@@ -92,7 +93,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
                 pixels_per_column: stage_m,
             },
             lhs.as_tensor_arg(line_sizes.lhs),
-            elem,
+            lhs_elem,
         )
         .with_elem_stride(elem_stride)
         .with_prefetch(prefetch_lhs);
@@ -102,7 +103,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
                 tile_size: stage_size_rhs,
             },
             rhs.as_tensor_arg(1),
-            EI::as_elem_native_unchecked(),
+            Rhs::as_elem_native_unchecked(),
         )
         .with_prefetch(prefetch_rhs);
 

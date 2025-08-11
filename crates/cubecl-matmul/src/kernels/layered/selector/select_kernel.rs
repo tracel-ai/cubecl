@@ -1,14 +1,14 @@
+use crate::MatmulInputHandleRef;
 use crate::components::batch::BatchConfig;
 use crate::components::{
-    InputArg, MatmulProblem, MatmulSpec, OutputArg,
-    global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+    InputArg, InputRuntimeArg, MatmulElems, MatmulLineSizes, MatmulSetupError, OutputRuntimeArg,
 };
 use crate::components::{
-    InputRuntimeArg, MatmulLineSizes, MatmulPrecision, MatmulSetupError, OutputRuntimeArg,
+    MatmulProblem, MatmulSpec, OutputArg,
+    global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
 };
 use crate::kernels::layered::base::Selection;
 use crate::kernels::layered::{Algorithm, launch_with_config};
-use cubecl_core::frontend::CubePrimitive;
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
@@ -18,10 +18,8 @@ use cubecl_core::{Runtime, client::ComputeClient};
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    lhs_scale: &Option<TensorHandleRef<'_, R>>,
-    rhs: &TensorHandleRef<'_, R>,
-    rhs_scale: &Option<TensorHandleRef<'_, R>>,
+    lhs: &MatmulInputHandleRef<'_, R>,
+    rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     line_sizes: MatmulLineSizes,
@@ -32,14 +30,11 @@ where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
-    let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
+    let elems = MatmulElems::new::<MS::Precision>();
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
-        }
+        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args),
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
@@ -55,9 +50,7 @@ where
         cube_count_plan.resolve(),
         <InputArg<MS> as ConcreteInputsFactory>::create(
             lhs,
-            lhs_scale,
             rhs,
-            rhs_scale,
             &selection,
             &problem,
             &line_sizes,
@@ -78,14 +71,11 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
-    let elem_stage = <MS::Precision as MatmulPrecision>::ES::as_elem_native_unchecked();
-    let elem_acc = <MS::Precision as MatmulPrecision>::EA::as_elem_native_unchecked();
+    let elems = MatmulElems::new::<MS::Precision>();
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, elem_stage, elem_acc, args)
-        }
+        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args),
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 

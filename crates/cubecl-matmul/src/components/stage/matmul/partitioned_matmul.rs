@@ -1,4 +1,7 @@
+use crate::components::InputPrecision;
+use crate::components::LhsS;
 use crate::components::MatmulPrecision;
+use crate::components::RhsS;
 use crate::components::StageIdent;
 use crate::components::global::AccumulatorLoader;
 use crate::components::global::GlobalWriter;
@@ -41,8 +44,8 @@ pub trait StagePartitioner: Send + Sync + 'static {
 pub struct PartitionedStageMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
+    RL: StageToTileReader<LhsS<MP>>,
+    RR: StageToTileReader<RhsS<MP>>,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TMM::Config>,
 > {
@@ -54,8 +57,8 @@ impl<MP, TMM, RL, RR, SP, S> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM,
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
-    RL: StageToTileReader<MP::ES>,
-    RR: StageToTileReader<MP::ES>,
+    RL: StageToTileReader<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage>,
+    RR: StageToTileReader<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage>,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TMM::Config>,
 {
@@ -87,7 +90,7 @@ where
         )
     }
 
-    fn execute_with_listener<SEL: StageEventListener<S>>(
+    fn execute_with_listener<SEL: StageEventListener<Self::Config>>(
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Self::LhsTile,
