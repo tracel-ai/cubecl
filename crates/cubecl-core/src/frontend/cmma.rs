@@ -73,7 +73,7 @@ pub struct Matrix<C: CubeType> {
     _c: PhantomData<C>,
 }
 
-/// Defines a matrix multiplication operation, including the input and output type, and the shape
+/// Defines a matrix multiplication operation, including the input and output type, and the shape.
 #[derive(Copy, Clone)]
 pub struct MmaDefinition<AB: CubeType, CD: CubeType> {
     _ab: PhantomData<AB>,
@@ -307,6 +307,10 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
 
     /// Returns the number of elements handled by each lane. Should be packed into `Line`s of size
     /// `line_size` with [`line_layout`].
+    ///
+    /// # Note
+    /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
+    /// to a cube.
     #[allow(unused)]
     pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
@@ -342,9 +346,13 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
         })
     }
 
-    /// Returns the coordinates of the `nth` element handled by the plane index `lane_id`
+    /// Returns the coordinates of the `nth` element handled by the `lane_id`
     /// Each lane contains [`elems_per_lane`] elements in [`line_size`] chunks.
     /// Returns (`row_idx`, `col_idx`)
+    ///
+    /// # Note
+    /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
+    /// to a cube.
     #[allow(unused_variables)]
     pub fn indices_of_nth(
         &self,
