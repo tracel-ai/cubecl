@@ -193,7 +193,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
             store: QuantStore::Native,
             ..
         } => {
-            if !i8::is_supported(&client) {
+            if !i8::is_supported(client) {
                 panic!("QInt8 is not supported for native quantization");
             }
 
@@ -251,7 +251,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
         } => {
             unsafe {
                 dequantize_symmetric_packed_kernel::launch_unchecked::<F, FS, R>(
-                    &client,
+                    client,
                     cube_count,
                     cube_dim,
                     input.as_tensor_arg(line_size_in),
@@ -296,7 +296,7 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         } => {
             unsafe {
                 dequantize_symmetric_int8_native_kernel::launch_unchecked::<F, FS, R>(
-                    &client,
+                    client,
                     cube_count,
                     cube_dim,
                     input.as_tensor_arg(line_size),
