@@ -5,7 +5,7 @@ use std::{
 
 use alloc::collections::BTreeMap;
 
-use cubecl_ir::{ExpandElement, TargetProperties, Scope, Variable, VariableKind};
+use cubecl_ir::{ExpandElement, Scope, TargetProperties, Variable, VariableKind};
 use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
 use crate::ir::{Elem, Id, Item};
