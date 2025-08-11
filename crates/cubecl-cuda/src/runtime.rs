@@ -6,7 +6,7 @@ use crate::{
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
-    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, RuntimeProperties, UIntKind},
+    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, TargetProperties, UIntKind},
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
@@ -266,8 +266,8 @@ impl Runtime for CudaRuntime {
         cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
     }
 
-    fn compile_properties() -> RuntimeProperties {
-        RuntimeProperties {
+    fn compile_properties() -> TargetProperties {
+        TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
                 const_plane_size: 32,

@@ -1,8 +1,9 @@
 use crate::{
+    Dialect,
     cuda::{CudaDialect, arch::CudaArchitecture, ptx::comma_separated},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
-        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        FragmentLayout, MmaShape, SupportedWmmaCombinations, Variable, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{self as gpu, ConstantScalarValue};
@@ -172,18 +173,7 @@ asm volatile(
                 frag_b,
                 frag_c,
                 frag_d,
-            } => {
-                let ab_elem = frag_a[0].elem();
-                let cd_elem = frag_c[0].elem();
-                let args = frag_a.iter().chain(frag_b).chain(frag_c).chain(frag_d);
-                let args =
-                    comma_separated(args.map(|it| format!("reinterpret_cast<uint32&>({it})")));
-                write!(
-                    f,
-                    "__mma_m16n8k{}_{}_{}({args});",
-                    shape.k, ab_elem, cd_elem
-                )
-            }
+            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
             WmmaInstruction::Store {
                 output,
                 frag: var,
@@ -279,6 +269,17 @@ for (int i = 0; i < {reg_count}; ++i) {{
                 }
             }
         }
+    }
+
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: MmaShape<CudaDialect<Self>>,
+        frag_a: &[Variable<CudaDialect<Self>>],
+        frag_b: &[Variable<CudaDialect<Self>>],
+        frag_c: &[Variable<CudaDialect<Self>>],
+        frag_d: &[Variable<CudaDialect<Self>>],
+    ) -> std::fmt::Result {
+        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
 
     fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
@@ -432,4 +433,23 @@ fn format_reg_and_inc(count: &mut u8) -> String {
     let res = format!("%{count}");
     *count += 1;
     res
+}
+
+pub(super) fn compile_manual_mma<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    shape: MmaShape<D>,
+    frag_a: &[Variable<D>],
+    frag_b: &[Variable<D>],
+    frag_c: &[Variable<D>],
+    frag_d: &[Variable<D>],
+) -> std::fmt::Result {
+    let ab_elem = frag_a[0].elem();
+    let cd_elem = frag_c[0].elem();
+    let args = frag_a.iter().chain(frag_b).chain(frag_c).chain(frag_d);
+    let args = comma_separated(args.map(|it| format!("reinterpret_cast<uint32&>({it})")));
+    write!(
+        f,
+        "__mma_m16n8k{}_{}_{}({args});",
+        shape.k, ab_elem, cd_elem
+    )
 }

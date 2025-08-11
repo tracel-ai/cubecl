@@ -539,6 +539,17 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
         M::compile_wmma_instruction(f, instruction)
     }
 
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: shared::MmaShape<Self>,
+        frag_a: &[Variable<Self>],
+        frag_b: &[Variable<Self>],
+        frag_c: &[Variable<Self>],
+        frag_d: &[Variable<Self>],
+    ) -> std::fmt::Result {
+        M::compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+    }
+
     fn supported_wmma_combinations(
         arch: &CudaArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {

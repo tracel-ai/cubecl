@@ -1,8 +1,8 @@
 use crate::{
-    hip::{HipDialect, arch::AMDArchitecture},
+    hip::{HipDialect, arch::AMDArchitecture, mma::compile_manual_mma},
     shared::{
-        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
-        SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
+        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, MmaShape,
+        SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -61,6 +61,17 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         instruction: &WmmaInstruction<HipDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_instruction(f, ROCWMMA_NAMESPACE, instruction)
+    }
+
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: MmaShape<HipDialect<Self>>,
+        frag_a: &[Variable<HipDialect<Self>>],
+        frag_b: &[Variable<HipDialect<Self>>],
+        frag_c: &[Variable<HipDialect<Self>>],
+        frag_d: &[Variable<HipDialect<Self>>],
+    ) -> std::fmt::Result {
+        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {

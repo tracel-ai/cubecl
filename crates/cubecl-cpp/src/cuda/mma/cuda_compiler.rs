@@ -1,8 +1,8 @@
 use crate::{
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{CudaDialect, arch::CudaArchitecture, mma::compile_manual_mma},
     shared::{
         Architecture, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
-        SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
+        MmaShape, SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -50,6 +50,17 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         instruction: &WmmaInstruction<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_instruction(f, WMMA_NAMESPACE, instruction)
+    }
+
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: MmaShape<CudaDialect<Self>>,
+        frag_a: &[Variable<CudaDialect<Self>>],
+        frag_b: &[Variable<CudaDialect<Self>>],
+        frag_c: &[Variable<CudaDialect<Self>>],
+        frag_d: &[Variable<CudaDialect<Self>>],
+    ) -> std::fmt::Result {
+        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
 
     fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {

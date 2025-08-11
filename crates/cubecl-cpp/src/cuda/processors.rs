@@ -79,6 +79,8 @@ impl Processor for CudaMmaProcessor {
     }
 }
 
+/// Derived from PTX shape documentation
+/// https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma
 #[cube]
 fn row_index(
     lane_id: u32,
@@ -106,6 +108,8 @@ fn row_index(
     }
 }
 
+/// Derived from PTX shape documentation
+/// https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma
 #[cube]
 fn col_index(
     lane_id: u32,

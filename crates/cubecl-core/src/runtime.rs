@@ -1,6 +1,6 @@
 use crate::compute::CubeTask;
 use crate::{codegen::Compiler, ir::Elem};
-use cubecl_ir::RuntimeProperties;
+use cubecl_ir::TargetProperties;
 use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
@@ -52,7 +52,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     fn device_count() -> usize;
 
-    fn compile_properties() -> RuntimeProperties;
+    fn compile_properties() -> TargetProperties;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

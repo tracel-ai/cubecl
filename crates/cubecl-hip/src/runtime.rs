@@ -11,7 +11,7 @@ use cubecl_cpp::{
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, RuntimeProperties, UIntKind},
+    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, TargetProperties, UIntKind},
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
 use cubecl_runtime::id::DeviceId;
@@ -245,8 +245,8 @@ impl Runtime for HipRuntime {
         }
     }
 
-    fn compile_properties() -> RuntimeProperties {
-        RuntimeProperties {
+    fn compile_properties() -> TargetProperties {
+        TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
                 // HIP replicates matrix data twice, once in each half-warp. So the effective warp

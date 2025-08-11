@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_core::ir::{Id, Processor};
 
-use crate::shared::FmtLeft;
+use crate::shared::{FmtLeft, MmaShape};
 
 use super::{
     Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
@@ -693,10 +693,19 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<D>,
     ) -> std::fmt::Result;
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: MmaShape<D>,
+        frag_a: &[Variable<D>],
+        frag_b: &[Variable<D>],
+        frag_c: &[Variable<D>],
+        frag_d: &[Variable<D>],
+    ) -> std::fmt::Result;
     fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
 }
 
-// Processors
+/// IR Processors to be applied to the scopes during processing. [`CheckedIO`] is always applied
+/// by default, so these are only for target specific processors like MMA index processors.
 pub trait DialectProcessors<D: Dialect> {
     fn processors() -> Vec<Box<dyn Processor>>;
 }

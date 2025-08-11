@@ -357,7 +357,7 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
                 frag_b,
                 frag_c,
                 frag_d,
-            } => todo!(),
+            } => D::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
         }
     }
 }

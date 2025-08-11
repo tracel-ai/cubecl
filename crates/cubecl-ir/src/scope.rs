@@ -3,7 +3,7 @@ use core::{any::TypeId, cell::RefCell, fmt::Display};
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, RuntimeProperties, SourceLoc,
+    BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, TargetProperties, SourceLoc,
     TypeHash,
 };
 
@@ -37,7 +37,7 @@ pub struct Scope {
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
-    pub runtime_properties: Rc<RuntimeProperties>,
+    pub runtime_properties: Rc<TargetProperties>,
 }
 
 /// Debug related fields, most of these are global

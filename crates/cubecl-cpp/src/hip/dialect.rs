@@ -138,51 +138,66 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         extensions: &mut Vec<Self::Extension>,
         instruction: &shared::WmmaInstruction<Self>,
     ) {
-        if TypeId::of::<M>() != TypeId::of::<WmmaIntrinsicCompiler>() {
-            return;
-        }
+        if TypeId::of::<M>() == TypeId::of::<WmmaIntrinsicCompiler>() {
+            let extension = match instruction {
+                shared::WmmaInstruction::Fill { frag, .. } => {
+                    Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
+                }
+                shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
+                    WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
+                ),
+                shared::WmmaInstruction::Execute {
+                    frag_a,
+                    frag_b,
+                    frag_c,
+                    frag_d,
+                    warp_size: _,
+                } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
+                    variable_to_frag(frag_a),
+                    variable_to_frag(frag_b),
+                    variable_to_frag(frag_c),
+                    variable_to_frag(frag_d),
+                ))),
+                shared::WmmaInstruction::ExecuteManual {
+                    shape,
+                    frag_a,
+                    frag_c,
+                    ..
+                } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
+                    *shape,
+                    frag_a[0].elem(),
+                    frag_c[0].elem(),
+                ))),
+                shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
+                    WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
+                ),
+                shared::WmmaInstruction::Cast { input, output } => {
+                    Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
+                        variable_to_frag(input),
+                        variable_to_frag(output),
+                    )))
+                }
+            };
 
-        let extension = match instruction {
-            shared::WmmaInstruction::Fill { frag, .. } => {
-                Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
             }
-            shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
-                WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
-            ),
-            shared::WmmaInstruction::Execute {
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                warp_size: _,
-            } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
-                variable_to_frag(frag_a),
-                variable_to_frag(frag_b),
-                variable_to_frag(frag_c),
-                variable_to_frag(frag_d),
-            ))),
-            shared::WmmaInstruction::ExecuteManual {
-                shape,
-                frag_a,
-                frag_c,
-                ..
-            } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
+        } else if let shared::WmmaInstruction::ExecuteManual {
+            shape,
+            frag_a,
+            frag_c,
+            ..
+        } = instruction
+        {
+            let extension = Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
                 *shape,
                 frag_a[0].elem(),
                 frag_c[0].elem(),
-            ))),
-            shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
-                WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
-            ),
-            shared::WmmaInstruction::Cast { input, output } => {
-                Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
-                    variable_to_frag(input),
-                    variable_to_frag(output),
-                )))
+            )));
+
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
             }
-        };
-        if !extensions.contains(&extension) {
-            extensions.push(extension);
         }
     }
 }
@@ -512,6 +527,17 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
         instruction: &crate::shared::WmmaInstruction<Self>,
     ) -> std::fmt::Result {
         M::compile_wmma_instruction(f, instruction)
+    }
+
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: shared::MmaShape<Self>,
+        frag_a: &[Variable<Self>],
+        frag_b: &[Variable<Self>],
+        frag_c: &[Variable<Self>],
+        frag_d: &[Variable<Self>],
+    ) -> std::fmt::Result {
+        M::compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
 
     fn supported_wmma_combinations(

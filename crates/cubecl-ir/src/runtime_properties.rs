@@ -1,8 +1,11 @@
 use crate::{MatrixLayout, TypeHash};
 
+/// Hacky solution for getting comptime properties into the scope.
+/// Allows querying certain target-specific properties at compile time, rather than at runtime.
+/// Review on how to better solve this and delegate to the compiler if possible.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash, Default)]
-pub struct RuntimeProperties {
+pub struct TargetProperties {
     pub mma: MmaProperties,
 }
 

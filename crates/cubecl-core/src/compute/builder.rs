@@ -5,7 +5,7 @@ use std::{
 
 use alloc::collections::BTreeMap;
 
-use cubecl_ir::{ExpandElement, RuntimeProperties, Scope, Variable, VariableKind};
+use cubecl_ir::{ExpandElement, TargetProperties, Scope, Variable, VariableKind};
 use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
 use crate::ir::{Elem, Id, Item};
@@ -108,7 +108,7 @@ impl KernelBuilder {
         self.scope.input(id, item)
     }
 
-    pub fn runtime_properties(&mut self, properties: RuntimeProperties) {
+    pub fn runtime_properties(&mut self, properties: TargetProperties) {
         self.scope.runtime_properties = Rc::new(properties);
     }
 

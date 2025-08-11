@@ -407,21 +407,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 frag_b,
                 frag_c,
                 frag_d,
-            } => {
-                let extension =
-                    WmmaExecute::from_manual(*shape, frag_a[0].elem(), frag_c[0].elem());
-
-                let frag_a = comma_separated(frag_a.iter().map(|it| format!("{it}")));
-                let frag_b = comma_separated(frag_b.iter().map(|it| format!("{it}")));
-                let frag_c = comma_separated(frag_c.iter().map(|it| format!("{it}")));
-                let frag_d = comma_separated(frag_d.iter().map(|it| format!("{it}")));
-
-                let name = extension.fn_name();
-                writeln!(
-                    f,
-                    "{name}({{{frag_a}}}, {{{frag_b}}}, {{{frag_c}}}, {{{frag_d}}});"
-                )
-            }
+            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
             WmmaInstruction::Store {
                 output,
                 frag,
@@ -440,6 +426,17 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 writeln!(f, "{name}({input}, {output});")
             }
         }
+    }
+
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: MmaShape<HipDialect<Self>>,
+        frag_a: &[Variable<HipDialect<Self>>],
+        frag_b: &[Variable<HipDialect<Self>>],
+        frag_c: &[Variable<HipDialect<Self>>],
+        frag_d: &[Variable<HipDialect<Self>>],
+    ) -> std::fmt::Result {
+        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
@@ -499,6 +496,28 @@ fn get_output_accumulator_index_step<D: Dialect>(
         }
         other => panic!("unsupported format {other} for {input_elem}"),
     }
+}
+
+pub(super) fn compile_manual_mma<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    shape: MmaShape<D>,
+    frag_a: &[Variable<D>],
+    frag_b: &[Variable<D>],
+    frag_c: &[Variable<D>],
+    frag_d: &[Variable<D>],
+) -> std::fmt::Result {
+    let extension = WmmaExecute::from_manual(shape, frag_a[0].elem(), frag_c[0].elem());
+
+    let frag_a = comma_separated(frag_a.iter().map(|it| format!("{it}")));
+    let frag_b = comma_separated(frag_b.iter().map(|it| format!("{it}")));
+    let frag_c = comma_separated(frag_c.iter().map(|it| format!("{it}")));
+    let frag_d = comma_separated(frag_d.iter().map(|it| format!("{it}")));
+
+    let name = extension.fn_name();
+    writeln!(
+        f,
+        "{name}({{{frag_a}}}, {{{frag_b}}}, {{{frag_c}}}, {{{frag_d}}});"
+    )
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
