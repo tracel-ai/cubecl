@@ -123,7 +123,7 @@ impl Runtime for WgpuRuntime {
         adapters.len()
     }
 
-    fn compile_properties() -> TargetProperties {
+    fn target_properties() -> TargetProperties {
         TargetProperties {
             // Values are irrelevant, since no wgsl backends currently support manual mma
             mma: Default::default(),

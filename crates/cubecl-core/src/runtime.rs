@@ -52,7 +52,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     fn device_count() -> usize;
 
-    fn compile_properties() -> TargetProperties;
+    fn target_properties() -> TargetProperties;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

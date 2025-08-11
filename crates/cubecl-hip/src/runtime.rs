@@ -248,7 +248,7 @@ impl Runtime for HipRuntime {
         }
     }
 
-    fn compile_properties() -> TargetProperties {
+    fn target_properties() -> TargetProperties {
         TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,

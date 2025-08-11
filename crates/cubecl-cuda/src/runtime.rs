@@ -268,7 +268,7 @@ impl Runtime for CudaRuntime {
         cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
     }
 
-    fn compile_properties() -> TargetProperties {
+    fn target_properties() -> TargetProperties {
         TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,

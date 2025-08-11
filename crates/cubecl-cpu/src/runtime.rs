@@ -116,4 +116,11 @@ impl Runtime for CpuRuntime {
     fn device_count() -> usize {
         1
     }
+
+    fn target_properties() -> TargetProperties {
+        TargetProperties {
+            // Values are irrelevant, since no wgsl backends currently support manual mma
+            mma: Default::default(),
+        }
+    }
 }
