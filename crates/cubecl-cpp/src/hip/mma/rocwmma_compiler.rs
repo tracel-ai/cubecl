@@ -30,12 +30,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         if flags.elem_bf16 {
             f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
-            f.write_str("typedef __bf16 bhalf2_t __attribute__((ext_vector_type(2)));\n")?;
         }
         if flags.elem_f16 {
             f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
-            f.write_str("typedef _Float16 half2_t __attribute__((ext_vector_type(2)));\n")?;
         }
         f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
