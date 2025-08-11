@@ -777,80 +777,83 @@ pub fn kernel_manual<C: CubePrimitive>(
     let def = cmma::MmaDefinition::<C, f32>::new(size_m, size_n, size_k);
     let lane_id = UNIT_POS_PLANE;
 
-    let a_elems = def.elems_per_lane(MatrixIdent::A);
-    let a_line_size = def.line_size(MatrixIdent::A);
-    let a_lines = comptime!(a_elems / a_line_size);
-    let mut a_registers = Sequence::<Line<C>>::new();
+    let elem_count_a = def.elems_per_lane(MatrixIdent::A);
+    let line_size_a = def.line_size(MatrixIdent::A);
+    let line_count_a = comptime!(elem_count_a / line_size_a);
+    let mut registers_a = Sequence::<Line<C>>::new();
+
+    let elem_count_b = def.elems_per_lane(MatrixIdent::B);
+    let line_size_b = def.line_size(MatrixIdent::B);
+    let line_count_b = comptime!(elem_count_b / line_size_b);
+    let mut registers_b = Sequence::<Line<C>>::new();
+
+    let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
+    let line_size_c = def.line_size(MatrixIdent::Accumulator);
+    let line_count_c = comptime!(elem_count_c / line_size_c);
+    let mut registers_c = Sequence::<Line<f32>>::new();
+
+    let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
+    let line_size_d = def.line_size(MatrixIdent::Accumulator);
+    let line_count_d = comptime!(elem_count_d / line_size_d);
+    let mut registers_d = Sequence::<Line<f32>>::new();
+
+    // Load A
     #[unroll]
-    for i in 0..a_lines {
-        let mut reg = Line::empty(a_line_size);
+    for i in 0..line_count_a {
+        let mut reg = Line::empty(line_size_a);
         #[unroll]
-        for k in 0..a_line_size {
-            let n_elem = i * a_line_size + k;
+        for k in 0..line_size_a {
+            let n_elem = i * line_size_a + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::A);
             let value = a[row * size_k + col];
             reg[k] = value;
         }
-        a_registers.push(reg)
+        registers_a.push(reg)
     }
 
-    let b_elems = def.elems_per_lane(MatrixIdent::B);
-    let b_line_size = def.line_size(MatrixIdent::B);
-    let b_lines = comptime!(b_elems / b_line_size);
-    let mut b_registers = Sequence::<Line<C>>::new();
+    // Load B
     #[unroll]
-    for i in 0..b_lines {
-        let mut reg = Line::empty(b_line_size);
+    for i in 0..line_count_b {
+        let mut reg = Line::empty(line_size_b);
         #[unroll]
-        for k in 0..b_line_size {
-            let n_elem = i * b_line_size + k;
+        for k in 0..line_size_b {
+            let n_elem = i * line_size_b + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::B);
             let value = b[row * size_n + col];
             reg[k] = value;
         }
-        b_registers.push(reg)
+        registers_b.push(reg)
     }
 
-    let c_elems = def.elems_per_lane(MatrixIdent::Accumulator);
-    let c_line_size = def.line_size(MatrixIdent::Accumulator);
-    let c_lines = comptime!(c_elems / c_line_size);
-    let mut c_registers = Sequence::<Line<f32>>::new();
+    // Load C
     #[unroll]
-    for i in 0..c_lines {
-        let mut reg = Line::empty(c_line_size);
+    for i in 0..line_count_c {
+        let mut reg = Line::empty(line_size_c);
         #[unroll]
-        for k in 0..c_line_size {
-            let n_elem = i * c_line_size + k;
+        for k in 0..line_size_c {
+            let n_elem = i * line_size_c + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
             let value = c[row * size_n + col];
             reg[k] = value;
         }
-        c_registers.push(reg)
+        registers_c.push(reg)
     }
 
-    let d_elems = def.elems_per_lane(MatrixIdent::Accumulator);
-    let d_line_size = def.line_size(MatrixIdent::Accumulator);
-    let d_lines = comptime!(d_elems / d_line_size);
-    let mut d_registers = Sequence::<Line<f32>>::new();
+    // ALlocate D
     #[unroll]
-    for _ in 0..d_lines {
-        d_registers.push(Line::empty(d_line_size))
+    for _ in 0..line_count_d {
+        registers_d.push(Line::empty(line_size_d))
     }
 
-    cmma::execute_manual::<C, f32>(
-        &def,
-        &a_registers,
-        &b_registers,
-        &c_registers,
-        &mut d_registers,
-    );
+    def.execute(&registers_a, &registers_b, &registers_c, &mut registers_d);
 
+    // Store D
     #[unroll]
-    for i in 0..d_lines {
-        let reg = d_registers.index(i);
+    for i in 0..line_count_d {
+        let reg = registers_d.index(i);
         #[unroll]
-        for k in 0..d_line_size {
-            let n_elem = i * d_line_size + k;
+        for k in 0..line_size_d {
+            let n_elem = i * line_size_d + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
             out[row * size_n + col] = reg[k];
         }

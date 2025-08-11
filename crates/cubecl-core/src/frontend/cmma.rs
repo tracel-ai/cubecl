@@ -395,6 +395,62 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
             (row.into(), col.into())
         })
     }
+
+    /// Manually execute a low level `mma` operation with manually managed registers. Register layout
+    /// and index mapping can be retrieved from the [`MatrixDefinition`]
+    #[allow(unused)]
+    pub fn execute(
+        &self,
+        a_registers: &Sequence<Line<AB>>,
+        b_registers: &Sequence<Line<AB>>,
+        c_registers: &Sequence<Line<CD>>,
+        d_registers: &mut Sequence<Line<CD>>,
+    ) {
+        intrinsic!(|scope| {
+            let acc_elems = self
+                .clone()
+                .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
+            let acc_line_size = self
+                .clone()
+                .__expand_line_size_method(scope, MatrixIdent::Accumulator);
+            let num_registers = acc_elems / acc_line_size;
+
+            let a_registers = a_registers
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+            let b_registers = b_registers
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+            let c_registers = c_registers
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+            let d_registers = d_registers
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+
+            // Only shape is actually used
+            let matrix = cubecl_ir::Matrix {
+                ident: MatrixIdent::A,
+                m: self.m,
+                n: self.n,
+                k: self.k,
+                elem: self.ab_elem,
+                layout: MatrixLayout::ColMajor,
+            };
+
+            scope.register(Instruction::no_out(CoopMma::ExecuteManual {
+                matrix,
+                a_registers,
+                b_registers,
+                c_registers,
+                d_registers,
+            }));
+        })
+    }
 }
 
 /// Fill the matrix with the provided value.
@@ -625,80 +681,6 @@ pub mod cast {
         scope.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
 
         output
-    }
-}
-
-/// Manually execute a low level `mma` operation with manually managed registers. Register layout
-/// and index mapping can be retrieved from the [`MatrixDefinition`]
-#[allow(unused_variables)]
-pub fn execute_manual<AB: CubePrimitive, CD: CubePrimitive>(
-    matrix: &MmaDefinition<AB, CD>,
-    a_registers: &Sequence<Line<AB>>,
-    b_registers: &Sequence<Line<AB>>,
-    c_registers: &Sequence<Line<CD>>,
-    d_registers: &mut Sequence<Line<CD>>,
-) {
-    unexpanded!()
-}
-
-/// Module containing the expand function for [execute_manual()].
-pub mod execute_manual {
-    use crate::prelude::SequenceExpand;
-
-    use super::*;
-
-    /// Expand method of [execute_manual()].
-    #[allow(unused_variables)]
-    pub fn expand<AB: CubePrimitive, CD: CubePrimitive>(
-        scope: &mut Scope,
-        matrix: MmaDefinitionExpand<AB, CD>,
-        a_registers: SequenceExpand<Line<AB>>,
-        b_registers: SequenceExpand<Line<AB>>,
-        c_registers: SequenceExpand<Line<CD>>,
-        d_registers: SequenceExpand<Line<CD>>,
-    ) {
-        let acc_elems = matrix
-            .clone()
-            .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
-        let acc_line_size = matrix
-            .clone()
-            .__expand_line_size_method(scope, MatrixIdent::Accumulator);
-        let num_registers = acc_elems / acc_line_size;
-
-        let a_registers = a_registers
-            .iter_cloned()
-            .map(|it| *it.expand)
-            .collect::<Vec<_>>();
-        let b_registers = b_registers
-            .iter_cloned()
-            .map(|it| *it.expand)
-            .collect::<Vec<_>>();
-        let c_registers = c_registers
-            .iter_cloned()
-            .map(|it| *it.expand)
-            .collect::<Vec<_>>();
-        let d_registers = d_registers
-            .iter_cloned()
-            .map(|it| *it.expand)
-            .collect::<Vec<_>>();
-
-        // Only shape is actually used
-        let matrix = cubecl_ir::Matrix {
-            ident: MatrixIdent::A,
-            m: matrix.m,
-            n: matrix.n,
-            k: matrix.k,
-            elem: matrix.ab_elem,
-            layout: MatrixLayout::ColMajor,
-        };
-
-        scope.register(Instruction::no_out(CoopMma::ExecuteManual {
-            matrix,
-            a_registers,
-            b_registers,
-            c_registers,
-            d_registers,
-        }));
     }
 }
 
