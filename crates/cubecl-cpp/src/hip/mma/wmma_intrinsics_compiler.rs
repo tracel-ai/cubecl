@@ -324,10 +324,12 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         if flags.elem_bf16 {
             f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
+            f.write_str("typedef __bf16 bhalf2_t __attribute__((ext_vector_type(2)));\n")?;
         }
         if flags.elem_f16 {
             f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+            f.write_str("typedef _Float16 half2_t __attribute__((ext_vector_type(2)));\n")?;
         }
         f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
@@ -513,10 +515,40 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 ) -> std::fmt::Result {
     let extension = WmmaExecute::from_manual(shape, frag_a[0].elem(), frag_c[0].elem());
 
-    let frag_a = comma_separated(frag_a.iter().map(|it| format!("{it}")));
-    let frag_b = comma_separated(frag_b.iter().map(|it| format!("{it}")));
-    let frag_c = comma_separated(frag_c.iter().map(|it| format!("{it}")));
-    let frag_d = comma_separated(frag_d.iter().map(|it| format!("{it}")));
+    let ab_ty = match frag_a[0].elem() {
+        Elem::F32 => "float",
+        Elem::F16 => "half2_t",
+        Elem::BF16 => "bhalf2_t",
+        _ => unimplemented!("Not supported"),
+    };
+
+    let cd_ty = match frag_c[0].elem() {
+        Elem::F32 => "float",
+        Elem::F16 => "half2_t",
+        Elem::BF16 => "bhalf2_t",
+        _ => unimplemented!("Not supported"),
+    };
+
+    let frag_a = comma_separated(
+        frag_a
+            .iter()
+            .map(|it| format!("reinterpret_cast<{ab_ty}&>({it})")),
+    );
+    let frag_b = comma_separated(
+        frag_b
+            .iter()
+            .map(|it| format!("reinterpret_cast<{ab_ty}&>({it})")),
+    );
+    let frag_c = comma_separated(
+        frag_c
+            .iter()
+            .map(|it| format!("reinterpret_cast<{cd_ty}&>({it})")),
+    );
+    let frag_d = comma_separated(
+        frag_d
+            .iter()
+            .map(|it| format!("reinterpret_cast<{cd_ty}&>({it})")),
+    );
 
     let name = extension.fn_name();
     writeln!(
