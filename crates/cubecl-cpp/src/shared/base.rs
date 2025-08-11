@@ -603,6 +603,8 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
+        self.flags.inst_wmma = true;
+
         let out = self.compile_variable(out.unwrap_or_else(|| 0.into()));
 
         let inst = match cmma {
