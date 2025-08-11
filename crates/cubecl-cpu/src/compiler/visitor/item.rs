@@ -5,6 +5,7 @@ use tracel_llvm::melior::{
     ir::{
         Attribute, Type, Value,
         attribute::{FloatAttribute, IntegerAttribute},
+        r#type::IntegerType,
     },
 };
 
@@ -108,5 +109,21 @@ impl<'a> Visitor<'a> {
             )),
             false => constant,
         }
+    }
+
+    pub fn cast_to_bool(&self, value: Value<'a, 'a>, item: Item) -> Value<'a, 'a> {
+        let mut bool = IntegerType::new(self.context, 1).into();
+        if item.is_vectorized() {
+            bool = Type::vector(&[item.vectorization.unwrap().get() as u64], bool);
+        }
+        self.append_operation_with_result(arith::trunci(value, bool, self.location))
+    }
+
+    pub fn cast_to_u8(&self, value: Value<'a, 'a>, item: Item) -> Value<'a, 'a> {
+        let mut byte = IntegerType::new(self.context, 8).into();
+        if item.is_vectorized() {
+            byte = Type::vector(&[item.vectorization.unwrap().get() as u64], byte);
+        }
+        self.append_operation_with_result(arith::extui(value, byte, self.location))
     }
 }
