@@ -2,9 +2,9 @@ use crate::{
     Dialect,
     cuda::{CudaDialect, arch::CudaArchitecture, ptx::comma_separated},
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
-        FragmentLayout, MmaShape, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
-        WmmaInstruction,
+        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
+        FragmentIdent, FragmentLayout, MmaShape, SupportedMmaCombinations,
+        SupportedWmmaCombinations, Variable, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{self as gpu, ConstantScalarValue};
@@ -15,6 +15,14 @@ use super::WMMA_MINIMUM_VERSION;
 pub struct PtxWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        // We need mma header for conversion
+        if flags.elem_tf32 {
+            f.write_str("#include <mma.h>\n")?;
+        }
+        Ok(())
+    }
+
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<CudaDialect<Self>>,

@@ -1,6 +1,9 @@
-use cubecl_common::flex32;
+use cubecl_common::{flex32, tf32};
 
-use crate::ir::{Elem, FloatKind, IntKind, UIntKind};
+use crate::{
+    ir::{Elem, FloatKind, IntKind, UIntKind},
+    prelude::Numeric,
+};
 
 /// The base element trait for the jit backend.
 pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemuck::Pod {
@@ -296,5 +299,31 @@ impl CubeElement for flex32 {
     }
     fn minimum_value() -> Self {
         <flex32 as num_traits::Float>::min_value()
+    }
+}
+
+impl CubeElement for tf32 {
+    fn type_name() -> &'static str {
+        "tf32"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::TF32)
+    }
+
+    fn maximum_value() -> Self {
+        tf32::min_value()
+    }
+
+    fn minimum_value() -> Self {
+        tf32::max_value()
     }
 }

@@ -74,6 +74,7 @@ pub struct Flags {
     pub elem_fp8: bool,
     pub elem_bf16: bool,
     pub elem_f16: bool,
+    pub elem_tf32: bool,
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
@@ -165,6 +166,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_fp8: self.flags.elem_fp8,
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
+            elem_tf32: self.flags.elem_tf32,
             inst_fast_math: value
                 .options
                 .fp_math_mode
@@ -1125,7 +1127,12 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::SpecialCast(inst));
             }
             gpu::Operator::Cast(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                if op.input.elem() == Elem::TF32 || op.out.elem() == Elem::TF32 {
+                    self.flags.elem_tf32 = true;
+                }
+
+                instructions.push(Instruction::Assign(op))
             }
             gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))

@@ -48,7 +48,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
             f.write_str("#include <cuda_fp16.h>\n")?;
         }
 
-        if flags.inst_wmma {
+        // tf32 conversion function is in mma header
+        if flags.inst_wmma || flags.elem_tf32 {
             Self::compile_wmma_includes(f, flags)?;
         }
 
