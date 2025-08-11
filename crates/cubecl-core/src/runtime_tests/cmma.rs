@@ -765,37 +765,37 @@ pub fn test_cmma_strided<R: Runtime>(
 }
 
 #[cube(launch)]
-pub fn kernel_manual<C: CubePrimitive>(
-    a: &Tensor<C>,
-    b: &Tensor<C>,
-    c: &Tensor<f32>,
-    out: &mut Tensor<f32>,
+pub fn kernel_manual<AB: Numeric, CD: Numeric>(
+    a: &Tensor<AB>,
+    b: &Tensor<AB>,
+    c: &Tensor<CD>,
+    out: &mut Tensor<CD>,
     #[comptime] size_m: u32,
     #[comptime] size_n: u32,
     #[comptime] size_k: u32,
 ) {
-    let def = cmma::MmaDefinition::<C, f32>::new(size_m, size_n, size_k);
+    let def = cmma::MmaDefinition::<AB, CD>::new(size_m, size_n, size_k);
     let lane_id = UNIT_POS_PLANE;
 
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Sequence::<Line<C>>::new();
+    let mut registers_a = Sequence::<Line<AB>>::new();
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Sequence::<Line<C>>::new();
+    let mut registers_b = Sequence::<Line<AB>>::new();
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Sequence::<Line<f32>>::new();
+    let mut registers_c = Sequence::<Line<CD>>::new();
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = comptime!(elem_count_d / line_size_d);
-    let mut registers_d = Sequence::<Line<f32>>::new();
+    let mut registers_d = Sequence::<Line<CD>>::new();
 
     // Load A
     #[unroll]
@@ -860,14 +860,14 @@ pub fn kernel_manual<C: CubePrimitive>(
     }
 }
 
-pub fn test_cmma_manual<R: Runtime>(
+pub fn test_cmma_manual<R: Runtime, AB: CubeElement + Numeric, CD: CubeElement + Numeric>(
     client: ComputeClient<R::Server, R::Channel>,
     cube_dimensions: CubeDim,
     (m, n, k): (usize, usize, usize),
 ) {
     if !client.properties().feature_enabled(Feature::ManualMma {
-        ab_elem: Elem::Float(FloatKind::F16),
-        cd_elem: Elem::Float(FloatKind::F32),
+        ab_elem: AB::cube_elem(),
+        cd_elem: CD::cube_elem(),
         m: m as u32,
         n: n as u32,
         k: k as u32,
@@ -876,29 +876,29 @@ pub fn test_cmma_manual<R: Runtime>(
         return;
     }
 
-    // LHS: 16x16 matrix where each element = (row_index * 2) + column_index
-    let lhs: Vec<f16> = (0..m)
-        .flat_map(|i| (0..k).map(move |j| f16::from_f32((i * 2 + j) as f32)))
+    // LHS: matrix where each element = (row_index * 2) + column_index
+    let lhs: Vec<AB> = (0..m)
+        .flat_map(|i| (0..k).map(move |j| AB::from_int((i * 2 + j) as i64)))
         .collect();
 
-    // RHS: 16x8 matrix where each element = (row_index * 3) + column_index
-    let rhs: Vec<f16> = (0..k)
-        .flat_map(|i| (0..n).map(move |j| f16::from_f32((i * 3 + j) as f32)))
+    // RHS: matrix where each element = (row_index * 3) + column_index
+    let rhs: Vec<AB> = (0..k)
+        .flat_map(|i| (0..n).map(move |j| AB::from_int((i * 3 + j) as i64)))
         .collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+    let lhs = client.create(AB::as_bytes(&lhs));
+    let rhs = client.create(AB::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<CD>() * m * n);
 
     unsafe {
-        kernel_manual::launch::<f16, R>(
+        kernel_manual::launch::<AB, CD, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            TensorArg::from_raw_parts::<f16>(&lhs, &[k, 1], &[m, k], 1),
-            TensorArg::from_raw_parts::<f16>(&rhs, &[n, 1], &[k, n], 1),
-            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
-            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<AB>(&lhs, &[k, 1], &[m, k], 1),
+            TensorArg::from_raw_parts::<AB>(&rhs, &[n, 1], &[k, n], 1),
+            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
             m as u32,
             n as u32,
             k as u32,
@@ -906,7 +906,7 @@ pub fn test_cmma_manual<R: Runtime>(
     };
 
     let actual = client.read_one(out);
-    let actual = f32::from_bytes(&actual);
+    let actual = CD::from_bytes(&actual);
 
     // Calculate expected results (row-major order)
     let mut expected = Vec::with_capacity(m * n);
@@ -914,14 +914,14 @@ pub fn test_cmma_manual<R: Runtime>(
         // For each output row (16 rows)
         for j in 0..n {
             // For each output column (8 columns)
-            let mut sum = 0.0;
+            let mut sum = 0;
             for l in 0..k {
                 // Dot product over k-dimension
-                let lhs_val = (i * 2 + l) as f32; // LHS[i, l]
-                let rhs_val = (l * 3 + j) as f32; // RHS[l, j]
+                let lhs_val = (i * 2 + l) as i64; // LHS[i, l]
+                let rhs_val = (l * 3 + j) as i64; // RHS[l, j]
                 sum += lhs_val * rhs_val;
             }
-            expected.push(sum);
+            expected.push(CD::from_int(sum));
         }
     }
 
@@ -1004,17 +1004,32 @@ macro_rules! testgen_cmma {
 
         #[test]
         fn test_cmma_manual() {
-            let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            let test = |m, n, k| {
-                cubecl_core::runtime_tests::cmma::test_cmma_manual::<TestRuntime>(
-                    client.clone(),
+            fn test<AB: CubeElement + Numeric, CD: CubeElement + Numeric>(
+                m: usize,
+                n: usize,
+                k: usize,
+            ) {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_cmma_manual::<TestRuntime, AB, CD>(
+                    client,
                     cube_dimensions,
                     (m, n, k),
                 )
-            };
-            test(16, 8, 16);
-            test(16, 16, 16)
+            }
+
+            // CUDA
+            //test::<tf32, f32>(16, 8, 8); // Doesn't yet implement CubeElement
+            test::<half::f16, f32>(16, 8, 16);
+            test::<half::bf16, f32>(16, 8, 16);
+            //test::<cubecl_common::e5m2, f32>(16, 8, 32); // Doesn't yet implement CubeElement
+            //test::<cubecl_common::e4m3, f32>(16, 8, 32); // Doesn't yet implement CubeElement
+            test::<i8, i32>(16, 8, 32);
+            test::<u8, i32>(16, 8, 32);
+
+            // HIP
+            test::<half::f16, f32>(16, 16, 16);
+            test::<half::bf16, f32>(16, 16, 16);
         }
 
         fn cube_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> CubeDim {
