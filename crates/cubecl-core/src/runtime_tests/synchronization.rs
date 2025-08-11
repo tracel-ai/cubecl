@@ -29,7 +29,6 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) 
     let actual = u32::from_bytes(&actual);
 
     let expected: Vec<u32> = (0..16)
-        .into_iter()
         .map(|i| std::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
@@ -68,10 +67,7 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R::Server, R::C
     let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
 
-    let expected: Vec<u32> = (0..8)
-        .into_iter()
-        .map(|i| std::cmp::max(2 * i - 1, 0) as u32)
-        .collect();
+    let expected: Vec<u32> = (0..8).map(|i| std::cmp::max(2 * i - 1, 0) as u32).collect();
 
     assert_eq!(&actual[1..8], &expected[1..8]);
 }
