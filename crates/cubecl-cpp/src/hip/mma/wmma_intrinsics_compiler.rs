@@ -541,7 +541,7 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let name = extension.fn_name();
     writeln!(
         f,
-        "{name}(({})({frag_a}), ({})({frag_b}), ({})({frag_c}), ({})({frag_d}));",
+        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {}{{{frag_d}}});",
         extension.frag_a, extension.frag_b, extension.frag_c, extension.frag_d
     )
 }

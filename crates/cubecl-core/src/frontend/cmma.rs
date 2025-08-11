@@ -316,6 +316,11 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
         intrinsic!(|scope| {
             let elems = self.__expand_num_elems_method(scope, ident);
             let plane_dim = scope.runtime_properties.mma.const_plane_size;
+            let duplication = match ident {
+                MatrixIdent::A => scope.runtime_properties.mma.register_duplication_a,
+                MatrixIdent::B => scope.runtime_properties.mma.register_duplication_b,
+                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_duplication_acc,
+            };
             elems / plane_dim
         })
     }

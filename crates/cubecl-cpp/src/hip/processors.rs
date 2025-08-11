@@ -72,7 +72,8 @@ fn row_index(lane_id: u32, i: u32, #[comptime] ident: MatrixIdent) -> u32 {
     match ident {
         MatrixIdent::A => lane_id % 16,
         MatrixIdent::B => i,
-        MatrixIdent::Accumulator => i,
+        // 2 * i, offset by 1 if lane_id >= 16
+        MatrixIdent::Accumulator => i * 2 + (lane_id / 16),
     }
 }
 

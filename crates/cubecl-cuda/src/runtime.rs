@@ -276,6 +276,9 @@ impl Runtime for CudaRuntime {
                 register_layout_a: MatrixLayout::RowMajor,
                 register_layout_b: MatrixLayout::ColMajor,
                 register_layout_acc: MatrixLayout::RowMajor,
+                register_duplication_a: 1,
+                register_duplication_b: 1,
+                register_duplication_acc: 1,
             },
         }
     }

@@ -22,6 +22,13 @@ pub struct MmaProperties {
     pub register_layout_b: MatrixLayout,
     /// Layout of registers in Matrix C/D
     pub register_layout_acc: MatrixLayout,
+
+    /// How many copies of each piece of data exist for matrix A
+    pub register_duplication_a: u32,
+    /// How many copies of each piece of data exist for matrix B
+    pub register_duplication_b: u32,
+    /// How many copies of each piece of data exist for matrix C/D
+    pub register_duplication_acc: u32,
 }
 
 impl Default for MmaProperties {
@@ -32,6 +39,9 @@ impl Default for MmaProperties {
             register_layout_a: MatrixLayout::RowMajor,
             register_layout_b: MatrixLayout::ColMajor,
             register_layout_acc: MatrixLayout::RowMajor,
+            register_duplication_a: 1,
+            register_duplication_b: 1,
+            register_duplication_acc: 1,
         }
     }
 }
