@@ -1,7 +1,9 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel,
-    client::ComputeClient, ir::Elem,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    ir::{Elem, TargetProperties},
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
