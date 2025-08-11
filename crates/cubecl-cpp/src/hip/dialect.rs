@@ -545,6 +545,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
     }
+
+    fn supported_mma_combinations(arch: &AMDArchitecture) -> shared::SupportedMmaCombinations {
+        M::supported_mma_combinations(arch)
+    }
 }
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {

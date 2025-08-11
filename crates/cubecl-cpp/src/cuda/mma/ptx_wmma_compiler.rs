@@ -3,7 +3,8 @@ use crate::{
     cuda::{CudaDialect, arch::CudaArchitecture, ptx::comma_separated},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, FmtLeft, Fragment, FragmentIdent,
-        FragmentLayout, MmaShape, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        FragmentLayout, MmaShape, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
+        WmmaInstruction,
     },
 };
 use cubecl_core::ir::{self as gpu, ConstantScalarValue};
@@ -319,6 +320,10 @@ for (int i = 0; i < {reg_count}; ++i) {{
         }
         result
     }
+
+    fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
+        supported_mma_combinations(arch)
+    }
 }
 
 fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler>>) -> u32 {
@@ -452,4 +457,74 @@ pub(super) fn compile_manual_mma<D: Dialect>(
         "__mma_m16n8k{}_{}_{}({args});",
         shape.k, ab_elem, cd_elem
     )
+}
+
+pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
+    let mut result: SupportedMmaCombinations = vec![];
+    // Higher than WMMA because we only support the newest shapes. Other shapes would make things
+    // very complicated.
+    // Also only use f32 accumulators for now
+    if arch.get_version() >= 80 {
+        result.extend([
+            (
+                gpu::Elem::Float(gpu::FloatKind::F16), // ab
+                gpu::Elem::Float(gpu::FloatKind::F32), // cd
+                16,
+                8,
+                16,
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                16,
+                8,
+                16,
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::TF32),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                16,
+                8,
+                8,
+            ),
+            (
+                gpu::Elem::Int(gpu::IntKind::I8),
+                gpu::Elem::Int(gpu::IntKind::I32),
+                16,
+                8,
+                32,
+            ),
+            (
+                gpu::Elem::UInt(gpu::UIntKind::U8),
+                // Not a typo! Accumulator is always i32 even with u8 inputs
+                gpu::Elem::Int(gpu::IntKind::I32),
+                16,
+                8,
+                32,
+            ),
+            // TODO: u4/i4/b1, there's no types for them yet
+        ]);
+    }
+    if arch.get_version() >= 89 {
+        result.extend([
+            (
+                gpu::Elem::Float(gpu::FloatKind::E4M3),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                16,
+                8,
+                32,
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::E5M2),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                16,
+                8,
+                32,
+            ),
+        ]);
+    }
+    if arch.get_version() >= 120 && arch.get_version() < 130 {
+        // TODO: Block scaled FP4. Needs more work
+    }
+    result
 }

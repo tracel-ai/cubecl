@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_core::ir::{Id, Processor};
 
-use crate::shared::{FmtLeft, MmaShape};
+use crate::shared::{FmtLeft, MmaShape, SupportedMmaCombinations};
 
 use super::{
     Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
@@ -702,6 +702,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         frag_d: &[Variable<D>],
     ) -> std::fmt::Result;
     fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
+    fn supported_mma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;
 }
 
 /// IR Processors to be applied to the scopes during processing. [`CheckedIO`] is always applied

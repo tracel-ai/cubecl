@@ -863,16 +863,14 @@ pub fn kernel_manual<C: CubePrimitive>(
 pub fn test_cmma_manual<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
     cube_dimensions: CubeDim,
+    (m, n, k): (usize, usize, usize),
 ) {
-    let (m, n, k) = (16, 8, 16);
-    let (t_m, t_n, t_k) = (16, 16, 16);
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
-        m: t_m as u8,
-        k: t_k as u8,
-        n: t_n as u8,
+    if !client.properties().feature_enabled(Feature::ManualMma {
+        ab_elem: Elem::Float(FloatKind::F16),
+        cd_elem: Elem::Float(FloatKind::F32),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
     }) {
         // We can't execute the test, skip.
         return;
@@ -1008,10 +1006,15 @@ macro_rules! testgen_cmma {
         fn test_cmma_manual() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_cmma_manual::<TestRuntime>(
-                client,
-                cube_dimensions,
-            );
+            let test = |m, n, k| {
+                cubecl_core::runtime_tests::cmma::test_cmma_manual::<TestRuntime>(
+                    client.clone(),
+                    cube_dimensions,
+                    (m, n, k),
+                )
+            };
+            test(16, 8, 16);
+            test(16, 16, 16)
         }
 
         fn cube_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> CubeDim {

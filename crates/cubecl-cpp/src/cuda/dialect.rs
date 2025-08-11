@@ -555,6 +555,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
     }
+
+    fn supported_mma_combinations(arch: &CudaArchitecture) -> shared::SupportedMmaCombinations {
+        M::supported_mma_combinations(arch)
+    }
 }
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for CudaDialect<M> {

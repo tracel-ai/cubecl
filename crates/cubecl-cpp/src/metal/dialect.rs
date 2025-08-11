@@ -7,8 +7,8 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
         Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-        SharedMemory, SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction,
-        wmma_api_base,
+        SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
+        WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -1059,6 +1059,10 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 vec![(8, 8, 8)],
             ),
         ]
+    }
+
+    fn supported_mma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {
+        Vec::new()
     }
 }
 

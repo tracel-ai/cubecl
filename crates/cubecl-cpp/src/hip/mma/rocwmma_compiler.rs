@@ -1,8 +1,13 @@
 use crate::{
-    hip::{HipDialect, arch::AMDArchitecture, mma::compile_manual_mma},
+    hip::{
+        HipDialect,
+        arch::AMDArchitecture,
+        mma::{compile_manual_mma, supported_mma_combinations},
+    },
     shared::{
         DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, MmaShape,
-        SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
+        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -314,5 +319,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
             }
             AMDArchitecture::Other => vec![],
         }
+    }
+
+    fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
+        supported_mma_combinations(arch)
     }
 }

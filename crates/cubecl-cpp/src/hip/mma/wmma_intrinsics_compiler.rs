@@ -6,8 +6,9 @@ use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, Fragment, FragmentIdent,
-        FragmentLayout, MmaShape, SupportedWmmaCombinations, Variable, WmmaInstruction,
-        frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag, wmma_api_base,
+        FragmentLayout, MmaShape, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
+        WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag,
+        wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -469,6 +470,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         }
         result
     }
+
+    fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
+        supported_mma_combinations(arch)
+    }
 }
 
 fn get_output_accumulator_index_step<D: Dialect>(
@@ -518,6 +523,30 @@ pub(super) fn compile_manual_mma<D: Dialect>(
         f,
         "{name}({{{frag_a}}}, {{{frag_b}}}, {{{frag_c}}}, {{{frag_d}}});"
     )
+}
+
+pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
+    // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
+    // Feel free to add more if additional intrinsics are supported for execute
+    let mut result: SupportedMmaCombinations = vec![];
+    if arch.is_wmma_capable() {
+        // Types fully supported.
+        let types = vec![
+            (
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+            ),
+        ];
+        let combinations = types
+            .into_iter()
+            .map(|(ab_elem, cd_elem)| (ab_elem, cd_elem, 16, 16, 16));
+        result.extend(combinations);
+    }
+    result
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively

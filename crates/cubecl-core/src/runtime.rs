@@ -69,6 +69,13 @@ pub enum Feature {
         k: u8,
         n: u8,
     },
+    ManualMma {
+        ab_elem: Elem,
+        cd_elem: Elem,
+        m: u32,
+        n: u32,
+        k: u32,
+    },
     CmmaWarpSize(i32),
     Type(Elem),
     /// Features supported for floating point atomics.
