@@ -873,6 +873,11 @@ pub fn test_cmma_manual<R: Runtime, AB: CubeElement + Numeric, CD: CubeElement +
         k: k as u32,
     }) {
         // We can't execute the test, skip.
+        println!(
+            "Skipping test for ab: {:?}, cd: {:?}, m: {m}, n: {n}, k: {k}",
+            AB::cube_elem(),
+            CD::cube_elem()
+        );
         return;
     }
 
