@@ -6,8 +6,8 @@ use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, Fragment, FragmentIdent,
-        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr,
-        frag_ident_str, frag_layout_str, variable_to_frag, wmma_api_base,
+        FragmentLayout, MmaShape, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -222,6 +222,28 @@ __device__ void {name}({frag}& frag, {elem}* output_ptr, uint stride) {{
 }
 
 impl<D: Dialect> WmmaExecute<D> {
+    pub fn from_manual(shape: MmaShape<D>, ab_elem: Elem<D>, cd_elem: Elem<D>) -> Self {
+        let frag_a = Fragment {
+            ident: FragmentIdent::A,
+            m: shape.m,
+            n: shape.n,
+            k: shape.k,
+            elem: ab_elem,
+            layout: Some(FragmentLayout::ColMajor),
+        };
+        let frag_b = Fragment {
+            ident: FragmentIdent::B,
+            layout: Some(FragmentLayout::RowMajor),
+            ..frag_a
+        };
+        let frag_cd = Fragment {
+            ident: FragmentIdent::Accumulator,
+            elem: cd_elem,
+            ..frag_b
+        };
+        WmmaExecute::new(frag_a, frag_b, frag_cd, frag_cd)
+    }
+
     pub fn fn_name(&self) -> String {
         format!(
             "wmma_execute_16x16x16_{}_{}",
@@ -386,27 +408,8 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 frag_c,
                 frag_d,
             } => {
-                let extension = {
-                    let frag_a = Fragment {
-                        ident: FragmentIdent::A,
-                        m: shape.m,
-                        n: shape.n,
-                        k: shape.k,
-                        elem: frag_a[0].elem(),
-                        layout: Some(FragmentLayout::ColMajor),
-                    };
-                    let frag_b = Fragment {
-                        ident: FragmentIdent::B,
-                        layout: Some(FragmentLayout::RowMajor),
-                        ..frag_a
-                    };
-                    let frag_cd = Fragment {
-                        ident: FragmentIdent::Accumulator,
-                        elem: frag_c[0].elem(),
-                        ..frag_b
-                    };
-                    WmmaExecute::new(frag_a, frag_b, frag_cd, frag_cd)
-                };
+                let extension =
+                    WmmaExecute::from_manual(*shape, frag_a[0].elem(), frag_c[0].elem());
 
                 let frag_a = comma_separated(frag_a.iter().map(|it| format!("{it}")));
                 let frag_b = comma_separated(frag_b.iter().map(|it| format!("{it}")));

@@ -161,6 +161,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 variable_to_frag(frag_c),
                 variable_to_frag(frag_d),
             ))),
+            shared::WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_c,
+                ..
+            } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
+                *shape,
+                frag_a[0].elem(),
+                frag_c[0].elem(),
+            ))),
             shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
                 WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
             ),
@@ -170,13 +180,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     variable_to_frag(output),
                 )))
             }
-            shared::WmmaInstruction::ExecuteManual {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-            } => todo!(),
         };
         if !extensions.contains(&extension) {
             extensions.push(extension);
