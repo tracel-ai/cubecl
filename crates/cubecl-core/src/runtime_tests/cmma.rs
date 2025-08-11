@@ -1024,7 +1024,7 @@ macro_rules! testgen_cmma {
             }
 
             // CUDA
-            test::<tf32, f32>(16, 8, 8); // Doesn't yet implement CubeElement
+            test::<tf32, f32>(16, 8, 8);
             test::<half::f16, f32>(16, 8, 16);
             test::<half::bf16, f32>(16, 8, 16);
             //test::<cubecl_common::e5m2, f32>(16, 8, 32); // Doesn't yet implement CubeElement
