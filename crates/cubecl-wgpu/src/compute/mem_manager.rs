@@ -40,7 +40,7 @@ impl WgpuMemManager {
         );
 
         // TODO: In the future this should not need STORAGE, if cube writes out all
-        // uniforms as <uniform> usage.
+        // uniforms as having <uniform> usage.
         let memory_uniforms = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 memory_properties.alignment as usize,
