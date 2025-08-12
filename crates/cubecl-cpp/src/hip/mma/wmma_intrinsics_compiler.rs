@@ -5,10 +5,10 @@ use crate::{
     cuda::ptx::comma_separated,
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, Flags, Fragment, FragmentIdent,
-        FragmentLayout, MmaShape, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
-        WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag,
-        wmma_api_base,
+        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
+        FragmentIdent, FragmentLayout, Item, MmaShape, SupportedMmaCombinations,
+        SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr, frag_ident_str,
+        frag_layout_str, variable_to_frag, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -271,7 +271,7 @@ impl<D: Dialect> WmmaExecute<D> {
             f,
             "
 // Execute wmma.
-__device__ void {name}({}& frag_a, {}& frag_b, {}& frag_c, {}& frag_d) {{
+__device__ void {name}(const {}& frag_a, const {}& frag_b, const {}& frag_c, {}& frag_d) {{
     frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}(frag_a, frag_b, frag_c{opsel});
 }}
         ", self.frag_a, self.frag_b, self.frag_c, self.frag_d
@@ -435,7 +435,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         frag_a: &[Variable<HipDialect<Self>>],
         frag_b: &[Variable<HipDialect<Self>>],
         frag_c: &[Variable<HipDialect<Self>>],
-        frag_d: &[Variable<HipDialect<Self>>],
+        frag_d: &Variable<HipDialect<Self>>,
     ) -> std::fmt::Result {
         compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
@@ -509,9 +509,10 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     frag_a: &[Variable<D>],
     frag_b: &[Variable<D>],
     frag_c: &[Variable<D>],
-    frag_d: &[Variable<D>],
+    frag_d: &Variable<D>,
 ) -> std::fmt::Result {
     let extension = WmmaExecute::from_manual(shape, frag_a[0].elem(), frag_c[0].elem());
+    let frag_d_len = frag_c.len();
 
     let frag_a = comma_separated(
         frag_a
@@ -531,19 +532,23 @@ pub(super) fn compile_manual_mma<D: Dialect>(
             .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
             .map(|it| format!("{it}")),
     );
-    let frag_d = comma_separated(
-        frag_d
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
+
+    // Item is irrelevant
+    let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
 
     let name = extension.fn_name();
+    writeln!(f, "{ty} {frag_d_tmp} = {ty}{{}};", ty = extension.frag_d)?;
     writeln!(
         f,
-        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {}{{{frag_d}}});",
-        extension.frag_a, extension.frag_b, extension.frag_c, extension.frag_d
-    )
+        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {frag_d_tmp});",
+        extension.frag_a, extension.frag_b, extension.frag_c
+    )?;
+
+    for i in 0..frag_d_len {
+        writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i}];")?;
+    }
+
+    Ok(())
 }
 
 pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {

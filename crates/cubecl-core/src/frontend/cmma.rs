@@ -52,7 +52,7 @@ use super::{
 };
 use crate::{
     self as cubecl,
-    prelude::{Line, Sequence},
+    prelude::{Array, Line, Sequence},
 };
 use crate::{
     ir::{self, Instruction},
@@ -417,8 +417,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
         a_registers: &Sequence<Line<AB>>,
         b_registers: &Sequence<Line<AB>>,
         c_registers: &Sequence<Line<CD>>,
-        d_registers: &mut Sequence<Line<CD>>,
-    ) {
+    ) -> Array<Line<CD>> {
         intrinsic!(|scope| {
             let acc_elems = self
                 .clone()
@@ -427,6 +426,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 .clone()
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
+
+            let d_registers = Array::__expand_vectorized(scope, num_registers, acc_line_size);
 
             let a_registers = a_registers
                 .iter_cloned()
@@ -437,10 +438,6 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 .map(|it| *it.expand)
                 .collect::<Vec<_>>();
             let c_registers = c_registers
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
-            let d_registers = d_registers
                 .iter_cloned()
                 .map(|it| *it.expand)
                 .collect::<Vec<_>>();
@@ -455,13 +452,17 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 layout: MatrixLayout::ColMajor,
             };
 
-            scope.register(Instruction::no_out(CoopMma::ExecuteManual {
-                matrix,
-                a_registers,
-                b_registers,
-                c_registers,
-                d_registers,
-            }));
+            scope.register(Instruction::new(
+                CoopMma::ExecuteManual {
+                    matrix,
+                    a_registers,
+                    b_registers,
+                    c_registers,
+                },
+                *d_registers.expand,
+            ));
+
+            d_registers
         })
     }
 }

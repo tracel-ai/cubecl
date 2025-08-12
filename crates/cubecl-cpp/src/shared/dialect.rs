@@ -699,7 +699,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         frag_a: &[Variable<D>],
         frag_b: &[Variable<D>],
         frag_c: &[Variable<D>],
-        frag_d: &[Variable<D>],
+        frag_d: &Variable<D>,
     ) -> std::fmt::Result;
     fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
     fn supported_mma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;

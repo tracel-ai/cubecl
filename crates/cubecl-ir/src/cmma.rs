@@ -114,7 +114,6 @@ pub enum CoopMma {
         a_registers: Vec<Variable>,
         b_registers: Vec<Variable>,
         c_registers: Vec<Variable>,
-        d_registers: Vec<Variable>,
     },
 }
 
@@ -180,12 +179,10 @@ impl Display for CoopMma {
                 a_registers,
                 b_registers,
                 c_registers,
-                d_registers,
             } => {
                 let frag_a = comma_separated(a_registers.iter().map(|it| format!("{it}")));
                 let frag_b = comma_separated(b_registers.iter().map(|it| format!("{it}")));
                 let frag_c = comma_separated(c_registers.iter().map(|it| format!("{it}")));
-                let frag_d = comma_separated(d_registers.iter().map(|it| format!("{it}")));
                 write!(
                     f,
                     "execute_manual_mma(
@@ -193,7 +190,6 @@ impl Display for CoopMma {
                     frag_a: [{frag_a}],
                     frag_b: [{frag_b}],
                     frag_c: [{frag_c}],
-                    frag_d: [{frag_d}]
                 )"
                 )
             }

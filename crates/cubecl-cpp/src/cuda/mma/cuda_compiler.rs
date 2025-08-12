@@ -63,7 +63,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         frag_a: &[Variable<CudaDialect<Self>>],
         frag_b: &[Variable<CudaDialect<Self>>],
         frag_c: &[Variable<CudaDialect<Self>>],
-        frag_d: &[Variable<CudaDialect<Self>>],
+        frag_d: &Variable<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }

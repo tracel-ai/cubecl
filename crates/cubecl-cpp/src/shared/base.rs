@@ -605,7 +605,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
         self.flags.inst_wmma = true;
 
-        let out = self.compile_variable(out.unwrap_or_else(|| 0.into()));
+        let out = self.compile_variable(out.unwrap());
 
         let inst = match cmma {
             gpu::CoopMma::Fill { value } => WmmaInstruction::Fill {
@@ -640,7 +640,6 @@ impl<D: Dialect> CppCompiler<D> {
                 a_registers,
                 b_registers,
                 c_registers,
-                d_registers,
             } => WmmaInstruction::ExecuteManual {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
                 frag_a: a_registers
@@ -655,10 +654,7 @@ impl<D: Dialect> CppCompiler<D> {
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
-                frag_d: d_registers
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_d: out,
             },
 
             gpu::CoopMma::Store {

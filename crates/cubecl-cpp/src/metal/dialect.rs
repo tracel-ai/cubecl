@@ -1027,7 +1027,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         _frag_a: &[Variable<Self>],
         _frag_b: &[Variable<Self>],
         _frag_c: &[Variable<Self>],
-        _frag_d: &[Variable<Self>],
+        _frag_d: &Variable<Self>,
     ) -> std::fmt::Result {
         unimplemented!("Not supported")
     }

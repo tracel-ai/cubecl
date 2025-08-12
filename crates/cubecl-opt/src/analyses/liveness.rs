@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use cubecl_ir::{CoopMma, Id, Operation};
+use cubecl_ir::Id;
 use petgraph::graph::NodeIndex;
 
 use crate::{Optimizer, analyses::post_order::PostOrder};
@@ -95,15 +95,6 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
                 generated.remove(&id);
             }
         });
-        // Special case for multiple out
-        if let Operation::CoopMma(CoopMma::ExecuteManual { d_registers, .. }) = &mut op.operation {
-            for reg in d_registers {
-                if let Some(id) = opt.local_variable_id(reg) {
-                    kill.insert(id);
-                    generated.remove(&id);
-                }
-            }
-        }
         opt.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
             if let Some(id) = opt.local_variable_id(var) {
                 generated.insert(id);

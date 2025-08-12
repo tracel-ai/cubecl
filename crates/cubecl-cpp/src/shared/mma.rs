@@ -124,12 +124,15 @@ pub enum WmmaInstruction<D: Dialect> {
     /// Executes D=A*B+C using manually managed registers;
     ///
     /// For implementing a matmul, `D=C` : `C+=A*B`
+    /// Takes a sequence of registers for the inputs, and returns an array of registers for the
+    /// output. PTX requires output registers to be non-overlapping, so we use array to ensure that
+    /// and handle potentially destructuring it internally.
     ExecuteManual {
         shape: MmaShape<D>,
         frag_a: Vec<Variable<D>>,
         frag_b: Vec<Variable<D>>,
         frag_c: Vec<Variable<D>>,
-        frag_d: Vec<Variable<D>>,
+        frag_d: Variable<D>,
     },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {

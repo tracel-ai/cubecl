@@ -114,7 +114,7 @@ alignas(64) unsigned long long int opaque[16];
                 vars_to_frag(frag_a),
                 vars_to_frag(frag_b),
                 vars_to_frag(frag_c),
-                vars_to_frag(frag_d),
+                Fragment(frag_d.elem()),
             )));
             if !extensions.contains(&ext) {
                 extensions.push(ext);
@@ -546,7 +546,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
         frag_a: &[Variable<Self>],
         frag_b: &[Variable<Self>],
         frag_c: &[Variable<Self>],
-        frag_d: &[Variable<Self>],
+        frag_d: &Variable<Self>,
     ) -> std::fmt::Result {
         M::compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }

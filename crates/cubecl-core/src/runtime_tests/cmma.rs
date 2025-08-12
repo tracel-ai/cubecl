@@ -795,7 +795,6 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = comptime!(elem_count_d / line_size_d);
-    let mut registers_d = Sequence::<Line<CD>>::new();
 
     // Load A
     #[unroll]
@@ -839,18 +838,12 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
         registers_c.push(reg)
     }
 
-    // ALlocate D
-    #[unroll]
-    for _ in 0..line_count_d {
-        registers_d.push(Line::empty(line_size_d))
-    }
-
-    def.execute(&registers_a, &registers_b, &registers_c, &mut registers_d);
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
 
     // Store D
     #[unroll]
     for i in 0..line_count_d {
-        let reg = registers_d.index(i);
+        let reg = registers_d[i];
         #[unroll]
         for k in 0..line_size_d {
             let n_elem = i * line_size_d + k;

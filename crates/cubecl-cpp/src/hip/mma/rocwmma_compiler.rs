@@ -83,7 +83,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         frag_a: &[Variable<HipDialect<Self>>],
         frag_b: &[Variable<HipDialect<Self>>],
         frag_c: &[Variable<HipDialect<Self>>],
-        frag_d: &[Variable<HipDialect<Self>>],
+        frag_d: &Variable<HipDialect<Self>>,
     ) -> std::fmt::Result {
         compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }

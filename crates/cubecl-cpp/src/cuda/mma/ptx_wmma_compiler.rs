@@ -286,7 +286,7 @@ for (int i = 0; i < {reg_count}; ++i) {{
         frag_a: &[Variable<CudaDialect<Self>>],
         frag_b: &[Variable<CudaDialect<Self>>],
         frag_c: &[Variable<CudaDialect<Self>>],
-        frag_d: &[Variable<CudaDialect<Self>>],
+        frag_d: &Variable<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
     }
@@ -454,12 +454,18 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     frag_a: &[Variable<D>],
     frag_b: &[Variable<D>],
     frag_c: &[Variable<D>],
-    frag_d: &[Variable<D>],
+    frag_d: &Variable<D>,
 ) -> std::fmt::Result {
     let ab_elem = frag_a[0].elem();
     let cd_elem = frag_c[0].elem();
-    let args = frag_a.iter().chain(frag_b).chain(frag_c).chain(frag_d);
-    let args = comma_separated(args.map(|it| format!("reinterpret_cast<uint32&>({it})")));
+    let acc_elems = frag_c.len();
+    let frag_d = (0..acc_elems).map(|i| format!("reinterpret_cast<uint32&>({frag_d}[{i}])"));
+    let inputs = frag_a.iter().chain(frag_b).chain(frag_c);
+    let args = comma_separated(
+        inputs
+            .map(|it| format!("reinterpret_cast<uint32&>({it})"))
+            .chain(frag_d),
+    );
     write!(
         f,
         "__mma_m16n8k{}_{}_{}({args});",

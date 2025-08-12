@@ -22,15 +22,8 @@ impl Optimizer {
         &mut self,
         inst: &mut Instruction,
         visit_read: impl FnMut(&mut Self, &mut Variable),
-        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+        visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
-        // Special case because it has multiple outputs
-        if let Operation::CoopMma(CoopMma::ExecuteManual { d_registers, .. }) = &mut inst.operation
-        {
-            for reg in d_registers {
-                visit_write(self, reg);
-            }
-        }
         self.visit_out(&mut inst.out, visit_write);
         self.visit_operation(&mut inst.operation, &mut inst.out, visit_read);
     }
