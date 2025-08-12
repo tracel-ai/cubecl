@@ -13,7 +13,7 @@ use num_traits::{NumCast, ToPrimitive};
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd, Debug)]
 pub struct e4m3(u8);
 
 impl e4m3 {

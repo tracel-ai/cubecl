@@ -14,7 +14,7 @@ use num_traits::{NumCast, ToPrimitive};
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd, Debug)]
 pub struct ue8m0(u8);
 
 impl ue8m0 {
