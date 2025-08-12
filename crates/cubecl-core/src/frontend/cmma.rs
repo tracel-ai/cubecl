@@ -321,7 +321,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 MatrixIdent::B => scope.runtime_properties.mma.register_duplication_b,
                 MatrixIdent::Accumulator => scope.runtime_properties.mma.register_duplication_acc,
             };
-            elems / plane_dim
+            (elems / plane_dim) * duplication
         })
     }
 
