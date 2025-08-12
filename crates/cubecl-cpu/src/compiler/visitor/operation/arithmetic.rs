@@ -296,8 +296,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, result);
             }
             Arithmetic::Powf(powf) => {
-                let base = self.get_variable(powf.lhs);
-                let exp = self.get_variable(powf.rhs);
+                let (base, exp) = self.get_binary_op_variable(powf.lhs, powf.rhs);
                 let result = self.append_operation_with_result(llvm_ods::intr_pow(
                     self.context,
                     base,

@@ -113,6 +113,10 @@ impl<'a> Visitor<'a> {
         let vector_type = index.list.item.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
+            // Item of size 1
+            if !to_extract.r#type().is_vector() {
+                return to_extract;
+            }
             let res = index.list.elem().to_type(self.context);
             if index_value.r#type().is_index() {
                 let u32_int = IntegerType::new(self.context, 32).into();
