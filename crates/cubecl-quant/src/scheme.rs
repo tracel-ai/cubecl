@@ -1,3 +1,4 @@
+use core::default::Default;
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
