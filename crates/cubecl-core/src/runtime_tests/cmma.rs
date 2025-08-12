@@ -909,9 +909,9 @@ pub fn test_cmma_manual<R: Runtime, AB: CubeElement + Numeric, CD: CubeElement +
     // Calculate expected results (row-major order)
     let mut expected = Vec::with_capacity(m * n);
     for i in 0..m {
-        // For each output row (16 rows)
+        // For each output row
         for j in 0..n {
-            // For each output column (8 columns)
+            // For each output column
             let mut sum = 0;
             for l in 0..k {
                 // Dot product over k-dimension
@@ -923,7 +923,20 @@ pub fn test_cmma_manual<R: Runtime, AB: CubeElement + Numeric, CD: CubeElement +
         }
     }
 
-    assert_eq!(expected, actual);
+    // Need tolerance for slight differences because CPU integer version isn't exactly the same
+    // as GPU MMA for fp8. 3% tolerance seems to work for both FP8 types.
+    // Existing approximate comparison requires `Float`, so just do a simple one here.
+    for (i, (expected_val, actual_val)) in expected.iter().zip(actual).enumerate() {
+        let expected_val = expected_val.to_f64().unwrap();
+        let actual_val = actual_val.to_f64().unwrap();
+        let difference = (expected_val - actual_val).abs();
+        let max_difference = expected_val * 0.03;
+        if difference > max_difference {
+            panic!(
+                "Expected != actual at position {i}: (expected: {expected_val}, actual: {actual_val}, difference: {difference}, max_difference: {max_difference})"
+            )
+        }
+    }
 }
 
 #[allow(missing_docs)]
@@ -1020,8 +1033,8 @@ macro_rules! testgen_cmma {
             test::<tf32, f32>(16, 8, 8);
             test::<half::f16, f32>(16, 8, 16);
             test::<half::bf16, f32>(16, 8, 16);
-            //test::<cubecl_common::e5m2, f32>(16, 8, 32); // Doesn't yet implement CubeElement
-            //test::<cubecl_common::e4m3, f32>(16, 8, 32); // Doesn't yet implement CubeElement
+            test::<cubecl_common::e5m2, f32>(16, 8, 32);
+            test::<cubecl_common::e4m3, f32>(16, 8, 32);
             test::<i8, i32>(16, 8, 32);
             test::<u8, i32>(16, 8, 32);
 
