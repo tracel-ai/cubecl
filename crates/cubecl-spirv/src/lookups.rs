@@ -82,9 +82,9 @@ pub struct Array {
 pub struct Matrix {
     pub id: Word,
     pub ident: CooperativeMatrixUse,
-    pub m: u8,
-    pub n: u8,
-    pub k: u8,
+    pub m: u32,
+    pub n: u32,
+    pub k: u32,
     pub elem: Elem,
     pub layout: Option<CooperativeMatrixLayout>,
 }
