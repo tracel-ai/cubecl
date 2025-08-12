@@ -1,7 +1,7 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel,
-    client::ComputeClient,
+    client::ComputeClient, ir::Elem,
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -36,7 +36,7 @@ type Channel = MutexComputeChannel<Server>;
 
 fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
-    let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
+    let max_cube_count = CubeCount::Static(64, 64, 64);
     let system = System::new_all();
     let max_shared_memory_size = system
         .cgroup_limits()
@@ -44,8 +44,8 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         .unwrap_or(system.total_memory()) as usize;
 
     let topology = HardwareProperties {
-        plane_size_min: u32::MAX,
-        plane_size_max: u32::MAX,
+        plane_size_min: 1,
+        plane_size_max: 1,
         max_bindings: u32::MAX,
         max_shared_memory_size,
         max_cube_count,
@@ -91,7 +91,14 @@ impl Runtime for CpuRuntime {
 
     // TODO Should be removed because it depends on element size
     fn supported_line_sizes() -> &'static [u8] {
-        &[8, 1, 1, 1]
+        &[64, 32, 16, 8, 4, 2, 1]
+    }
+
+    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> + Clone {
+        Self::supported_line_sizes()
+            .iter()
+            .filter(|v| **v as usize * elem.size() <= 64)
+            .cloned() // 128 bits
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
