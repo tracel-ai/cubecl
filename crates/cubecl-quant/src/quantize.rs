@@ -324,7 +324,7 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
             store: QuantStore::U32,
             ..
         } => {
-            // super::check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
+            check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
             unsafe {
                 quantize_symmetric_int8_packed_kernel::launch_unchecked::<F, FS, R>(
                     client,
