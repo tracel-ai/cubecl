@@ -8,6 +8,7 @@ use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},
     unexpanded,
 };
+use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use half::{bf16, f16};
 
 pub mod add {
@@ -230,6 +231,10 @@ impl_binary_func!(
     __expand_max,
     __expand_max_method,
     Arithmetic::Max,
+    e2m1,
+    e4m3,
+    e5m2,
+    ue8m0,
     f16,
     bf16,
     flex32,
@@ -251,6 +256,10 @@ impl_binary_func!(
     __expand_min,
     __expand_min_method,
     Arithmetic::Min,
+    e2m1,
+    e4m3,
+    e5m2,
+    ue8m0,
     f16,
     bf16,
     flex32,
@@ -272,6 +281,10 @@ impl_binary_func!(
     __expand_rem,
     __expand_rem_method,
     Arithmetic::Remainder,
+    e2m1,
+    e4m3,
+    e5m2,
+    ue8m0,
     f16,
     bf16,
     flex32,
