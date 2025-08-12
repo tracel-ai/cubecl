@@ -47,7 +47,7 @@ impl<
         #[comptime] config: Self::Config,
     ) {
         comment!("Global: Execute");
-        SA::zero_accumulator(acc);
+        SA::zero_accumulator(acc, config.stage_config());
 
         let query_reader = query_loader.reader();
         let key_reader = key_loader.reader();
@@ -99,8 +99,8 @@ impl<
         SA::init_writer(out)
     }
 
-    fn init_accumulator() -> Self::Accumulator {
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         comment!("Global: Init Accumulator");
-        SA::init_accumulator()
+        SA::init_accumulator(config.stage_config())
     }
 }

@@ -66,7 +66,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type ScoreTileMatmul: TileMatmul<AP::MatmulPrecision>;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
-    fn zero_accumulator(acc: &mut Self::Accumulator);
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     fn execute(
         query_reader: &QueryRegisterReader<AP>,
@@ -82,7 +82,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn write(acc: &Self::Accumulator, writer: Self::Writer);
 
     fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
-    fn init_accumulator() -> Self::Accumulator;
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 }
 
 /// Configuration for the Stage Attention level

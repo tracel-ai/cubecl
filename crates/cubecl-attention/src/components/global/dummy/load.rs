@@ -44,7 +44,6 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
 
     pub fn reader(&self) -> QueryRegisterReader<AP> {
         comment!("Loading Query");
-        let row = Array::vectorized(8u32, 1u32);
 
         let tile = Tile::<AP::EI> {
             slice: self.tensor_reader.tensor.as_slice(0, 64),
@@ -52,7 +51,7 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
             layout: MatrixLayout::RowMajor,
         };
 
-        QueryRegisterReader::<AP> { row, tile }
+        QueryRegisterReader::<AP> { tile }
     }
 }
 
@@ -158,17 +157,11 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
 
 #[derive(CubeType)]
 pub struct QueryRegisterReader<AP: AttentionPrecision> {
-    row: Array<Line<AP::ES>>,
     tile: Tile<AP::EI>,
 }
 
 #[cube]
 impl<AP: AttentionPrecision> QueryRegisterReader<AP> {
-    pub fn read_row(&self) -> &Array<Line<AP::ES>> {
-        // fill row
-        &self.row
-    }
-
     pub fn read_tile<TM: TileMatmul<AP::MatmulPrecision>>(
         &self,
         #[comptime] tile_config: TM::Config,

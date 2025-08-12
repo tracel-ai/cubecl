@@ -71,7 +71,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader;
     fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
-    fn init_accumulator() -> Self::Accumulator;
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 }
 
 /// Configuration for the Global Attention level
