@@ -282,8 +282,6 @@ var<{}, {}> {}: {};
             None => format!("array<{elem}>"),
         };
         let location = Location::Storage;
-
-        #[cfg(not(exclusive_memory_only))]
         let visibility = "read";
 
         write!(
