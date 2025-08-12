@@ -1,8 +1,13 @@
 use crate::{
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{
+        CudaDialect,
+        arch::CudaArchitecture,
+        mma::{compile_manual_mma, supported_mma_combinations},
+    },
     shared::{
         Architecture, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
-        SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
+        MmaShape, SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -52,6 +57,17 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         wmma_api_base::compile_instruction(f, WMMA_NAMESPACE, instruction)
     }
 
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        shape: MmaShape<CudaDialect<Self>>,
+        frag_a: &[Variable<CudaDialect<Self>>],
+        frag_b: &[Variable<CudaDialect<Self>>],
+        frag_c: &[Variable<CudaDialect<Self>>],
+        frag_d: &Variable<CudaDialect<Self>>,
+    ) -> std::fmt::Result {
+        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+    }
+
     fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
         let mut result: SupportedWmmaCombinations = vec![];
         if arch.get_version() >= WMMA_MINIMUM_VERSION {
@@ -97,5 +113,9 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
             }
         }
         result
+    }
+
+    fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
+        supported_mma_combinations(arch)
     }
 }
