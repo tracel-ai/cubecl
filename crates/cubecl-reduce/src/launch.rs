@@ -86,10 +86,10 @@ pub fn reduce_kernel_virtual<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceF
 ) {
     let reduce_index = get_reduce_index(params);
 
-    if comptime![params.bound_checks]
-        && reduce_index >= get_reduce_count(output.len() * params.line_size_output, params)
-    {
-        terminate!();
+    if comptime![params.bound_checks] {
+        if reduce_index >= get_reduce_count(output.len() * params.line_size_output, params) {
+            terminate!();
+        }
     }
 
     reduce_kernel_inner::<(In, Acc), Out, R>(
