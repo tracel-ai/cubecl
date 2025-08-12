@@ -5,9 +5,10 @@ use crate::{
     Dialect,
     shared::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
-        FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
-        SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
+        Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
+        SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
+        WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -1010,7 +1011,25 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     }
                 }
             }
+            WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
         }
+    }
+
+    fn compile_manual_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _shape: shared::MmaShape<Self>,
+        _frag_a: &[Variable<Self>],
+        _frag_b: &[Variable<Self>],
+        _frag_c: &[Variable<Self>],
+        _frag_d: &Variable<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("Not supported")
     }
 
     fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
@@ -1041,6 +1060,16 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             ),
         ]
     }
+
+    fn supported_mma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {
+        Vec::new()
+    }
 }
 
 // Coop Matrices dialect
+
+impl DialectProcessors<Self> for MslDialect {
+    fn processors() -> Vec<Box<dyn gpu::Processor>> {
+        Vec::new()
+    }
+}

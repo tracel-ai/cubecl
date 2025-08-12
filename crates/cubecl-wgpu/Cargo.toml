@@ -140,6 +140,10 @@ cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", featur
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
     "export_tests",
 ] }
+cubecl-quant = { path = "../cubecl-quant", version = "0.7.0", features = [
+    "export_tests",
+    "kernels",
+] }
 cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
     "export_tests",
 ] }

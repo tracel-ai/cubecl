@@ -117,3 +117,7 @@ cubecl-std = { path = "../cubecl-std", version = "0.7.0", features = [
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
+cubecl-quant = { path = "../cubecl-quant", version = "0.7.0", features = [
+    "export_tests",
+    "kernels",
+] }
