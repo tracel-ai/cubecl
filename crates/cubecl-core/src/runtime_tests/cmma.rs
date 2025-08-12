@@ -805,6 +805,16 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             let n_elem = i * line_size_a + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::A);
             let value = a[row * size_k + col];
+            if lane_id == 2 {
+                debug_print!(
+                    "Matrix A: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    lane_id,
+                    n_elem,
+                    row,
+                    col,
+                    u32::cast_from(value)
+                );
+            }
             reg[k] = value;
         }
         registers_a.push(reg)
@@ -819,6 +829,16 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             let n_elem = i * line_size_b + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::B);
             let value = b[row * size_n + col];
+            if lane_id == 2 {
+                debug_print!(
+                    "Matrix B: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    lane_id,
+                    n_elem,
+                    row,
+                    col,
+                    u32::cast_from(value)
+                );
+            }
             reg[k] = value;
         }
         registers_b.push(reg)
@@ -833,6 +853,16 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             let n_elem = i * line_size_c + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
             let value = c[row * size_n + col];
+            if lane_id == 2 {
+                debug_print!(
+                    "Matrix C: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    lane_id,
+                    n_elem,
+                    row,
+                    col,
+                    u32::cast_from(value)
+                );
+            }
             reg[k] = value;
         }
         registers_c.push(reg)
@@ -848,6 +878,17 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
         for k in 0..line_size_d {
             let n_elem = i * line_size_d + k;
             let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            if lane_id == 2 {
+                let value = reg[k];
+                debug_print!(
+                    "Matrix D: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    lane_id,
+                    n_elem,
+                    row,
+                    col,
+                    u32::cast_from(value)
+                );
+            }
             out[row * size_n + col] = reg[k];
         }
     }
