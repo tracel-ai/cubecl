@@ -1,3 +1,5 @@
+use crate::WgpuResource;
+
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::{
@@ -8,7 +10,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
 };
-use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
 #[derive(Debug)]
@@ -96,16 +98,6 @@ impl WgpuStream {
             CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
-        let info = (!bindings.metadata.data.is_empty()).then(|| {
-            self.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
-                .unwrap()
-        });
-        let scalars = bindings
-            .scalars
-            .values()
-            .map(|s| self.create_with_data(s.data()).unwrap())
-            .collect::<Vec<_>>();
-
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = bindings
@@ -114,14 +106,15 @@ impl WgpuStream {
             .map(|b| self.mem_manage.get_resource(b.clone()))
             .collect::<Vec<_>>();
 
-        if let Some(info) = info {
-            resources.push(self.mem_manage.get_resource(info.binding()));
+        if !bindings.metadata.data.is_empty() {
+            resources.push(self.create_uniform(bytemuck::cast_slice(&bindings.metadata.data)));
         }
 
         resources.extend(
-            scalars
-                .iter()
-                .map(|s| self.mem_manage.get_resource(s.clone().binding())),
+            bindings
+                .scalars
+                .values()
+                .map(|s| self.create_uniform(bytemuck::cast_slice(s.data()))),
         );
 
         // Start a new compute pass if needed. The forget_lifetime allows
@@ -364,57 +357,48 @@ impl WgpuStream {
     }
 
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size, false)
+        self.mem_manage.reserve(size)
     }
 
-    fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let buffer = self.empty(data.len() as u64)?;
-        self.copy_to_binding(buffer.clone().binding(), data);
-        Ok(buffer)
+    fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
+        self.flush();
+        let resource = self
+            .mem_manage
+            .reserve_uniform(data.len() as u64)
+            .expect("Must have enough memory for uniforms.");
+        self.write_buffer(&resource, data);
+        resource
     }
 
-    pub fn copy_to_binding(&mut self, binding: Binding, data: &[u8]) {
-        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
+    pub fn write(&mut self, binding: Binding, data: &[u8]) {
+        // The copy operations will happen immediately on the queue, so
+        // we have to first submit all pending operations.
+        self.flush();
+        let resource = self.mem_manage.get_resource(binding);
+        self.write_buffer(&resource, data);
+    }
+
+    /// Nb: This copies to the binding IMMEDIATLY irregardless of outstanding work.
+    /// You might have to flush the queue before this call.
+    fn write_buffer(&self, resource: &WgpuResource, data: &[u8]) {
+        // let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
-        let size = binding.size().next_multiple_of(align as u64);
-
-        // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
-        // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
-        // a buffer we copy to MUST not have any outstanding compute work associated with it.
-        // Any handles with compute work are kept in pending operations,
-        // and the allocation here won't try to use that buffer.
-        let resource = self.mem_manage.get_resource(binding);
-
-        // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
-        // its API as a slice to write into.
-        //
+        // let size = resource.size().next_multiple_of(align as u64);
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        if size != data.len() as u64 {
-            let mut buffer = self
-                .queue
-                .write_buffer_with(
-                    resource.buffer(),
-                    resource.offset(),
-                    NonZero::new(size).unwrap(),
-                )
-                .unwrap();
-            buffer[0..data.len()].copy_from_slice(data);
-        } else {
-            self.queue
-                .write_buffer(resource.buffer(), resource.offset(), data);
-        }
-
-        self.flush_if_needed();
+        //
+        // TODO: Check what to do if the data isn't aligned?
+        self.queue
+            .write_buffer(resource.buffer(), resource.offset(), data);
     }
 
     fn flush_if_needed(&mut self) {
         // Flush when there are too many tasks, or when too many handles are locked.
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
-        if self.tasks_count >= self.tasks_max || self.mem_manage.needs_flush(self.tasks_max * 8) {
+        if self.tasks_count >= self.tasks_max {
             self.flush();
         }
     }
@@ -440,8 +424,6 @@ impl WgpuStream {
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);
 
-        // All buffers are submitted, so don't need to exclude them anymore.
-        self.mem_manage.clear_pending();
         // Cleanup allocations and deallocations.
         self.mem_manage.memory_cleanup(false);
 

@@ -199,7 +199,7 @@ impl ComputeServer for HipServer {
         }
 
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(total_size as u64, None)?;
+        let handle = ctx.memory_management.reserve(total_size as u64)?;
         let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
 
