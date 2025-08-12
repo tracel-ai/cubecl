@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{TilingScheme, stage::StageMemoryConfig};
+use cubecl_matmul::components::{
+    TilingScheme, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
@@ -89,4 +91,5 @@ pub trait GlobalAttentionConfig:
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
     fn tc(&self) -> u32;
+    fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig;
 }

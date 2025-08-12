@@ -68,9 +68,9 @@ impl<
             );
         }
 
-        SA::last_update(acc, stage_state);
+        SA::rescale(acc, stage_state, config.stage_config());
 
-        SA::write(acc, writer)
+        SA::write::<Self::Config>(acc, writer, config.stage_config(), config)
     }
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> DummyQueryLoader<AP> {

@@ -1,4 +1,5 @@
 use cubecl_core::CubeDim;
+use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, MatrixLayout};
 
 use crate::components::{
     AttentionSetupError, global::GlobalAttentionConfig, stage::StageAttentionConfig,
@@ -38,6 +39,20 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     fn tc(&self) -> u32 {
         // Number of stage iterations = ceil(N/Bc)
         1
+    }
+
+    fn global_memory_config(&self, ident: crate::components::FlashIdent) -> GlobalMemoryConfig {
+        // TODO don'T create each time
+        GlobalMemoryConfig {
+            elements_in_tile_row: 8,
+            elements_in_tile_col: 8,
+            elements_in_stage_row: 8,
+            elements_in_stage_col: 8,
+            global_line_size: 1,
+            check_row_bounds: false,
+            check_col_bounds: false,
+            matrix_layout: MatrixLayout::RowMajor,
+        }
     }
 }
 

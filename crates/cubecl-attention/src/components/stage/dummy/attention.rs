@@ -10,10 +10,10 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
-    global::dummy::QueryRegisterReader,
+    global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
     stage::{
         StageAttention, StageAttentionConfig,
-        dummy::{AttentionStageMemoryConfig, config::DummyStageConfig},
+        dummy::{AttentionStageMemoryConfig, DummyWriter, config::DummyStageConfig},
     },
 };
 
@@ -40,7 +40,7 @@ impl<
     type KeyReader = R;
     type ValueReader = R;
     type Accumulator = VTM::Accumulator;
-    type Writer = DummyWriter;
+    type Writer = DummyWriter<AP::EO>;
 
     type State = DummyStageState<AP::EA>;
 
@@ -63,6 +63,7 @@ impl<
         let row = UNIT_POS_X / 4;
         let index_0 = 2 * UNIT_POS_X;
         let index_1 = index_0 + 1;
+        let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
 
         /////////////////////////////////////////////
         ///// Put Q directly in fragment for Score Matmul
@@ -98,7 +99,6 @@ impl<
         /////////////////////////////////////////////
         ///// Make sure we work with the right registers for scores
         // TODO work on scores register directly
-        let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
         STM::write_results(
             &scores,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
@@ -173,24 +173,62 @@ impl<
         DummyStageState::<AP::EA> { m, l }
     }
 
-    fn last_update(acc: &mut Self::Accumulator, prev_state: Self::State) {
-        comment!("Stage: Last Update");
-        // O_i = 1/diag(l_i_Tc) x O_i_Tc
-        // todo!()
+    fn rescale(
+        acc: &mut Self::Accumulator,
+        prev_state: Self::State,
+        #[comptime] config: Self::Config,
+    ) {
+        comment!("Stage: Rescale");
+        let index_0 = 2 * UNIT_POS_X;
+        let index_1 = index_0 + 1;
+        let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
+
+        VTM::write_results(
+            acc,
+            &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
+            config.value_config(),
+        );
+        tmp_smem[index_0] /= prev_state.l;
+        tmp_smem[index_1] /= prev_state.l;
+        let tile = Tile::<AP::EA> {
+            slice: tmp_smem.to_slice().try_cast_unchecked(),
+            stride: 8,
+            layout: MatrixLayout::RowMajor,
+        };
+        VTM::fill_accumulator(&tile, acc, config.value_config());
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State {
+    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
         comment!("Stage: Init Stage");
 
         DummyStageState::<AP::EA> {
-            m: AP::EA::NEG_INFINITY,
+            // TODO Neg infinity
+            m: AP::EA::from_int(-9999),
             l: AP::EA::from_int(0),
         }
     }
 
-    fn write(acc: &Self::Accumulator, writer: Self::Writer) {
+    fn write<G: GlobalAttentionConfig>(
+        acc: &Self::Accumulator,
+        mut writer: Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
         comment!("Stage: Write");
-        // todo
+        let mut out_smem = SharedMemory::<AP::EA>::new(64);
+        VTM::write_results(
+            acc,
+            &mut out_smem.to_slice_mut().try_cast_unchecked(),
+            stage_config.value_config(),
+        );
+
+        DummyWriter::<AP::EO>::write::<G>(
+            &mut writer,
+            out_smem.to_slice().try_cast_unchecked(),
+            0,
+            0,
+            global_config,
+        )
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
@@ -199,7 +237,7 @@ impl<
     }
 
     fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
-        DummyWriter::new()
+        DummyWriter::new(out, 0, 0, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -220,25 +258,4 @@ pub struct DummyStageState<E: Float> {
     // Equal m_i'(j-1)
     m: E,
     l: E,
-}
-
-#[derive(CubeType)]
-pub struct DummyWriter {}
-#[derive(CubeType)]
-pub struct DummyAccumulator {}
-
-#[cube]
-impl DummyWriter {
-    fn new() -> DummyWriter {
-        DummyWriter {}
-    }
-}
-
-#[cube]
-impl DummyAccumulator {
-    fn new() -> DummyAccumulator {
-        DummyAccumulator {}
-    }
-
-    fn zero(&self) {}
 }

@@ -8,7 +8,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::dummy::QueryRegisterReader,
+    AttentionSetupError, AvailableLineSizes,
+    global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -77,9 +78,18 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::State;
 
-    fn last_update(acc: &mut Self::Accumulator, prev_state: Self::State);
+    fn rescale(
+        acc: &mut Self::Accumulator,
+        prev_state: Self::State,
+        #[comptime] config: Self::Config,
+    );
 
-    fn write(acc: &Self::Accumulator, writer: Self::Writer);
+    fn write<G: GlobalAttentionConfig>(
+        acc: &Self::Accumulator,
+        writer: Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    );
 
     fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
