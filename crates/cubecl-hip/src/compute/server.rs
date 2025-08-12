@@ -734,7 +734,16 @@ impl HipServer {
                 hipMemcpyKind_hipMemcpyDeviceToHost,
                 ctx.stream,
             );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+            // Fallback, sometimes the copy doesn't work.
+            if status != HIP_SUCCESS {
+                let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
+                    data.as_mut_ptr() as *mut _,
+                    resource.ptr,
+                    data.len(),
+                    ctx.stream,
+                );
+                assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+            }
         }
     }
 }
