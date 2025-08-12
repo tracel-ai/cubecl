@@ -101,11 +101,6 @@ macro_rules! testgen_quant {
             fn test_quantization_tensor_symmetric_f32_32x32() {
                 $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(32, 32);
             }
-
-            // cubecl_random::testgen_random_bernoulli!();
-            // cubecl_random::testgen_random_normal!();
-            // cubecl_random::testgen_random_uniform!();
-            // cubecl_random::testgen_random_interval!();
         }
     };
 }

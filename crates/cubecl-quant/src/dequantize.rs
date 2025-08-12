@@ -18,8 +18,6 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
     Line::cast_from(scale) * value
 }
 
-// TODO: use for fusion @nath
-
 /// Dequantize the value at a specified position using the provided quantization scheme.
 ///
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
@@ -219,8 +217,6 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
 ) {
-    // The actual number of elements is 1/4 (four int8 values packed in a single u32)
-    // so we choose a line size to match a valid input binding size.
     let num_elems_input: usize = input.shape.iter().product();
 
     let mut line_size_in = tensor_line_size_parallel(

@@ -6,6 +6,7 @@ use cubecl_std::tensor::into_contiguous;
 use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
+use crate::utils::check_block_size_compat;
 use crate::utils::strided_layout;
 use half::{bf16, f16};
 
@@ -271,7 +272,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
             ..
         } => {
             // We could use line_size = block_size if it's in the supported line sizes.. but let's keep it simple
-            // super::check_block_size_compat(scheme, line_size as usize);
+            check_block_size_compat(scheme, line_size as usize);
             unsafe {
                 quantize_symmetric_int8_native_kernel::launch_unchecked::<F, FS, R>(
                     client,
