@@ -807,7 +807,7 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             let value = a[row * size_k + col];
             if lane_id == 2 {
                 debug_print!(
-                    "Matrix A: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    "Matrix A: (lane: %d, elem: %d, row: %d, col: %d, value: %d)\n",
                     lane_id,
                     n_elem,
                     row,
@@ -831,7 +831,7 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             let value = b[row * size_n + col];
             if lane_id == 2 {
                 debug_print!(
-                    "Matrix B: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    "Matrix B: (lane: %d, elem: %d, row: %d, col: %d, value: %d)\n",
                     lane_id,
                     n_elem,
                     row,
@@ -855,7 +855,7 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             let value = c[row * size_n + col];
             if lane_id == 2 {
                 debug_print!(
-                    "Matrix C: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    "Matrix C: (lane: %d, elem: %d, row: %d, col: %d, value: %d)\n",
                     lane_id,
                     n_elem,
                     row,
@@ -881,7 +881,7 @@ pub fn kernel_manual<AB: Numeric, CD: Numeric>(
             if lane_id == 2 {
                 let value = reg[k];
                 debug_print!(
-                    "Matrix D: (lane: %d, elem: %d, row: %d, col: %d, value: %d)",
+                    "Matrix D: (lane: %d, elem: %d, row: %d, col: %d, value: %d)\n",
                     lane_id,
                     n_elem,
                     row,
