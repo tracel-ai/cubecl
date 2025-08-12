@@ -463,7 +463,7 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let inputs = frag_a.iter().chain(frag_b).chain(frag_c);
     let args = comma_separated(
         inputs
-            .map(|it| format!("reinterpret_cast<uint32&>({it})"))
+            .map(|it| format!("reinterpret_cast<const uint32&>({it})"))
             .chain(frag_d),
     );
     write!(
