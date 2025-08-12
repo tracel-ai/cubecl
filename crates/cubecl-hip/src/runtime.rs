@@ -4,14 +4,15 @@ use cubecl_cpp::{
     hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
     shared::{
-        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_wmma_features,
+        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_mma_features,
+        register_wmma_features,
     },
 };
 
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{Elem, FloatKind, IntKind, UIntKind},
+    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, TargetProperties, UIntKind},
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
 use cubecl_runtime::id::DeviceId;
@@ -128,6 +129,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         alignment: mem_aligment as u64,
     };
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
+    let supported_mma_combinations = M::supported_mma_combinations(&arch);
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
@@ -175,6 +177,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device_props.register_feature(Feature::DynamicLineSize);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
+    register_mma_features(supported_mma_combinations, &mut device_props);
 
     let comp_opts = CompilationOptions {
         warp_size: arch.warp_size(),
@@ -242,6 +245,21 @@ impl Runtime for HipRuntime {
             device_count.try_into().unwrap_or(0)
         } else {
             0
+        }
+    }
+
+    fn target_properties() -> TargetProperties {
+        TargetProperties {
+            mma: MmaProperties {
+                register_size_bits: 32,
+                const_plane_size: 32,
+                register_layout_a: MatrixLayout::ColMajor,
+                register_layout_b: MatrixLayout::RowMajor,
+                register_layout_acc: MatrixLayout::RowMajor,
+                register_duplication_a: 2,
+                register_duplication_b: 2,
+                register_duplication_acc: 1,
+            },
         }
     }
 }

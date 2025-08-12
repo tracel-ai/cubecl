@@ -14,6 +14,8 @@ use cubecl_core::{
 };
 use cubecl_runtime::DeviceProperties;
 
+use crate::shared::MmaShape;
+
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect,
     Elem, FP6Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
@@ -72,6 +74,7 @@ pub struct Flags {
     pub elem_fp8: bool,
     pub elem_bf16: bool,
     pub elem_f16: bool,
+    pub elem_tf32: bool,
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
@@ -163,6 +166,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_fp8: self.flags.elem_fp8,
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
+            elem_tf32: self.flags.elem_tf32,
             inst_fast_math: value
                 .options
                 .fp_math_mode
@@ -254,7 +258,11 @@ impl<D: Dialect> CppCompiler<D> {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let processing = scope.process([&*checked_io]);
+        let dialect_processors = D::processors();
+        let mut processors: Vec<&dyn Processor> = vec![&*checked_io];
+        processors.extend(dialect_processors.iter().map(|it| &**it));
+
+        let processing = scope.process(processors);
 
         for var in processing.variables {
             instructions.push(Instruction::DeclareVariable {
@@ -595,6 +603,8 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
+        self.flags.inst_wmma = true;
+
         let out = self.compile_variable(out.unwrap());
 
         let inst = match cmma {
@@ -625,6 +635,28 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_d: out,
                 warp_size: self.compilation_options.warp_size,
             },
+            gpu::CoopMma::ExecuteManual {
+                matrix,
+                a_registers,
+                b_registers,
+                c_registers,
+            } => WmmaInstruction::ExecuteManual {
+                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                frag_a: a_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_b: b_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_c: c_registers
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_d: out,
+            },
+
             gpu::CoopMma::Store {
                 mat,
                 stride,
@@ -647,6 +679,9 @@ impl<D: Dialect> CppCompiler<D> {
                 input: self.compile_variable(input),
                 output: out,
             },
+            gpu::CoopMma::RowIndex { .. } | gpu::CoopMma::ColIndex { .. } => {
+                panic!("Row/Col index should be handled by processors")
+            }
         };
 
         D::register_wmma_instruction_extension(&mut self.extensions, &inst);
@@ -1090,7 +1125,12 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::SpecialCast(inst));
             }
             gpu::Operator::Cast(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                if op.input.elem() == Elem::TF32 || op.out.elem() == Elem::TF32 {
+                    self.flags.elem_tf32 = true;
+                }
+
+                instructions.push(Instruction::Assign(op))
             }
             gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))

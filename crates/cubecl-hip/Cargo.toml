@@ -109,3 +109,7 @@ cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
     "export_tests",
 ] }
 pretty_assertions = { workspace = true }
+cubecl-quant = { path = "../cubecl-quant", version = "0.7.0", features = [
+    "export_tests",
+    "kernels",
+] }

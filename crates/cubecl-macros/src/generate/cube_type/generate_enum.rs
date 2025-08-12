@@ -9,6 +9,17 @@ use syn::{Ident, PathArguments, Type};
 impl CubeTypeEnum {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
         if with_launch {
+            if self
+                .variants
+                .iter()
+                .all(|it| matches!(it.kind, VariantKind::Empty))
+            {
+                return syn::Error::new_spanned(
+                    self.ident.clone(),
+                    "Valueless enums are handled at `comptime`, and should not implement `CubeLaunch`.",
+                ).into_compile_error();
+            }
+
             let args_ty = self.args_ty();
             let arg_settings_impl = self.arg_settings_impl();
             let launch_arg_impl = self.launch_arg_impl();

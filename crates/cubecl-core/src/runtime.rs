@@ -1,5 +1,6 @@
 use crate::compute::CubeTask;
 use crate::{codegen::Compiler, ir::Elem};
+use cubecl_ir::TargetProperties;
 use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
@@ -50,6 +51,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 
     fn device_count() -> usize;
+
+    fn target_properties() -> TargetProperties;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).
@@ -65,6 +68,13 @@ pub enum Feature {
         m: u8,
         k: u8,
         n: u8,
+    },
+    ManualMma {
+        ab_elem: Elem,
+        cd_elem: Elem,
+        m: u32,
+        n: u32,
+        k: u32,
     },
     CmmaWarpSize(i32),
     Type(Elem),
