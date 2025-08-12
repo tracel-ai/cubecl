@@ -83,15 +83,18 @@ impl WgpuMemManager {
         self.memory_pool.storage().get(&handle)
     }
 
-    pub(crate) fn reserve_uniform(&mut self, size: u64) -> Result<WgpuResource, IoError> {
-        let slice = self.memory_uniforms.reserve(size)?;
+    pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {
+        let slice = self
+            .memory_uniforms
+            .reserve(size)
+            .expect("Must have enough memory for a uniform");
         // Keep track of this uniform until it is released.
         self.uniforms.push(slice.clone());
         let handle = self
             .memory_uniforms
             .get(slice.binding())
             .expect("Failed to find storage!");
-        Ok(self.memory_uniforms.storage().get(&handle))
+        self.memory_uniforms.storage().get(&handle)
     }
 
     pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

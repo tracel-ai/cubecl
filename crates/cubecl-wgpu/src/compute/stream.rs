@@ -357,10 +357,7 @@ impl WgpuStream {
     }
 
     fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
-        let resource = self
-            .mem_manage
-            .reserve_uniform(data.len() as u64)
-            .expect("Must have memory to create uniform data");
+        let resource = self.mem_manage.reserve_uniform(data.len() as u64);
         self.write_to_buffer(&resource, data);
         resource
     }

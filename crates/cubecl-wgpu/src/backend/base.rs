@@ -92,18 +92,12 @@ impl WgpuServer {
         let layout = bindings.map(|bindings| {
             let bindings = bindings
                 .into_iter()
-                .map(|(i, _visibility)| BindGroupLayoutEntry {
+                .map(|(i, visibility)| BindGroupLayoutEntry {
                     binding: i as u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        #[cfg(not(exclusive_memory_only))]
-                        ty: BufferBindingType::Storage { read_only: false },
-                        #[cfg(exclusive_memory_only)]
                         ty: BufferBindingType::Storage {
-                            read_only: matches!(
-                                _visibility,
-                                cubecl_core::compute::Visibility::Read
-                            ),
+                            read_only: matches!(visibility, cubecl_core::compute::Visibility::Read),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,

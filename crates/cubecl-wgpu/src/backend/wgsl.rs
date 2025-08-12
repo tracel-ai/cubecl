@@ -15,7 +15,15 @@ pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize
     let mut bindings = repr
         .buffers
         .iter()
-        .map(|it| it.visibility)
+        .map(|it| {
+            // On WGSL, when slices are shared, it needs to be read-write if ANY of the slices is read-write,
+            // and since we can't be sure, we'll assume everything is read-write.
+            if cfg!(exclusive_memory_only) {
+                it.visibility
+            } else {
+                Visibility::ReadWrite
+            }
+        })
         .collect::<Vec<_>>();
     if repr.has_metadata {
         bindings.push(Visibility::Read);
