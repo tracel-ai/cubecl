@@ -22,12 +22,12 @@ enum Timings {
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
+    pub device: wgpu::Device,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
     tasks_max: usize,
-    pub device: wgpu::Device,
     queue: wgpu::Queue,
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
@@ -157,12 +157,12 @@ impl WgpuStream {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
-        match dispatch {
+        match dispatch.clone() {
             CubeCount::Static(x, y, z) => {
-                pass.dispatch_workgroups(*x, *y, *z);
+                pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding.clone());
+                let res = self.mem_manage.get_resource(binding);
                 pass.dispatch_workgroups_indirect(res.buffer(), res.offset());
             }
         }
@@ -191,6 +191,7 @@ impl WgpuStream {
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            self.tasks_count += 1;
             self.encoder.copy_buffer_to_buffer(
                 resource.buffer(),
                 resource.offset(),
@@ -294,6 +295,7 @@ impl WgpuStream {
 
                 self.compute_pass = None;
 
+                self.tasks_count += 1;
                 // Submit commands needed for profiling.
                 let buffer = {
                     let Timings::Device(timing) = &mut self.timings else {
@@ -363,24 +365,31 @@ impl WgpuStream {
     }
 
     pub fn write(&mut self, binding: Binding, data: &[u8]) {
+        // It is important to flush before writing, as the write operation is inserted
+        // into the QUEUE not the encoder. We want to make sure all outstanding work
+        // happens _before_ the write operation.
         self.flush();
         let resource = self.mem_manage.get_resource(binding);
         self.write_to_buffer(&resource, data);
     }
 
+    // Nb: this function submits a command to the _queue_ not to the encoder,
+    // so you have to be really carefuly about the ordering of operations here.
+    // Any buffer which has outstanding (not yet flushed) compute work should
+    // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
         let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
         let size = resource.size().next_multiple_of(align as u64);
 
-        // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
-        // its API as a slice to write into.
-        //
-        // write_buffer is the recommended way to write this data, as:
-        // - On WebGPU, from WASM, this can save a copy to the JS memory.
-        // - On devices with unified memory, this could skip the staging buffer entirely.
-        if size != data.len() as u64 {
+        if size == data.len() as u64 {
+            // write_buffer is the recommended way to write this data, as:
+            // - On WebGPU, from WASM, this can save a copy to the JS memory.
+            // - On devices with unified memory, this could skip the staging buffer entirely.
+            self.queue
+                .write_buffer(resource.buffer(), resource.offset(), data);
+        } else {
             let mut buffer = self
                 .queue
                 .write_buffer_with(
@@ -390,9 +399,6 @@ impl WgpuStream {
                 )
                 .unwrap();
             buffer[0..data.len()].copy_from_slice(data);
-        } else {
-            self.queue
-                .write_buffer(resource.buffer(), resource.offset(), data);
         }
     }
 
@@ -406,6 +412,9 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
+        if self.tasks_count == 0 {
+            return;
+        }
         // End the current compute pass.
         self.compute_pass = None;
 
