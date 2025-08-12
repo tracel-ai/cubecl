@@ -12,7 +12,8 @@ version.workspace = true
 
 [features]
 default = ["kernels"]
-kernels = ["cubecl-core", "cubecl-runtime", "cubecl-std"]
+std = ["cubecl-core?/std", "cubecl-runtime?/std"]
+kernels = ["std", "cubecl-core", "cubecl-runtime", "cubecl-std"]
 export_tests = []
 
 [dependencies]

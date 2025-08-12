@@ -3,6 +3,8 @@ use cubecl_core::Runtime;
 use cubecl_core::{self as cubecl, server::AllocationDescriptor};
 use cubecl_std::tensor::TensorHandle;
 
+use alloc::{vec, vec::Vec};
+
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
 
 pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize) {
