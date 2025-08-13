@@ -169,6 +169,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulSetupError> {
+    println!("{:?}", strategy);
     match strategy {
         Strategy::Simple(loading_strategy, selection) => match loading_strategy {
             SyncLoadingStrategy::Cyclic => {

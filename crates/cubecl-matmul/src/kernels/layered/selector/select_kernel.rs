@@ -34,7 +34,7 @@ where
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args),
+        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args)?,
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
@@ -75,7 +75,7 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
 
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
-        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args),
+        Selection::Inferred(args) => A::selection::<R>(client, &problem, plane_dim, elems, args)?,
     };
     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
 
