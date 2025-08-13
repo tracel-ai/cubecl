@@ -76,7 +76,7 @@ impl ComputeServer for DummyServer {
                 }
                 let size: usize = descriptor.shape.iter().product();
                 let handle = Handle::new(
-                    self.memory_management.reserve(size as u64, None)?,
+                    self.memory_management.reserve(size as u64)?,
                     None,
                     None,
                     size as u64,
