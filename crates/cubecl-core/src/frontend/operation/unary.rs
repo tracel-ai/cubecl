@@ -1,3 +1,4 @@
+use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use cubecl_ir::{Bitwise, Operator};
 use half::{bf16, f16};
 
@@ -91,6 +92,10 @@ impl_unary_func!(
     abs,
     __expand_abs,
     Arithmetic::Abs,
+    e2m1,
+    e4m3,
+    e5m2,
+    ue8m0,
     f16,
     bf16,
     flex32,

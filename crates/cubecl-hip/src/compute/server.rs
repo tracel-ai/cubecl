@@ -199,7 +199,7 @@ impl ComputeServer for HipServer {
         }
 
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(total_size as u64, None)?;
+        let handle = ctx.memory_management.reserve(total_size as u64)?;
         let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
 
@@ -734,7 +734,16 @@ impl HipServer {
                 hipMemcpyKind_hipMemcpyDeviceToHost,
                 ctx.stream,
             );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+            // Fallback, sometimes the copy doesn't work.
+            if status != HIP_SUCCESS {
+                let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
+                    data.as_mut_ptr() as *mut _,
+                    resource.ptr,
+                    data.len(),
+                    ctx.stream,
+                );
+                assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 use super::{SliceBinding, SliceHandle, SliceId};
 use crate::{
-    memory_management::{MemoryUsage, StorageExclude},
+    memory_management::MemoryUsage,
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
@@ -40,7 +40,7 @@ pub trait MemoryPool {
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 
-    fn try_reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> Option<SliceHandle>;
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
 
     fn alloc<Storage: ComputeStorage>(
         &mut self,

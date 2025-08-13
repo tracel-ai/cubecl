@@ -1,7 +1,9 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel,
-    client::ComputeClient, ir::Elem,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    ir::{Elem, TargetProperties},
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -115,5 +117,12 @@ impl Runtime for CpuRuntime {
 
     fn device_count() -> usize {
         1
+    }
+
+    fn target_properties() -> TargetProperties {
+        TargetProperties {
+            // Values are irrelevant, since no wgsl backends currently support manual mma
+            mma: Default::default(),
+        }
     }
 }

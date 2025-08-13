@@ -237,6 +237,7 @@ impl Launch {
 
         quote! {
             let mut builder = #kernel_builder::default();
+            builder.runtime_properties(__R::target_properties());
             #register_type
             #io_map
             expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
