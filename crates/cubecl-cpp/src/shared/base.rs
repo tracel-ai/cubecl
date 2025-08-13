@@ -637,26 +637,53 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::CoopMma::ExecuteManual {
                 matrix,
-                a_registers,
-                b_registers,
-                c_registers,
+                registers_a,
+                registers_b,
+                registers_c,
             } => WmmaInstruction::ExecuteManual {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: a_registers
+                frag_a: registers_a
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
-                frag_b: b_registers
+                frag_b: registers_b
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
-                frag_c: c_registers
+                frag_c: registers_c
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
                 frag_d: out,
             },
+            gpu::CoopMma::ExecuteScaled {
+                matrix,
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => WmmaInstruction::ExecuteScaled {
+                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                frag_a: registers_a
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_b: registers_b
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_c: registers_c
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_d: out,
 
+                scales_a: self.compile_variable(scales_a),
+                scales_b: self.compile_variable(scales_b),
+                scales_factor,
+            },
             gpu::CoopMma::Store {
                 mat,
                 stride,

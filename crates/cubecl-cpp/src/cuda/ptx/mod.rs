@@ -17,10 +17,19 @@ pub fn mma_template<D: Dialect>(
     let ab_ty = mma_ty(ab_elem);
     let cd_ty = mma_ty(cd_elem);
 
-    let args_a = (0..n_a_registers).map(|i| format!("uint32 const &reg_a_{i}"));
-    let args_b = (0..n_b_registers).map(|i| format!("uint32 const &reg_b_{i}"));
-    let args_c = (0..n_c_registers).map(|i| format!("uint32 const &reg_c_{i}"));
-    let args_d = (0..n_d_registers).map(|i| format!("uint32 &reg_d_{i}"));
+    let ab_arg_ty = match ab_elem {
+        Elem::F32 => &format!("{}", Elem::<D>::F32),
+        _ => &format!("{}", Elem::<D>::U32),
+    };
+    let cd_arg_ty = match cd_elem {
+        Elem::F32 => &format!("{}", Elem::<D>::F32),
+        _ => &format!("{}", Elem::<D>::U32),
+    };
+
+    let args_a = (0..n_a_registers).map(|i| format!("{ab_arg_ty} const &reg_a_{i}"));
+    let args_b = (0..n_b_registers).map(|i| format!("{ab_arg_ty} const &reg_b_{i}"));
+    let args_c = (0..n_c_registers).map(|i| format!("{cd_arg_ty} const &reg_c_{i}"));
+    let args_d = (0..n_d_registers).map(|i| format!("{cd_arg_ty} &reg_d_{i}"));
     let args = args_a
         .chain(args_b)
         .chain(args_c)
@@ -62,6 +71,106 @@ __mma_m16n8k{k}_{ab_elem}_{cd_elem}({args}) {{
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn mma_scaled_template<D: Dialect>(
+    ab_elem: Elem<D>,
+    cd_elem: Elem<D>,
+    k: u32,
+    n_a_registers: usize,
+    n_b_registers: usize,
+    n_c_registers: usize,
+    n_d_registers: usize,
+    scales_elem: Elem<D>,
+    scales_factor: u32,
+) -> String {
+    let ab_ty = mma_ty(ab_elem);
+    let cd_ty = mma_ty(cd_elem);
+    // Needs custom mapping because of the ignored sign bit
+    let s_ty = match scales_elem {
+        Elem::FP8(FP8Kind::UE8M0) => "ue8m0",
+        Elem::FP8(FP8Kind::E4M3) => "ue4m3",
+        _ => panic!("Unsupported scales type"),
+    };
+
+    let kind = match scales_factor {
+        1 => "mxf8f6f4",
+        2 | 4 => "mxf4nvf4",
+        _ => panic!("Unsupported scales factor"),
+    };
+
+    let ab_arg_ty = match ab_elem {
+        Elem::F32 => &format!("{}", Elem::<D>::F32),
+        _ => &format!("{}", Elem::<D>::U32),
+    };
+    let cd_arg_ty = match cd_elem {
+        Elem::F32 => &format!("{}", Elem::<D>::F32),
+        _ => &format!("{}", Elem::<D>::U32),
+    };
+
+    // Note: Scaled MMA actually requires float registers for C/D, unlike normal MMA
+    let args_a = (0..n_a_registers).map(|i| format!("{ab_arg_ty} const &reg_a_{i}"));
+    let args_b = (0..n_b_registers).map(|i| format!("{ab_arg_ty} const &reg_b_{i}"));
+    let args_c = (0..n_c_registers).map(|i| format!("{cd_arg_ty} const &reg_c_{i}"));
+    let args_d = (0..n_d_registers).map(|i| format!("{cd_arg_ty} &reg_d_{i}"));
+    let args = args_a
+        .chain(args_b)
+        .chain(args_c)
+        .chain(args_d)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut idx = 0usize;
+
+    let placeholders_d = comma_separated((0..n_d_registers).map(|_| placeholder(&mut idx)));
+    let placeholders_d = format!("{{{placeholders_d}}}");
+
+    let placeholders_a = comma_separated((0..n_a_registers).map(|_| placeholder(&mut idx)));
+    let placeholders_a = format!("{{{placeholders_a}}}");
+
+    let placeholders_b = comma_separated((0..n_b_registers).map(|_| placeholder(&mut idx)));
+    let placeholders_b = format!("{{{placeholders_b}}}");
+
+    let placeholders_c = comma_separated((0..n_c_registers).map(|_| placeholder(&mut idx)));
+    let placeholders_c = format!("{{{placeholders_c}}}");
+
+    let placeholder_scales_a = format!(
+        "{{{}}}, {{{}, {}}}",
+        placeholder(&mut idx),
+        placeholder(&mut idx),
+        placeholder(&mut idx)
+    );
+    let placeholder_scales_b = format!(
+        "{{{}}}, {{{}, {}}}",
+        placeholder(&mut idx),
+        placeholder(&mut idx),
+        placeholder(&mut idx)
+    );
+
+    let params_out =
+        comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), cd_elem, true)));
+    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), ab_elem, false));
+    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), ab_elem, false));
+    let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), cd_elem, false));
+    let params_in = comma_separated(params_a.chain(params_b).chain(params_c));
+
+    format!(
+        r#"
+inline __device__ void
+__mma_scaled_{scales_factor}x_m16n8k{k}_{ab_elem}_{cd_elem}({args}, uint32 const &scales_a, uint32 const &scales_b) {{
+    static constexpr uint16 tidA = 0;
+    static constexpr uint16 bidA = 0;
+    static constexpr uint16 tidB = 0;
+    static constexpr uint16 bidB = 0;
+
+    asm volatile("mma.sync.aligned.kind::{kind}.block_scale.scale_vec::{scales_factor}X.m16n8k{k}.row.col.{cd_ty}.{ab_ty}.{ab_ty}.{cd_ty}.{s_ty} "
+               "{placeholders_d}, {placeholders_a}, {placeholders_b}, {placeholders_c}, {placeholder_scales_a}, {placeholder_scales_b};"
+               : {params_out}
+               : {params_in}, "r"(scales_a), "h"(bidA), "h"(tidA), "r"(scales_b), "h"(bidB), "h"(tidB));
+    }}
+    "#
+    )
+}
+
 pub(crate) fn comma_separated(it: impl IntoIterator<Item = String>) -> String {
     it.into_iter().collect::<Vec<_>>().join(", ")
 }
@@ -74,8 +183,7 @@ fn placeholder(idx: &mut usize) -> String {
 
 fn as_reg<D: Dialect>(ident: &str, ty: Elem<D>, output: bool) -> String {
     let ty = match ty {
-        // TODO: Check if this impacts performance
-        // Elem::F32 => "f",
+        Elem::F32 => "f",
         Elem::F64 => "d",
         Elem::U64 => "l",
         _ => "r",
@@ -95,6 +203,8 @@ fn mma_ty<D: Dialect>(elem: Elem<D>) -> &'static str {
         Elem::F16 => "f16",
         Elem::BF16 => "bf16",
         Elem::FP4(FP4Kind::E2M1) => "e2m1",
+        // For packed MMA this will always exist as fp4x2, since 4-bit values can't exist
+        Elem::FP4x2(FP4Kind::E2M1) => "e2m1",
         Elem::FP6(FP6Kind::E2M3) => "e2m3",
         Elem::FP6(FP6Kind::E3M2) => "e3m2",
         Elem::FP8(FP8Kind::E4M3) => "e4m3",

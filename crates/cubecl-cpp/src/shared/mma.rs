@@ -8,6 +8,8 @@ use super::{Component, Dialect, Elem, FmtLeft, Variable};
 
 pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
 pub type SupportedMmaCombinations = Vec<(gpu::Elem, gpu::Elem, u32, u32, u32)>;
+pub type SupportedScaledMmaCombinations =
+    Vec<(gpu::Elem, gpu::Elem, gpu::Elem, (u32, u32, u32), u32)>;
 
 pub trait Architecture {
     fn warp_size(&self) -> u32;
@@ -47,6 +49,23 @@ pub fn register_mma_features(
             m,
             n,
             k,
+        });
+    }
+}
+
+pub fn register_scaled_mma_features(
+    supported_combinations: SupportedScaledMmaCombinations,
+    properties: &mut DeviceProperties<Feature>,
+) {
+    for (i, o, s, (m, n, k), factor) in supported_combinations {
+        properties.register_feature(Feature::ScaledMma {
+            ab_elem: i,
+            cd_elem: o,
+            m,
+            n,
+            k,
+            scales_elem: s,
+            scales_factor: factor,
         });
     }
 }
@@ -134,6 +153,23 @@ pub enum WmmaInstruction<D: Dialect> {
         frag_c: Vec<Variable<D>>,
         frag_d: Variable<D>,
     },
+    /// Executes D=A*B+C using manually managed registers;
+    ///
+    /// For implementing a matmul, `D=C` : `C+=A*B`
+    /// Takes a sequence of registers for the inputs, and returns an array of registers for the
+    /// output. PTX requires output registers to be non-overlapping, so we use array to ensure that
+    /// and handle potentially destructuring it internally.
+    ExecuteScaled {
+        shape: MmaShape<D>,
+        frag_a: Vec<Variable<D>>,
+        frag_b: Vec<Variable<D>>,
+        frag_c: Vec<Variable<D>>,
+        frag_d: Variable<D>,
+
+        scales_a: Variable<D>,
+        scales_b: Variable<D>,
+        scales_factor: u32,
+    },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {
         output: Variable<D>,
@@ -174,6 +210,8 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
 }
 
 pub mod wmma_api_base {
+    use crate::shared::ManualMma;
+
     use super::*;
 
     pub fn compile_fragment_declaration<D: Dialect>(
@@ -376,7 +414,23 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
                 frag_b,
                 frag_c,
                 frag_d,
-            } => D::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
+            } => D::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d)),
+            WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => D::compile_scaled_mma(
+                f,
+                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
+                *scales_a,
+                *scales_b,
+                *scales_factor,
+            ),
         }
     }
 }
