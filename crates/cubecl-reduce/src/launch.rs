@@ -86,6 +86,7 @@ pub fn reduce_kernel_virtual<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceF
 ) {
     let reduce_index = get_reduce_index(params);
 
+    #[allow(clippy::collapsible_if)]
     if comptime![params.bound_checks] {
         if reduce_index >= get_reduce_count(output.len() * params.line_size_output, params) {
             terminate!();
