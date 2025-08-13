@@ -24,19 +24,37 @@ impl<'a> Visitor<'a> {
             Operator::CopyMemory(copy_memory) => {
                 let memref = self.get_memory(copy_memory.input);
                 let in_index = self.get_index(copy_memory.in_index, copy_memory.input.item);
-                let value = self.append_operation_with_result(memref::load(
-                    memref,
-                    &[in_index],
-                    self.location,
-                ));
                 let out_memref = self.get_memory(out);
                 let out_index = self.get_index(copy_memory.out_index, out.item);
-                self.block.append_operation(memref::store(
-                    value,
-                    out_memref,
-                    &[out_index],
-                    self.location,
-                ));
+                if out.item.is_vectorized() {
+                    let result = out.item.to_type(self.context);
+                    let value = self.append_operation_with_result(vector::load(
+                        self.context,
+                        result,
+                        memref,
+                        &[in_index],
+                        self.location,
+                    ));
+                    self.block.append_operation(vector::store(
+                        self.context,
+                        value,
+                        out_memref,
+                        &[out_index],
+                        self.location,
+                    ));
+                } else {
+                    let value = self.append_operation_with_result(memref::load(
+                        memref,
+                        &[in_index],
+                        self.location,
+                    ));
+                    self.block.append_operation(memref::store(
+                        value,
+                        out_memref,
+                        &[out_index],
+                        self.location,
+                    ));
+                }
             }
             Operator::CopyMemoryBulk(_copy_memory_bulk) => {
                 todo!("copy_memory_bulk is not implemented {}", operator)
