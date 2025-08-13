@@ -40,7 +40,7 @@ impl<'a> Visitor<'a> {
             .current_region
             .insert_block_before(self.last_block, block);
 
-        if let None = self.first_block {
+        if self.first_block.is_none() {
             self.first_block = Some(this_block);
         }
         self.block = this_block;
