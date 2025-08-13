@@ -112,23 +112,25 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
-        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        println!("{i:?}: {a:?}, {e:?}");
+        // let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
-        if f32::is_nan(a.to_f32().unwrap())
-            || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
-        {
-            return Err(format!(
-                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-                i,
-                *a,
-                *e,
-                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-                epsilon
-            ));
-        }
+        // if f32::is_nan(a.to_f32().unwrap())
+        //     || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
+        // {
+        //     return Err(format!(
+        //         "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+        //         i,
+        //         *a,
+        //         *e,
+        //         f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
+        //         epsilon
+        //     ));
+        // }
     }
 
-    Ok(())
+    Err("".to_string())
+    // Ok(())
 }
 
 pub trait CastInto<E> {
@@ -248,7 +250,7 @@ macro_rules! sample_float {
                     cubecl_random::seed(seed);
                     let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(2), Self::from_int(2), output.as_ref());
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
 
                     output
                 }
@@ -389,8 +391,8 @@ where
 
                 // Step 2: Compute softmax over scores
                 let mut max_score = P::EA::new(f32::NEG_INFINITY);
-                for i in 0..seq_k {
-                    let val = scores[i];
+                for i_ in 0..seq_k {
+                    let val = scores[i_];
                     if val > max_score {
                         max_score = val;
                     }

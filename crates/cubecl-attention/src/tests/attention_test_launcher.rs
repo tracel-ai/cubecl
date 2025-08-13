@@ -40,6 +40,9 @@ pub fn test_attention_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
+    println!("{:?}", P::EG::as_elem_native_unchecked());
+    println!("{:?}", P::ES::as_elem_native_unchecked());
+    println!("{:?}", P::EA::as_elem_native_unchecked());
     let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, FlashIdent::Query, 12);
     let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, FlashIdent::Key, 34);
     let value = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, FlashIdent::Value, 56);

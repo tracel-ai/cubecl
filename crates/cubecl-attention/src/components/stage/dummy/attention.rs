@@ -53,42 +53,50 @@ impl<
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,
-        prev_state: &Self::State,
+        state: &mut Self::State,
         #[comptime] config: Self::Config,
-    ) -> Self::State {
+    ) {
         comment!("Stage: Execute");
 
-        let prev_m = prev_state.m;
-        let prev_l = prev_state.l;
+        // 1/sqrt(8)
+        let inv_sqrt_dk = AP::EA::new(0.35355339059);
+
+        let prev_m = state.m;
+        let prev_l = state.l;
         let row = UNIT_POS_X / 4;
         let index_0 = 2 * UNIT_POS_X;
         let index_1 = index_0 + 1;
         let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
 
         /////////////////////////////////////////////
-        ///// Put Q directly in fragment for Score Matmul
+        comment!("Stage-Execute: Put Q directly in fragment for Score Matmul");
         // TODO: very bad to load it at this moment
         let query_fragment = query_reader.read_tile::<STM>(config.score_config());
 
         /////////////////////////////////////////////
-        ///// Put K in fragment from reader for Score Matmul
+        comment!("Stage-Execute: Put K in fragment from reader for Score Matmul");
         let key_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<STM::Config>,
         >(key_reader, 0, 0, config.score_stage_memory_config());
+
         // TODO: This allocation should be reused in each execution
         let mut key_fragment = STM::allocate_rhs(config.score_config());
+
         STM::fill_rhs(&key_tile, &mut key_fragment, config.score_config());
 
         /////////////////////////////////////////////
-        ///// Init scores
+        comment!("Stage: Execute: Init scores");
         // TODO: This allocation should be reused in each execution
+
         let mut scores =
             <STM as TileMatmul<AP::MatmulPrecision>>::allocate_accumulator(config.score_config());
         // TODO: zeroing must be in global matmul header
+
         STM::zero_accumulator(&mut scores, config.score_config());
 
         /////////////////////////////////////////////
-        ///// Score matmul S=Q·K+0
+        comment!("Stage-Execute: Score matmul S=Q·K+0");
+
         STM::execute(
             &query_fragment,
             &key_fragment,
@@ -97,18 +105,21 @@ impl<
         );
 
         /////////////////////////////////////////////
-        ///// Make sure we work with the right registers for scores
+        comment!(
+            "Stage-Execute: Make sure we work with the right registers for scores, and scale them"
+        );
         // TODO work on scores register directly
         STM::write_results(
             &scores,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.score_config(),
         );
-        let s0 = tmp_smem[index_0];
-        let s1 = tmp_smem[index_1];
+
+        tmp_smem[index_0] *= inv_sqrt_dk;
+        tmp_smem[index_1] *= inv_sqrt_dk;
 
         /////////////////////////////////////////////
-        ///// 𝑚 ( 𝑗) 𝑖 = max(𝑚 ( 𝑗−1) 𝑖 ,rowmax(S ( 𝑗) 𝑖))
+        comment!("Stage-Execute: 𝑚 ( j) i = max(𝑚 ( j-1) i ,rowmax(S ( j) i))");
         let mut m = prev_m;
         for i in 0..8 {
             let ts = tmp_smem[row * 8 + i];
@@ -118,7 +129,21 @@ impl<
         }
 
         /////////////////////////////////////////////
-        ///// ℓ ( 𝑗) 𝑖 = 𝑒 𝑚 𝑗−1 𝑖 −𝑚 ( 𝑗) 𝑖 ℓ ( 𝑗−1) 𝑖 + rowsum(P˜ ( 𝑗) 𝑖)
+        comment!("Stage-Execute: Compute P and put it to fragment for Value Matmul");
+        /////
+
+        tmp_smem[index_0] = Exp::exp(tmp_smem[index_0] - m);
+        tmp_smem[index_1] = Exp::exp(tmp_smem[index_1] - m);
+
+        let p = Tile::<AP::ES> {
+            slice: tmp_smem.to_slice().try_cast_unchecked(),
+            stride: 8,
+            layout: MatrixLayout::RowMajor,
+        };
+
+        /////////////////////////////////////////////
+        comment!("Stage-Execute: l ( j) i = e 𝑚 j-1 i −𝑚 ( j) i l ( j-1) i + rowsum(P~ ( j) i)");
+        /////
         let epm = Exp::exp(prev_m - m);
         let mut rowsum = AP::EA::from_int(0);
         for i in 0..8 {
@@ -126,30 +151,22 @@ impl<
         }
         let l = epm * prev_l + rowsum;
 
-        /////////////////////////////////////////////
-        ///// Compute P and put it to fragment for Value Matmul
-        tmp_smem[index_0] = Exp::exp(s0 - m);
-        tmp_smem[index_1] = Exp::exp(s1 - m);
-        let p = Tile::<AP::ES> {
-            slice: tmp_smem.to_slice().try_cast_unchecked(),
-            stride: 8,
-            layout: MatrixLayout::RowMajor,
-        };
         // TODO: This allocation should be reused in each execution
         let mut p_fragment = VTM::allocate_lhs(config.value_config());
         VTM::fill_lhs(&p, &mut p_fragment, config.value_config());
 
         /////////////////////////////////////////////
-        ///// Put V in fragment from reader for Value Matmul
+        comment!("Stage-Execute: Put V in fragment from reader for Value Matmul");
         let value = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<VTM::Config>,
         >(value_reader, 0, 0, config.value_stage_memory_config());
         // TODO: This allocation should be reused in each execution
+
         let mut v_fragment = VTM::allocate_rhs(config.value_config());
         VTM::fill_rhs(&value, &mut v_fragment, config.value_config());
 
         /////////////////////////////////////////////
-        ///// Scale acc by epm
+        comment!("Stage-Execute: Scale acc by epm");
         // TODO modify registers directly when we are certain we are in the right row
         // Instead of storing modifying then refilling
         VTM::write_results(
@@ -157,27 +174,27 @@ impl<
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.value_config(),
         );
+
         tmp_smem[index_0] *= epm;
         tmp_smem[index_1] *= epm;
+
         let tile = Tile::<AP::EA> {
             slice: tmp_smem.to_slice().try_cast_unchecked(),
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
+
         VTM::fill_accumulator(&tile, acc, config.value_config());
 
         /////////////////////////////////////////////
-        ///// Value Matmul O = P·V + scaled_O
+        comment!("Stage-Execute: Value Matmul O = P·V + scaled_O");
         VTM::execute(&p_fragment, &v_fragment, acc, config.value_config());
 
-        DummyStageState::<AP::EA> { m, l }
+        state.m = m;
+        state.l = l;
     }
 
-    fn rescale(
-        acc: &mut Self::Accumulator,
-        prev_state: Self::State,
-        #[comptime] config: Self::Config,
-    ) {
+    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
         comment!("Stage: Rescale");
         let index_0 = 2 * UNIT_POS_X;
         let index_1 = index_0 + 1;
@@ -188,8 +205,9 @@ impl<
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.value_config(),
         );
-        tmp_smem[index_0] /= prev_state.l;
-        tmp_smem[index_1] /= prev_state.l;
+
+        tmp_smem[index_0] /= state.l;
+        tmp_smem[index_1] /= state.l;
         let tile = Tile::<AP::EA> {
             slice: tmp_smem.to_slice().try_cast_unchecked(),
             stride: 8,
@@ -203,7 +221,7 @@ impl<
 
         DummyStageState::<AP::EA> {
             // TODO Neg infinity
-            m: AP::EA::from_int(-9999),
+            m: AP::EA::new(1e-20),
             l: AP::EA::from_int(0),
         }
     }

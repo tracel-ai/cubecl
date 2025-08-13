@@ -74,9 +74,9 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
         acc: &mut Self::Accumulator,
-        prev_state: &Self::State,
+        prev_state: &mut Self::State,
         #[comptime] config: Self::Config,
-    ) -> Self::State;
+    );
 
     fn rescale(
         acc: &mut Self::Accumulator,
