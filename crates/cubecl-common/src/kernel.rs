@@ -44,8 +44,7 @@ impl Default for CubeDim {
     fn default() -> Self {
         Self {
             x: PLANE_DIM_APPROX as u32,
-            y: 1,
-            // y: PLANE_DIM_APPROX as u32,
+            y: PLANE_DIM_APPROX as u32,
             z: 1,
         }
     }
