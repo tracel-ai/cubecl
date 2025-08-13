@@ -627,6 +627,7 @@ pub(super) fn supported_scaled_mma_combinations(
     arch: &CudaArchitecture,
 ) -> SupportedScaledMmaCombinations {
     let mut result: SupportedScaledMmaCombinations = vec![];
+    // sm_120f
     if arch.get_version() >= 120 && arch.get_version() < 130 {
         result.extend([
             (
