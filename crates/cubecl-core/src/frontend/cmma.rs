@@ -392,7 +392,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 MatrixIdent::Accumulator => Elem::size_bits(&self.cd_elem) as u32,
             };
             let register_size = scope.runtime_properties.mma.register_size_bits;
-            // div_ceil for potential compatiblity with f64
+            // div_ceil for potential compatibility with f64
             register_size.div_ceil(bits)
         })
     }

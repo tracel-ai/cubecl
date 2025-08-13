@@ -3,7 +3,7 @@ use half::{bf16, f16};
 
 use super::global::args::{MatmulArgs, TensorArgs};
 
-/// Matrix multiplication spec definiting each element types used in the computation as well as
+/// Matrix multiplication spec defining each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait MatmulSpec: Send + Sync + Clone + 'static {
     type Precision: MatmulPrecision;

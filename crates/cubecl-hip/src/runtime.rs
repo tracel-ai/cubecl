@@ -63,7 +63,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     #[allow(unused_assignments)]
     let mut prop_max_threads = 0;
     let mut max_cube_dim = CubeDim::new_single();
-    let mut mem_aligment = 32;
+    let mut mem_alignment = 32;
     unsafe {
         let mut ll_device_props = MaybeUninit::uninit();
         let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
@@ -88,8 +88,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_cube_dim.z = ll_device_props.maxThreadsDim[2] as u32;
 
         // Just to be sure we check both.
-        mem_aligment = usize::max(mem_aligment, ll_device_props.textureAlignment);
-        mem_aligment = usize::max(mem_aligment, ll_device_props.surfaceAlignment);
+        mem_alignment = usize::max(mem_alignment, ll_device_props.textureAlignment);
+        mem_alignment = usize::max(mem_alignment, ll_device_props.surfaceAlignment);
     };
     let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
     let arch = AMDArchitecture::parse(normalized_arch_name).unwrap();
@@ -123,10 +123,10 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = HipStorage::new(mem_aligment, stream);
+    let storage = HipStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
-        alignment: mem_aligment as u64,
+        alignment: mem_alignment as u64,
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
@@ -189,7 +189,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         supports_clusters: false,
     };
     let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
-    let server = HipServer::new(mem_aligment, hip_ctx);
+    let server = HipServer::new(mem_alignment, hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 
