@@ -106,6 +106,16 @@ impl QuantValue {
     }
 }
 
+impl QuantStore {
+    /// Returns the size of the quantization input type in bits.
+    pub fn size_bits(&self, value: QuantValue) -> usize {
+        match self {
+            QuantStore::Native => value.size_bits(),
+            QuantStore::U32 => 32,
+        }
+    }
+}
+
 /// Data type used to stored quantized values.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QuantStore {

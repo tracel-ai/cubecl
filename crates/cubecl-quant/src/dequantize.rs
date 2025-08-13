@@ -29,7 +29,7 @@ pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
     scales: &Tensor<FS>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
-    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
+    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales.to_slice(), scheme)
 }
 
 /// Dequantize a single value using the scale at the specified position.
@@ -40,7 +40,7 @@ pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
 pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: Line<QI>,
-    scales: &Tensor<FS>,
+    scales: Slice<FS>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     let qparams = QParams::new(scheme);
@@ -54,7 +54,7 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
 #[cube]
 pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
-    scales: &Tensor<FS>,
+    scales: Slice<FS>,
     qparams: QParams,
     position: u32,
     #[comptime] scheme: QuantScheme,
@@ -65,8 +65,8 @@ pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
 
     #[unroll]
     for i in 0..line_size_values {
-        let floats = unpack_q::<F, QS>(values[i], scheme.value);
-        let scale = qparams.scale(scales, (position * line_size_values) + i);
+        let floats = unpack_q::<F, QS>(values[i], scheme.value, scheme.store);
+        let scale = qparams.scale(&scales, (position * line_size_values) + i);
         let values = dequantize_symmetric::<F, FS>(floats, scale);
         tmp[i] = values;
     }
@@ -79,10 +79,13 @@ pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
 /// This handles types where multiple quantized values are packed into a single integer (the stored quantization type).
 #[allow(clippy::explicit_counter_loop)]
 #[cube]
-fn unpack_q<F: Float, QS: Int>(value: QS, #[comptime] quant: QuantValue) -> Line<F> {
+fn unpack_q<F: Float, QS: Int>(
+    value: QS,
+    #[comptime] quant: QuantValue,
+    #[comptime] store: QuantStore,
+) -> Line<F> {
     let size_quant = comptime!(quant.size_bits() as u32);
-
-    let size_store = comptime!(QS::size_bits().unwrap() as u32);
+    let size_store = comptime!(store.size_bits(quant) as u32);
     let num_quant = comptime!(size_store / size_quant);
 
     let mut output = Line::empty(num_quant);
@@ -131,7 +134,13 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
     let values = input[ABSOLUTE_POS];
 
-    let out = dequantize_packed_value::<F, FS, u32>(values, scales, qparams, ABSOLUTE_POS, scheme);
+    let out = dequantize_packed_value::<F, FS, u32>(
+        values,
+        scales.to_slice(),
+        qparams,
+        ABSOLUTE_POS,
+        scheme,
+    );
 
     for i in 0..line_size_in {
         output[ABSOLUTE_POS * line_size_in + i] = out[i];
@@ -156,7 +165,7 @@ fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
 
     let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = qparams.scale(scale, ABSOLUTE_POS * input.line_size());
+    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * input.line_size());
 
     output[out_pos] = dequantize_symmetric::<F, FS>(Line::cast_from(input[in_pos]), scale);
 }

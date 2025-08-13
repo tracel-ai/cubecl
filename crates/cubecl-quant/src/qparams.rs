@@ -21,7 +21,7 @@ impl QParams {
     }
 
     /// Get the quantization parameters values.
-    pub fn scale<F: Float>(&self, scale_tensor: &Tensor<F>, value_pos: u32) -> F {
+    pub fn scale<F: Float>(&self, scale_tensor: &Slice<F>, value_pos: u32) -> F {
         match comptime!(self.scheme) {
             // Symmetric quantization only contains the scaling factor as the last element
             QuantScheme {
