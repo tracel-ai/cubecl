@@ -105,7 +105,7 @@ impl MlirData {
         }
         for shared_memory in shared_memories.0.iter() {
             let length = (shared_memory.elem.size() * shared_memory.length as usize) as u64;
-            let handle = memory_management.reserve(length, None).unwrap();
+            let handle = memory_management.reserve(length).unwrap();
             let b = Handle::new(handle, None, None, length).binding();
             let handle = memory_management
                 .get_resource(b.memory, b.offset_start, b.offset_end)

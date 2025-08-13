@@ -911,7 +911,9 @@ pub fn test_cmma_manual<R: Runtime, AB: CubeElement + Numeric, CD: CubeElement +
     let mut expected = Vec::with_capacity(m * n);
     for i in 0..m {
         // For each output row
+        // For each output row
         for j in 0..n {
+            // For each output column
             // For each output column
             let mut sum = 0;
             for l in 0..k {
@@ -1246,6 +1248,8 @@ macro_rules! testgen_cmma {
             test::<tf32, f32>(16, 8, 8);
             test::<half::f16, f32>(16, 8, 16);
             test::<half::bf16, f32>(16, 8, 16);
+            test::<cubecl_common::e5m2, f32>(16, 8, 32);
+            test::<cubecl_common::e4m3, f32>(16, 8, 32);
             test::<cubecl_common::e5m2, f32>(16, 8, 32);
             test::<cubecl_common::e4m3, f32>(16, 8, 32);
             test::<i8, i32>(16, 8, 32);

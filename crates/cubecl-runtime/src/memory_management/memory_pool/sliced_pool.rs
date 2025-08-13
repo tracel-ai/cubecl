@@ -1,6 +1,6 @@
 use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
-use crate::memory_management::{MemoryUsage, StorageExclude};
+use crate::memory_management::MemoryUsage;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use crate::{memory_management::memory_pool::calculate_padding, server::IoError};
 use alloc::vec::Vec;
@@ -94,15 +94,12 @@ impl MemoryPool for SlicedPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn try_reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
-        let slice_id = self.ring.find_free_slice(
-            effective_size,
-            &mut self.pages,
-            &mut self.slices,
-            exclude,
-        )?;
+        let slice_id =
+            self.ring
+                .find_free_slice(effective_size, &mut self.pages, &mut self.slices)?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();
         let old_slice_size = slice.effective_size();

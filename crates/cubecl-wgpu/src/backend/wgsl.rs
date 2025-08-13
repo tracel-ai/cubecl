@@ -11,17 +11,20 @@ use wgpu::Features;
 
 use crate::WgslCompiler;
 
-pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize, Visibility)> {
-    let mut bindings = repr
+pub fn bindings(
+    repr: &<WgslCompiler as Compiler>::Representation,
+) -> (Vec<Visibility>, Vec<Visibility>) {
+    let bindings = repr
         .buffers
         .iter()
         .map(|it| it.visibility)
         .collect::<Vec<_>>();
+    let mut meta = vec![];
     if repr.has_metadata {
-        bindings.push(Visibility::Read);
+        meta.push(Visibility::Read);
     }
-    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
-    bindings.into_iter().enumerate().collect()
+    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    (bindings, meta)
 }
 
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
