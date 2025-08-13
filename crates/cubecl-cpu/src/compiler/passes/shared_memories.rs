@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Elem, Variable, VariableKind};
+use cubecl_core::ir::{Elem, OperationReflect, Variable, VariableKind};
 use cubecl_opt::Optimizer;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -36,6 +36,11 @@ impl SharedMemories {
             for op in ops.borrow_mut().values_mut() {
                 if let Some(out) = op.out {
                     self.visit_variable(out);
+                }
+                if let Some(args) = op.operation.args() {
+                    for arg in args {
+                        self.visit_variable(arg);
+                    }
                 }
             }
         }

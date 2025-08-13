@@ -63,14 +63,18 @@ impl<'a> Visitor<'a> {
             .get(&variable.kind)
             .copied()
             .unwrap_or_else(|| {
-                let value = self.append_operation_with_result(memref::alloca(
-                    self.context,
-                    memref_type,
-                    &[],
-                    &[],
-                    None,
-                    self.location,
-                ));
+                let value = self
+                    .first_block
+                    .unwrap()
+                    .append_op_result(memref::alloca(
+                        self.context,
+                        memref_type,
+                        &[],
+                        &[],
+                        None,
+                        self.location,
+                    ))
+                    .unwrap();
                 self.variables.local.insert(variable.kind, value);
                 value
             })

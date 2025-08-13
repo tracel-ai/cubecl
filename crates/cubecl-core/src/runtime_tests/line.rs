@@ -2,6 +2,33 @@ use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
+pub fn kernel_line_copy<F: Float>(out: &mut Array<F>) {
+    let mut acc = Array::<F>::vectorized(16u32, 1u32);
+    // let mut acc = Line::empty(64u32);
+    for i in 0..16 {
+        acc[i] += F::new(1.0);
+    }
+    for i in 0..16 {
+        out[i] = acc[i];
+    }
+}
+
+pub fn test_line_copy<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(F::as_bytes(&vec![F::new(0.0); 128]));
+    unsafe {
+        kernel_line_copy::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            ArrayArg::from_raw_parts::<F>(&handle, 128, 1),
+        );
+    }
+    let actual = client.read_one(handle);
+}
+
+#[cube(launch_unchecked)]
 pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size: u32) {
     if UNIT_POS == 0 {
         let line = Line::empty(line_size).fill(F::new(5.0));
@@ -192,6 +219,12 @@ impl_line_comparison!(greater_equal, [1, 0, 1, 1]);
 macro_rules! testgen_line {
     () => {
         use super::*;
+
+        #[test]
+        fn test_line_copy() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_line_copy::<TestRuntime, FloatType>(client);
+        }
 
         #[test]
         fn test_line_index() {

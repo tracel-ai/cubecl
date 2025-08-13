@@ -39,6 +39,10 @@ impl<'a> Visitor<'a> {
         let this_block = self
             .current_region
             .insert_block_before(self.last_block, block);
+
+        if let None = self.first_block {
+            self.first_block = Some(this_block);
+        }
         self.block = this_block;
 
         self.blocks.insert(block_id, this_block);
