@@ -151,8 +151,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn allocate_fill_cast_lhs<EI: Numeric>(
-        tile: &Tile<EI>,
-        #[comptime] config: Self::Config,
+        _tile: &Tile<EI>,
+        #[comptime] _config: Self::Config,
     ) -> Self::Lhs {
         comptime!(unimplemented!())
     }

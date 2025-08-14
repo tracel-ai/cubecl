@@ -69,12 +69,10 @@ impl<
         let index_1 = index_0 + 1;
         let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Put Q directly in fragment for Score Matmul");
         // TODO: very bad to load it at this moment
         let query_fragment = query_reader.read_tile::<STM>(config.score_config());
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Put K in fragment from reader for Score Matmul");
         let key_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<STM::Config>,
@@ -83,7 +81,6 @@ impl<
         let mut key_fragment = STM::allocate_rhs(config.score_config());
         STM::fill_rhs(&key_tile, &mut key_fragment, config.score_config());
 
-        /////////////////////////////////////////////
         comment!("Stage: Execute: Init scores");
         // TODO: This allocation should be reused in each execution
         let mut scores =
@@ -91,7 +88,6 @@ impl<
         // TODO: zeroing must be in global matmul header
         STM::zero_accumulator(&mut scores, config.score_config());
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Score matmul S=Q·K+0");
         STM::execute(
             &query_fragment,
@@ -100,7 +96,6 @@ impl<
             config.score_config(),
         );
 
-        /////////////////////////////////////////////
         comment!(
             "Stage-Execute: Make sure we work with the right registers for scores, and scale them"
         );
@@ -113,7 +108,6 @@ impl<
         tmp_smem[index_0] *= inv_sqrt_dk;
         tmp_smem[index_1] *= inv_sqrt_dk;
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: 𝑚 ( j) i = max(𝑚 ( j-1) i ,rowmax(S ( j) i))");
         let mut m = prev_m;
         for i in 0..8 {
@@ -123,18 +117,18 @@ impl<
             }
         }
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Compute P and put it to fragment for Value Matmul");
         tmp_smem[index_0] = Exp::exp(tmp_smem[index_0] - m);
         tmp_smem[index_1] = Exp::exp(tmp_smem[index_1] - m);
-
         let p = Tile::<AP::ES> {
             slice: tmp_smem.to_slice().try_cast_unchecked(),
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
+        // TODO: This allocation should be reused in each execution
+        let mut p_fragment = VTM::allocate_lhs(config.value_config());
+        VTM::fill_lhs(&p, &mut p_fragment, config.value_config());
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: l ( j) i = e 𝑚 j-1 i −𝑚 ( j) i l ( j-1) i + rowsum(P~ ( j) i)");
         let epm = Exp::exp(prev_m - m);
         let mut rowsum = AP::EA::from_int(0);
@@ -143,11 +137,6 @@ impl<
         }
         let l = epm * prev_l + rowsum;
 
-        // TODO: This allocation should be reused in each execution
-        let mut p_fragment = VTM::allocate_lhs(config.value_config());
-        VTM::fill_lhs(&p, &mut p_fragment, config.value_config());
-
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Put V in fragment from reader for Value Matmul");
         let value = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<VTM::Config>,
@@ -156,7 +145,6 @@ impl<
         let mut v_fragment = VTM::allocate_rhs(config.value_config());
         VTM::fill_rhs(&value, &mut v_fragment, config.value_config());
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Scale acc by epm");
         // TODO modify registers directly when we are certain we are in the right row
         // Instead of storing modifying then refilling
@@ -174,7 +162,6 @@ impl<
         };
         VTM::fill_accumulator(&tile, acc, config.value_config());
 
-        /////////////////////////////////////////////
         comment!("Stage-Execute: Value Matmul O = P·V + scaled_O");
         VTM::execute(&p_fragment, &v_fragment, acc, config.value_config());
 
