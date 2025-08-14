@@ -15,11 +15,9 @@ autotune-checks = []
 channel-cell = []
 channel-mpsc = []
 channel-mutex = []
-channel-std-mutex = []
 default = [
     "std",
     "channel-mutex",
-    "channel-std-mutex",
     "channel-mpsc",
     "channel-cell",
     "storage-bytes",
