@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    MatrixLayout,
+    MatmulPrecision, MatrixLayout,
     stage::StageToTileReader,
     tile::{Tile, TileMatmul},
 };
@@ -39,7 +39,6 @@ impl<
 
     type KeyReader = R;
     type ValueReader = R;
-    type Accumulator = VTM::Accumulator;
     type Writer = DummyWriter<AP::EO>;
 
     type State = DummyStageState<AP::EA>;
@@ -50,10 +49,13 @@ impl<
     // Tc times, each call is at an index j
     // Return (m_ij, l_ij) [new]
     fn execute(
-        query_reader: &QueryRegisterReader<AP>,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
-        acc: &mut Self::Accumulator,
+        fragments: &mut Fragments<
+            AP::MatmulPrecision,
+            Self::ScoreTileMatmul,
+            Self::ValueTileMatmul,
+        >,
         state: &mut Self::State,
         #[comptime] config: Self::Config,
     ) {
@@ -69,30 +71,17 @@ impl<
         let index_1 = index_0 + 1;
         let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
 
-        comment!("Stage-Execute: Put Q directly in fragment for Score Matmul");
-        // TODO: very bad to load it at this moment
-        let query_fragment = query_reader.read_tile::<STM>(config.score_config());
-
         comment!("Stage-Execute: Put K in fragment from reader for Score Matmul");
         let key_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<STM::Config>,
         >(key_reader, 0, 0, config.score_stage_memory_config());
-        // TODO: This allocation should be reused in each execution
-        let mut key_fragment = STM::allocate_rhs(config.score_config());
-        STM::fill_rhs(&key_tile, &mut key_fragment, config.score_config());
-
-        comment!("Stage: Execute: Init scores");
-        // TODO: This allocation should be reused in each execution
-        let mut scores =
-            <STM as TileMatmul<AP::MatmulPrecision>>::allocate_accumulator(config.score_config());
-        // TODO: zeroing must be in global matmul header
-        STM::zero_accumulator(&mut scores, config.score_config());
+        STM::fill_rhs(&key_tile, &mut fragments.key, config.score_config());
 
         comment!("Stage-Execute: Score matmul S=Q·K+0");
         STM::execute(
-            &query_fragment,
-            &key_fragment,
-            &mut scores,
+            &fragments.query,
+            &fragments.key,
+            &mut fragments.score,
             config.score_config(),
         );
 
@@ -101,7 +90,7 @@ impl<
         );
         // TODO work on scores register directly
         STM::write_results(
-            &scores,
+            &mut fragments.score,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.score_config(),
         );
@@ -125,9 +114,7 @@ impl<
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
-        // TODO: This allocation should be reused in each execution
-        let mut p_fragment = VTM::allocate_lhs(config.value_config());
-        VTM::fill_lhs(&p, &mut p_fragment, config.value_config());
+        VTM::fill_lhs(&p, &mut fragments.prob, config.value_config());
 
         comment!("Stage-Execute: l ( j) i = e 𝑚 j-1 i −𝑚 ( j) i l ( j-1) i + rowsum(P~ ( j) i)");
         let epm = Exp::exp(prev_m - m);
@@ -141,15 +128,13 @@ impl<
         let value = <R as StageToTileReader<AP::ES>>::read_tile::<
             AttentionStageMemoryConfig<VTM::Config>,
         >(value_reader, 0, 0, config.value_stage_memory_config());
-        // TODO: This allocation should be reused in each execution
-        let mut v_fragment = VTM::allocate_rhs(config.value_config());
-        VTM::fill_rhs(&value, &mut v_fragment, config.value_config());
+        VTM::fill_rhs(&value, &mut fragments.value, config.value_config());
 
         comment!("Stage-Execute: Scale acc by epm");
         // TODO modify registers directly when we are certain we are in the right row
         // Instead of storing modifying then refilling
         VTM::write_results(
-            acc,
+            &fragments.accumulator,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.value_config(),
         );
@@ -160,16 +145,21 @@ impl<
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
-        VTM::fill_accumulator(&tile, acc, config.value_config());
+        VTM::fill_accumulator(&tile, &mut fragments.accumulator, config.value_config());
 
         comment!("Stage-Execute: Value Matmul O = P·V + scaled_O");
-        VTM::execute(&p_fragment, &v_fragment, acc, config.value_config());
+        VTM::execute(
+            &fragments.prob,
+            &fragments.value,
+            &mut fragments.accumulator,
+            config.value_config(),
+        );
 
         state.m = m;
         state.l = l;
     }
 
-    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
+    fn rescale(acc: &mut VTM::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
         comment!("Stage: Rescale");
         let index_0 = 2 * UNIT_POS_X;
         let index_1 = index_0 + 1;
@@ -201,8 +191,34 @@ impl<
         }
     }
 
+    fn init_fragments(
+        query_reader: QueryRegisterReader<AP>,
+        #[comptime] config: Self::Config,
+    ) -> Fragments<AP::MatmulPrecision, STM, VTM> {
+        let score_config = config.score_config();
+        let query = query_reader.read_tile::<STM>(score_config);
+        let key = STM::allocate_rhs(score_config);
+        let mut score = STM::allocate_accumulator(score_config);
+        STM::zero_accumulator(&mut score, score_config);
+
+        let value_config = config.value_config();
+        let prob = VTM::allocate_lhs(value_config);
+        let value = VTM::allocate_rhs(value_config);
+        let mut accumulator = VTM::allocate_accumulator(value_config);
+        VTM::zero_accumulator(&mut accumulator, value_config);
+
+        Fragments::<AP::MatmulPrecision, Self::ScoreTileMatmul, Self::ValueTileMatmul> {
+            query,
+            key,
+            score,
+            prob,
+            value,
+            accumulator,
+        }
+    }
+
     fn write<G: GlobalAttentionConfig>(
-        acc: &Self::Accumulator,
+        acc: &VTM::Accumulator,
         writer: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
@@ -224,20 +240,8 @@ impl<
         )
     }
 
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        comment!("Stage: Zero Accumulator");
-        VTM::zero_accumulator(acc, config.value_config());
-    }
-
     fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
         DummyWriter::new(out, 0, 0, 0)
-    }
-
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let config = config.value_config();
-        let mut acc = VTM::allocate_accumulator(config);
-        VTM::zero_accumulator(&mut acc, config);
-        acc
     }
 }
 
@@ -251,4 +255,32 @@ pub struct DummyStageState<E: Float> {
     // Equal m_i'(j-1)
     m: E,
     l: E,
+}
+
+#[derive(CubeType)]
+pub struct Fragments<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP>> {
+    query: <STM as TileMatmul<MP>>::Lhs,
+    key: <STM as TileMatmul<MP>>::Rhs,
+    score: <STM as TileMatmul<MP>>::Accumulator,
+    prob: <VTM as TileMatmul<MP>>::Lhs,
+    value: <VTM as TileMatmul<MP>>::Rhs,
+    accumulator: <VTM as TileMatmul<MP>>::Accumulator,
+}
+
+#[cube]
+impl<MP, STM, VTM> Fragments<MP, STM, VTM>
+where
+    MP: MatmulPrecision,
+    STM: TileMatmul<MP>,
+    VTM: TileMatmul<MP>,
+{
+    /// Returns a reference to the accumulator of the VTM matmul
+    pub fn get_accumulator(&self) -> &<VTM as TileMatmul<MP>>::Accumulator {
+        &self.accumulator
+    }
+
+    /// Returns a mutable reference to the accumulator of the VTM matmul
+    pub fn get_accumulator_mut(&mut self) -> &mut <VTM as TileMatmul<MP>>::Accumulator {
+        &mut self.accumulator
+    }
 }

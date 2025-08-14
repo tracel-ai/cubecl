@@ -10,6 +10,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
+    stage::dummy::Fragments,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -56,7 +57,6 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyReader: CubeType;
     type ValueReader: CubeType;
-    type Accumulator: CubeType;
     type Writer: CubeType;
 
     /// The configuration type associated with this Attention.
@@ -68,32 +68,38 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type ValueTileMatmul: TileMatmul<AP::MatmulPrecision>;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     fn execute(
-        query_reader: &QueryRegisterReader<AP>,
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
-        acc: &mut Self::Accumulator,
+        fragments: &mut Fragments<
+            AP::MatmulPrecision,
+            Self::ScoreTileMatmul,
+            Self::ValueTileMatmul,
+        >,
         prev_state: &mut Self::State,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
-        acc: &mut Self::Accumulator,
+        acc: &mut <Self::ValueTileMatmul as TileMatmul<AP::MatmulPrecision>>::Accumulator,
         prev_state: Self::State,
         #[comptime] config: Self::Config,
     );
 
     fn write<G: GlobalAttentionConfig>(
-        acc: &Self::Accumulator,
+        acc: &<Self::ValueTileMatmul as TileMatmul<AP::MatmulPrecision>>::Accumulator,
         writer: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
 
     fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    fn init_fragments(
+        query_reader: QueryRegisterReader<AP>,
+        #[comptime] _config: Self::Config,
+    ) -> Fragments<AP::MatmulPrecision, Self::ScoreTileMatmul, Self::ValueTileMatmul>;
 }
 
 /// Configuration for the Stage Attention level

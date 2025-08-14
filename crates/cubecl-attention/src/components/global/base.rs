@@ -40,8 +40,6 @@ pub trait GlobalAttentionFamily: Send + Sync + 'static {
 pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// Writes to Out at the same offset it loaded Query
     type Writer: CubeType;
-    /// Holds out tmp accumulated
-    type Accumulator: CubeType;
 
     /// Loads to SMEM transposed
     type KeyLoader: CubeType;
@@ -56,7 +54,6 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_loader: Self::KeyLoader,
         value_loader: Self::ValueLoader,
         writer: Self::Writer,
-        acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
 
@@ -70,7 +67,6 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader;
     fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 }
 
 /// Configuration for the Global Attention level

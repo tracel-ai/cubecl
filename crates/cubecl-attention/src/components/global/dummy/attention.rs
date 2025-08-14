@@ -31,7 +31,6 @@ impl<
     type ValueLoader = DummyValueLoader<AP, Self::Config>;
 
     type Writer = SA::Writer;
-    type Accumulator = SA::Accumulator;
 
     type Config = DummyGlobalConfig<SA::Config>;
 
@@ -40,34 +39,41 @@ impl<
         mut key_loader: Self::KeyLoader,
         mut value_loader: Self::ValueLoader,
         mut writer: Self::Writer,
-        acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
         comment!("Global: Execute");
-        SA::zero_accumulator(acc, config.stage_config());
 
         let query_reader = query_loader.reader();
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
         let mut stage_state = SA::init_state(config.stage_config());
+        let mut fragments = SA::init_fragments(query_reader, config.stage_config());
 
         for _ in 0..config.tc() {
             key_loader.load_transposed();
             value_loader.load();
             SA::execute(
-                &query_reader,
                 &key_reader,
                 &value_reader,
-                acc,
+                &mut fragments,
                 &mut stage_state,
                 config.stage_config(),
             );
         }
 
-        SA::rescale(acc, stage_state, config.stage_config());
+        SA::rescale(
+            fragments.get_accumulator_mut(),
+            stage_state,
+            config.stage_config(),
+        );
 
-        SA::write::<Self::Config>(acc, &mut writer, config.stage_config(), config)
+        SA::write::<Self::Config>(
+            fragments.get_accumulator(),
+            &mut writer,
+            config.stage_config(),
+            config,
+        )
     }
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> DummyQueryLoader<AP> {
@@ -94,10 +100,5 @@ impl<
     fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
         comment!("Global: Init Writer");
         SA::init_writer(out)
-    }
-
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        comment!("Global: Init Accumulator");
-        SA::init_accumulator(config.stage_config())
     }
 }
