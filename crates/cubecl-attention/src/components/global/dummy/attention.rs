@@ -1,13 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader};
-use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory, StageMemoryConfig};
-use cubecl_matmul::components::{MatrixLayout, StageIdent};
+use cubecl_matmul::components::stage::FullStageToTileReader;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
 use crate::components::stage::AttentionTilingLayout;
 use crate::components::{
@@ -56,7 +53,7 @@ impl<
         let mut stage_state = SA::init_state(config.stage_config());
 
         for _ in 0..config.tc() {
-            key_loader.load();
+            key_loader.load_transposed();
             value_loader.load();
             SA::execute(
                 &query_reader,
@@ -65,11 +62,10 @@ impl<
                 acc,
                 &mut stage_state,
                 config.stage_config(),
-                &mut writer,
             );
         }
 
-        SA::rescale(acc, stage_state, config.stage_config(), &mut writer);
+        SA::rescale(acc, stage_state, config.stage_config());
 
         SA::write::<Self::Config>(acc, &mut writer, config.stage_config(), config)
     }

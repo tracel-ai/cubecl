@@ -93,15 +93,15 @@ impl<T: TileConfig> StageMemoryConfig for AttentionStageMemoryConfig<T> {
         }
     }
 
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
+    fn stage_line_size(&self, _ident: StageIdent) -> u32 {
         1
     }
 
-    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
+    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
         MatrixLayout::RowMajor
     }
 
-    fn num_stages(&self, ident: StageIdent) -> u32 {
+    fn num_stages(&self, _ident: StageIdent) -> u32 {
         1
     }
 }

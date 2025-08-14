@@ -1,16 +1,15 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader};
-use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory, StageMemoryConfig};
+use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
 use cubecl_matmul::components::tile::{Tile, TileMatmul};
-use cubecl_matmul::components::{MatmulPrecision, MatrixLayout, StageIdent};
+use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::components::AttentionPrecision;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::AttentionTilingLayout;
-use crate::components::stage::dummy::AttentionStageMemoryConfig;
 
 #[derive(CubeType)]
 pub struct DummyQueryLoader<AP: AttentionPrecision> {
@@ -79,7 +78,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         }
     }
 
-    pub fn load(&mut self) {
+    pub fn load_transposed(&mut self) {
         comment!("Loading Key");
         let config = comptime!(GlobalMemoryConfig {
             elements_in_tile_row: 8,

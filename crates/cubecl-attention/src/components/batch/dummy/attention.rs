@@ -26,7 +26,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         key: VirtualTensor<AP::EI>,
         value: VirtualTensor<AP::EI>,
         out: VirtualTensor<AP::EO, ReadWrite>,
-        cube_count_args: CubeCountInput,
+        _cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
         comment!("Batch: Execute");

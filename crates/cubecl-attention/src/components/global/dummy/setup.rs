@@ -1,14 +1,14 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::stage::{FullReaderFamily, ReaderFamily};
+use cubecl_matmul::components::stage::FullReaderFamily;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError,
     global::{
         GlobalAttentionFamily,
-        dummy::{DummyGlobalAttention, QueryRegisterReader, config::DummyGlobalConfig},
+        dummy::{DummyGlobalAttention, config::DummyGlobalConfig},
     },
     stage::{StageAttentionConfig as _, StageAttentionFamily},
 };

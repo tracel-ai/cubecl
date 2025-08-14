@@ -1,14 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{
-    TilingScheme, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
-};
+use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent,
-    global::dummy::{DummyQueryLoader, QueryRegisterReader},
+    AttentionSetupError, AvailableLineSizes, FlashIdent, global::dummy::DummyQueryLoader,
     stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
