@@ -48,7 +48,9 @@ impl<
         let value_reader = value_loader.reader();
 
         let mut stage_state = SA::init_state(config.stage_config());
-        let mut fragments = SA::init_fragments(query_reader, config.stage_config());
+
+        let (query, mut key_value, mut score_prob, mut accumulator) =
+            SA::init_fragments(query_reader, config.stage_config());
 
         for _ in 0..config.tc() {
             key_loader.load_transposed();
@@ -56,24 +58,18 @@ impl<
             SA::execute(
                 &key_reader,
                 &value_reader,
-                &mut fragments,
+                &query,
+                &mut key_value,
+                &mut score_prob,
+                &mut accumulator,
                 &mut stage_state,
                 config.stage_config(),
             );
         }
 
-        SA::rescale(
-            fragments.get_accumulator_mut(),
-            stage_state,
-            config.stage_config(),
-        );
+        SA::rescale(&mut accumulator, stage_state, config.stage_config());
 
-        SA::write::<Self::Config>(
-            fragments.get_accumulator(),
-            &mut writer,
-            config.stage_config(),
-            config,
-        )
+        SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
     }
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> DummyQueryLoader<AP> {

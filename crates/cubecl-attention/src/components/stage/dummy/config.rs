@@ -47,6 +47,10 @@ impl<ST: TileConfig, VT: TileConfig> StageAttentionConfig for DummyStageConfig<S
     fn value_config(&self) -> Self::ValueConfig {
         self.value_stage_memory_config.tile_config()
     }
+
+    fn reuse_key_value(&self) -> bool {
+        true
+    }
 }
 
 impl<ST: TileConfig, VT: TileConfig> DummyStageConfig<ST, VT> {
