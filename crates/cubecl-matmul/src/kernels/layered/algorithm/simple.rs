@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection, MultiRowStrategy, TilingScheme,
+        MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError, MultiRowStrategy,
+        TilingScheme,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -60,7 +61,7 @@ where
         plane_dim: u32,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
-    ) -> MatmulSelection {
+    ) -> Result<MatmulSelection, MatmulSetupError> {
         if args.multi_rows {
             let supported = |m: u8, n: u8, k: u8| {
                 client.properties().feature_enabled(Feature::Cmma {
@@ -99,10 +100,10 @@ where
                     .cube_count_plan(cube_count_plan)
                     .build();
 
-                MatmulSelection::builder(tiling_scheme, plane_dim)
+                Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
                     .partition_buffering(PartitionBuffering::Single)
                     .hypercube_config(hypercube)
-                    .build()
+                    .build())
             } else if supported(8, 8, 8) {
                 let tiling_scheme = TilingScheme::builder()
                     .with_tile_size((8, 8, 8).into())
@@ -118,10 +119,10 @@ where
                     .cube_count_plan(cube_count_plan)
                     .build();
 
-                MatmulSelection::builder(tiling_scheme, plane_dim)
+                Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
                     .partition_buffering(PartitionBuffering::Single)
                     .hypercube_config(hypercube)
-                    .build()
+                    .build())
             } else {
                 plane_matmul_selection::<TMM, R>(
                     client,

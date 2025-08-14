@@ -31,7 +31,7 @@ pub trait Algorithm {
         plane_dim: u32,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
-    ) -> MatmulSelection;
+    ) -> Result<MatmulSelection, MatmulSetupError>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         Self::BatchMatmul::filter_line_sizes(Self::GlobalMatmul::filter_line_sizes(

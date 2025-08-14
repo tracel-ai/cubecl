@@ -39,7 +39,7 @@ impl Compiler for MlirCompiler {
         mode: ExecutionMode, // TODO support this by adding array bound checking
     ) -> Self::Representation {
         #[cfg(feature = "mlir-dump")]
-        dump_scope(&kernel.body);
+        dump_scope(&kernel.body, &kernel.options.kernel_name);
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_processor(CheckedIoProcessor::new(mode))
@@ -49,7 +49,7 @@ impl Compiler for MlirCompiler {
         shared_memories.visit(&opt);
 
         #[cfg(feature = "mlir-dump")]
-        dump_opt(&opt);
+        dump_opt(&opt, &kernel.options.kernel_name);
         MlirEngine::from_cubecl_ir(kernel, &opt, shared_memories)
     }
 
@@ -63,22 +63,25 @@ impl Compiler for MlirCompiler {
 }
 
 #[cfg(feature = "mlir-dump")]
-fn dump_scope(scope: &cubecl_core::prelude::Scope) {
+fn dump_scope(scope: &cubecl_core::prelude::Scope, name: &str) {
     use std::fs;
 
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
-        fs::write(format!("{dir}/cubecl.ir.txt"), format!("{}", scope)).unwrap();
+        let path = format!("{dir}/{name}");
+        let _ = fs::create_dir(&path);
+        fs::write(format!("{path}/cubecl.ir.txt"), format!("{}", scope)).unwrap();
     }
 }
 
 #[cfg(feature = "mlir-dump")]
-fn dump_opt(opt: &cubecl_opt::Optimizer) {
-    use std::fs;
-
+fn dump_opt(opt: &cubecl_opt::Optimizer, name: &str) {
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
-        fs::write(format!("{dir}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
+        use std::fs;
+        let path = format!("{dir}/{name}");
+        let _ = fs::create_dir(&path);
+        fs::write(format!("{path}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
         fs::write(
-            format!("{dir}/cubecl-opt.ir.dot"),
+            format!("{path}/cubecl-opt.ir.dot"),
             format!("{}", opt.dot_viz()),
         )
         .unwrap();

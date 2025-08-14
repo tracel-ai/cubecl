@@ -128,6 +128,28 @@ test_binary_impl!(
     ]
 );
 
+test_binary_impl!(
+    test_powf,
+    F,
+    F::powf,
+    [
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 2., -3., 2., 81.],
+            rhs: as_type![F: 3., 2., -1., 0.5],
+            expected: as_type![F: 8., 9., 0.5, 9.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 2., -3., 2., 81.],
+            rhs: as_type![F: 3., 2., -1., 0.5],
+            expected: as_type![F: 8., 9., 0.5, 9.]
+        }
+    ]
+);
+
 #[cube(launch_unchecked)]
 fn test_mulhi_kernel(
     lhs: &Array<Line<u32>>,
@@ -227,6 +249,7 @@ macro_rules! testgen_binary {
             }
 
             add_test!(test_dot);
+            add_test!(test_powf);
         }
     };
 }

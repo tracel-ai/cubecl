@@ -54,7 +54,7 @@ impl MlirEngine {
         context.append_dialect_registry(&registry);
         context.load_all_available_dialects();
 
-        let mut module = Module::new(&context);
+        let mut module = Module::new(&context, kernel.options.kernel_name.clone());
 
         module.visit_kernel(&kernel, opt, &shared_memories);
 

@@ -1,7 +1,10 @@
 use cubecl_core::ir::{Arithmetic, Item};
 use tracel_llvm::melior::{
-    dialect::ods::llvm as llvm_ods,
-    dialect::{arith, llvm, ods::vector},
+    dialect::{
+        arith::{self},
+        llvm,
+        ods::{llvm as llvm_ods, vector},
+    },
     ir::Attribute,
 };
 
@@ -206,8 +209,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, value);
             }
             Arithmetic::Modulo(modulo) => {
-                let lhs = self.get_variable(modulo.lhs);
-                let rhs = self.get_variable(modulo.rhs);
+                let (lhs, rhs) = self.get_binary_op_variable(modulo.lhs, modulo.rhs);
                 let value = if modulo.lhs.elem().is_signed_int() {
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
                 } else if modulo.lhs.elem().is_unsigned_int() {
@@ -215,6 +217,7 @@ impl<'a> Visitor<'a> {
                 } else {
                     self.append_operation_with_result(arith::remf(lhs, rhs, self.location))
                 };
+
                 self.insert_variable(out, value);
             }
             Arithmetic::Mul(mul) => {
@@ -296,8 +299,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, result);
             }
             Arithmetic::Powf(powf) => {
-                let base = self.get_variable(powf.lhs);
-                let exp = self.get_variable(powf.rhs);
+                let (base, exp) = self.get_binary_op_variable(powf.lhs, powf.rhs);
                 let result = self.append_operation_with_result(llvm_ods::intr_pow(
                     self.context,
                     base,
@@ -314,14 +316,28 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, recip);
             }
             Arithmetic::Remainder(remainder) => {
-                let lhs = self.get_variable(remainder.lhs);
-                let rhs = self.get_variable(remainder.rhs);
+                let (lhs, rhs) = self.get_binary_op_variable(remainder.lhs, remainder.rhs);
                 let value = if remainder.lhs.elem().is_signed_int() {
+                    // TODO: check what is PyTorch behaviour with signed integer
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
                 } else if remainder.lhs.elem().is_unsigned_int() {
                     self.append_operation_with_result(arith::remui(lhs, rhs, self.location))
                 } else {
-                    self.append_operation_with_result(arith::remf(lhs, rhs, self.location))
+                    // To emulate PyTorch behaviour torch.remainder(a, b) == a - a.div(b, rounding_mode="floor") * b
+                    let div =
+                        self.append_operation_with_result(arith::divf(lhs, rhs, self.location));
+                    let floor_div = self.append_operation_with_result(llvm_ods::intr_floor(
+                        self.context,
+                        div,
+                        self.location,
+                    ));
+                    let coef = self.append_operation_with_result(arith::mulf(
+                        floor_div,
+                        rhs,
+                        self.location,
+                    ));
+
+                    self.append_operation_with_result(arith::subf(lhs, coef, self.location))
                 };
                 self.insert_variable(out, value);
             }
