@@ -1,7 +1,7 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    channel::MutexComputeChannel,
+    channel::StdMutexComputeChannel,
     client::ComputeClient,
     ir::{Elem, TargetProperties},
 };
@@ -34,7 +34,7 @@ pub type CpuCompiler = MlirCompiler;
 
 type Server = CpuServer;
 // TODO Investigate MSPC channel, it blocks, but may be better
-type Channel = MutexComputeChannel<Server>;
+type Channel = StdMutexComputeChannel<Server>;
 
 fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
@@ -73,7 +73,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
 
     let ctx = CpuContext::new(memory_management);
     let server = CpuServer::new(ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    ComputeClient::new(StdMutexComputeChannel::new(server), device_props, ())
 }
 
 impl Runtime for CpuRuntime {
