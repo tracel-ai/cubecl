@@ -92,16 +92,23 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
             matrix_layout: MatrixLayout::RowMajor,
         });
 
+        let index_load_0 = UNIT_POS_X;
+        let index_load_1 = UNIT_POS_X + 32;
+        let (row_0, col_0) = (index_load_0 / 8, index_load_0 % 8);
+        let (row_1, col_1) = (index_load_1 / 8, index_load_1 % 8);
+        let index_store_0 = col_0 * 8 + row_0;
+        let index_store_1 = col_1 * 8 + row_1;
+
         let line0 = self
             .tensor_reader
-            .load_coalesced_in_tile(0u32, 0u32, UNIT_POS_X, config);
+            .load_coalesced_in_tile(0u32, 0u32, index_load_0, config);
         let line1 = self
             .tensor_reader
-            .load_coalesced_in_tile(0u32, 0u32, UNIT_POS_X + 32, config);
+            .load_coalesced_in_tile(0u32, 0u32, index_load_1, config);
 
         let mut slice = self.stage_memory.as_slice_mut(1u32);
-        slice[UNIT_POS_X] = Line::cast_from(line0);
-        slice[UNIT_POS_X + 32] = Line::cast_from(line1);
+        slice[index_store_0] = Line::cast_from(line0);
+        slice[index_store_1] = Line::cast_from(line1);
     }
 }
 

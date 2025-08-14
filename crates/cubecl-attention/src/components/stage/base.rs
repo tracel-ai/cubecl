@@ -65,6 +65,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type State: CubeType;
 
     type ScoreTileMatmul: TileMatmul<AP::MatmulPrecision>;
+    type ValueTileMatmul: TileMatmul<AP::MatmulPrecision>;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
@@ -76,23 +77,68 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         acc: &mut Self::Accumulator,
         prev_state: &mut Self::State,
         #[comptime] config: Self::Config,
+        tmp_writer: &mut Self::Writer,
     );
 
     fn rescale(
         acc: &mut Self::Accumulator,
         prev_state: Self::State,
         #[comptime] config: Self::Config,
+        tmp_writer: &mut Self::Writer,
     );
 
     fn write<G: GlobalAttentionConfig>(
         acc: &Self::Accumulator,
-        writer: Self::Writer,
+        writer: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
 
     fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    // TMP
+    fn print_query(
+        to_print: &<Self::ScoreTileMatmul as TileMatmul<AP::MatmulPrecision>>::Lhs,
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
+    fn print_key(
+        to_print: &<Self::ScoreTileMatmul as TileMatmul<AP::MatmulPrecision>>::Rhs,
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
+    fn print_value(
+        to_print: &<Self::ValueTileMatmul as TileMatmul<AP::MatmulPrecision>>::Rhs,
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
+    fn print_tmp_smem(
+        to_print: &SharedMemory<AP::EA>,
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
+    fn print_score(
+        to_print: &<Self::ScoreTileMatmul as TileMatmul<AP::MatmulPrecision>>::Accumulator,
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
+    fn print_acc(
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
+    fn print_scalar<F: Float>(
+        value: F,
+        acc_printer: &mut Self::Accumulator,
+        writer: &mut Self::Writer,
+        #[comptime] config: Self::Config,
+    );
 }
 
 /// Configuration for the Stage Attention level

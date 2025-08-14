@@ -6,3 +6,6 @@ mod setup;
 pub use attention::*;
 pub use load::*;
 pub use setup::DummyGlobalAttentionFamily;
+
+// tmp
+pub use config::DummyGlobalConfig;

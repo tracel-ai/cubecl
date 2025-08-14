@@ -42,7 +42,7 @@ impl<
         query_loader: DummyQueryLoader<AP>,
         mut key_loader: Self::KeyLoader,
         mut value_loader: Self::ValueLoader,
-        writer: Self::Writer,
+        mut writer: Self::Writer,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
@@ -55,7 +55,7 @@ impl<
 
         let mut stage_state = SA::init_state(config.stage_config());
 
-        for j in 0..config.tc() {
+        for _ in 0..config.tc() {
             key_loader.load();
             value_loader.load();
             SA::execute(
@@ -65,12 +65,13 @@ impl<
                 acc,
                 &mut stage_state,
                 config.stage_config(),
+                &mut writer,
             );
         }
 
-        SA::rescale(acc, stage_state, config.stage_config());
+        SA::rescale(acc, stage_state, config.stage_config(), &mut writer);
 
-        SA::write::<Self::Config>(acc, writer, config.stage_config(), config)
+        SA::write::<Self::Config>(acc, &mut writer, config.stage_config(), config)
     }
 
     fn init_query_loader(query: VirtualTensor<AP::EI>) -> DummyQueryLoader<AP> {

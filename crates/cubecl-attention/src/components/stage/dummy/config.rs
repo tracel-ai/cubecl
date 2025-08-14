@@ -108,6 +108,7 @@ impl<T: TileConfig> StageMemoryConfig for AttentionStageMemoryConfig<T> {
 
 impl<T: TileConfig> AttentionStageMemoryConfig<T> {
     pub fn new(tile_config: T) -> Self {
+        println!("{:?}", tile_config);
         Self { tile_config }
     }
 }
