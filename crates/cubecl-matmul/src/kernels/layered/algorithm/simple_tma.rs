@@ -4,7 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::single_stage::tma::SimpleTmaMatmulFamily,
         stage::{FullReaderFamily, PlaneMatmulFamily},
@@ -35,7 +35,7 @@ where
         plane_dim: u32,
         elems: MatmulElems,
         _args: &Self::SelectionArgs,
-    ) -> MatmulSelection {
+    ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(client, problem, plane_dim, elems, Default::default())
     }
 }

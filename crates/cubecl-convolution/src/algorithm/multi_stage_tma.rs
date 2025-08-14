@@ -12,7 +12,7 @@ use crate::{
 };
 
 use cubecl_matmul::components::{
-    MatmulElems, MatmulIdent, MatmulSelection,
+    MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
     tile::TileMatmulFamily,
@@ -54,7 +54,12 @@ impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: MatmulElems,
-    ) -> MatmulSelection {
-        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, matmul_elems)
+    ) -> Result<MatmulSelection, MatmulSetupError> {
+        Ok(convolution_matmul_selection::<TMM, R>(
+            client,
+            problem,
+            plane_dim,
+            matmul_elems,
+        ))
     }
 }

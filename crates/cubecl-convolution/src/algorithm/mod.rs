@@ -83,5 +83,5 @@ pub trait Algorithm {
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: MatmulElems,
-    ) -> MatmulSelection;
+    ) -> Result<MatmulSelection, MatmulSetupError>;
 }
