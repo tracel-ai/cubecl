@@ -344,9 +344,11 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             match ident {
-                MatrixIdent::A => self.m * self.k,
-                MatrixIdent::B => self.k * self.n,
-                MatrixIdent::Accumulator => self.m * self.n,
+                MatrixIdent::A => (self.m * self.k) / self.ab_elem.packing_factor() as u32,
+                MatrixIdent::B => (self.k * self.n) / self.ab_elem.packing_factor() as u32,
+                MatrixIdent::Accumulator => {
+                    (self.m * self.n) / self.cd_elem.packing_factor() as u32
+                }
             }
         })
     }
@@ -429,7 +431,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem,
+                elem: elem.unpacked(),
                 layout,
             };
 

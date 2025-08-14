@@ -501,8 +501,8 @@ pub(super) fn compile_manual_mma<D: Dialect>(
         frag_d,
     } = mma;
 
-    let ab_elem = frag_a[0].elem();
-    let cd_elem = frag_c[0].elem();
+    let ab_elem = frag_a[0].elem().unpacked();
+    let cd_elem = frag_c[0].elem().unpacked();
 
     let ab_ty = match ab_elem {
         Elem::F32 => &format!("{}", Elem::<D>::F32),
@@ -540,8 +540,8 @@ pub(super) fn compile_scaled_mma<D: Dialect>(
         frag_d,
     } = mma;
 
-    let ab_elem = frag_a[0].elem();
-    let cd_elem = frag_c[0].elem();
+    let ab_elem = frag_a[0].elem().unpacked();
+    let cd_elem = frag_c[0].elem().unpacked();
     let ab_ty = &format!("{}", Elem::<D>::U32);
     let cd_ty = &format!("{}", Elem::<D>::F32);
     let acc_elems = frag_c.len();
@@ -662,12 +662,19 @@ pub(super) fn supported_scaled_mma_combinations(
                 gpu::Elem::Float(gpu::FloatKind::E2M1),
                 gpu::Elem::Float(gpu::FloatKind::F32),
                 gpu::Elem::Float(gpu::FloatKind::UE8M0),
+                (16, 8, 32),
+                1,
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::Elem::Float(gpu::FloatKind::UE8M0),
                 (16, 8, 64),
                 2,
             ),
             // Sign of scales is ignored
             (
-                gpu::Elem::Float(gpu::FloatKind::E2M1),
+                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
                 gpu::Elem::Float(gpu::FloatKind::F32),
                 gpu::Elem::Float(gpu::FloatKind::E4M3),
                 (16, 8, 64),

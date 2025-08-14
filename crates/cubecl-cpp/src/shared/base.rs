@@ -1153,6 +1153,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Cast(op) => {
                 let op = self.compile_unary(op, out);
+
                 if op.input.elem() == Elem::TF32 || op.out.elem() == Elem::TF32 {
                     self.flags.elem_tf32 = true;
                 }
@@ -1506,6 +1507,10 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.elem_fp4 = true;
                     Elem::FP4(FP4Kind::E2M1)
                 }
+                gpu::FloatKind::E2M1x2 => {
+                    self.flags.elem_fp4 = true;
+                    Elem::FP4x2(FP4Kind::E2M1)
+                }
                 gpu::FloatKind::E2M3 => {
                     self.flags.elem_fp6 = true;
                     Elem::FP6(FP6Kind::E2M3)
@@ -1578,6 +1583,7 @@ fn is_fp4_fp6_fp8(elem: gpu::Elem) -> bool {
         gpu::Elem::Float(kind) => matches!(
             kind,
             FloatKind::E2M1
+                | FloatKind::E2M1x2
                 | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3

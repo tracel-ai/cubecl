@@ -4,7 +4,7 @@ use crate::{
     ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
     prelude::{KernelBuilder, KernelLauncher, init_expand},
 };
-use cubecl_common::{e2m1, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::ExpandElement;
 use half::{bf16, f16};
 use std::{
@@ -204,6 +204,7 @@ from_const!(flex32);
 from_const!(tf32);
 from_const!(f32);
 from_const!(e2m1);
+from_const!(e2m1x2);
 from_const!(e2m3);
 from_const!(e3m2);
 from_const!(e4m3);

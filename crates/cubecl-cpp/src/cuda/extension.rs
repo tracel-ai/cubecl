@@ -64,14 +64,14 @@ impl<D: Dialect> MmaExecute<D> {
         let c_elems = self.shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
         let d_elems = self.shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
-        let a_regs = a_elems as usize / (32 / self.frag_a.elem().size_bits());
-        let b_regs = b_elems as usize / (32 / self.frag_b.elem().size_bits());
-        let c_regs = c_elems as usize / (32 / self.frag_c.elem().size_bits());
-        let d_regs = d_elems as usize / (32 / self.frag_d.elem().size_bits());
+        let a_regs = a_elems as usize / (32 / self.frag_a.elem().unpacked().size_bits());
+        let b_regs = b_elems as usize / (32 / self.frag_b.elem().unpacked().size_bits());
+        let c_regs = c_elems as usize / (32 / self.frag_c.elem().unpacked().size_bits());
+        let d_regs = d_elems as usize / (32 / self.frag_d.elem().unpacked().size_bits());
 
         let ptx = ptx::mma_template(
-            self.frag_a.elem(),
-            self.frag_c.elem(),
+            self.frag_a.elem().unpacked(),
+            self.frag_c.elem().unpacked(),
             self.shape.k,
             a_regs,
             b_regs,
@@ -90,14 +90,14 @@ impl<D: Dialect> MmaExecuteScaled<D> {
         let c_elems = self.shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
         let d_elems = self.shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
-        let a_regs = a_elems as usize / (32 / self.frag_a.elem().size_bits());
-        let b_regs = b_elems as usize / (32 / self.frag_b.elem().size_bits());
-        let c_regs = c_elems as usize / (32 / self.frag_c.elem().size_bits());
-        let d_regs = d_elems as usize / (32 / self.frag_d.elem().size_bits());
+        let a_regs = a_elems as usize / (32 / self.frag_a.elem().unpacked().size_bits());
+        let b_regs = b_elems as usize / (32 / self.frag_b.elem().unpacked().size_bits());
+        let c_regs = c_elems as usize / (32 / self.frag_c.elem().unpacked().size_bits());
+        let d_regs = d_elems as usize / (32 / self.frag_d.elem().unpacked().size_bits());
 
         let ptx = ptx::mma_scaled_template(
-            self.frag_a.elem(),
-            self.frag_c.elem(),
+            self.frag_a.elem().unpacked(),
+            self.frag_c.elem().unpacked(),
             self.shape.k,
             a_regs,
             b_regs,
