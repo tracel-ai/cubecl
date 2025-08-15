@@ -10,10 +10,10 @@ where
 {
 }
 
-pub trait ValueMatmul<AP: AttentionPrecision>: TileMatmul<AP::ES, AP::ES, AP::EA> {}
+pub trait ValueMatmul<AP: AttentionPrecision>: TileMatmul<AP::EA, AP::ES, AP::EA> {}
 impl<AP, T> ValueMatmul<AP> for T
 where
     AP: AttentionPrecision,
-    T: TileMatmul<AP::ES, AP::ES, AP::EA>,
+    T: TileMatmul<AP::EA, AP::ES, AP::EA>,
 {
 }

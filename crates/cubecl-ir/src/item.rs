@@ -2,7 +2,7 @@ use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
 use core::num::NonZero;
-use cubecl_common::{e2m1, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -10,6 +10,8 @@ use cubecl_common::{e2m1, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 pub enum FloatKind {
     /// FP4, 2 bit exponent, 1 bit mantissa
     E2M1,
+    /// FP4x2, 2 bit exponent, 1 bit mantissa, packed
+    E2M1x2,
     /// FP6, 2 bit exponent, 3 bit mantissa
     /// Note: represented by an 8-bit value, with the upper two bits being insignificant
     E2M3,
@@ -139,8 +141,9 @@ impl Elem {
     pub const fn size(&self) -> usize {
         match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
-                FloatKind::E2M1 => panic!("Can't get byte size of sub-byte type"),
-                FloatKind::E2M3
+                FloatKind::E2M1
+                | FloatKind::E2M1x2
+                | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3
                 | FloatKind::E5M2
@@ -172,7 +175,8 @@ impl Elem {
     pub const fn size_bits(&self) -> usize {
         match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
-                FloatKind::E2M3
+                FloatKind::E2M1x2
+                | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3
                 | FloatKind::E5M2
@@ -191,6 +195,17 @@ impl Elem {
             | Elem::AtomicUInt(_)
             | Elem::Bool => self.size() * 8,
         }
+    }
+
+    pub const fn unpacked(&self) -> Elem {
+        match self {
+            Elem::Float(FloatKind::E2M1x2) => Elem::Float(FloatKind::E2M1),
+            elem => *elem,
+        }
+    }
+
+    pub const fn packing_factor(&self) -> usize {
+        self.size_bits() / self.unpacked().size_bits()
     }
 
     pub const fn min_line_size(&self) -> u8 {
@@ -230,6 +245,7 @@ impl Elem {
         let value = match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
                 FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MAX, FloatKind::E2M1),
+                FloatKind::E2M1x2 => ConstantScalarValue::Float(e2m1::MAX, FloatKind::E2M1x2),
                 FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MAX, FloatKind::E2M3),
                 FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MAX, FloatKind::E3M2),
                 FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MAX, FloatKind::E4M3),
@@ -268,6 +284,7 @@ impl Elem {
         let value = match self {
             Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
                 FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MIN, FloatKind::E2M1),
+                FloatKind::E2M1x2 => ConstantScalarValue::Float(e2m1::MIN, FloatKind::E2M1x2),
                 FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MIN, FloatKind::E2M3),
                 FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MIN, FloatKind::E3M2),
                 FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MIN, FloatKind::E4M3),
@@ -314,6 +331,7 @@ impl Display for Elem {
         match self {
             Self::Float(kind) => match kind {
                 FloatKind::E2M1 => f.write_str("e2m1"),
+                FloatKind::E2M1x2 => f.write_str("e2m1x2"),
                 FloatKind::E2M3 => f.write_str("e2m3"),
                 FloatKind::E3M2 => f.write_str("e3m2"),
                 FloatKind::E4M3 => f.write_str("e4m3"),
@@ -432,6 +450,12 @@ impl From<i64> for Variable {
 
 impl From<e2m1> for Variable {
     fn from(_value: e2m1) -> Self {
+        unimplemented!("Can't currently construct minifloats")
+    }
+}
+
+impl From<e2m1x2> for Variable {
+    fn from(_value: e2m1x2) -> Self {
         unimplemented!("Can't currently construct minifloats")
     }
 }

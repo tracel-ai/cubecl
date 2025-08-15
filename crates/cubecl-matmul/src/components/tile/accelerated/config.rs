@@ -1,13 +1,11 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::prelude::Numeric;
 use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{
-    LhsR, MatmulElems, MatmulPrecision, MatrixLayout, RhsR, StageIdent, TileSize,
-};
-use cubecl_core::frontend::CubePrimitive;
+use crate::components::{MatrixLayout, StageIdent, TileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
@@ -64,7 +62,7 @@ impl AcceleratedConfig {
     /// May return an error if:
     /// - cmma is unavailable
     /// - cmma is unavailable for given types
-    pub fn new<MP: MatmulPrecision, R: Runtime>(
+    pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         tile_size: TileSize,
         plane_dim: u32,
@@ -87,27 +85,29 @@ impl AcceleratedConfig {
             lhs_stage_line_size,
             rhs_stage_line_size,
         }
-        .check_availability::<MP, R>(client)
+        .check_availability::<Lhs, Rhs, Acc, R>(client)
     }
 
-    fn check_availability<MP: MatmulPrecision, R: Runtime>(
+    fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let elems = MatmulElems::new::<MP>();
+        let lhs = Lhs::as_elem_native_unchecked();
+        let rhs = Rhs::as_elem_native_unchecked();
+        let acc = Acc::as_elem_native_unchecked();
 
-        let lhs = match elems.lhs_register {
+        let lhs = match lhs {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => elems.lhs_register,
+            _ => lhs,
         };
-        let rhs = match elems.rhs_register {
+        let rhs = match rhs {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => elems.rhs_register,
+            _ => rhs,
         };
 
-        let ea = match elems.acc {
+        let ea = match acc {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => elems.acc,
+            _ => acc,
         };
 
         let size = self.tile_size();
@@ -129,10 +129,7 @@ impl AcceleratedConfig {
             ));
         }
 
-        if !(LhsR::<MP>::is_supported(client)
-            && RhsR::<MP>::is_supported(client)
-            && MP::EA::is_supported(client))
-        {
+        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable {
                     lhs,

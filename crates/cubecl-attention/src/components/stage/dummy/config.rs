@@ -49,7 +49,7 @@ impl<SC: TileConfig, VC: TileConfig> StageAttentionConfig for DummyStageConfig<S
     }
 
     fn reuse_key_value(&self) -> bool {
-        true
+        false
     }
 }
 

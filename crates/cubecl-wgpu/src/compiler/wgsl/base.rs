@@ -308,6 +308,7 @@ impl Display for Variable {
                     FloatKind::BF16
                     | FloatKind::TF32
                     | FloatKind::E2M1
+                    | FloatKind::E2M1x2
                     | FloatKind::E2M3
                     | FloatKind::E3M2
                     | FloatKind::E4M3

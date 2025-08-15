@@ -41,10 +41,14 @@ impl<SM: TileMatmulFamily, VM: TileMatmulFamily, RF: ReaderFamily> StageAttentio
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let score_tile_config =
-            SM::setup::<AP, R>(client, score_tile_matmul_setup_info(selection, line_sizes))?;
-        let value_tile_config =
-            VM::setup::<AP, R>(client, value_tile_matmul_setup_info(selection, line_sizes))?;
+        let score_tile_config = SM::setup::<AP::ES, AP::ES, AP::EA, R>(
+            client,
+            score_tile_matmul_setup_info(selection, line_sizes),
+        )?;
+        let value_tile_config = VM::setup::<AP::EA, AP::ES, AP::EA, R>(
+            client,
+            value_tile_matmul_setup_info(selection, line_sizes),
+        )?;
 
         DummyStageConfig::new(
             AttentionStageMemoryConfig::new(score_tile_config),

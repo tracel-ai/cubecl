@@ -5,7 +5,7 @@ use crate::{
         mma::{compile_manual_mma, supported_mma_combinations},
     },
     shared::{
-        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, MmaShape,
+        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, ManualMma,
         SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WmmaInstruction,
         wmma_api_base,
     },
@@ -79,13 +79,19 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
 
     fn compile_manual_mma(
         f: &mut std::fmt::Formatter<'_>,
-        shape: MmaShape<HipDialect<Self>>,
-        frag_a: &[Variable<HipDialect<Self>>],
-        frag_b: &[Variable<HipDialect<Self>>],
-        frag_c: &[Variable<HipDialect<Self>>],
-        frag_d: &Variable<HipDialect<Self>>,
+        mma: ManualMma<HipDialect<Self>>,
     ) -> std::fmt::Result {
-        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+        compile_manual_mma(f, mma.shape, mma.frag_a, mma.frag_b, mma.frag_c, mma.frag_d)
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: ManualMma<HipDialect<Self>>,
+        _scales_a: Variable<HipDialect<Self>>,
+        _scales_b: Variable<HipDialect<Self>>,
+        _scales_factor: u32,
+    ) -> std::fmt::Result {
+        unimplemented!("Scaled MMA not supported in HIP")
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {

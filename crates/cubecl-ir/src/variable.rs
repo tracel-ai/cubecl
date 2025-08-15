@@ -426,6 +426,7 @@ impl Display for ConstantScalarValue {
             ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             ConstantScalarValue::Float(val, FloatKind::E2M1) => write!(f, "{val}e2m1"),
+            ConstantScalarValue::Float(val, FloatKind::E2M1x2) => write!(f, "{val}e2m1x2"),
             ConstantScalarValue::Float(val, FloatKind::E2M3) => write!(f, "{val}e2m3"),
             ConstantScalarValue::Float(val, FloatKind::E3M2) => write!(f, "{val}e3m2"),
             ConstantScalarValue::Float(val, FloatKind::E4M3) => write!(f, "{val}e4m3"),

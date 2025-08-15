@@ -1,4 +1,4 @@
-use cubecl_common::{e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, flex32, tf32, ue8m0};
 
 use crate::{
     ir::{Elem, FloatKind, IntKind, UIntKind},
@@ -403,5 +403,33 @@ impl CubeElement for ue8m0 {
 
     fn minimum_value() -> Self {
         ue8m0::min_value()
+    }
+}
+
+impl CubeElement for e2m1x2 {
+    fn type_name() -> &'static str {
+        "e2m1x2"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::E2M1x2)
+    }
+
+    fn maximum_value() -> Self {
+        let max = e2m1::MAX.to_bits() as u8;
+        e2m1x2::from_bits(max << 4 | max)
+    }
+
+    fn minimum_value() -> Self {
+        let min = e2m1::MIN.to_bits() as u8;
+        e2m1x2::from_bits(min << 4 | min)
     }
 }

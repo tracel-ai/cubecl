@@ -1,5 +1,5 @@
 use core::{
-    fmt::Display,
+    fmt::{Debug, Display},
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
@@ -13,7 +13,7 @@ use num_traits::{NumCast, ToPrimitive};
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd)]
 pub struct e4m3(u8);
 
 impl e4m3 {
@@ -168,6 +168,12 @@ impl NumCast for e4m3 {
 
 impl Display for e4m3 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", e4m3::to_f32(*self))
+    }
+}
+
+impl Debug for e4m3 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
     }
 }

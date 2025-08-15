@@ -1,9 +1,9 @@
+use crate::components::InvalidConfigError;
 use crate::components::error::MatmulSetupError;
 use crate::components::resource::ComputeResources;
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
 use crate::components::tile::{TileMatmulFamily, TileSetupInfo};
-use crate::components::{InvalidConfigError, MatmulPrecision};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for AcceleratedMatmul {
@@ -18,11 +18,11 @@ impl TileMatmulFamily for AcceleratedMatmul {
         Ok(ComputeResources::Planes(1))
     }
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         tile_setup_info: TileSetupInfo,
     ) -> Result<Self::Config, MatmulSetupError> {
-        AcceleratedConfig::new::<MP, R>(
+        AcceleratedConfig::new::<Lhs, Rhs, Acc, R>(
             client,
             tile_setup_info.tile_size,
             tile_setup_info.plane_dim,

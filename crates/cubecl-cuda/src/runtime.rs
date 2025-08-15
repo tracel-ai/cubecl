@@ -12,7 +12,10 @@ use cubecl_cpp::{
     DialectWmmaCompiler,
     cuda::{CudaDialect, arch::CudaArchitecture},
     register_supported_types,
-    shared::{CompilationOptions, CppCompiler, register_mma_features, register_wmma_features},
+    shared::{
+        CompilationOptions, CppCompiler, register_mma_features, register_scaled_mma_features,
+        register_wmma_features,
+    },
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -75,6 +78,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     };
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     let supported_mma_combinations = M::supported_mma_combinations(&arch);
+    let supported_scaled_mma_combinations = M::supported_scaled_mma_combinations(&arch);
 
     let ctx = unsafe {
         let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
@@ -213,6 +217,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);
+    register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(mem_alignment, cuda_ctx);

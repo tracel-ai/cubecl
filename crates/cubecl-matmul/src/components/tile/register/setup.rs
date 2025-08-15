@@ -3,7 +3,7 @@ use crate::components::resource::ComputeResources;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::tile::{TileMatmulFamily, TileSetupInfo};
-use crate::components::{AvailableLineSizes, InvalidConfigError, MatmulPrecision};
+use crate::components::{AvailableLineSizes, InvalidConfigError};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {
@@ -18,11 +18,11 @@ impl TileMatmulFamily for RegisterMatmul {
         Ok(ComputeResources::Units(1))
     }
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         tile_setup_info: TileSetupInfo,
     ) -> Result<Self::Config, MatmulSetupError> {
-        RegisterConfig::new::<MP, R>(
+        RegisterConfig::new::<Lhs, Rhs, Acc, R>(
             client,
             tile_setup_info.tile_size,
             tile_setup_info.plane_dim,
