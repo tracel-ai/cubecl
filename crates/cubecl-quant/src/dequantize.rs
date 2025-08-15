@@ -85,7 +85,7 @@ fn unpack_q<F: Float, QS: Int>(
     #[comptime] store: QuantStore,
 ) -> Line<F> {
     let size_quant = comptime!(quant.size_bits() as u32);
-    let size_store = comptime!(store.size_bits(quant) as u32);
+    let size_store = comptime!(store.size_bits(&quant) as u32);
     let num_quant = comptime!(size_store / size_quant);
 
     let mut output = Line::empty(num_quant);

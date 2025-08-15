@@ -63,11 +63,7 @@ impl QuantScheme {
 
     /// Returns the size of the quantization storage type in bits.
     pub fn size_bits_stored(&self) -> usize {
-        match self.store {
-            QuantStore::Native => self.value.size_bits(),
-            QuantStore::U32 => 32,
-            // QuantStoreType::U8 => 8,
-        }
+        self.store.size_bits(&self.value)
     }
 
     /// Returns the size of the quantization storage type in bits.
@@ -108,7 +104,7 @@ impl QuantValue {
 
 impl QuantStore {
     /// Returns the size of the quantization input type in bits.
-    pub fn size_bits(&self, value: QuantValue) -> usize {
+    pub fn size_bits(&self, value: &QuantValue) -> usize {
         match self {
             QuantStore::Native => value.size_bits(),
             QuantStore::U32 => 32,
