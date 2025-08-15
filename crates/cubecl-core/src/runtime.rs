@@ -72,8 +72,10 @@ pub enum Feature {
     /// The manual MMA feature enables cooperative matrix-multiply with manually managed data
     /// movement
     ManualMma {
-        /// Element of the A/B matrices
-        ab_elem: Elem,
+        /// Element of the A matrix
+        a_elem: Elem,
+        /// Element of the B matrix
+        b_elem: Elem,
         /// Element of the C/D matrices
         cd_elem: Elem,
         m: u32,
@@ -83,8 +85,10 @@ pub enum Feature {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     ScaledMma {
-        /// Element of the quantized A/B matrices
-        ab_elem: Elem,
+        /// Element of the quantized A matrix
+        a_elem: Elem,
+        /// Element of the quantized B matrix
+        b_elem: Elem,
         /// Element of the unquantized C/D matrices
         cd_elem: Elem,
         /// Element of the blocks scales

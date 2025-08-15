@@ -7,9 +7,15 @@ use std::{fmt::Debug, marker::PhantomData};
 use super::{Component, Dialect, Elem, FmtLeft, Variable};
 
 pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
-pub type SupportedMmaCombinations = Vec<(gpu::Elem, gpu::Elem, u32, u32, u32)>;
-pub type SupportedScaledMmaCombinations =
-    Vec<(gpu::Elem, gpu::Elem, gpu::Elem, (u32, u32, u32), u32)>;
+pub type SupportedMmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, u32, u32, u32)>;
+pub type SupportedScaledMmaCombinations = Vec<(
+    gpu::Elem,
+    gpu::Elem,
+    gpu::Elem,
+    gpu::Elem,
+    (u32, u32, u32),
+    u32,
+)>;
 
 pub trait Architecture {
     fn warp_size(&self) -> u32;
@@ -42,9 +48,10 @@ pub fn register_mma_features(
     supported_combinations: SupportedMmaCombinations,
     properties: &mut DeviceProperties<Feature>,
 ) {
-    for (i, o, m, n, k) in supported_combinations {
+    for (a, b, o, m, n, k) in supported_combinations {
         properties.register_feature(Feature::ManualMma {
-            ab_elem: i,
+            a_elem: a,
+            b_elem: b,
             cd_elem: o,
             m,
             n,
@@ -57,9 +64,10 @@ pub fn register_scaled_mma_features(
     supported_combinations: SupportedScaledMmaCombinations,
     properties: &mut DeviceProperties<Feature>,
 ) {
-    for (i, o, s, (m, n, k), factor) in supported_combinations {
+    for (a, b, o, s, (m, n, k), factor) in supported_combinations {
         properties.register_feature(Feature::ScaledMma {
-            ab_elem: i,
+            a_elem: a,
+            b_elem: b,
             cd_elem: o,
             m,
             n,

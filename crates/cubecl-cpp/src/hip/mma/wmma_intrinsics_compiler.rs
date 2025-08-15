@@ -593,7 +593,7 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
         ];
         let combinations = types
             .into_iter()
-            .map(|(ab_elem, cd_elem)| (ab_elem, cd_elem, 16, 16, 16));
+            .map(|(ab_elem, cd_elem)| (ab_elem, ab_elem, cd_elem, 16, 16, 16));
         result.extend(combinations);
     }
     result

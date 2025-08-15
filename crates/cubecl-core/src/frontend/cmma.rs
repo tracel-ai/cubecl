@@ -75,8 +75,9 @@ pub struct Matrix<C: CubeType> {
 
 /// Defines a matrix multiplication operation, including the input and output type, and the shape.
 #[derive(Copy, Clone)]
-pub struct MmaDefinition<AB: CubeType, CD: CubeType> {
-    _ab: PhantomData<AB>,
+pub struct MmaDefinition<A: CubeType, B: CubeType, CD: CubeType> {
+    _a: PhantomData<A>,
+    _b: PhantomData<B>,
     _cd: PhantomData<CD>,
 }
 
@@ -89,15 +90,17 @@ pub struct MatrixExpand<C: CubeType> {
 
 /// Expand type of [MmaDefinition].
 #[derive(Debug)]
-pub struct MmaDefinitionExpand<AB: CubeType, CD: CubeType> {
+pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
     pub m: u32,
     pub n: u32,
     pub k: u32,
-    pub ab_elem: Elem,
+    pub a_elem: Elem,
+    pub b_elem: Elem,
     pub cd_elem: Elem,
     pub scales_factor: Option<u32>,
     pub scales_elem: Option<Elem>,
-    _ab: PhantomData<AB>,
+    _a: PhantomData<A>,
+    _b: PhantomData<B>,
     _cd: PhantomData<CD>,
 }
 
@@ -111,17 +114,19 @@ impl<C: CubeType> Clone for MatrixExpand<C> {
     }
 }
 
-impl<AB: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<AB, CD> {
+impl<A: CubeType, B: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<A, B, CD> {
     fn clone(&self) -> Self {
         Self {
             m: self.m,
             n: self.n,
             k: self.k,
-            ab_elem: self.ab_elem,
+            a_elem: self.a_elem,
+            b_elem: self.b_elem,
             cd_elem: self.cd_elem,
             scales_factor: self.scales_factor,
             scales_elem: self.scales_elem,
-            _ab: PhantomData,
+            _a: PhantomData,
+            _b: PhantomData,
             _cd: PhantomData,
         }
     }
@@ -131,8 +136,8 @@ impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand<C>;
 }
 
-impl<AB: CubeType, CD: CubeType> CubeType for MmaDefinition<AB, CD> {
-    type ExpandType = MmaDefinitionExpand<AB, CD>;
+impl<A: CubeType, B: CubeType, CD: CubeType> CubeType for MmaDefinition<A, B, CD> {
+    type ExpandType = MmaDefinitionExpand<A, B, CD>;
 }
 
 impl<C: CubeType> IntoMut for MatrixExpand<C> {
@@ -147,13 +152,13 @@ impl<C: CubeType> CubeDebug for MatrixExpand<C> {
     }
 }
 
-impl<AB: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<AB, CD> {
+impl<A: CubeType, B: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<A, B, CD> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<AB: CubeType, CD: CubeType> CubeDebug for MmaDefinitionExpand<AB, CD> {}
+impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for MmaDefinitionExpand<A, B, CD> {}
 
 #[cube]
 impl<C: CubePrimitive> Matrix<C> {
@@ -263,7 +268,7 @@ impl<C: CubePrimitive> Matrix<C> {
 }
 
 #[cube]
-impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
+impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
     /// [matrix-multiply and accumulate](execute_manual()) function.
     ///
@@ -282,18 +287,21 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     #[allow(unused_variables)]
     pub fn new(#[comptime] m: u32, #[comptime] n: u32, #[comptime] k: u32) -> Self {
         intrinsic!(|scope| {
-            let ab_elem = AB::as_elem(scope);
+            let a_elem = A::as_elem(scope);
+            let b_elem = B::as_elem(scope);
             let cd_elem = CD::as_elem(scope);
 
             MmaDefinitionExpand {
                 m,
                 n,
                 k,
-                ab_elem,
+                a_elem,
+                b_elem,
                 cd_elem,
                 scales_factor: None,
                 scales_elem: None,
-                _ab: PhantomData,
+                _a: PhantomData,
+                _b: PhantomData,
                 _cd: PhantomData,
             }
         })
@@ -322,18 +330,21 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
         #[comptime] scale_factor: u32,
     ) -> Self {
         intrinsic!(|scope| {
-            let ab_elem = AB::as_elem(scope);
+            let a_elem = A::as_elem(scope);
+            let b_elem = B::as_elem(scope);
             let cd_elem = CD::as_elem(scope);
 
             MmaDefinitionExpand {
                 m,
                 n,
                 k,
-                ab_elem,
+                a_elem,
+                b_elem,
                 cd_elem,
                 scales_factor: Some(scale_factor),
                 scales_elem: Some(S::as_elem(scope)),
-                _ab: PhantomData,
+                _a: PhantomData,
+                _b: PhantomData,
                 _cd: PhantomData,
             }
         })
@@ -344,8 +355,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             match ident {
-                MatrixIdent::A => (self.m * self.k) / self.ab_elem.packing_factor() as u32,
-                MatrixIdent::B => (self.k * self.n) / self.ab_elem.packing_factor() as u32,
+                MatrixIdent::A => (self.m * self.k) / self.a_elem.packing_factor() as u32,
+                MatrixIdent::B => (self.k * self.n) / self.b_elem.packing_factor() as u32,
                 MatrixIdent::Accumulator => {
                     (self.m * self.n) / self.cd_elem.packing_factor() as u32
                 }
@@ -390,7 +401,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             let bits = match ident {
-                MatrixIdent::A | MatrixIdent::B => Elem::size_bits(&self.ab_elem) as u32,
+                MatrixIdent::A => Elem::size_bits(&self.a_elem) as u32,
+                MatrixIdent::B => Elem::size_bits(&self.b_elem) as u32,
                 MatrixIdent::Accumulator => Elem::size_bits(&self.cd_elem) as u32,
             };
             let register_size = scope.runtime_properties.mma.register_size_bits;
@@ -418,7 +430,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
             let elem_idx: ExpandElement = elem_idx.into();
 
             let elem = match ident {
-                MatrixIdent::A | MatrixIdent::B => self.ab_elem,
+                MatrixIdent::A => self.a_elem,
+                MatrixIdent::B => self.b_elem,
                 MatrixIdent::Accumulator => self.cd_elem,
             };
             let layout = match ident {
@@ -495,8 +508,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     #[allow(unused)]
     pub fn execute(
         &self,
-        registers_a: &Sequence<Line<AB>>,
-        registers_b: &Sequence<Line<AB>>,
+        registers_a: &Sequence<Line<A>>,
+        registers_b: &Sequence<Line<B>>,
         registers_c: &Sequence<Line<CD>>,
     ) -> Array<Line<CD>> {
         intrinsic!(|scope| {
@@ -529,7 +542,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem: self.ab_elem,
+                elem: self.a_elem,
                 layout: MatrixLayout::ColMajor,
             };
 
@@ -552,8 +565,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     #[allow(unused)]
     pub fn execute_scaled<S: CubePrimitive>(
         &self,
-        registers_a: &Sequence<Line<AB>>,
-        registers_b: &Sequence<Line<AB>>,
+        registers_a: &Sequence<Line<A>>,
+        registers_b: &Sequence<Line<B>>,
         registers_c: &Sequence<Line<CD>>,
         scales_a: Line<S>,
         scales_b: Line<S>,
@@ -588,7 +601,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem: self.ab_elem,
+                elem: self.a_elem,
                 layout: MatrixLayout::ColMajor,
             };
 

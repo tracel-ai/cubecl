@@ -5,8 +5,10 @@ use crate::{
 
 pub const TMA_LOAD_IM2COL: &str = include_str!("tma_load_im2col.cuh");
 
+#[allow(clippy::too_many_arguments)]
 pub fn mma_template<D: Dialect>(
-    ab_elem: Elem<D>,
+    a_elem: Elem<D>,
+    b_elem: Elem<D>,
     cd_elem: Elem<D>,
     k: u32,
     n_a_registers: usize,
@@ -14,10 +16,11 @@ pub fn mma_template<D: Dialect>(
     n_c_registers: usize,
     n_d_registers: usize,
 ) -> String {
-    let ab_ty = mma_ty(ab_elem);
+    let a_ty = mma_ty(a_elem);
+    let b_ty = mma_ty(b_elem);
     let cd_ty = mma_ty(cd_elem);
 
-    let ab_arg_ty = match ab_elem {
+    let ab_arg_ty = match a_elem {
         Elem::F32 => &format!("{}", Elem::<D>::F32),
         _ => &format!("{}", Elem::<D>::U32),
     };
@@ -53,16 +56,16 @@ pub fn mma_template<D: Dialect>(
 
     let params_out =
         comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), cd_elem, true)));
-    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), ab_elem, false));
-    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), ab_elem, false));
+    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), a_elem, false));
+    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), b_elem, false));
     let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), cd_elem, false));
     let params_in = comma_separated(params_a.chain(params_b).chain(params_c));
 
     format!(
         r#"
 inline __device__ void
-__mma_m16n8k{k}_{ab_elem}_{cd_elem}({args}) {{
-  asm volatile("mma.sync.aligned.m16n8k{k}.row.col.{cd_ty}.{ab_ty}.{ab_ty}.{cd_ty}"
+__mma_m16n8k{k}_{a_elem}_{b_elem}_{cd_elem}({args}) {{
+  asm volatile("mma.sync.aligned.m16n8k{k}.row.col.{cd_ty}.{a_ty}.{b_ty}.{cd_ty}"
                " {placeholders_d}, {placeholders_a}, {placeholders_b}, {placeholders_c};"
                : {params_out}
                : {params_in});
@@ -73,7 +76,8 @@ __mma_m16n8k{k}_{ab_elem}_{cd_elem}({args}) {{
 
 #[allow(clippy::too_many_arguments)]
 pub fn mma_scaled_template<D: Dialect>(
-    ab_elem: Elem<D>,
+    a_elem: Elem<D>,
+    b_elem: Elem<D>,
     cd_elem: Elem<D>,
     k: u32,
     n_a_registers: usize,
@@ -83,7 +87,8 @@ pub fn mma_scaled_template<D: Dialect>(
     scales_elem: Elem<D>,
     scales_factor: u32,
 ) -> String {
-    let ab_ty = mma_ty(ab_elem);
+    let a_ty = mma_ty(a_elem);
+    let b_ty = mma_ty(b_elem);
     let cd_ty = mma_ty(cd_elem);
     // Needs custom mapping because of the ignored sign bit
     let s_ty = match scales_elem {
@@ -98,7 +103,7 @@ pub fn mma_scaled_template<D: Dialect>(
         _ => panic!("Unsupported scales factor"),
     };
 
-    let ab_arg_ty = match ab_elem {
+    let ab_arg_ty = match a_elem {
         Elem::F32 => &format!("{}", Elem::<D>::F32),
         _ => &format!("{}", Elem::<D>::U32),
     };
@@ -148,21 +153,21 @@ pub fn mma_scaled_template<D: Dialect>(
 
     let params_out =
         comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), cd_elem, true)));
-    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), ab_elem, false));
-    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), ab_elem, false));
+    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), a_elem, false));
+    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), b_elem, false));
     let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), cd_elem, false));
     let params_in = comma_separated(params_a.chain(params_b).chain(params_c));
 
     format!(
         r#"
 inline __device__ void
-__mma_scaled_{scales_factor}x_m16n8k{k}_{ab_elem}_{cd_elem}({args}, uint32 const &scales_a, uint32 const &scales_b) {{
+__mma_scaled_{scales_factor}x_m16n8k{k}_{a_elem}_{b_elem}_{cd_elem}({args}, uint32 const &scales_a, uint32 const &scales_b) {{
     static constexpr uint16 tidA = 0;
     static constexpr uint16 bidA = 0;
     static constexpr uint16 tidB = 0;
     static constexpr uint16 bidB = 0;
 
-    asm volatile("mma.sync.aligned.kind::{kind}.block_scale.scale_vec::{scales_factor}X.m16n8k{k}.row.col.{cd_ty}.{ab_ty}.{ab_ty}.{cd_ty}.{s_ty} "
+    asm volatile("mma.sync.aligned.kind::{kind}.block_scale.scale_vec::{scales_factor}X.m16n8k{k}.row.col.{cd_ty}.{a_ty}.{b_ty}.{cd_ty}.{s_ty} "
                "{placeholders_d}, {placeholders_a}, {placeholders_b}, {placeholders_c}, {placeholder_scales_a}, {placeholder_scales_b};"
                : {params_out}
                : {params_in}, "r"(scales_a), "h"(bidA), "h"(tidA), "r"(scales_b), "h"(bidB), "h"(tidB));

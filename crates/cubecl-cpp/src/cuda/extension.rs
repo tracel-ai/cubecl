@@ -71,6 +71,7 @@ impl<D: Dialect> MmaExecute<D> {
 
         let ptx = ptx::mma_template(
             self.frag_a.elem().unpacked(),
+            self.frag_b.elem().unpacked(),
             self.frag_c.elem().unpacked(),
             self.shape.k,
             a_regs,
@@ -97,6 +98,7 @@ impl<D: Dialect> MmaExecuteScaled<D> {
 
         let ptx = ptx::mma_scaled_template(
             self.frag_a.elem().unpacked(),
+            self.frag_b.elem().unpacked(),
             self.frag_c.elem().unpacked(),
             self.shape.k,
             a_regs,
