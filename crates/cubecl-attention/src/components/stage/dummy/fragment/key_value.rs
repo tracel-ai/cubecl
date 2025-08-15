@@ -45,14 +45,14 @@ impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>>
 
     pub fn value(&self) -> &VM::Rhs {
         match self {
-            KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
+            KeyValueFragment::Reuse(_reuse_kv) => comptime!(todo!()),
             KeyValueFragment::Separate(separate_kv) => &separate_kv.value,
         }
     }
 
     pub fn value_mut(&mut self) -> &mut VM::Rhs {
         match self {
-            KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
+            KeyValueFragment::Reuse(_reuse_kv) => comptime!(todo!()),
             KeyValueFragment::Separate(separate_kv) => &mut separate_kv.value,
         }
     }

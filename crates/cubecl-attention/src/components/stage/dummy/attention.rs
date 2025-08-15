@@ -4,6 +4,8 @@ use cubecl_matmul::components::{MatrixLayout, stage::StageToTileReader, tile::Ti
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
+use crate::components::global::dummy::QueryRegisterReader;
+use crate::components::tile::{ScoreMatmul, ValueMatmul};
 use crate::components::{
     AttentionPrecision,
     global::GlobalAttentionConfig,
@@ -14,9 +16,7 @@ use crate::components::{
             QueryFragment, ScoreProbFragment,
         },
     },
-    tile::ValueMatmul,
 };
-use crate::components::{global::dummy::QueryRegisterReader, tile::ScoreMatmul};
 
 pub struct DummyStageAttention<
     AP: AttentionPrecision,
@@ -34,7 +34,12 @@ impl<
     VM: ValueMatmul<AP>,
     AP: AttentionPrecision,
     R: StageToTileReader<AP::ES>,
-    S: StageAttentionConfig<ScoreConfig = SM::Config, ValueConfig = VM::Config>,
+    S: StageAttentionConfig<
+            ScoreConfig = SM::Config,
+            ValueConfig = VM::Config,
+            ScoreStageMemoryConfig = AttentionStageMemoryConfig<SM::Config>,
+            ValueStageMemoryConfig = AttentionStageMemoryConfig<VM::Config>,
+        >,
 > StageAttention<AP> for DummyStageAttention<AP, SM, VM, R, S>
 {
     type Config = S;
@@ -50,7 +55,7 @@ impl<
 
     type Query = QueryFragment<AP, Self::ScoreMatmul>;
     type KeyValue = KeyValueFragment<AP, Self::ScoreMatmul, Self::ValueMatmul>;
-    type ScoreProb = ScoreProbFragment<AP>;
+    type ScoreProb = ScoreProbFragment<AP, SM, VM>;
     type Accumulator = AccumulatorFragment<AP, Self::ValueMatmul>;
 
     // Tc times, each call is at an index j
@@ -94,7 +99,7 @@ impl<
             "Stage-Execute: Make sure we work with the right registers for scores, and scale them"
         );
         // TODO work on scores register directly
-        SM::write_results(
+        SM::write_results::<AP::EA>(
             &mut score_prob.score(),
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.score_config(),
@@ -138,7 +143,7 @@ impl<
         comment!("Stage-Execute: Scale acc by epm");
         // TODO modify registers directly when we are certain we are in the right row
         // Instead of storing modifying then refilling
-        VM::write_results(
+        VM::write_results::<AP::EA>(
             &accumulator.fragment,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.value_config(),
@@ -170,7 +175,7 @@ impl<
         let index_1 = index_0 + 1;
         let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
 
-        VM::write_results(
+        VM::write_results::<AP::EA>(
             &acc.fragment,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.value_config(),
@@ -204,7 +209,7 @@ impl<
     ) {
         comment!("Stage: Write");
         let mut out_smem = SharedMemory::<AP::EA>::new(64);
-        VM::write_results(
+        VM::write_results::<AP::EA>(
             &acc.fragment,
             &mut out_smem.to_slice_mut().try_cast_unchecked(),
             stage_config.value_config(),

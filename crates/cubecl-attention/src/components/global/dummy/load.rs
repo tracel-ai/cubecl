@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader};
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
-use cubecl_matmul::components::tile::{Tile, TileMatmul};
+use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 use crate::components::AttentionPrecision;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::AttentionTilingLayout;
+use crate::components::tile::ScoreMatmul;
 
 #[derive(CubeType)]
 pub struct DummyQueryLoader<AP: AttentionPrecision> {
@@ -168,10 +169,7 @@ pub struct QueryRegisterReader<AP: AttentionPrecision> {
 
 #[cube]
 impl<AP: AttentionPrecision> QueryRegisterReader<AP> {
-    pub fn read_tile<TM: TileMatmul<AP::MatmulPrecision>>(
-        &self,
-        #[comptime] tile_config: TM::Config,
-    ) -> TM::Lhs {
+    pub fn read_tile<TM: ScoreMatmul<AP>>(&self, #[comptime] tile_config: TM::Config) -> TM::Lhs {
         let fragment = TM::allocate_fill_cast_lhs(&self.tile, tile_config);
         fragment
     }

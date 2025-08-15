@@ -1,7 +1,11 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::{MatrixLayout, stage::ReaderFamily, tile::TileSetupInfo};
+use cubecl_matmul::components::{
+    MatrixLayout,
+    stage::ReaderFamily,
+    tile::{TileMatmulFamily, TileSetupInfo},
+};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -10,21 +14,19 @@ use crate::components::{
         AttentionTilingLayout, StageAttentionFamily,
         dummy::{AttentionStageMemoryConfig, DummyStageAttention, config::DummyStageConfig},
     },
-    tile::{ScoreMatmulFamily, ValueMatmulFamily},
 };
 
-pub struct DummyStageAttentionFamily<SM: ScoreMatmulFamily, VM: ValueMatmulFamily, RF: ReaderFamily>
-{
+pub struct DummyStageAttentionFamily<SM: TileMatmulFamily, VM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(SM, VM, RF)>,
 }
 
-impl<SM: ScoreMatmulFamily, VM: ValueMatmulFamily, RF: ReaderFamily> StageAttentionFamily
+impl<SM: TileMatmulFamily, VM: TileMatmulFamily, RF: ReaderFamily> StageAttentionFamily
     for DummyStageAttentionFamily<SM, VM, RF>
 {
     type Attention<AP: AttentionPrecision> = DummyStageAttention<
         AP,
-        SM::Matmul<AP::MatmulPrecision>,
-        VM::Matmul<AP::MatmulPrecision>,
+        SM::Matmul<AP::ES, AP::ES, AP::EA>,
+        VM::Matmul<AP::EA, AP::ES, AP::EA>,
         RF::Reader<AP::ES, AttentionTilingLayout>,
         Self::Config,
     >;

@@ -2,11 +2,8 @@ use cubecl_matmul::components::{stage::FullReaderFamily, tile::accelerated::Acce
 
 use crate::{
     components::{
-        AvailableLineSizes,
-        batch::dummy::DummyBatchAttentionFamily,
-        global::dummy::DummyGlobalAttentionFamily,
-        stage::dummy::DummyStageAttentionFamily,
-        tile::{ScoreMatmul, ValueMatmul},
+        AvailableLineSizes, batch::dummy::DummyBatchAttentionFamily,
+        global::dummy::DummyGlobalAttentionFamily, stage::dummy::DummyStageAttentionFamily,
     },
     kernels::Algorithm,
 };

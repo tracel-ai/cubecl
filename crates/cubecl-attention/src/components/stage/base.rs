@@ -6,11 +6,11 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
+use crate::components::{global::dummy::QueryRegisterReader, tile::{ScoreMatmul, ValueMatmul}};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig, tile::ValueMatmul,
+    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
 };
-use crate::components::{global::dummy::QueryRegisterReader, tile::ScoreMatmul};
 use std::{fmt::Debug, hash::Hash};
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;

@@ -1,7 +1,19 @@
-mod score;
-mod shared;
-mod value;
+use cubecl_matmul::components::tile::TileMatmul;
 
-pub use score::*;
-pub use shared::*;
-pub use value::*;
+use crate::components::AttentionPrecision;
+
+pub trait ScoreMatmul<AP: AttentionPrecision>: TileMatmul<AP::ES, AP::ES, AP::EA> {}
+impl<AP, T> ScoreMatmul<AP> for T
+where
+    AP: AttentionPrecision,
+    T: TileMatmul<AP::ES, AP::ES, AP::EA>,
+{
+}
+
+pub trait ValueMatmul<AP: AttentionPrecision>: TileMatmul<AP::ES, AP::ES, AP::EA> {}
+impl<AP, T> ValueMatmul<AP> for T
+where
+    AP: AttentionPrecision,
+    T: TileMatmul<AP::ES, AP::ES, AP::EA>,
+{
+}
