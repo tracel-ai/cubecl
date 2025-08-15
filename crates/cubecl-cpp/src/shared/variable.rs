@@ -227,6 +227,7 @@ impl<D: Dialect> Display for Variable<D> {
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     gpu::FloatKind::E2M1
+                    | gpu::FloatKind::E2M1x2
                     | gpu::FloatKind::E2M3
                     | gpu::FloatKind::E3M2
                     | gpu::FloatKind::E4M3
@@ -655,16 +656,35 @@ impl<D: Dialect> Display for IndexedVariable<D> {
 
 impl<D: Dialect> FmtLeft for IndexedVariable<D> {
     fn fmt_left(&self) -> String {
-        match self.var {
-            Variable::LocalConst { item, .. } => format!("const {item} {self}"),
+        let var = &self.var;
+        let ref_ = matches!(var, Variable::LocalConst { .. })
+            .then_some("const&")
+            .unwrap_or("&");
+
+        let name = if self.var.item().vectorization > 1 {
+            if self.optimized {
+                let item = self.var.item();
+                let addr_space = D::address_space_for_variable(&self.var);
+                format!(
+                    "(reinterpret_cast<{addr_space}{item} {ref_}>({var})).i_{}",
+                    self.index
+                )
+            } else {
+                format!("{var}.i_{}", self.index)
+            }
+        } else {
+            format!("{var}")
+        };
+        match var {
+            Variable::LocalConst { item, .. } => format!("const {item} {name}"),
             Variable::Tmp { item, is_ptr, .. } => {
-                if is_ptr {
-                    format!("{item} *{self}")
+                if *is_ptr {
+                    format!("{item} *{name}")
                 } else {
-                    format!("{item} {self}")
+                    format!("{item} {name}")
                 }
             }
-            _ => format!("{self}"),
+            _ => name,
         }
     }
 }

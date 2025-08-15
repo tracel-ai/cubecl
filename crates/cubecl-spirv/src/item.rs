@@ -321,6 +321,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match elem {
             core::Elem::Float(
                 core::FloatKind::E2M1
+                | core::FloatKind::E2M1x2
                 | core::FloatKind::E2M3
                 | core::FloatKind::E3M2
                 | core::FloatKind::E4M3
@@ -351,6 +352,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             core::Elem::AtomicFloat(
                 core::FloatKind::E2M1
+                | core::FloatKind::E2M1x2
                 | core::FloatKind::E2M3
                 | core::FloatKind::E3M2
                 | core::FloatKind::E4M3

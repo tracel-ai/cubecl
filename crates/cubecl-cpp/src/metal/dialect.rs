@@ -7,7 +7,7 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
         Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-        SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
+        ManualMma, SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
         WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
@@ -1017,17 +1017,41 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 frag_b,
                 frag_c,
                 frag_d,
-            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
+            } => {
+                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
+            }
+            WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => Self::compile_scaled_mma(
+                f,
+                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
+                *scales_a,
+                *scales_b,
+                *scales_factor,
+            ),
         }
     }
 
     fn compile_manual_mma(
         _f: &mut std::fmt::Formatter<'_>,
-        _shape: shared::MmaShape<Self>,
-        _frag_a: &[Variable<Self>],
-        _frag_b: &[Variable<Self>],
-        _frag_c: &[Variable<Self>],
-        _frag_d: &Variable<Self>,
+        _mma: shared::ManualMma<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("Not supported")
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: shared::ManualMma<Self>,
+        _scales_a: Variable<Self>,
+        _scales_b: Variable<Self>,
+        _scales_factor: u32,
     ) -> std::fmt::Result {
         unimplemented!("Not supported")
     }

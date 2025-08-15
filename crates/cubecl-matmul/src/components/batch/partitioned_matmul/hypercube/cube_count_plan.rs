@@ -30,7 +30,7 @@ pub enum CubeCountPlanSelection {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Informations necessary in the computation of the CubeCount.
+/// Information necessary in the computation of the CubeCount.
 /// Because this struct depends on the problem size, it is simplified into
 /// [CubeCountPlanConfig] to be injected as comptime in the kernel.
 ///

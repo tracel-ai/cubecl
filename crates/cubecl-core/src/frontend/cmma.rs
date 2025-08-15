@@ -75,8 +75,9 @@ pub struct Matrix<C: CubeType> {
 
 /// Defines a matrix multiplication operation, including the input and output type, and the shape.
 #[derive(Copy, Clone)]
-pub struct MmaDefinition<AB: CubeType, CD: CubeType> {
-    _ab: PhantomData<AB>,
+pub struct MmaDefinition<A: CubeType, B: CubeType, CD: CubeType> {
+    _a: PhantomData<A>,
+    _b: PhantomData<B>,
     _cd: PhantomData<CD>,
 }
 
@@ -89,13 +90,17 @@ pub struct MatrixExpand<C: CubeType> {
 
 /// Expand type of [MmaDefinition].
 #[derive(Debug)]
-pub struct MmaDefinitionExpand<AB: CubeType, CD: CubeType> {
+pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
     pub m: u32,
     pub n: u32,
     pub k: u32,
-    pub ab_elem: Elem,
+    pub a_elem: Elem,
+    pub b_elem: Elem,
     pub cd_elem: Elem,
-    _ab: PhantomData<AB>,
+    pub scales_factor: Option<u32>,
+    pub scales_elem: Option<Elem>,
+    _a: PhantomData<A>,
+    _b: PhantomData<B>,
     _cd: PhantomData<CD>,
 }
 
@@ -109,15 +114,19 @@ impl<C: CubeType> Clone for MatrixExpand<C> {
     }
 }
 
-impl<AB: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<AB, CD> {
+impl<A: CubeType, B: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<A, B, CD> {
     fn clone(&self) -> Self {
         Self {
             m: self.m,
             n: self.n,
             k: self.k,
-            ab_elem: self.ab_elem,
+            a_elem: self.a_elem,
+            b_elem: self.b_elem,
             cd_elem: self.cd_elem,
-            _ab: PhantomData,
+            scales_factor: self.scales_factor,
+            scales_elem: self.scales_elem,
+            _a: PhantomData,
+            _b: PhantomData,
             _cd: PhantomData,
         }
     }
@@ -127,8 +136,8 @@ impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand<C>;
 }
 
-impl<AB: CubeType, CD: CubeType> CubeType for MmaDefinition<AB, CD> {
-    type ExpandType = MmaDefinitionExpand<AB, CD>;
+impl<A: CubeType, B: CubeType, CD: CubeType> CubeType for MmaDefinition<A, B, CD> {
+    type ExpandType = MmaDefinitionExpand<A, B, CD>;
 }
 
 impl<C: CubeType> IntoMut for MatrixExpand<C> {
@@ -143,13 +152,13 @@ impl<C: CubeType> CubeDebug for MatrixExpand<C> {
     }
 }
 
-impl<AB: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<AB, CD> {
+impl<A: CubeType, B: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<A, B, CD> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<AB: CubeType, CD: CubeType> CubeDebug for MmaDefinitionExpand<AB, CD> {}
+impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for MmaDefinitionExpand<A, B, CD> {}
 
 #[cube]
 impl<C: CubePrimitive> Matrix<C> {
@@ -259,7 +268,7 @@ impl<C: CubePrimitive> Matrix<C> {
 }
 
 #[cube]
-impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
+impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
     /// [matrix-multiply and accumulate](execute_manual()) function.
     ///
@@ -278,16 +287,64 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     #[allow(unused_variables)]
     pub fn new(#[comptime] m: u32, #[comptime] n: u32, #[comptime] k: u32) -> Self {
         intrinsic!(|scope| {
-            let ab_elem = AB::as_elem(scope);
+            let a_elem = A::as_elem(scope);
+            let b_elem = B::as_elem(scope);
             let cd_elem = CD::as_elem(scope);
 
             MmaDefinitionExpand {
                 m,
                 n,
                 k,
-                ab_elem,
+                a_elem,
+                b_elem,
                 cd_elem,
-                _ab: PhantomData,
+                scales_factor: None,
+                scales_elem: None,
+                _a: PhantomData,
+                _b: PhantomData,
+                _cd: PhantomData,
+            }
+        })
+    }
+
+    /// Create a new matrix definition that is going to be used in the manual
+    /// [matrix-multiply and accumulate](execute_manual()) function.
+    ///
+    /// You have to declare the shape used for the execution.
+    /// The shape of the current matrix is determined using the [MatrixIdent].
+    ///
+    /// * [MatrixIdent::A] Shape => (M, K)
+    /// * [MatrixIdent::B] Shape => (K, N)
+    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    ///
+    /// Not all shapes are supported, and the permitted shapes depend on the element type.
+    /// Layout for manual MMA is determined by the runtime and must be handled manually.
+    /// Use [`line_layout`] to check the correct data layout for each element.
+    ///
+    /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
+    #[allow(unused_variables)]
+    pub fn new_scaled<S: CubePrimitive>(
+        #[comptime] m: u32,
+        #[comptime] n: u32,
+        #[comptime] k: u32,
+        #[comptime] scale_factor: u32,
+    ) -> Self {
+        intrinsic!(|scope| {
+            let a_elem = A::as_elem(scope);
+            let b_elem = B::as_elem(scope);
+            let cd_elem = CD::as_elem(scope);
+
+            MmaDefinitionExpand {
+                m,
+                n,
+                k,
+                a_elem,
+                b_elem,
+                cd_elem,
+                scales_factor: Some(scale_factor),
+                scales_elem: Some(S::as_elem(scope)),
+                _a: PhantomData,
+                _b: PhantomData,
                 _cd: PhantomData,
             }
         })
@@ -298,9 +355,11 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             match ident {
-                MatrixIdent::A => self.m * self.k,
-                MatrixIdent::B => self.k * self.n,
-                MatrixIdent::Accumulator => self.m * self.n,
+                MatrixIdent::A => (self.m * self.k) / self.a_elem.packing_factor() as u32,
+                MatrixIdent::B => (self.k * self.n) / self.b_elem.packing_factor() as u32,
+                MatrixIdent::Accumulator => {
+                    (self.m * self.n) / self.cd_elem.packing_factor() as u32
+                }
             }
         })
     }
@@ -342,11 +401,12 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
     pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             let bits = match ident {
-                MatrixIdent::A | MatrixIdent::B => Elem::size_bits(&self.ab_elem) as u32,
+                MatrixIdent::A => Elem::size_bits(&self.a_elem) as u32,
+                MatrixIdent::B => Elem::size_bits(&self.b_elem) as u32,
                 MatrixIdent::Accumulator => Elem::size_bits(&self.cd_elem) as u32,
             };
             let register_size = scope.runtime_properties.mma.register_size_bits;
-            // div_ceil for potential compatiblity with f64
+            // div_ceil for potential compatibility with f64
             register_size.div_ceil(bits)
         })
     }
@@ -370,7 +430,8 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
             let elem_idx: ExpandElement = elem_idx.into();
 
             let elem = match ident {
-                MatrixIdent::A | MatrixIdent::B => self.ab_elem,
+                MatrixIdent::A => self.a_elem,
+                MatrixIdent::B => self.b_elem,
                 MatrixIdent::Accumulator => self.cd_elem,
             };
             let layout = match ident {
@@ -383,7 +444,7 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem,
+                elem: elem.unpacked(),
                 layout,
             };
 
@@ -409,14 +470,47 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
         })
     }
 
-    /// Manually execute a low level `mma` operation with manually managed registers. Register layout
+    /// Index of the scales for this thread, along the non-major dimension of the matrix.
+    /// Each thread loads all scales in the major direction into a single `Line`.
+    pub fn scales_index(&self, lane_id: u32, #[comptime] ident: MatrixIdent) -> u32 {
+        // Just do CUDA for now, call an actual intrinsic when HIP gets support
+        let quad_id = lane_id / 4;
+        let t_id = lane_id % 4;
+        match ident {
+            MatrixIdent::A => quad_id + (t_id % 2) * 8,
+            MatrixIdent::B => quad_id,
+            MatrixIdent::Accumulator => panic!("Accumulator doesn't have scales"),
+        }
+    }
+
+    /// Number of scales in each line (not the line size!). Line size may include padding bytes.
+    pub fn scales_count(&self) -> comptime_type!(u32) {
+        // We only have the CUDA version for now, so just use `scales_factor`. The function can
+        // be modified for HIP in the future without having to redo all uses.
+        intrinsic!(|_| {
+            self.scales_factor
+                .expect("Can't retrieve scales count for matrix with no scales")
+        })
+    }
+
+    /// Line size for the scale factors. May be larger than the total number of scales.
+    pub fn scales_line_size(&self) -> comptime_type!(u32) {
+        intrinsic!(|scope| {
+            let elem = self
+                .scales_elem
+                .expect("Can't retrieve scales line size for matrix with no scales");
+            scope.runtime_properties.mma.register_size_bits / elem.size_bits() as u32
+        })
+    }
+
+    /// Execute a low level `mma` operation with manually managed registers. Register layout
     /// and index mapping can be retrieved from the [`MatrixDefinition`]
     #[allow(unused)]
     pub fn execute(
         &self,
-        a_registers: &Sequence<Line<AB>>,
-        b_registers: &Sequence<Line<AB>>,
-        c_registers: &Sequence<Line<CD>>,
+        registers_a: &Sequence<Line<A>>,
+        registers_b: &Sequence<Line<B>>,
+        registers_c: &Sequence<Line<CD>>,
     ) -> Array<Line<CD>> {
         intrinsic!(|scope| {
             let acc_elems = self
@@ -427,17 +521,17 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let d_registers = Array::__expand_vectorized(scope, num_registers, acc_line_size);
+            let registers_d = Array::__expand_vectorized(scope, num_registers, acc_line_size);
 
-            let a_registers = a_registers
+            let registers_a = registers_a
                 .iter_cloned()
                 .map(|it| *it.expand)
                 .collect::<Vec<_>>();
-            let b_registers = b_registers
+            let registers_b = registers_b
                 .iter_cloned()
                 .map(|it| *it.expand)
                 .collect::<Vec<_>>();
-            let c_registers = c_registers
+            let registers_c = registers_c
                 .iter_cloned()
                 .map(|it| *it.expand)
                 .collect::<Vec<_>>();
@@ -448,21 +542,85 @@ impl<AB: CubePrimitive, CD: CubePrimitive> MmaDefinition<AB, CD> {
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem: self.ab_elem,
+                elem: self.a_elem,
                 layout: MatrixLayout::ColMajor,
             };
 
             scope.register(Instruction::new(
                 CoopMma::ExecuteManual {
                     matrix,
-                    a_registers,
-                    b_registers,
-                    c_registers,
+                    registers_a,
+                    registers_b,
+                    registers_c,
                 },
-                *d_registers.expand,
+                *registers_d.expand,
             ));
 
-            d_registers
+            registers_d
+        })
+    }
+
+    /// Execute a low level block scaled `mma` operation with manually managed registers. Register
+    /// layout and index mapping can be retrieved from the [`MatrixDefinition`]
+    #[allow(unused)]
+    pub fn execute_scaled<S: CubePrimitive>(
+        &self,
+        registers_a: &Sequence<Line<A>>,
+        registers_b: &Sequence<Line<B>>,
+        registers_c: &Sequence<Line<CD>>,
+        scales_a: Line<S>,
+        scales_b: Line<S>,
+    ) -> Array<Line<CD>> {
+        intrinsic!(|scope| {
+            let acc_elems = self
+                .clone()
+                .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
+            let acc_line_size = self
+                .clone()
+                .__expand_line_size_method(scope, MatrixIdent::Accumulator);
+            let num_registers = acc_elems / acc_line_size;
+
+            let registers_d = Array::__expand_vectorized(scope, num_registers, acc_line_size);
+
+            let registers_a = registers_a
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+            let registers_b = registers_b
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+            let registers_c = registers_c
+                .iter_cloned()
+                .map(|it| *it.expand)
+                .collect::<Vec<_>>();
+
+            // Only shape is actually used
+            let matrix = cubecl_ir::Matrix {
+                ident: MatrixIdent::A,
+                m: self.m,
+                n: self.n,
+                k: self.k,
+                elem: self.a_elem,
+                layout: MatrixLayout::ColMajor,
+            };
+
+            scope.register(Instruction::new(
+                CoopMma::ExecuteScaled {
+                    matrix,
+                    registers_a,
+                    registers_b,
+                    registers_c,
+                    scales_a: *scales_a.expand,
+                    scales_b: *scales_b.expand,
+                    scales_factor: self
+                        .scales_factor
+                        .expect("Can't execute scaled on matrix with no scales"),
+                },
+                *registers_d.expand,
+            ));
+
+            registers_d
         })
     }
 }

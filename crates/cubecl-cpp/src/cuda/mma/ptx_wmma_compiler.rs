@@ -1,10 +1,12 @@
+use std::fmt::Display;
+
 use crate::{
     Dialect,
     cuda::{CudaDialect, arch::CudaArchitecture, ptx::comma_separated},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, MmaShape, SupportedMmaCombinations,
-        SupportedWmmaCombinations, Variable, WmmaInstruction,
+        FragmentIdent, FragmentLayout, ManualMma, SupportedMmaCombinations,
+        SupportedScaledMmaCombinations, SupportedWmmaCombinations, Variable, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{self as gpu, ConstantScalarValue};
@@ -182,7 +184,26 @@ asm volatile(
                 frag_b,
                 frag_c,
                 frag_d,
-            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
+            } => {
+                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
+            }
+            WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => Self::compile_scaled_mma(
+                f,
+                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
+                *scales_a,
+                *scales_b,
+                *scales_factor,
+            ),
             WmmaInstruction::Store {
                 output,
                 frag: var,
@@ -282,13 +303,19 @@ for (int i = 0; i < {reg_count}; ++i) {{
 
     fn compile_manual_mma(
         f: &mut std::fmt::Formatter<'_>,
-        shape: MmaShape<CudaDialect<Self>>,
-        frag_a: &[Variable<CudaDialect<Self>>],
-        frag_b: &[Variable<CudaDialect<Self>>],
-        frag_c: &[Variable<CudaDialect<Self>>],
-        frag_d: &Variable<CudaDialect<Self>>,
+        mma: ManualMma<CudaDialect<Self>>,
     ) -> std::fmt::Result {
-        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+        compile_manual_mma(f, mma)
+    }
+
+    fn compile_scaled_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        mma: ManualMma<CudaDialect<Self>>,
+        scales_a: Variable<CudaDialect<Self>>,
+        scales_b: Variable<CudaDialect<Self>>,
+        scales_factor: u32,
+    ) -> std::fmt::Result {
+        compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)
     }
 
     fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
@@ -331,6 +358,12 @@ for (int i = 0; i < {reg_count}; ++i) {{
 
     fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
         supported_mma_combinations(arch)
+    }
+
+    fn supported_scaled_mma_combinations(
+        arch: &CudaArchitecture,
+    ) -> SupportedScaledMmaCombinations {
+        supported_scaled_mma_combinations(arch)
     }
 }
 
@@ -448,28 +481,80 @@ fn format_reg_and_inc(count: &mut u8) -> String {
     res
 }
 
+fn as_ty(var: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<{ty}&>({var})")
+}
+
+fn as_const_ty(var: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<const {ty}&>({var})")
+}
+
 pub(super) fn compile_manual_mma<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    shape: MmaShape<D>,
-    frag_a: &[Variable<D>],
-    frag_b: &[Variable<D>],
-    frag_c: &[Variable<D>],
-    frag_d: &Variable<D>,
+    mma: ManualMma<D>,
 ) -> std::fmt::Result {
-    let ab_elem = frag_a[0].elem();
-    let cd_elem = frag_c[0].elem();
+    let ManualMma {
+        shape,
+        frag_a,
+        frag_b,
+        frag_c,
+        frag_d,
+    } = mma;
+
+    let a_elem = frag_a[0].elem().unpacked();
+    let b_elem = frag_b[0].elem().unpacked();
+    let cd_elem = frag_c[0].elem().unpacked();
+
+    let ab_ty = match a_elem {
+        Elem::F32 => &format!("{}", Elem::<D>::F32),
+        _ => &format!("{}", Elem::<D>::U32),
+    };
+    let cd_ty = match cd_elem {
+        Elem::F32 => &format!("{}", Elem::<D>::F32),
+        _ => &format!("{}", Elem::<D>::U32),
+    };
+
     let acc_elems = frag_c.len();
-    let frag_d = (0..acc_elems).map(|i| format!("reinterpret_cast<uint32&>({frag_d}[{i}])"));
-    let inputs = frag_a.iter().chain(frag_b).chain(frag_c);
-    let args = comma_separated(
-        inputs
-            .map(|it| format!("reinterpret_cast<const uint32&>({it})"))
-            .chain(frag_d),
-    );
+    let frag_ab = frag_a.iter().chain(frag_b).map(|it| as_const_ty(it, ab_ty));
+    let frag_c = frag_c.iter().map(|it| as_const_ty(it, cd_ty));
+    let frag_d = (0..acc_elems).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
+    let args = comma_separated(frag_ab.chain(frag_c).chain(frag_d));
     write!(
         f,
-        "__mma_m16n8k{}_{}_{}({args});",
-        shape.k, ab_elem, cd_elem
+        "__mma_m16n8k{}_{}_{}_{}({args});",
+        shape.k, a_elem, b_elem, cd_elem
+    )
+}
+
+pub(super) fn compile_scaled_mma<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    mma: ManualMma<D>,
+    scales_a: Variable<D>,
+    scales_b: Variable<D>,
+    scales_factor: u32,
+) -> std::fmt::Result {
+    let ManualMma {
+        shape,
+        frag_a,
+        frag_b,
+        frag_c,
+        frag_d,
+    } = mma;
+
+    let a_elem = frag_a[0].elem().unpacked();
+    let b_elem = frag_b[0].elem().unpacked();
+    let cd_elem = frag_c[0].elem().unpacked();
+    let ab_ty = &format!("{}", Elem::<D>::U32);
+    let cd_ty = &format!("{}", Elem::<D>::F32);
+    let acc_elems = frag_c.len();
+    let frag_ab = frag_a.iter().chain(frag_b).map(|it| as_const_ty(it, ab_ty));
+    let frag_c = frag_c.iter().map(|it| as_const_ty(it, cd_ty));
+    let frag_d = (0..acc_elems).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
+    let fragments = comma_separated(frag_ab.chain(frag_c).chain(frag_d));
+    write!(
+        f,
+        "__mma_scaled_{scales_factor}x_m16n8k{}_{}_{}_{}({fragments}, reinterpret_cast<uint32&>({scales_a}), reinterpret_cast<uint32&>({scales_b}));",
+        shape.k, a_elem, b_elem, cd_elem
     )
 }
 
@@ -481,13 +566,15 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
     if arch.get_version() >= 80 {
         result.extend([
             (
-                gpu::Elem::Float(gpu::FloatKind::F16), // ab
+                gpu::Elem::Float(gpu::FloatKind::F16), // a
+                gpu::Elem::Float(gpu::FloatKind::F16), // b
                 gpu::Elem::Float(gpu::FloatKind::F32), // cd
                 16,
                 8,
                 16,
             ),
             (
+                gpu::Elem::Float(gpu::FloatKind::BF16),
                 gpu::Elem::Float(gpu::FloatKind::BF16),
                 gpu::Elem::Float(gpu::FloatKind::F32),
                 16,
@@ -496,12 +583,14 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
             ),
             (
                 gpu::Elem::Float(gpu::FloatKind::TF32),
+                gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::F32),
                 16,
                 8,
                 8,
             ),
             (
+                gpu::Elem::Int(gpu::IntKind::I8),
                 gpu::Elem::Int(gpu::IntKind::I8),
                 gpu::Elem::Int(gpu::IntKind::I32),
                 16,
@@ -510,7 +599,23 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
             ),
             (
                 gpu::Elem::UInt(gpu::UIntKind::U8),
-                // Not a typo! Accumulator is always i32 even with u8 inputs
+                gpu::Elem::UInt(gpu::UIntKind::U8),
+                gpu::Elem::Int(gpu::IntKind::I32),
+                16,
+                8,
+                32,
+            ),
+            (
+                gpu::Elem::Int(gpu::IntKind::I8),
+                gpu::Elem::UInt(gpu::UIntKind::U8),
+                gpu::Elem::Int(gpu::IntKind::I32),
+                16,
+                8,
+                32,
+            ),
+            (
+                gpu::Elem::UInt(gpu::UIntKind::U8),
+                gpu::Elem::Int(gpu::IntKind::I8),
                 gpu::Elem::Int(gpu::IntKind::I32),
                 16,
                 8,
@@ -520,25 +625,78 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
         ]);
     }
     if arch.get_version() >= 89 {
+        let f8f6f4_types = [
+            gpu::FloatKind::E4M3,
+            gpu::FloatKind::E5M2,
+            gpu::FloatKind::E3M2,
+            gpu::FloatKind::E2M3,
+            gpu::FloatKind::E2M1,
+        ];
+        let combinations = f8f6f4_types
+            .iter()
+            .flat_map(|t1| f8f6f4_types.iter().map(move |t2| (t1, t2)));
+        let combinations = combinations.into_iter();
+        result.extend(combinations.map(|(t1, t2)| {
+            (
+                gpu::Elem::Float(*t1),
+                gpu::Elem::Float(*t2),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                16,
+                8,
+                32,
+            )
+        }));
+    }
+    result
+}
+
+pub(super) fn supported_scaled_mma_combinations(
+    arch: &CudaArchitecture,
+) -> SupportedScaledMmaCombinations {
+    let mut result: SupportedScaledMmaCombinations = vec![];
+    // sm_120f
+    if arch.get_version() >= 120 && arch.get_version() < 130 {
+        let f8f6f4_types = [
+            gpu::FloatKind::E4M3,
+            gpu::FloatKind::E5M2,
+            gpu::FloatKind::E3M2,
+            gpu::FloatKind::E2M3,
+            gpu::FloatKind::E2M1,
+        ];
+        let combinations = f8f6f4_types
+            .iter()
+            .flat_map(|t1| f8f6f4_types.iter().map(move |t2| (t1, t2)));
+
+        result.extend(combinations.map(|(t1, t2)| {
+            (
+                gpu::Elem::Float(*t1),
+                gpu::Elem::Float(*t2),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::Elem::Float(gpu::FloatKind::UE8M0),
+                (16, 8, 32),
+                1,
+            )
+        }));
+
         result.extend([
             (
-                gpu::Elem::Float(gpu::FloatKind::E4M3),
+                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
+                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
                 gpu::Elem::Float(gpu::FloatKind::F32),
-                16,
-                8,
-                32,
+                gpu::Elem::Float(gpu::FloatKind::UE8M0),
+                (16, 8, 64),
+                2,
             ),
+            // Sign of scales is ignored
             (
-                gpu::Elem::Float(gpu::FloatKind::E5M2),
+                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
+                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
                 gpu::Elem::Float(gpu::FloatKind::F32),
-                16,
-                8,
-                32,
+                gpu::Elem::Float(gpu::FloatKind::E4M3),
+                (16, 8, 64),
+                4,
             ),
         ]);
-    }
-    if arch.get_version() >= 120 && arch.get_version() < 130 {
-        // TODO: Block scaled FP4. Needs more work
     }
     result
 }
