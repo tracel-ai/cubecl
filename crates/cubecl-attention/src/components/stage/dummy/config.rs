@@ -1,35 +1,35 @@
-use cubecl_matmul::components::{
-    GlobalPartitionSize, MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig,
-    tile::TileConfig,
+use crate::components::{
+    AttentionSetupError,
+    stage::StageAttentionConfig,
+    tile::{TileAttentionConfig, dummy::AttentionStageMemoryConfig},
 };
 
-use crate::components::{AttentionSetupError, stage::StageAttentionConfig};
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyStageConfig<SC: TileConfig, VC: TileConfig> {
-    score_stage_memory_config: AttentionStageMemoryConfig<SC>,
-    value_stage_memory_config: AttentionStageMemoryConfig<VC>,
-    num_planes: u32,
+pub struct DummyStageConfig<TC: TileAttentionConfig> {
+    tile_config: TC,
+    score_stage_memory_config: AttentionStageMemoryConfig<TC::ScoreConfig>,
+    value_stage_memory_config: AttentionStageMemoryConfig<TC::ValueConfig>,
 }
 
-impl<SC: TileConfig, VC: TileConfig> StageAttentionConfig for DummyStageConfig<SC, VC> {
-    type ScoreConfig = SC;
-    type ScoreStageMemoryConfig = AttentionStageMemoryConfig<SC>;
-
-    type ValueConfig = VC;
-    type ValueStageMemoryConfig = AttentionStageMemoryConfig<VC>;
+impl<TC: TileAttentionConfig> StageAttentionConfig for DummyStageConfig<TC> {
+    type TileAttentionConfig = TC;
+    type ScoreStageMemoryConfig = AttentionStageMemoryConfig<TC::ScoreConfig>;
+    type ValueStageMemoryConfig = AttentionStageMemoryConfig<TC::ValueConfig>;
 
     fn plane_dim(&self) -> u32 {
-        self.score_config().plane_dim()
+        32
     }
 
     fn num_planes(&self) -> u32 {
-        self.num_planes
+        1
     }
 
     fn rows_per_plane(&self) -> u32 {
-        // self.tiling_scheme...
-        8
+        1
+    }
+
+    fn tile_config(&self) -> Self::TileAttentionConfig {
+        self.tile_config
     }
 
     fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig {
@@ -39,80 +39,23 @@ impl<SC: TileConfig, VC: TileConfig> StageAttentionConfig for DummyStageConfig<S
     fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig {
         self.value_stage_memory_config
     }
-
-    fn score_config(&self) -> Self::ScoreConfig {
-        self.score_stage_memory_config.tile_config()
-    }
-
-    fn value_config(&self) -> Self::ValueConfig {
-        self.value_stage_memory_config.tile_config()
-    }
-
-    fn reuse_key_value(&self) -> bool {
-        false
-    }
 }
 
-impl<ST: TileConfig, VT: TileConfig> DummyStageConfig<ST, VT> {
+impl<TC: TileAttentionConfig> DummyStageConfig<TC> {
     pub fn new(
-        score_stage_memory_config: AttentionStageMemoryConfig<ST>,
-        value_stage_memory_config: AttentionStageMemoryConfig<VT>,
-        num_planes: u32,
+        tile_config: TC,
+        score_stage_memory_config: AttentionStageMemoryConfig<TC::ScoreConfig>,
+        value_stage_memory_config: AttentionStageMemoryConfig<TC::ValueConfig>,
     ) -> Result<Self, AttentionSetupError> {
         Self {
+            tile_config,
             score_stage_memory_config,
             value_stage_memory_config,
-            num_planes,
         }
         .validate()
     }
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
         Ok(self)
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AttentionStageMemoryConfig<T: TileConfig> {
-    tile_config: T,
-}
-
-impl<T: TileConfig> StageMemoryConfig for AttentionStageMemoryConfig<T> {
-    type TileConfig = T;
-
-    fn tile_config(self) -> Self::TileConfig {
-        self.tile_config
-    }
-
-    fn num_main_flow_planes(&self) -> u32 {
-        todo!()
-    }
-
-    fn tiling_scheme(&self) -> TilingScheme {
-        TilingScheme {
-            tile_size: (8, 8, 8).into(),
-            partition_size: (1, 1, 1).into(),
-            stage_size: (1, 1, 1).into(),
-            global_partition_size: GlobalPartitionSize::new(1, 1, 1),
-        }
-    }
-
-    fn stage_line_size(&self, _ident: StageIdent) -> u32 {
-        1
-    }
-
-    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
-        MatrixLayout::RowMajor
-    }
-
-    fn num_stages(&self, _ident: StageIdent) -> u32 {
-        1
-    }
-}
-
-impl<T: TileConfig> AttentionStageMemoryConfig<T> {
-    pub fn new(tile_config: T) -> Self {
-        println!("{:?}", tile_config);
-        Self { tile_config }
     }
 }

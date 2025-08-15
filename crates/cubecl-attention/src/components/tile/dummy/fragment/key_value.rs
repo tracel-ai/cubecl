@@ -4,8 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
-use crate::components::stage::StageAttentionConfig;
-use crate::components::tile::{ScoreMatmul, ValueMatmul};
+use crate::components::tile::{ScoreMatmul, TileAttentionConfig, ValueMatmul};
 
 #[derive(CubeType)]
 pub enum KeyValueFragment<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> {
@@ -17,8 +16,8 @@ pub enum KeyValueFragment<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: Value
 impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>>
     KeyValueFragment<AP, SM, VM>
 {
-    pub fn new<S: StageAttentionConfig<ScoreConfig = SM::Config, ValueConfig = VM::Config>>(
-        #[comptime] config: S,
+    pub fn new<T: TileAttentionConfig<ScoreConfig = SM::Config, ValueConfig = VM::Config>>(
+        #[comptime] config: T,
     ) -> Self {
         match config.reuse_key_value() {
             true => Self::new_Reuse(ReuseKV::new(config.score_config(), config.value_config())),

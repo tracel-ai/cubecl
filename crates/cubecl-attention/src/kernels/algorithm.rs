@@ -1,15 +1,13 @@
 use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_matmul::components::tile::TileMatmulFamily;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, batch::BatchAttentionFamily,
-    global::GlobalAttentionFamily, stage::StageAttentionFamily,
+    global::GlobalAttentionFamily, stage::StageAttentionFamily, tile::TileAttentionFamily,
 };
 
 pub trait Algorithm {
-    type ScoreMatmul: TileMatmulFamily;
-    type ValueMatmul: TileMatmulFamily;
+    type TileAttention: TileAttentionFamily;
     type StageAttention: StageAttentionFamily;
     type GlobalAttention: GlobalAttentionFamily;
     type BatchAttention: BatchAttentionFamily;

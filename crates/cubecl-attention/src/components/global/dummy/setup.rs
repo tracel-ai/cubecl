@@ -17,16 +17,6 @@ pub struct DummyGlobalAttentionFamily<SA: StageAttentionFamily> {
     _phantom: PhantomData<SA>,
 }
 
-// impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
-// where
-//     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
-//     LL: SyncFullLoadingStrategy,
-//     RL: SyncFullLoadingStrategy,
-// {
-//     type Matmul<MP: MatmulPrecision> =
-//         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
-//     type Config = SimpleConfig<SMM::Config>;
-
 impl<SA: StageAttentionFamily<KeyReader = FullReaderFamily, ValueReader = FullReaderFamily>>
     GlobalAttentionFamily for DummyGlobalAttentionFamily<SA>
 {

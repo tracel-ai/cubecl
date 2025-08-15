@@ -6,11 +6,11 @@ use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
-use crate::components::stage::AttentionTilingLayout;
+use crate::components::stage::StageAttention;
+use crate::components::tile::AttentionTilingLayout;
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
-    stage::StageAttention,
 };
 
 pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {

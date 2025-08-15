@@ -1,34 +1,27 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
-use std::{fmt::Debug, hash::Hash};
-use cubecl_std::tensor::r#virtual::{VirtualTensor, ReadWrite};
+use cubecl_matmul::components::{
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder},
+    tile::{Tile, TileConfig, TileMatmul},
+};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
+use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes,
-    global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
-    tile::{AttentionTilingLayout, TileAttentionConfig},
+    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
 };
+use std::{fmt::Debug, hash::Hash};
+
+pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
-pub trait StageAttentionFamily: Send + Sync + 'static {
+pub trait TileAttentionFamily: Send + Sync + 'static {
     /// The specific [TileAttention] implementation associated with this family.
-    type Attention<AP: AttentionPrecision>: StageAttention<
-            AP,
-            Config = Self::Config,
-            KeyReader = <Self::KeyReader as ReaderFamily>::Reader<AP::ES, AttentionTilingLayout>,
-            ValueReader = <Self::ValueReader as ReaderFamily>::Reader<
-                AP::ES,
-                AttentionTilingLayout,
-            >,
-        >;
+    type Attention<AP: AttentionPrecision>: TileAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this Attention family.
-    type Config: StageAttentionConfig;
-
-    type KeyReader: ReaderFamily;
-    type ValueReader: ReaderFamily;
+    type Config: TileAttentionConfig;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -49,13 +42,11 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 }
 
 #[cube]
-pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    type KeyReader: CubeType;
-    type ValueReader: CubeType;
+pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Writer: CubeType;
 
     /// The configuration type associated with this Attention.
-    type Config: StageAttentionConfig;
+    type Config: TileAttentionConfig;
 
     type State: CubeType;
 
@@ -67,8 +58,8 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
     fn execute(
-        key_reader: &Self::KeyReader,
-        value_reader: &Self::ValueReader,
+        key_tile: &Tile<AP::ES>,
+        value_tile: &Tile<AP::ES>,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::ScoreProb,
@@ -104,18 +95,34 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 }
 
 /// Configuration for the Tile Attention level
-pub trait StageAttentionConfig:
+pub trait TileAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type TileAttentionConfig: TileAttentionConfig;
-    type ScoreStageMemoryConfig: StageMemoryConfig;
-    type ValueStageMemoryConfig: StageMemoryConfig;
+    type ScoreConfig: TileConfig;
+    type ValueConfig: TileConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
     fn rows_per_plane(&self) -> u32;
 
-    fn tile_config(&self) -> Self::TileAttentionConfig;
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+    fn score_config(&self) -> Self::ScoreConfig;
+    fn value_config(&self) -> Self::ValueConfig;
+
+    fn reuse_key_value(&self) -> bool;
+}
+
+pub trait ScoreMatmul<AP: AttentionPrecision>: TileMatmul<AP::ES, AP::ES, AP::EA> {}
+impl<AP, T> ScoreMatmul<AP> for T
+where
+    AP: AttentionPrecision,
+    T: TileMatmul<AP::ES, AP::ES, AP::EA>,
+{
+}
+
+pub trait ValueMatmul<AP: AttentionPrecision>: TileMatmul<AP::EA, AP::ES, AP::EA> {}
+impl<AP, T> ValueMatmul<AP> for T
+where
+    AP: AttentionPrecision,
+    T: TileMatmul<AP::EA, AP::ES, AP::EA>,
+{
 }

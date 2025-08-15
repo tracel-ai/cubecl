@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 
 use crate::components::AttentionPrecision;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::stage::AttentionTilingLayout;
+use crate::components::tile::AttentionTilingLayout;
 use crate::components::tile::ScoreMatmul;
 
 #[derive(CubeType)]

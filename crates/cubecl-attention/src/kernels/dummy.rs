@@ -4,6 +4,7 @@ use crate::{
     components::{
         AvailableLineSizes, batch::dummy::DummyBatchAttentionFamily,
         global::dummy::DummyGlobalAttentionFamily, stage::dummy::DummyStageAttentionFamily,
+        tile::dummy::DummyTileAttentionFamily,
     },
     kernels::Algorithm,
 };
@@ -11,10 +12,9 @@ use crate::{
 pub struct DummyAlgorithm {}
 
 impl Algorithm for DummyAlgorithm {
-    type ScoreMatmul = AcceleratedMatmul;
-    type ValueMatmul = AcceleratedMatmul;
+    type TileAttention = DummyTileAttentionFamily<AcceleratedMatmul, AcceleratedMatmul>;
     type StageAttention =
-        DummyStageAttentionFamily<Self::ScoreMatmul, Self::ValueMatmul, FullReaderFamily>;
+        DummyStageAttentionFamily<Self::TileAttention, FullReaderFamily>;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
 

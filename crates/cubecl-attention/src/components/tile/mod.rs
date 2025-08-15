@@ -1,19 +1,5 @@
-use cubecl_matmul::components::tile::TileMatmul;
+pub mod dummy;
 
-use crate::components::AttentionPrecision;
+mod base;
 
-pub trait ScoreMatmul<AP: AttentionPrecision>: TileMatmul<AP::ES, AP::ES, AP::EA> {}
-impl<AP, T> ScoreMatmul<AP> for T
-where
-    AP: AttentionPrecision,
-    T: TileMatmul<AP::ES, AP::ES, AP::EA>,
-{
-}
-
-pub trait ValueMatmul<AP: AttentionPrecision>: TileMatmul<AP::EA, AP::ES, AP::EA> {}
-impl<AP, T> ValueMatmul<AP> for T
-where
-    AP: AttentionPrecision,
-    T: TileMatmul<AP::EA, AP::ES, AP::EA>,
-{
-}
+pub use base::*;
