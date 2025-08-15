@@ -1,12 +1,12 @@
 use crate::compiler::wgsl::Item::Scalar;
-use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, UIntKind};
+use cubecl_core::ir::{ConstantScalarValue, FloatKind, Id, UIntKind};
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     GlobalInputArray(Id, Item),
     GlobalOutputArray(Id, Item),
-    GlobalScalar(Id, Elem, cube::Elem),
+    GlobalScalar(Id, Elem),
     ConstantScalar(ConstantScalarValue, Elem),
     LocalMut {
         id: Id,
@@ -85,7 +85,7 @@ pub struct IndexedVariable {
 impl Variable {
     pub fn is_always_scalar(&self) -> bool {
         match self {
-            Variable::GlobalScalar(_, _, _) => true,
+            Variable::GlobalScalar(_, _) => true,
             Variable::ConstantScalar(_, _) => true,
             Variable::LocalScalar { .. } => true,
             Variable::Id => true,
@@ -130,7 +130,7 @@ impl Variable {
         match self {
             Variable::GlobalInputArray(_, item) => item.elem().is_atomic(),
             Variable::GlobalOutputArray(_, item) => item.elem().is_atomic(),
-            Variable::GlobalScalar(_, elem, _) => elem.is_atomic(),
+            Variable::GlobalScalar(_, elem) => elem.is_atomic(),
             Variable::LocalMut { item, .. } => item.elem().is_atomic(),
             Variable::Named { item, .. } => item.elem().is_atomic(),
             Variable::LocalScalar { elem, .. } => elem.is_atomic(),
@@ -151,7 +151,7 @@ impl Variable {
             Self::LocalConst { item, .. } => *item,
             Self::Named { item, .. } => *item,
             Self::ConstantScalar(_, e) => Item::Scalar(*e),
-            Self::GlobalScalar(_, e, _) => Item::Scalar(*e),
+            Self::GlobalScalar(_, e) => Item::Scalar(*e),
             Self::Id => Item::Scalar(Elem::U32),
             Self::LocalInvocationIndex => Item::Scalar(Elem::U32),
             Self::LocalInvocationIdX => Item::Scalar(Elem::U32),
@@ -297,7 +297,7 @@ impl Display for Variable {
             Variable::GlobalOutputArray(number, _) => {
                 write!(f, "buffer_{number}_global")
             }
-            Variable::GlobalScalar(number, _, elem) => {
+            Variable::GlobalScalar(number, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
             // We do the conversion in Rust and then render the number to avoid overflow or other
@@ -365,7 +365,7 @@ impl Display for IndexedVariable {
         let index = self.index;
 
         match &self.var {
-            Variable::GlobalScalar(_, _, _) => write!(f, "{var}"),
+            Variable::GlobalScalar(_, _) => write!(f, "{var}"),
             var if matches!(item, Item::Scalar(_)) => write!(f, "{var}"),
             var => write!(f, "{var}[{index}]"),
         }
@@ -391,7 +391,7 @@ impl IndexedVariable {
     pub fn fmt_left(&self) -> String {
         let item = self.var.item();
         match &self.var {
-            Variable::GlobalScalar(_, _, _) => self.var.fmt_left(),
+            Variable::GlobalScalar(_, _) => self.var.fmt_left(),
             var if matches!(item, Item::Scalar(_)) => var.fmt_left(),
             _ => format!("{self}"),
         }

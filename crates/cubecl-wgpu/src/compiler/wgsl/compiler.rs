@@ -218,7 +218,7 @@ impl WgslCompiler {
                 wgsl::Variable::GlobalInputArray(id, self.compile_item(item))
             }
             cube::VariableKind::GlobalScalar(id) => {
-                wgsl::Variable::GlobalScalar(id, self.compile_elem(item.elem), item.elem)
+                wgsl::Variable::GlobalScalar(id, self.compile_elem(item.elem))
             }
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 wgsl::Variable::LocalMut {
