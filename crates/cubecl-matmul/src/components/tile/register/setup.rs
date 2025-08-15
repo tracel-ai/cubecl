@@ -10,7 +10,7 @@ use crate::components::{
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {
-    type Matmul<MP: MatmulPrecision> = RegisterMatmul;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = RegisterMatmul;
     type Config = RegisterConfig;
 
     fn requires_accelerator() -> bool {

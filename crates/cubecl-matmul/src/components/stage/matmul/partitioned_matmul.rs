@@ -1,8 +1,11 @@
 use crate::components::InputPrecision;
+use crate::components::LhsR;
 use crate::components::LhsS;
 use crate::components::MatmulPrecision;
+use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::StageIdent;
+use crate::components::global;
 use crate::components::global::AccumulatorLoader;
 use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
@@ -10,7 +13,7 @@ use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::{NoEvent, StageEventListener};
-use crate::components::{global, tile};
+use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -43,32 +46,32 @@ pub trait StagePartitioner: Send + Sync + 'static {
 /// Its results are written in a temporary shared memory to correct the layout before storing to global memory.
 pub struct PartitionedStageMatmul<
     MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP>,
+    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
     RL: StageToTileReader<LhsS<MP>>,
     RR: StageToTileReader<RhsS<MP>>,
     SP: StagePartitioner,
-    S: StageConfig<TileConfig = TMM::Config>,
+    S: StageConfig<TileConfig = TM::Config>,
 > {
-    _phantom: PhantomData<(MP, TMM, RL, RR, SP, S)>,
+    _phantom: PhantomData<(MP, TM, RL, RR, SP, S)>,
 }
 
 #[cube]
-impl<MP, TMM, RL, RR, SP, S> StageMatmul<MP> for PartitionedStageMatmul<MP, TMM, RL, RR, SP, S>
+impl<MP, TM, RL, RR, SP, S> StageMatmul<MP> for PartitionedStageMatmul<MP, TM, RL, RR, SP, S>
 where
     MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP>,
+    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
     RL: StageToTileReader<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage>,
     RR: StageToTileReader<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage>,
     SP: StagePartitioner,
-    S: StageConfig<TileConfig = TMM::Config>,
+    S: StageConfig<TileConfig = TM::Config>,
 {
     type Config = S;
 
     type LhsReader = RL;
     type RhsReader = RR;
-    type Accumulator = Accumulators<MP, TMM, S>;
-    type LhsTile = Sequence<TMM::Lhs>;
-    type RhsTile = RhsTile<TMM::Rhs>;
+    type Accumulator = Accumulators<MP, TM, S>;
+    type LhsTile = Sequence<TM::Lhs>;
+    type RhsTile = RhsTile<TM::Rhs>;
     type Writer = SP::Writer<MP::EO>;
 
     fn execute(
@@ -106,7 +109,7 @@ where
         let start_m = m_acc_count * (partition_position / num_partitions_n);
         let start_n = n_acc_count * (partition_position % num_partitions_n);
 
-        PartitionMatmul::<MP, TMM, RL, RR, S>::execute_with_listener::<SEL>(
+        PartitionMatmul::<MP, TM, RL, RR, S>::execute_with_listener::<SEL>(
             start_m,
             start_n,
             lhs_reader,
@@ -120,15 +123,15 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        PartitionMatmul::<MP, TMM, RL, RR, S>::init_tile_inputs(config)
+        PartitionMatmul::<MP, TM, RL, RR, S>::init_tile_inputs(config)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        PartitionMatmul::<MP, TMM, RL, RR, S>::init_accumulator(config)
+        PartitionMatmul::<MP, TM, RL, RR, S>::init_accumulator(config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        PartitionMatmul::<MP, TMM, RL, RR, S>::zero_accumulator(acc, config);
+        PartitionMatmul::<MP, TM, RL, RR, S>::zero_accumulator(acc, config);
     }
 
     fn fill_accumulator<L: AccumulatorLoader<MP>>(
@@ -136,11 +139,11 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        PartitionMatmul::<MP, TMM, RL, RR, S>::fill_accumulator::<L>(loader, acc, config);
+        PartitionMatmul::<MP, TM, RL, RR, S>::fill_accumulator::<L>(loader, acc, config);
     }
 
     fn write_results<G: global::GlobalConfig>(
-        acc: &Accumulators<MP, TMM, S>,
+        acc: &Accumulators<MP, TM, S>,
         out: &mut Self::Writer,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
@@ -174,8 +177,8 @@ where
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
                 let accumulator =
-                    Accumulators::<MP, TMM, S>::get_at(acc, m_iter, n_iter, stage_config);
-                TMM::write_results(accumulator, &mut smem_slice, stage_config.tile_config());
+                    Accumulators::<MP, TM, S>::get_at(acc, m_iter, n_iter, stage_config);
+                TM::write_results(accumulator, &mut smem_slice, stage_config.tile_config());
                 Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),

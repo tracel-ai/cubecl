@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::{CubeType, prelude::*};
 
-use crate::components::MatmulPrecision;
-use crate::components::tile;
+use crate::components::tile::TileMatmul;
+use crate::components::{LhsR, MatmulPrecision, RhsR};
 
 use super::GlobalConfig;
 
@@ -13,11 +13,11 @@ pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sy
 
     /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
-    fn load<Tile: tile::TileMatmul<MP>>(
+    fn load<TM: TileMatmul<MP::EA, MP::EA, MP::EA>>(
         this: &mut Self,
-        acc: &mut Tile::Accumulator,
+        acc: &mut TM::Accumulator,
         nth_tile: u32,
-        #[comptime] config: Tile::Config,
+        #[comptime] config: TM::Config,
     );
 }
 
@@ -29,7 +29,7 @@ pub struct ZeroAccumulatorLoader;
 impl<MP: MatmulPrecision> AccumulatorLoader<MP> for ZeroAccumulatorLoader {
     fn fill_stage<G: GlobalConfig>(_this: &mut Self, #[comptime] _config: G) {}
 
-    fn load<Tile: tile::TileMatmul<MP>>(
+    fn load<Tile: TileMatmul<MP::EA, MP::EA, MP::EA>>(
         _this: &mut Self,
         acc: &mut Tile::Accumulator,
         _n_tile: u32,

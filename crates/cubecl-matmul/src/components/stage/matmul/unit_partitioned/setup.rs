@@ -1,9 +1,12 @@
 use crate::components::ComputeResources;
+use crate::components::InputPrecision;
+use crate::components::LhsR;
 use crate::components::LhsS;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
+use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
@@ -20,16 +23,20 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 /// Unit Matmul family for any precision
-pub struct UnitMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
-    _phantom: PhantomData<(TMM, RF)>,
+pub struct UnitMatmulFamily<TM: TileMatmulFamily, RF: ReaderFamily> {
+    _phantom: PhantomData<(TM, RF)>,
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFamily<TMM, RF> {
+impl<TM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFamily<TM, RF> {
     type LhsReader = RF;
     type RhsReader = RF;
-    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        UnitMatmul<MP, TMM::Matmul<MP>, RF::Reader<LhsS<MP>, TL>, RF::Reader<RhsS<MP>, TR>>;
-    type Config = UnitPartitionedStageConfig<TMM::Config>;
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> = UnitMatmul<
+        MP,
+        TM::Matmul<MP::EA, MP::EA, MP::EA>,
+        RF::Reader<LhsS<MP>, TL>,
+        RF::Reader<RhsS<MP>, TR>,
+    >;
+    type Config = UnitPartitionedStageConfig<TM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -40,10 +47,9 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFa
         max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
+        let tile_config = TM::setup::<MP, R>(client, problem, selection, line_sizes)?;
 
-        let compute_resources = if let ComputeResources::Units(units) =
-            TMM::computation_resources()?
+        let compute_resources = if let ComputeResources::Units(units) = TM::computation_resources()?
         {
             ComputeResources::Units(units * selection.tiling_scheme.stage_partitions_in_stage_mn())
         } else {

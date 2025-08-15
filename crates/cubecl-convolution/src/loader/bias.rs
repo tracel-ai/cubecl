@@ -44,7 +44,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
     }
 
     /// Load accumulator
-    fn load<TMM: TileMatmul<MP>>(
+    fn load<TMM: TileMatmul<MP::EA, MP::EA, MP::EA>>(
         this: &mut Self,
         acc: &mut TMM::Accumulator,
         tile_n: u32,

@@ -1,3 +1,7 @@
+use crate::components::InputPrecision;
+use crate::components::LhsR;
+use crate::components::MatmulPrecision;
+use crate::components::RhsR;
 use crate::components::global::PlaneWriter;
 use crate::components::global::RoleRule;
 use crate::components::stage::StageConfig;
@@ -11,7 +15,16 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
-pub type PlaneMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
+pub type PlaneMatmul<
+    MP: MatmulPrecision,
+    TMM: TileMatmul<
+            <MP as MatmulPrecision>::EA,
+            <MP as MatmulPrecision>::EA,
+            <MP as MatmulPrecision>::EA,
+        >,
+    RL,
+    RR,
+> = PartitionedStageMatmul<
     MP,
     TMM,
     RL,
