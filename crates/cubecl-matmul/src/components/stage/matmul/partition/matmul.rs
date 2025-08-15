@@ -1,15 +1,14 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
-use crate::components::LhsS;
-use crate::components::MatmulPrecision;
-use crate::components::RhsS;
+use crate::components::InputPrecision;
 use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
-use crate::components::tile;
+use crate::components::tile::TileMatmul;
+use crate::components::{LhsS, MatmulPrecision, RhsS};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -17,7 +16,11 @@ use cubecl_core as cubecl;
 /// executed by a single compute primitive (unit or plane)
 pub struct PartitionMatmul<
     MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP>,
+    TMM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     RL: StageToTileReader<LhsS<MP>>,
     RR: StageToTileReader<RhsS<MP>>,
     S: StageConfig,
@@ -26,13 +29,17 @@ pub struct PartitionMatmul<
 }
 
 #[cube]
-impl<MP, TMM, RL, RR, S> PartitionMatmul<MP, TMM, RL, RR, S>
+impl<MP, TM, RL, RR, S> PartitionMatmul<MP, TM, RL, RR, S>
 where
     MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP>,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     RL: StageToTileReader<LhsS<MP>>,
     RR: StageToTileReader<RhsS<MP>>,
-    S: StageConfig<TileConfig = TMM::Config>,
+    S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
     /// Execute all Tile Matmuls inside the partition
@@ -42,9 +49,9 @@ where
         start_n: u32,
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut Sequence<TMM::Lhs>,
-        rhs_fragments: &mut RhsTile<TMM::Rhs>,
-        acc: &mut Accumulators<MP, TMM, S>,
+        lhs_fragment: &mut Sequence<TM::Lhs>,
+        rhs_fragments: &mut RhsTile<TM::Rhs>,
+        acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         listener: SEL,
     ) {
@@ -80,21 +87,20 @@ where
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to fill inputs before execution.
-    pub fn init_tile_inputs(#[comptime] config: S) -> (Sequence<TMM::Lhs>, RhsTile<TMM::Rhs>) {
+    pub fn init_tile_inputs(#[comptime] config: S) -> (Sequence<TM::Lhs>, RhsTile<TM::Rhs>) {
         let tile_config = config.tile_config();
         let mut lhs = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(config.tiling_scheme().tiles_in_stage_partition_m()) {
-            lhs.push(TMM::allocate_lhs(tile_config));
+            lhs.push(TM::allocate_lhs(tile_config));
         }
 
         let rhs = match config.partition_buffering() {
-            PartitionBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tile_config)),
-            PartitionBuffering::Double => RhsTile::new_Double((
-                TMM::allocate_rhs(tile_config),
-                TMM::allocate_rhs(tile_config),
-            )),
+            PartitionBuffering::Single => RhsTile::new_Single(TM::allocate_rhs(tile_config)),
+            PartitionBuffering::Double => {
+                RhsTile::new_Double((TM::allocate_rhs(tile_config), TM::allocate_rhs(tile_config)))
+            }
         };
 
         (lhs, rhs)
@@ -106,19 +112,19 @@ where
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call zero_accumulator or fill_accumulator prior to execute_with_listener.
-    pub fn init_accumulator(#[comptime] config: S) -> Accumulators<MP, TMM, S> {
-        Accumulators::<MP, TMM, S>::new(config)
+    pub fn init_accumulator(#[comptime] config: S) -> Accumulators<MP, TM, S> {
+        Accumulators::<MP, TM, S>::new(config)
     }
 
     /// Fill accumulators with zeroes
-    pub fn zero_accumulator(acc: &mut Accumulators<MP, TMM, S>, #[comptime] config: S) {
+    pub fn zero_accumulator(acc: &mut Accumulators<MP, TM, S>, #[comptime] config: S) {
         acc.zero(config);
     }
 
     /// Fill accumulators through an AccumulatorLoader
     pub fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
-        acc: &mut Accumulators<MP, TMM, S>,
+        acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
     ) {
         acc.fill::<L>(loader, config);
@@ -133,9 +139,9 @@ where
         start_n: u32,
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut Sequence<TMM::Lhs>,
-        rhs_fragment: &mut TMM::Rhs,
-        acc: &mut Accumulators<MP, TMM, S>,
+        lhs_fragment: &mut Sequence<TM::Lhs>,
+        rhs_fragment: &mut TM::Rhs,
+        acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         mut listener: SEL,
     ) {
@@ -167,7 +173,7 @@ where
                     k_iter,
                     config.stage_memory_config(),
                 );
-                TMM::fill_lhs(
+                TM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
                     config.tile_config(),
@@ -196,7 +202,7 @@ where
                     start_n + n_iter,
                     config.stage_memory_config(),
                 );
-                TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
+                TM::fill_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime![StageEvent::RhsLoaded {
@@ -213,8 +219,8 @@ where
                 #[unroll]
                 for _ in 0..m_iterations {
                     let accumulator =
-                        Accumulators::<MP, TMM, S>::get_at_mut(acc, m_iter, n_iter, config);
-                    TMM::execute(
+                        Accumulators::<MP, TM, S>::get_at_mut(acc, m_iter, n_iter, config);
+                    TM::execute(
                         lhs_fragment.index(m_iter),
                         rhs_fragment,
                         accumulator,
@@ -254,9 +260,9 @@ where
         start_n: u32,
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut Sequence<TMM::Lhs>,
-        rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
-        acc: &mut Accumulators<MP, TMM, S>,
+        lhs_fragment: &mut Sequence<TM::Lhs>,
+        rhs_fragments: &mut (TM::Rhs, TM::Rhs),
+        acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         mut listener: SEL,
     ) {
@@ -289,7 +295,7 @@ where
                     k_iter,
                     config.stage_memory_config(),
                 );
-                TMM::fill_lhs(
+                TM::fill_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
                     config.tile_config(),
@@ -315,7 +321,7 @@ where
                 start_n + n_iter,
                 config.stage_memory_config(),
             );
-            TMM::fill_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
+            TM::fill_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
@@ -341,7 +347,7 @@ where
                     start_n + comptime![n_iter + 1],
                     config.stage_memory_config(),
                 );
-                TMM::fill_rhs(&rhs_tile_next, next, config.tile_config());
+                TM::fill_rhs(&rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {
@@ -358,9 +364,9 @@ where
                 #[unroll]
                 for _ in 0..m_iterations {
                     let accumulator =
-                        Accumulators::<MP, TMM, S>::get_at_mut(acc, m_iter, n_iter, config);
+                        Accumulators::<MP, TM, S>::get_at_mut(acc, m_iter, n_iter, config);
 
-                    TMM::execute(
+                    TM::execute(
                         lhs_fragment.index(m_iter),
                         current,
                         accumulator,
@@ -394,8 +400,8 @@ where
             #[unroll]
             for _ in 0..m_iterations {
                 let accumulator =
-                    Accumulators::<MP, TMM, S>::get_at_mut(acc, m_iter, n_iter, config);
-                TMM::execute(
+                    Accumulators::<MP, TM, S>::get_at_mut(acc, m_iter, n_iter, config);
+                TM::execute(
                     lhs_fragment.index(m_iter),
                     last,
                     accumulator,

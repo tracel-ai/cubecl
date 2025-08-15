@@ -5,7 +5,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor}
 use crate::homogeneous::simple::ConvTilingLayout;
 use crate::reader::bias::BiasReader;
 use cubecl_matmul::components::{
-    MatmulIdent, MatmulPrecision, StageIdent,
+    InputPrecision, MatmulIdent, MatmulPrecision, StageIdent,
     global::{AccumulatorLoader, GlobalConfig},
     stage::{StageConfig, StageMemory},
     tile::{Tile, TileConfig, TileMatmul},
@@ -44,7 +44,13 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
     }
 
     /// Load accumulator
-    fn load<TMM: TileMatmul<MP>>(
+    fn load<
+        TMM: TileMatmul<
+                <MP::Lhs as InputPrecision>::Register,
+                <MP::Rhs as InputPrecision>::Register,
+                MP::EA,
+            >,
+    >(
         this: &mut Self,
         acc: &mut TMM::Accumulator,
         tile_n: u32,
