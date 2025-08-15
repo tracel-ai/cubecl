@@ -39,6 +39,7 @@ use super::{
 };
 
 pub struct Visitor<'a> {
+    pub first_block: Option<BlockRef<'a, 'a>>,
     pub block: BlockRef<'a, 'a>,
     pub last_block: BlockRef<'a, 'a>,
     pub module: &'a Module<'a>,
@@ -70,8 +71,8 @@ impl<'a> Visitor<'a> {
         let blocks_args = HashMap::new();
         let str_counter = 0;
         let variables = Variables::new(opt);
-
         Self {
+            first_block: None,
             block: current_block,
             last_block,
             module,

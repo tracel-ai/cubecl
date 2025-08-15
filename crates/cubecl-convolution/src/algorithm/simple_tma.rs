@@ -5,7 +5,7 @@ use cubecl_core::{
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
-use cubecl_matmul::components::{MatmulElems, MatmulSelection};
+use cubecl_matmul::components::{MatmulElems, MatmulSelection, MatmulSetupError};
 
 use crate::{
     base::{ConvolutionProblem, Dimensionality},
@@ -65,8 +65,13 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: MatmulElems,
-    ) -> MatmulSelection {
-        convolution_matmul_selection::<TMM, R>(client, problem, plane_dim, matmul_elems)
+    ) -> Result<MatmulSelection, MatmulSetupError> {
+        Ok(convolution_matmul_selection::<TMM, R>(
+            client,
+            problem,
+            plane_dim,
+            matmul_elems,
+        ))
     }
 }
 

@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
@@ -56,8 +56,8 @@ where
         plane_dim: u32,
         _elems: MatmulElems,
         args: &Self::SelectionArgs,
-    ) -> MatmulSelection {
-        unit_matmul_selection::<R>(
+    ) -> Result<MatmulSelection, MatmulSetupError> {
+        Ok(unit_matmul_selection::<R>(
             client,
             problem,
             plane_dim,
@@ -73,7 +73,7 @@ where
                     TileSizeSelection::MaxTileSize => PartitionScaling::Enabled,
                 },
             },
-        )
+        ))
     }
 
     fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
