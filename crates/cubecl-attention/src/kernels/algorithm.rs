@@ -8,8 +8,8 @@ use crate::components::{
 };
 
 pub trait Algorithm {
-    type ScoreTileMatmul: TileMatmulFamily;
-    type ValueTileMatmul: TileMatmulFamily;
+    type ScoreMatmul: TileMatmulFamily;
+    type ValueMatmul: TileMatmulFamily;
     type StageAttention: StageAttentionFamily;
     type GlobalAttention: GlobalAttentionFamily;
     type BatchAttention: BatchAttentionFamily;

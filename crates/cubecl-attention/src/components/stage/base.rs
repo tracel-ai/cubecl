@@ -2,16 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, ReaderFamily, RowMajorTilingOrder, StageMemoryConfig},
-    tile::{TileConfig, TileMatmul},
+    tile::TileConfig,
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
-    stage::dummy::FromAccumulator,
+    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig, tile::ValueMatmul,
 };
+use crate::components::{global::dummy::QueryRegisterReader, tile::ScoreMatmul};
 use std::{fmt::Debug, hash::Hash};
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
@@ -64,14 +63,8 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type State: CubeType;
 
-    type ScoreTileMatmul: TileMatmul<AP::MatmulPrecision>;
-    type ValueTileMatmul: TileMatmul<
-            AP::MatmulPrecision,
-            Lhs: FromAccumulator<
-                <Self::ScoreTileMatmul as TileMatmul<AP::MatmulPrecision>>::Accumulator,
-            >,
-            Rhs = <Self::ScoreTileMatmul as TileMatmul<AP::MatmulPrecision>>::Rhs,
-        >;
+    type ScoreMatmul: ScoreMatmul<AP>;
+    type ValueMatmul: ValueMatmul<AP>;
 
     type Query: CubeType;
     type KeyValue: CubeType;

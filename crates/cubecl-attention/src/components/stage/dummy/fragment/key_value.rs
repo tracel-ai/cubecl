@@ -2,26 +2,22 @@ use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::MatmulPrecision;
-use cubecl_matmul::components::tile::TileMatmul;
 
+use crate::components::AttentionPrecision;
 use crate::components::stage::StageAttentionConfig;
+use crate::components::tile::{ScoreMatmul, ValueMatmul};
 
 #[derive(CubeType)]
-pub enum KeyValueFragment<
-    MP: MatmulPrecision,
-    STM: TileMatmul<MP>,
-    VTM: TileMatmul<MP, Rhs = STM::Rhs>,
-> {
-    Reuse(ReuseKV<MP, STM, VTM>),
-    Separate(SeparateKV<MP, STM, VTM>),
+pub enum KeyValueFragment<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> {
+    Reuse(ReuseKV<AP, SM, VM>),
+    Separate(SeparateKV<AP, SM, VM>),
 }
 
 #[cube]
-impl<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP, Rhs = STM::Rhs>>
-    KeyValueFragment<MP, STM, VTM>
+impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>>
+    KeyValueFragment<AP, SM, VM>
 {
-    pub fn new<S: StageAttentionConfig<ScoreConfig = STM::Config, ValueConfig = VTM::Config>>(
+    pub fn new<S: StageAttentionConfig<ScoreConfig = SM::Config, ValueConfig = VM::Config>>(
         #[comptime] config: S,
     ) -> Self {
         match config.reuse_key_value() {
@@ -33,28 +29,28 @@ impl<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP, Rhs = STM::Rh
         }
     }
 
-    pub fn key(&self) -> &STM::Rhs {
+    pub fn key(&self) -> &SM::Rhs {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Separate(separate_kv) => &separate_kv.key,
         }
     }
 
-    pub fn key_mut(&mut self) -> &mut STM::Rhs {
+    pub fn key_mut(&mut self) -> &mut SM::Rhs {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Separate(separate_kv) => &mut separate_kv.key,
         }
     }
 
-    pub fn value(&self) -> &VTM::Rhs {
+    pub fn value(&self) -> &VM::Rhs {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Separate(separate_kv) => &separate_kv.value,
         }
     }
 
-    pub fn value_mut(&mut self) -> &mut VTM::Rhs {
+    pub fn value_mut(&mut self) -> &mut VM::Rhs {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Separate(separate_kv) => &mut separate_kv.value,
@@ -63,21 +59,20 @@ impl<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP, Rhs = STM::Rh
 }
 
 #[derive(CubeType)]
-pub struct ReuseKV<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP>> {
-    // Will be cast to VTM
-    pub fragment: STM::Rhs,
+pub struct ReuseKV<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> {
+    pub fragment: SM::Rhs,
     #[cube(comptime)]
-    _phantom: PhantomData<VTM>,
+    _phantom: PhantomData<VM>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP>> ReuseKV<MP, STM, VTM> {
+impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> ReuseKV<AP, SM, VM> {
     pub fn new(
-        #[comptime] score_config: STM::Config,
-        #[comptime] _value_config: VTM::Config,
+        #[comptime] score_config: SM::Config,
+        #[comptime] _value_config: VM::Config,
     ) -> Self {
-        let fragment = STM::allocate_rhs(score_config);
-        ReuseKV::<MP, STM, VTM> {
+        let fragment = SM::allocate_rhs(score_config);
+        ReuseKV::<AP, SM, VM> {
             fragment,
             _phantom: PhantomData,
         }
@@ -85,19 +80,16 @@ impl<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP>> ReuseKV<MP, 
 }
 
 #[derive(CubeType)]
-pub struct SeparateKV<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP>> {
-    pub key: STM::Rhs,
-    pub value: VTM::Rhs,
+pub struct SeparateKV<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> {
+    pub key: SM::Rhs,
+    pub value: VM::Rhs,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, STM: TileMatmul<MP>, VTM: TileMatmul<MP>> SeparateKV<MP, STM, VTM> {
-    pub fn new(
-        #[comptime] score_config: STM::Config,
-        #[comptime] value_config: VTM::Config,
-    ) -> Self {
-        let key = STM::allocate_rhs(score_config);
-        let value = VTM::allocate_rhs(value_config);
-        SeparateKV::<MP, STM, VTM> { key, value }
+impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> SeparateKV<AP, SM, VM> {
+    pub fn new(#[comptime] score_config: SM::Config, #[comptime] value_config: VM::Config) -> Self {
+        let key = SM::allocate_rhs(score_config);
+        let value = VM::allocate_rhs(value_config);
+        SeparateKV::<AP, SM, VM> { key, value }
     }
 }

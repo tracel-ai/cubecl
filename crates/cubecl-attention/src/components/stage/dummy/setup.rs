@@ -1,11 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::{
-    MatrixLayout,
-    stage::ReaderFamily,
-    tile::{TileMatmulFamily, TileSetupInfo},
-};
+use cubecl_matmul::components::{MatrixLayout, stage::ReaderFamily, tile::TileSetupInfo};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -14,27 +10,28 @@ use crate::components::{
         AttentionTilingLayout, StageAttentionFamily,
         dummy::{AttentionStageMemoryConfig, DummyStageAttention, config::DummyStageConfig},
     },
+    tile::{ScoreMatmulFamily, ValueMatmulFamily},
 };
 
-pub struct DummyStageAttentionFamily<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily>
+pub struct DummyStageAttentionFamily<SM: ScoreMatmulFamily, VM: ValueMatmulFamily, RF: ReaderFamily>
 {
-    _phantom: PhantomData<(STM, VTM, RF)>,
+    _phantom: PhantomData<(SM, VM, RF)>,
 }
 
-impl<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily> StageAttentionFamily
-    for DummyStageAttentionFamily<STM, VTM, RF>
+impl<SM: ScoreMatmulFamily, VM: ValueMatmulFamily, RF: ReaderFamily> StageAttentionFamily
+    for DummyStageAttentionFamily<SM, VM, RF>
 {
     type Attention<AP: AttentionPrecision> = DummyStageAttention<
         AP,
-        STM::Matmul<AP::MatmulPrecision>,
-        VTM::Matmul<AP::MatmulPrecision>,
+        SM::Matmul<AP::MatmulPrecision>,
+        VM::Matmul<AP::MatmulPrecision>,
         RF::Reader<AP::ES, AttentionTilingLayout>,
+        Self::Config,
     >;
-
-    type Config = DummyStageConfig<STM::Config, VTM::Config>;
 
     type KeyReader = RF;
     type ValueReader = RF;
+    type Config = DummyStageConfig<SM::Config, VM::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -42,14 +39,10 @@ impl<STM: TileMatmulFamily, VTM: TileMatmulFamily, RF: ReaderFamily> StageAttent
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let score_tile_config = STM::setup::<AP::MatmulPrecision, R>(
-            client,
-            score_tile_matmul_setup_info(selection, line_sizes),
-        )?;
-        let value_tile_config = VTM::setup::<AP::MatmulPrecision, R>(
-            client,
-            value_tile_matmul_setup_info(selection, line_sizes),
-        )?;
+        let score_tile_config =
+            SM::setup::<AP, R>(client, score_tile_matmul_setup_info(selection, line_sizes))?;
+        let value_tile_config =
+            VM::setup::<AP, R>(client, value_tile_matmul_setup_info(selection, line_sizes))?;
 
         DummyStageConfig::new(
             AttentionStageMemoryConfig::new(score_tile_config),

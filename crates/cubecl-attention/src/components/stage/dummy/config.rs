@@ -6,18 +6,18 @@ use cubecl_matmul::components::{
 use crate::components::{AttentionSetupError, stage::StageAttentionConfig};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyStageConfig<ST: TileConfig, VT: TileConfig> {
-    score_stage_memory_config: AttentionStageMemoryConfig<ST>,
-    value_stage_memory_config: AttentionStageMemoryConfig<VT>,
+pub struct DummyStageConfig<SC: TileConfig, VC: TileConfig> {
+    score_stage_memory_config: AttentionStageMemoryConfig<SC>,
+    value_stage_memory_config: AttentionStageMemoryConfig<VC>,
     num_planes: u32,
 }
 
-impl<ST: TileConfig, VT: TileConfig> StageAttentionConfig for DummyStageConfig<ST, VT> {
-    type ScoreConfig = ST;
-    type ScoreStageMemoryConfig = AttentionStageMemoryConfig<ST>;
+impl<SC: TileConfig, VC: TileConfig> StageAttentionConfig for DummyStageConfig<SC, VC> {
+    type ScoreConfig = SC;
+    type ScoreStageMemoryConfig = AttentionStageMemoryConfig<SC>;
 
-    type ValueConfig = VT;
-    type ValueStageMemoryConfig = AttentionStageMemoryConfig<VT>;
+    type ValueConfig = VC;
+    type ValueStageMemoryConfig = AttentionStageMemoryConfig<VC>;
 
     fn plane_dim(&self) -> u32 {
         self.score_config().plane_dim()

@@ -1,22 +1,22 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::TileMatmul;
 
 use crate::components::AttentionPrecision;
 use crate::components::global::dummy::QueryRegisterReader;
+use crate::components::tile::ScoreMatmul;
 
 #[derive(CubeType)]
-pub struct QueryFragment<AP: AttentionPrecision, STM: TileMatmul<AP::MatmulPrecision>> {
-    pub fragment: STM::Lhs,
+pub struct QueryFragment<AP: AttentionPrecision, SM: ScoreMatmul<AP>> {
+    pub fragment: SM::Lhs,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, STM: TileMatmul<AP::MatmulPrecision>> QueryFragment<AP, STM> {
+impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>> QueryFragment<AP, SM> {
     pub fn new(
         query_reader: QueryRegisterReader<AP>,
-        #[comptime] config: STM::Config,
-    ) -> QueryFragment<AP, STM> {
-        let fragment = query_reader.read_tile::<STM>(config);
-        QueryFragment::<AP, STM> { fragment }
+        #[comptime] config: SM::Config,
+    ) -> QueryFragment<AP, SM> {
+        let fragment = query_reader.read_tile::<SM>(config);
+        QueryFragment::<AP, SM> { fragment }
     }
 }

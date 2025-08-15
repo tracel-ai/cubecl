@@ -2,8 +2,11 @@ use cubecl_matmul::components::{stage::FullReaderFamily, tile::accelerated::Acce
 
 use crate::{
     components::{
-        AvailableLineSizes, batch::dummy::DummyBatchAttentionFamily,
-        global::dummy::DummyGlobalAttentionFamily, stage::dummy::DummyStageAttentionFamily,
+        AvailableLineSizes,
+        batch::dummy::DummyBatchAttentionFamily,
+        global::dummy::DummyGlobalAttentionFamily,
+        stage::dummy::DummyStageAttentionFamily,
+        tile::{ScoreMatmul, ValueMatmul},
     },
     kernels::Algorithm,
 };
@@ -11,10 +14,10 @@ use crate::{
 pub struct DummyAlgorithm {}
 
 impl Algorithm for DummyAlgorithm {
-    type ScoreTileMatmul = AcceleratedMatmul;
-    type ValueTileMatmul = AcceleratedMatmul;
+    type ScoreMatmul = AcceleratedMatmul;
+    type ValueMatmul = AcceleratedMatmul;
     type StageAttention =
-        DummyStageAttentionFamily<Self::ScoreTileMatmul, Self::ValueTileMatmul, FullReaderFamily>;
+        DummyStageAttentionFamily<Self::ScoreMatmul, Self::ValueMatmul, FullReaderFamily>;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
 
