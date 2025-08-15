@@ -836,7 +836,7 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
     match elem {
         Elem::Float(kind) => match kind {
-            FloatKind::E2M1 | FloatKind::E2M3 | FloatKind::E3M2 => {
+            FloatKind::E2M1 | FloatKind::E2M1x2 | FloatKind::E2M3 | FloatKind::E3M2 => {
                 todo!("Needs more complex handling and CUDA 12.8")
             }
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.

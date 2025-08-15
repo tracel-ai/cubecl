@@ -11,6 +11,7 @@ pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size:
     }
 }
 
+#[allow(clippy::needless_range_loop)]
 pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {

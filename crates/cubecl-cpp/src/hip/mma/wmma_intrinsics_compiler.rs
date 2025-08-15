@@ -6,7 +6,7 @@ use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Item, MmaShape, SupportedMmaCombinations,
+        FragmentIdent, FragmentLayout, Item, ManualMma, MmaShape, SupportedMmaCombinations,
         SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr, frag_ident_str,
         frag_layout_str, variable_to_frag, wmma_api_base,
     },
@@ -408,7 +408,25 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 frag_b,
                 frag_c,
                 frag_d,
-            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
+            } => {
+                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
+            }
+            WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => Self::compile_scaled_mma(
+                f,
+                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
+                *scales_a,
+                *scales_b,
+                *scales_factor,
+            ),
             WmmaInstruction::Store {
                 output,
                 frag,
@@ -431,13 +449,19 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
 
     fn compile_manual_mma(
         f: &mut std::fmt::Formatter<'_>,
-        shape: MmaShape<HipDialect<Self>>,
-        frag_a: &[Variable<HipDialect<Self>>],
-        frag_b: &[Variable<HipDialect<Self>>],
-        frag_c: &[Variable<HipDialect<Self>>],
-        frag_d: &Variable<HipDialect<Self>>,
+        mma: ManualMma<HipDialect<Self>>,
     ) -> std::fmt::Result {
-        compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+        compile_manual_mma(f, mma.shape, mma.frag_a, mma.frag_b, mma.frag_c, mma.frag_d)
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: ManualMma<HipDialect<Self>>,
+        _scales_a: Variable<HipDialect<Self>>,
+        _scales_b: Variable<HipDialect<Self>>,
+        _scales_factor: u32,
+    ) -> std::fmt::Result {
+        unimplemented!("Not supported in HIP")
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
@@ -569,7 +593,7 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
         ];
         let combinations = types
             .into_iter()
-            .map(|(ab_elem, cd_elem)| (ab_elem, cd_elem, 16, 16, 16));
+            .map(|(ab_elem, cd_elem)| (ab_elem, ab_elem, cd_elem, 16, 16, 16));
         result.extend(combinations);
     }
     result

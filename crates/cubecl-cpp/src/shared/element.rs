@@ -1,4 +1,4 @@
-use cubecl_common::{e2m1x2, e3m2, e5m2};
+use cubecl_common::{e2m1, e2m1x2, e3m2, e5m2};
 use cubecl_core::tf32;
 use half::{bf16, f16};
 use std::fmt::Display;
@@ -90,7 +90,7 @@ impl<D: Dialect> Display for Elem<D> {
 impl<D: Dialect> Elem<D> {
     pub const fn size(&self) -> usize {
         match self {
-            Elem::FP4(_) => panic!("Can't get byte size of sub-byte type"),
+            Elem::FP4(_) => core::mem::size_of::<e2m1>(),
             Elem::FP4x2(_) => core::mem::size_of::<e2m1x2>(),
             Elem::FP6(_) => core::mem::size_of::<e3m2>(),
             Elem::FP6x2(_) => 2 * core::mem::size_of::<e3m2>(),
@@ -129,6 +129,17 @@ impl<D: Dialect> Elem<D> {
         match self {
             Elem::FP4(_) => 4,
             other => other.size() * 8,
+        }
+    }
+
+    pub const fn unpacked(&self) -> Self {
+        match self {
+            Elem::FP4x2(ty) => Elem::FP4(*ty),
+            Elem::FP6x2(ty) => Elem::FP6(*ty),
+            Elem::FP8x2(ty) => Elem::FP8(*ty),
+            Elem::F16x2 => Elem::F16,
+            Elem::BF16x2 => Elem::BF16,
+            elem => *elem,
         }
     }
 

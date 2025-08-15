@@ -356,7 +356,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(value, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_elem(stride, Elem::UInt(UIntKind::U32));
                     }
-                    CoopMma::Execute { .. } => {
+                    CoopMma::Execute { .. }
+                    | CoopMma::ExecuteManual { .. }
+                    | CoopMma::ExecuteScaled { .. } => {
                         // Nothing to do.
                     }
                     CoopMma::Store { stride, .. } => {
@@ -372,9 +374,6 @@ impl ScopeProcessing {
                     CoopMma::ColIndex { lane_id, i, .. } => {
                         sanitize_constant_scalar_ref_elem(lane_id, Elem::UInt(UIntKind::U32));
                         sanitize_constant_scalar_ref_elem(i, Elem::UInt(UIntKind::U32));
-                    }
-                    CoopMma::ExecuteManual { .. } => {
-                        // Nothing to do
                     }
                 },
                 Operation::NonSemantic(_) => {
