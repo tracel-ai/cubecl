@@ -625,16 +625,16 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
         ]);
     }
     if arch.get_version() >= 89 {
-        let f8f6f6_types = [
+        let f8f6f4_types = [
             gpu::FloatKind::E4M3,
             gpu::FloatKind::E5M2,
             gpu::FloatKind::E3M2,
             gpu::FloatKind::E2M3,
             gpu::FloatKind::E2M1,
         ];
-        let combinations = f8f6f6_types
+        let combinations = f8f6f4_types
             .iter()
-            .flat_map(|t1| f8f6f6_types.iter().map(move |t2| (t1, t2)));
+            .flat_map(|t1| f8f6f4_types.iter().map(move |t2| (t1, t2)));
         let combinations = combinations.into_iter();
         result.extend(combinations.map(|(t1, t2)| {
             (
@@ -656,16 +656,16 @@ pub(super) fn supported_scaled_mma_combinations(
     let mut result: SupportedScaledMmaCombinations = vec![];
     // sm_120f
     if arch.get_version() >= 120 && arch.get_version() < 130 {
-        let f8f6f6_types = [
+        let f8f6f4_types = [
             gpu::FloatKind::E4M3,
             gpu::FloatKind::E5M2,
             gpu::FloatKind::E3M2,
             gpu::FloatKind::E2M3,
             gpu::FloatKind::E2M1,
         ];
-        let combinations = f8f6f6_types
+        let combinations = f8f6f4_types
             .iter()
-            .flat_map(|t1| f8f6f6_types.iter().map(move |t2| (t1, t2)));
+            .flat_map(|t1| f8f6f4_types.iter().map(move |t2| (t1, t2)));
 
         result.extend(combinations.map(|(t1, t2)| {
             (
