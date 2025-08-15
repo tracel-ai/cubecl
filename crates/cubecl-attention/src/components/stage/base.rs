@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use crate::components::{global::dummy::QueryRegisterReader, tile::{ScoreMatmul, ValueMatmul}};
+use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
@@ -62,9 +62,6 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Config: StageAttentionConfig;
 
     type State: CubeType;
-
-    type ScoreMatmul: ScoreMatmul<AP>;
-    type ValueMatmul: ValueMatmul<AP>;
 
     type Query: CubeType;
     type KeyValue: CubeType;

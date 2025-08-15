@@ -50,16 +50,11 @@ impl<
 
     type State = DummyStageState<AP::EA>;
 
-    type ScoreMatmul = SM;
-    type ValueMatmul = VM;
-
-    type Query = QueryFragment<AP, Self::ScoreMatmul>;
-    type KeyValue = KeyValueFragment<AP, Self::ScoreMatmul, Self::ValueMatmul>;
+    type Query = QueryFragment<AP, SM>;
+    type KeyValue = KeyValueFragment<AP, SM, VM>;
     type ScoreProb = ScoreProbFragment<AP, SM, VM>;
-    type Accumulator = AccumulatorFragment<AP, Self::ValueMatmul>;
+    type Accumulator = AccumulatorFragment<AP, VM>;
 
-    // Tc times, each call is at an index j
-    // Return (m_ij, l_ij) [new]
     fn execute(
         key_reader: &Self::KeyReader,
         value_reader: &Self::ValueReader,
