@@ -1,20 +1,14 @@
-use std::marker::PhantomData;
-
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::{Tile, TileConfig, TileMatmul, TileSetupInfo};
-use cubecl_matmul::components::{LhsS, MatmulPrecision, MatmulSetupError, RhsS};
+use cubecl_matmul::components::MatmulSetupError;
+use cubecl_matmul::components::tile::{TileConfig, TileMatmul, TileSetupInfo};
 
 use crate::components::AttentionPrecision;
 use crate::components::tile::shared::{KeyValue, ScoreProb};
-use cubecl_matmul::components::MatrixLayout;
-use cubecl_matmul::components::StageIdent;
-
-use cubecl_matmul::components::TileSize;
 
 #[cube]
 pub trait ScoreMatmul<AP: AttentionPrecision>:
-    TileMatmul<AP::MatmulPrecision, Rhs = KeyValue, Accumulator = ScoreProb<AP>>
+    TileMatmul<AP::ES, AP::ES, AP::EA, Rhs = KeyValue, Accumulator = ScoreProb<AP>>
 {
 }
 
@@ -28,96 +22,150 @@ pub trait ScoreMatmulFamily: Send + Sync + 'static {
     ) -> Result<Self::Config, MatmulSetupError>;
 }
 
-// #[derive(CubeType)]
-// pub struct DummyScoreMatmul<AP: AttentionPrecision> {
-//     #[cube(comptime)]
-//     _phantom: PhantomData<AP>,
-// }
-// impl<AP: AttentionPrecision> ScoreMatmul<AP> for DummyScoreMatmul<AP> {}
+pub struct ScoreTileMatmul;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ScoreTileConfig;
+impl TileConfig for ScoreTileConfig {
+    fn plane_dim(&self) -> u32 {
+        todo!()
+    }
 
-// #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-// pub struct ScoreConfig {}
-// impl TileConfig for ScoreConfig {
-//     fn plane_dim(&self) -> u32 {
-//         todo!()
-//     }
+    fn matrix_layout(
+        &self,
+        ident: cubecl_matmul::components::StageIdent,
+    ) -> cubecl_matmul::components::MatrixLayout {
+        todo!()
+    }
 
-//     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-//         todo!()
-//     }
+    fn stage_line_size(&self, ident: cubecl_matmul::components::StageIdent) -> u32 {
+        todo!()
+    }
 
-//     fn stage_line_size(&self, ident: StageIdent) -> u32 {
-//         todo!()
-//     }
+    fn global_line_size(&self, ident: cubecl_matmul::components::StageIdent) -> u32 {
+        todo!()
+    }
 
-//     fn global_line_size(&self, ident: StageIdent) -> u32 {
-//         todo!()
-//     }
+    fn tile_size(&self) -> &cubecl_matmul::components::TileSize {
+        todo!()
+    }
+}
 
-//     fn tile_size(&self) -> &TileSize {
-//         todo!()
-//     }
-// }
+impl<AP: AttentionPrecision> ScoreMatmul<AP> for ScoreTileMatmul {}
 
-// #[cube]
-// impl<AP: AttentionPrecision, T: TileMatmul<AP::MatmulPrecision>> TileMatmul<AP::MatmulPrecision>
-//     for DummyScoreMatmul<AP>
-// {
-//     type Config = ScoreConfig;
-//     type Lhs = T::Lhs;
-//     type Rhs;
-//     type Accumulator;
+#[cube]
+impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for ScoreTileMatmul {
+    type Config = ScoreTileConfig;
+    type Lhs = cmma::Matrix<L>;
+    type Rhs = KeyValue<R>;
+    type Accumulator = ScoreProb<A>;
 
-//     fn execute(
-//         lhs: &Self::Lhs,
-//         rhs: &Self::Rhs,
-//         out: &mut Self::Accumulator,
-//         config: Self::Config,
-//     ) {
-//         todo!()
-//     }
+    fn execute(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+        out: &mut Self::Accumulator,
+        #[comptime] _config: Self::Config,
+    ) {
+        let out = out.as_score();
+        cmma::execute::<L, R, A, A>(lhs, rhs.as_key(), out, out);
+    }
 
-//     fn allocate_lhs(config: Self::Config) -> Self::Lhs {
-//         todo!()
-//     }
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
+        let size = config.tile_size();
+        let layout = config.matrix_layout(StageIdent::Lhs);
+        unsafe {
+            cmma::Matrix::<L>::uninitialized(
+                cmma::MatrixIdent::A,
+                size.m(),
+                size.n(),
+                size.k(),
+                as_cmma_layout(layout),
+            )
+        }
+    }
 
-//     fn fill_lhs(tile: &Tile<LhsS<AP::MatmulPrecision>>, lhs: &mut Self::Lhs, config: Self::Config) {
-//         todo!()
-//     }
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs {
+        let size = config.tile_size();
+        let layout = config.matrix_layout(StageIdent::Rhs);
+        unsafe {
+            cmma::Matrix::<R>::uninitialized(
+                cmma::MatrixIdent::B,
+                size.m(),
+                size.n(),
+                size.k(),
+                as_cmma_layout(layout),
+            )
+        }
+    }
 
-//     fn allocate_fill_cast_lhs<EI: Numeric>(tile: &Tile<EI>, config: Self::Config) -> Self::Lhs {
-//         todo!()
-//     }
+    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
+        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
+        cmma::load(lhs, &slice, stride);
+    }
 
-//     fn allocate_rhs(config: Self::Config) -> Self::Rhs {
-//         todo!()
-//     }
+    fn allocate_fill_cast_lhs<EI: Numeric>(
+        tile: &Tile<EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs {
+        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
+        let size = config.tile_size();
+        let layout = config.matrix_layout(StageIdent::Lhs);
+        let tmp = unsafe {
+            cmma::Matrix::<EI>::uninitialized(
+                cmma::MatrixIdent::A,
+                size.m(),
+                size.n(),
+                size.k(),
+                as_cmma_layout(layout),
+            )
+        };
 
-//     fn fill_rhs(tile: &Tile<RhsS<AP::MatmulPrecision>>, rhs: &mut Self::Rhs, config: Self::Config) {
-//         todo!()
-//     }
+        cmma::load(&tmp, &slice, stride);
+        cmma::cast::<EI, L>(&tmp)
+    }
 
-//     fn allocate_accumulator(config: Self::Config) -> Self::Accumulator {
-//         todo!()
-//     }
+    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
+        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Rhs, config);
+        cmma::load(rhs, &slice, stride);
+    }
 
-//     fn fill_accumulator(
-//         tile: &Tile<<AP::MatmulPrecision as MatmulPrecision>::EA>,
-//         acc: &mut Self::Accumulator,
-//         config: Self::Config,
-//     ) {
-//         todo!()
-//     }
+    fn fill_accumulator(
+        tile: &Tile<A>,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    ) {
+        let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
+        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Acc, config);
+        cmma::load_with_layout(acc, &slice, stride, layout);
+    }
 
-//     fn zero_accumulator(acc: &mut Self::Accumulator, config: Self::Config) {
-//         todo!()
-//     }
+    fn write_results<E: Numeric>(
+        out: &Self::Accumulator,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    ) {
+        let acc = cmma::cast::<A, E>(out);
+        cmma::store(
+            slice,
+            &acc,
+            config.tile_size().n(),
+            cmma::MatrixLayout::RowMajor,
+        );
+    }
 
-//     fn write_results(
-//         out: &Self::Accumulator,
-//         slice: &mut SliceMut<Line<<AP::MatmulPrecision as MatmulPrecision>::EO>>,
-//         config: Self::Config,
-//     ) {
-//         todo!()
-//     }
-// }
+    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        let size = config.tile_size();
+        unsafe {
+            cmma::Matrix::<A>::uninitialized(
+                cmma::MatrixIdent::Accumulator,
+                size.m(),
+                size.n(),
+                size.k(),
+                cmma::MatrixLayout::Undefined,
+            )
+        }
+    }
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
+        cmma::fill(acc, A::from_int(0));
+    }
+}

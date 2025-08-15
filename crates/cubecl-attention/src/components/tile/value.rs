@@ -8,7 +8,7 @@ use crate::components::tile::shared::{KeyValue, ScoreProb};
 
 #[cube]
 pub trait ValueMatmul<AP: AttentionPrecision>:
-    TileMatmul<AP::MatmulPrecision, Lhs = ScoreProb<AP>, Rhs = KeyValue>
+    TileMatmul<AP::ES, AP::ES, AP::EA, Lhs = ScoreProb<AP>, Rhs = KeyValue>
 {
 }
 
