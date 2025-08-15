@@ -88,6 +88,18 @@ impl MlirData {
             push_undirected(line_memref);
         }
 
+        for shared_memory in shared_memories.0.iter() {
+            let length = (shared_memory.elem.size() * shared_memory.length as usize) as u64;
+            let handle = memory_management.reserve(length).unwrap();
+            let b = Handle::new(handle, None, None, length).binding();
+            let handle = memory_management
+                .get_resource(b.memory, b.offset_start, b.offset_end)
+                .expect("Failed to find resource");
+            let ptr = handle.write();
+            let line_memref = LineMemRef::new(ptr);
+            push_undirected(line_memref);
+        }
+
         let ptr = shared_mlir_data.metadata.as_mut();
         let line_memref = LineMemRef::new(ptr);
         push_undirected(line_memref);
@@ -101,17 +113,6 @@ impl MlirData {
                 .data
                 .as_mut_slice();
             let line_memref = LineMemRef::new(data);
-            push_undirected(line_memref);
-        }
-        for shared_memory in shared_memories.0.iter() {
-            let length = (shared_memory.elem.size() * shared_memory.length as usize) as u64;
-            let handle = memory_management.reserve(length).unwrap();
-            let b = Handle::new(handle, None, None, length).binding();
-            let handle = memory_management
-                .get_resource(b.memory, b.offset_start, b.offset_end)
-                .expect("Failed to find resource");
-            let ptr = handle.write();
-            let line_memref = LineMemRef::new(ptr);
             push_undirected(line_memref);
         }
 

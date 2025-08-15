@@ -63,14 +63,18 @@ impl<'a> Visitor<'a> {
             .get(&variable.kind)
             .copied()
             .unwrap_or_else(|| {
-                let value = self.append_operation_with_result(memref::alloca(
-                    self.context,
-                    memref_type,
-                    &[],
-                    &[],
-                    None,
-                    self.location,
-                ));
+                let value = self
+                    .first_block
+                    .unwrap()
+                    .append_op_result(memref::alloca(
+                        self.context,
+                        memref_type,
+                        &[],
+                        &[],
+                        None,
+                        self.location,
+                    ))
+                    .unwrap();
                 self.variables.local.insert(variable.kind, value);
                 value
             })
@@ -228,7 +232,12 @@ impl<'a> Visitor<'a> {
                             FloatAttribute::new(self.context, float_type, value).into();
                         (float_type, float_attribute)
                     }
-                    _ => todo!("Operation is not implemented {:?}", constant_scalar_value),
+                    ConstantScalarValue::Bool(bool) => {
+                        let integer_type = IntegerType::new(self.context, 8).into();
+                        let integer_attribute =
+                            IntegerAttribute::new(integer_type, bool as i64).into();
+                        (integer_type, integer_attribute)
+                    }
                 };
                 let value = self.append_operation_with_result(arith::constant(
                     self.context,

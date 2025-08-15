@@ -10,17 +10,20 @@ use super::{passes::shared_memories::SharedMemories, visitor::Visitor};
 
 pub(super) struct Module<'a> {
     module: tracel_llvm::melior::ir::Module<'a>,
+    #[allow(unused)]
+    name: String,
     location: Location<'a>,
     context: &'a Context,
 }
 
 impl<'a> Module<'a> {
-    pub(super) fn new(context: &'a Context) -> Self {
+    pub(super) fn new(context: &'a Context, name: String) -> Self {
         let location = Location::unknown(context);
         let module = tracel_llvm::melior::ir::Module::new(location);
         Self {
             module,
             context,
+            name,
             location,
         }
     }
@@ -51,6 +54,7 @@ impl<'a> Module<'a> {
                 ir::operation::OperationPrintingFlags, pass::PassIrPrintingOptions,
             };
 
+            let dir = dir.to_string() + "/" + &self.name;
             pass_manager.enable_ir_printing(&PassIrPrintingOptions {
                 before_all: true,
                 after_all: true,

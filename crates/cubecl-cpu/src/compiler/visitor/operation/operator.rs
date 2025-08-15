@@ -1,10 +1,10 @@
 use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator};
 use tracel_llvm::melior::{
     dialect::{
-        arith, memref,
-        ods::{self, vector},
+        arith, index, memref,
+        ods::{self, llvm, vector},
     },
-    ir::{Operation, attribute::DenseI64ArrayAttribute},
+    ir::{Operation, r#type::IntegerType},
 };
 
 use crate::compiler::visitor::prelude::*;
@@ -24,19 +24,37 @@ impl<'a> Visitor<'a> {
             Operator::CopyMemory(copy_memory) => {
                 let memref = self.get_memory(copy_memory.input);
                 let in_index = self.get_index(copy_memory.in_index, copy_memory.input.item);
-                let value = self.append_operation_with_result(memref::load(
-                    memref,
-                    &[in_index],
-                    self.location,
-                ));
                 let out_memref = self.get_memory(out);
                 let out_index = self.get_index(copy_memory.out_index, out.item);
-                self.block.append_operation(memref::store(
-                    value,
-                    out_memref,
-                    &[out_index],
-                    self.location,
-                ));
+                if out.item.is_vectorized() {
+                    let result = out.item.to_type(self.context);
+                    let value = self.append_operation_with_result(vector::load(
+                        self.context,
+                        result,
+                        memref,
+                        &[in_index],
+                        self.location,
+                    ));
+                    self.block.append_operation(vector::store(
+                        self.context,
+                        value,
+                        out_memref,
+                        &[out_index],
+                        self.location,
+                    ));
+                } else {
+                    let value = self.append_operation_with_result(memref::load(
+                        memref,
+                        &[in_index],
+                        self.location,
+                    ));
+                    self.block.append_operation(memref::store(
+                        value,
+                        out_memref,
+                        &[out_index],
+                        self.location,
+                    ));
+                }
             }
             Operator::CopyMemoryBulk(_copy_memory_bulk) => {
                 todo!("copy_memory_bulk is not implemented {}", operator)
@@ -107,18 +125,27 @@ impl<'a> Visitor<'a> {
     fn visit_index(
         &mut self,
         index: &IndexOperator,
-        index_value: Value<'a, 'a>,
+        mut index_value: Value<'a, 'a>,
         out: Variable,
     ) -> Value<'a, 'a> {
         let vector_type = index.list.item.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
-            // Check llvm extractelement to try supporting dynamic index
-            let zero =
-                DenseI64ArrayAttribute::new(self.context, &[Visitor::into_i64(index.index)]).into();
-            // Extract operation on vector with dynamic indexes is badly supported by MLIR
+            // Item of size 1
+            if !to_extract.r#type().is_vector() {
+                return to_extract;
+            }
+            let res = index.list.elem().to_type(self.context);
+            if index_value.r#type().is_index() {
+                let u32_int = IntegerType::new(self.context, 32).into();
+                index_value = self.append_operation_with_result(index::casts(
+                    index_value,
+                    u32_int,
+                    self.location,
+                ));
+            }
             let vector_extract =
-                vector::extract(self.context, to_extract, &[], zero, self.location);
+                llvm::extractelement(self.context, res, to_extract, index_value, self.location);
             self.append_operation_with_result(vector_extract)
         } else if out.item.is_vectorized() {
             let memref = self.get_memory(index.list);
