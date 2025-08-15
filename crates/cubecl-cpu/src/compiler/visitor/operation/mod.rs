@@ -21,7 +21,6 @@ use super::Visitor;
 impl<'a> Visitor<'a> {
     pub fn visit_operation(&mut self, operation: &Operation) {
         match operation {
-            // TODO: debug why MLIR can't pass any of the variadic argument
             Operation::NonSemantic(NonSemantic::Print {
                 format_string,
                 args,

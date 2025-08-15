@@ -11,6 +11,7 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::BytesStorage,
 };
+use cubecl_std::tensor::is_contiguous;
 use sysinfo::System;
 
 use crate::{
@@ -110,8 +111,8 @@ impl Runtime for CpuRuntime {
         DeviceId::new(0, 0)
     }
 
-    fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
-        true
+    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+        is_contiguous(shape, strides)
     }
 
     fn device_count() -> usize {
