@@ -5,7 +5,7 @@ use cubecl_core::prelude::Numeric;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{MatrixLayout, StageIdent, TileSize, TilingScheme};
+use crate::components::{MatrixLayout, StageIdent, TileSize};
 
 /// Execution mode for the RegisterMatmul
 pub enum ProductType {
@@ -24,7 +24,7 @@ pub enum ProductType {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register Matmul
 pub struct RegisterConfig {
-    tiling_scheme: TilingScheme,
+    tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -65,7 +65,7 @@ impl TileConfig for RegisterConfig {
     }
 
     fn tile_size(&self) -> &TileSize {
-        &self.tiling_scheme.tile_size
+        &self.tile_size
     }
 }
 
@@ -78,7 +78,7 @@ impl RegisterConfig {
     /// - Types are unavailable
     pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        tiling_scheme: TilingScheme,
+        tile_size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
@@ -89,7 +89,7 @@ impl RegisterConfig {
         rhs_stage_line_size: u32,
     ) -> Result<Self, MatmulSetupError> {
         Self {
-            tiling_scheme,
+            tile_size,
             plane_dim,
             lhs_layout,
             rhs_layout,

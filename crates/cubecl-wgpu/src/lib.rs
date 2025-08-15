@@ -37,6 +37,7 @@ mod tests {
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
+    cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_shared_sum!([f32]);
     cubecl_quant::testgen_quant!();
 }
@@ -72,6 +73,7 @@ mod tests_msl {
     cubecl_matmul::testgen_matmul_simple!([f16, f32]);
     cubecl_matmul::testgen_matmul_plane_accelerated!();
     cubecl_matmul::testgen_matmul_unit!();
+    cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
