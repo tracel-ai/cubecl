@@ -1,10 +1,12 @@
 use crate::components::ComputeResources;
 use crate::components::InputPrecision;
+use crate::components::LhsR;
 use crate::components::LhsS;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
+use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
@@ -51,7 +53,8 @@ impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFami
         max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TM::setup::<MP, R>(client, problem, selection, line_sizes)?;
+        let tile_config =
+            TM::setup::<LhsR<MP>, RhsR<MP>, MP::EA, R>(client, problem, selection, line_sizes)?;
 
         let compute_resources =
             if let ComputeResources::Planes(planes) = TM::computation_resources()? {

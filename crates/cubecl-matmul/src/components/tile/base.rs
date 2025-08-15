@@ -3,7 +3,7 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout, TileSize,
+    AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources, tile::tile_data::Tile,
 };
 use crate::components::{MatmulLineSizes, MatmulSelection, StageIdent};
@@ -26,7 +26,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,

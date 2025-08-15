@@ -3,9 +3,7 @@ use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
-use crate::components::{
-    InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem, MatmulSelection,
-};
+use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for AcceleratedMatmul {
@@ -20,13 +18,13 @@ impl TileMatmulFamily for AcceleratedMatmul {
         Ok(ComputeResources::Planes(1))
     }
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        AcceleratedConfig::new::<MP, R>(
+        AcceleratedConfig::new::<Lhs, Rhs, Acc, R>(
             client,
             selection.tiling_scheme,
             selection.plane_dim,
