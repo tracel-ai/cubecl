@@ -7,7 +7,7 @@ use crate::components::{InvalidConfigError, MatmulPrecision};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for AcceleratedMatmul {
-    type Matmul<MP: MatmulPrecision> = AcceleratedMatmul;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = AcceleratedMatmul;
     type Config = AcceleratedConfig;
 
     fn requires_accelerator() -> bool {

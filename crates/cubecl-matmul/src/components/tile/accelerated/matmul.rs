@@ -1,7 +1,7 @@
 use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::tile_data::Tile;
 use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{LhsR, LhsS, MatmulPrecision, RhsR, RhsS, StageIdent, as_cmma_layout};
+use crate::components::{StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 
@@ -9,11 +9,11 @@ use cubecl_core::{cmma, prelude::*};
 pub struct AcceleratedMatmul;
 
 #[cube]
-impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
+impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatmul {
     type Config = AcceleratedConfig;
-    type Lhs = cmma::Matrix<LhsR<MP>>;
-    type Rhs = cmma::Matrix<RhsR<MP>>;
-    type Accumulator = cmma::Matrix<MP::EA>;
+    type Lhs = cmma::Matrix<L>;
+    type Rhs = cmma::Matrix<R>;
+    type Accumulator = cmma::Matrix<A>;
 
     fn execute(
         lhs: &Self::Lhs,
@@ -21,14 +21,14 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         out: &mut Self::Accumulator,
         #[comptime] _config: Self::Config,
     ) {
-        cmma::execute::<LhsR<MP>, RhsR<MP>, MP::EA, MP::EA>(lhs, rhs, out, out);
+        cmma::execute::<L, R, A, A>(lhs, rhs, out, out);
     }
 
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Lhs);
         unsafe {
-            cmma::Matrix::<LhsR<MP>>::uninitialized(
+            cmma::Matrix::<L>::uninitialized(
                 cmma::MatrixIdent::A,
                 size.m(),
                 size.n(),
@@ -42,7 +42,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Rhs);
         unsafe {
-            cmma::Matrix::<RhsR<MP>>::uninitialized(
+            cmma::Matrix::<R>::uninitialized(
                 cmma::MatrixIdent::B,
                 size.m(),
                 size.n(),
@@ -52,7 +52,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         }
     }
 
-    fn fill_lhs(tile: &Tile<LhsS<MP>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
+    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
         let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
         cmma::load(lhs, &slice, stride);
     }
@@ -75,16 +75,16 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         };
 
         cmma::load(&tmp, &slice, stride);
-        cmma::cast::<EI, LhsR<MP>>(&tmp)
+        cmma::cast::<EI, L>(&tmp)
     }
 
-    fn fill_rhs(tile: &Tile<RhsS<MP>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
+    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
         let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Rhs, config);
         cmma::load(rhs, &slice, stride);
     }
 
     fn fill_accumulator(
-        tile: &Tile<MP::EA>,
+        tile: &Tile<A>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
@@ -93,12 +93,12 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
         cmma::load_with_layout(acc, &slice, stride, layout);
     }
 
-    fn write_results(
+    fn write_results<E: Numeric>(
         out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<MP::EO>>,
+        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        let acc = cmma::cast::<MP::EA, MP::EO>(out);
+        let acc = cmma::cast::<A, E>(out);
         cmma::store(
             slice,
             &acc,
@@ -110,7 +110,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         let size = config.tile_size();
         unsafe {
-            cmma::Matrix::<MP::EA>::uninitialized(
+            cmma::Matrix::<A>::uninitialized(
                 cmma::MatrixIdent::Accumulator,
                 size.m(),
                 size.n(),
@@ -121,6 +121,6 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for AcceleratedMatmul {
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        cmma::fill(acc, MP::EA::from_int(0));
+        cmma::fill(acc, A::from_int(0));
     }
 }

@@ -1,4 +1,5 @@
 use crate::components::ComputeResources;
+use crate::components::InputPrecision;
 use crate::components::LhsS;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
@@ -21,18 +22,26 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 /// Plane Matmul family for any precision
-pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
-    _phantom: PhantomData<(TMM, LRF, RRF)>,
+pub struct PlaneMatmulFamily<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
+    _phantom: PhantomData<(TM, LRF, RRF)>,
 }
 
-impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFamily
-    for PlaneMatmulFamily<TMM, LRF, RRF>
+impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFamily
+    for PlaneMatmulFamily<TM, LRF, RRF>
 {
     type LhsReader = LRF;
     type RhsReader = RRF;
-    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneMatmul<MP, TMM::Matmul<MP>, LRF::Reader<LhsS<MP>, TL>, RRF::Reader<RhsS<MP>, TR>>;
-    type Config = PlanePartitionedStageConfig<TMM::Config>;
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> = PlaneMatmul<
+        MP,
+        TM::Matmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
+        LRF::Reader<LhsS<MP>, TL>,
+        RRF::Reader<RhsS<MP>, TR>,
+    >;
+    type Config = PlanePartitionedStageConfig<TM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
@@ -43,13 +52,13 @@ impl<TMM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFam
         max_loaders: Option<MaxLoaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TMM::setup::<MP, R>(
+        let tile_config = TM::setup::<MP, R>(
             client,
             TileSetupInfo::from_matmul(problem, selection, line_sizes),
         )?;
 
         let compute_resources =
-            if let ComputeResources::Planes(planes) = TMM::computation_resources()? {
+            if let ComputeResources::Planes(planes) = TM::computation_resources()? {
                 ComputeResources::Planes(
                     planes * selection.tiling_scheme.stage_partitions_in_stage_mn(),
                 )
