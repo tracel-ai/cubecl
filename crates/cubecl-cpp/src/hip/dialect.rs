@@ -8,7 +8,7 @@ use crate::{
     Dialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWmmaCompiler, Flags, Item,
+        DialectWmmaCompiler, Flags, Item, ManualMma,
     },
 };
 use crate::{
@@ -171,6 +171,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     frag_a[0].elem(),
                     frag_c[0].elem(),
                 ))),
+                shared::WmmaInstruction::ExecuteScaled { .. } => {
+                    unimplemented!("Not supported in HIP")
+                }
                 shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
                     WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
                 ),
@@ -534,13 +537,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
     fn compile_manual_mma(
         f: &mut std::fmt::Formatter<'_>,
-        shape: shared::MmaShape<Self>,
-        frag_a: &[Variable<Self>],
-        frag_b: &[Variable<Self>],
-        frag_c: &[Variable<Self>],
-        frag_d: &Variable<Self>,
+        mma: ManualMma<Self>,
     ) -> std::fmt::Result {
-        M::compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+        M::compile_manual_mma(f, mma)
     }
 
     fn supported_wmma_combinations(
@@ -551,6 +550,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
     fn supported_mma_combinations(arch: &AMDArchitecture) -> shared::SupportedMmaCombinations {
         M::supported_mma_combinations(arch)
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: ManualMma<Self>,
+        _scales_a: Variable<Self>,
+        _scales_b: Variable<Self>,
+        _scales_factor: u32,
+    ) -> std::fmt::Result {
+        panic!("Scaled MMA not supporter in HIP")
     }
 }
 

@@ -164,6 +164,7 @@ impl WgslCompiler {
         match value {
             cube::Elem::Float(f) => match f {
                 cube::FloatKind::E2M1
+                | cube::FloatKind::E2M1x2
                 | cube::FloatKind::E2M3
                 | cube::FloatKind::E3M2
                 | cube::FloatKind::E4M3

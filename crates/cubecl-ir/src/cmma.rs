@@ -108,12 +108,22 @@ pub enum CoopMma {
         i: Variable,
         matrix: Matrix,
     },
-    /// Manual execute. No out because we don't have native composites, and out is multiple variables.
+    /// Manual execute.
     ExecuteManual {
         matrix: Matrix,
-        a_registers: Vec<Variable>,
-        b_registers: Vec<Variable>,
-        c_registers: Vec<Variable>,
+        registers_a: Vec<Variable>,
+        registers_b: Vec<Variable>,
+        registers_c: Vec<Variable>,
+    },
+    /// Scaled manual execute.
+    ExecuteScaled {
+        matrix: Matrix,
+        registers_a: Vec<Variable>,
+        registers_b: Vec<Variable>,
+        registers_c: Vec<Variable>,
+        scales_a: Variable,
+        scales_b: Variable,
+        scales_factor: u32,
     },
 }
 
@@ -130,6 +140,7 @@ impl OperationReflect for CoopMma {
             CoopMma::Load { .. }
             | CoopMma::Execute { .. }
             | CoopMma::ExecuteManual { .. }
+            | CoopMma::ExecuteScaled { .. }
             | CoopMma::Store { .. }
             | CoopMma::RowIndex { .. }
             | CoopMma::ColIndex { .. } => None,
@@ -143,6 +154,7 @@ impl OperationReflect for CoopMma {
             CmmaOpCode::Load
             | CmmaOpCode::Execute
             | CmmaOpCode::ExecuteManual
+            | CmmaOpCode::ExecuteScaled
             | CmmaOpCode::Store
             | CmmaOpCode::RowIndex
             | CmmaOpCode::ColIndex => None,
@@ -176,13 +188,13 @@ impl Display for CoopMma {
             } => write!(f, "execute_cmma({mat_a}, {mat_b}, {mat_c})"),
             CoopMma::ExecuteManual {
                 matrix,
-                a_registers,
-                b_registers,
-                c_registers,
+                registers_a,
+                registers_b,
+                registers_c,
             } => {
-                let frag_a = comma_separated(a_registers.iter().map(|it| format!("{it}")));
-                let frag_b = comma_separated(b_registers.iter().map(|it| format!("{it}")));
-                let frag_c = comma_separated(c_registers.iter().map(|it| format!("{it}")));
+                let frag_a = comma_separated(registers_a.iter().map(|it| format!("{it}")));
+                let frag_b = comma_separated(registers_b.iter().map(|it| format!("{it}")));
+                let frag_c = comma_separated(registers_c.iter().map(|it| format!("{it}")));
                 write!(
                     f,
                     "execute_manual_mma(
@@ -190,6 +202,30 @@ impl Display for CoopMma {
                     frag_a: [{frag_a}],
                     frag_b: [{frag_b}],
                     frag_c: [{frag_c}],
+                )"
+                )
+            }
+            CoopMma::ExecuteScaled {
+                matrix,
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => {
+                let frag_a = comma_separated(registers_a.iter().map(|it| format!("{it}")));
+                let frag_b = comma_separated(registers_b.iter().map(|it| format!("{it}")));
+                let frag_c = comma_separated(registers_c.iter().map(|it| format!("{it}")));
+                write!(
+                    f,
+                    "execute_scaled_mma_{scales_factor}x(
+                    matrix: {matrix:?},
+                    frag_a: [{frag_a}],
+                    frag_b: [{frag_b}],
+                    frag_c: [{frag_c}],
+                    scales_a: {scales_a},
+                    scales_b: {scales_b}
                 )"
                 )
             }

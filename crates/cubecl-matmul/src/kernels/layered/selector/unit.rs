@@ -8,10 +8,10 @@ use crate::components::{
 
 #[derive(Default, Clone, Copy, Debug)]
 pub enum TileSizeSelection {
-    // Choses the smallest tile size possible.
+    // Chooses the smallest tile size possible.
     MinTileSize,
     #[default]
-    // Choses the biggest tile size possible.
+    // Chooses the biggest tile size possible.
     MaxTileSize,
 }
 

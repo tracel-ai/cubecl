@@ -318,20 +318,40 @@ impl Optimizer {
                 visit_read(self, i);
             }
             CoopMma::ExecuteManual {
-                a_registers,
-                b_registers,
-                c_registers,
+                registers_a,
+                registers_b,
+                registers_c,
                 ..
             } => {
-                for reg in a_registers {
+                for reg in registers_a {
                     visit_read(self, reg);
                 }
-                for reg in b_registers {
+                for reg in registers_b {
                     visit_read(self, reg);
                 }
-                for reg in c_registers {
+                for reg in registers_c {
                     visit_read(self, reg);
                 }
+            }
+            CoopMma::ExecuteScaled {
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                ..
+            } => {
+                for reg in registers_a {
+                    visit_read(self, reg);
+                }
+                for reg in registers_b {
+                    visit_read(self, reg);
+                }
+                for reg in registers_c {
+                    visit_read(self, reg);
+                }
+                visit_read(self, scales_a);
+                visit_read(self, scales_b);
             }
         }
     }

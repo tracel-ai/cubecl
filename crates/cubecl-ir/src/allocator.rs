@@ -153,7 +153,7 @@ use cubecl_macros_internal::TypeHash;
 pub use expand_element::*;
 
 mod expand_element {
-    use cubecl_common::{e2m1, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
+    use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
     use half::{bf16, f16};
 
     use super::*;
@@ -225,6 +225,7 @@ mod expand_element {
     impl_into_expand_element!(usize);
     impl_into_expand_element!(bool);
     impl_into_expand_element!(e2m1);
+    impl_into_expand_element!(e2m1x2);
     impl_into_expand_element!(e2m3);
     impl_into_expand_element!(e3m2);
     impl_into_expand_element!(e4m3);
