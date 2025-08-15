@@ -13,8 +13,7 @@ pub struct DummyAlgorithm {}
 
 impl Algorithm for DummyAlgorithm {
     type TileAttention = DummyTileAttentionFamily<AcceleratedMatmul, AcceleratedMatmul>;
-    type StageAttention =
-        DummyStageAttentionFamily<Self::TileAttention, FullReaderFamily>;
+    type StageAttention = DummyStageAttentionFamily<Self::TileAttention, FullReaderFamily>;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
 

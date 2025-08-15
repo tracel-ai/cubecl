@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
-use cubecl_std::tensor::r#virtual::{VirtualTensor, ReadWrite};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,

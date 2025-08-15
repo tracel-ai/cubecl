@@ -11,8 +11,8 @@ use crate::{
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
 
-use crate::components::batch::BatchAttentionFamily;
 use crate::components::batch::BatchAttentionConfig;
+use crate::components::batch::BatchAttentionFamily;
 use cubecl_core::frontend::CubePrimitive;
 
 pub enum Strategy {
