@@ -1,13 +1,14 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
+use crate::components::InputPrecision;
 use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile::TileMatmul;
-use crate::components::{LhsR, LhsS, MatmulPrecision, RhsR, RhsS};
+use crate::components::{LhsS, MatmulPrecision, RhsS};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -15,7 +16,11 @@ use cubecl_core as cubecl;
 /// executed by a single compute primitive (unit or plane)
 pub struct PartitionMatmul<
     MP: MatmulPrecision,
-    TMM: TileMatmul<MP::EA, MP::EA, MP::EA>,
+    TMM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     RL: StageToTileReader<LhsS<MP>>,
     RR: StageToTileReader<RhsS<MP>>,
     S: StageConfig,
@@ -27,7 +32,11 @@ pub struct PartitionMatmul<
 impl<MP, TM, RL, RR, S> PartitionMatmul<MP, TM, RL, RR, S>
 where
     MP: MatmulPrecision,
-    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     RL: StageToTileReader<LhsS<MP>>,
     RR: StageToTileReader<RhsS<MP>>,
     S: StageConfig<TileConfig = TM::Config>,

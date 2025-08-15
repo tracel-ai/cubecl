@@ -1,12 +1,10 @@
 use crate::components::ComputeResources;
 use crate::components::InputPrecision;
-use crate::components::LhsR;
 use crate::components::LhsS;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
-use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
@@ -32,7 +30,11 @@ impl<TM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFam
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> = UnitMatmul<
         MP,
-        TM::Matmul<MP::EA, MP::EA, MP::EA>,
+        TM::Matmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
         RF::Reader<LhsS<MP>, TL>,
         RF::Reader<RhsS<MP>, TR>,
     >;

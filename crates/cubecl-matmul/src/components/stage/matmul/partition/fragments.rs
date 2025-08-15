@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::tile::TileMatmul;
-use crate::components::{LhsR, MatmulPrecision, RhsR};
+use crate::components::{InputPrecision, MatmulPrecision};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -12,7 +12,11 @@ use cubecl_core as cubecl;
 /// Enables indexing at 2d coordinates
 pub struct Accumulators<
     MP: MatmulPrecision,
-    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     S: StageConfig<TileConfig = TM::Config>,
 > {
     sequence: Sequence<TM::Accumulator>,
@@ -23,7 +27,11 @@ pub struct Accumulators<
 #[cube]
 impl<
     MP: MatmulPrecision,
-    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     S: StageConfig<TileConfig = TM::Config>,
 > Accumulators<MP, TM, S>
 {

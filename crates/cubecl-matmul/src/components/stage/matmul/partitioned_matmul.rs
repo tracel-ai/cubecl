@@ -1,8 +1,6 @@
 use crate::components::InputPrecision;
-use crate::components::LhsR;
 use crate::components::LhsS;
 use crate::components::MatmulPrecision;
-use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::StageIdent;
 use crate::components::global;
@@ -46,7 +44,11 @@ pub trait StagePartitioner: Send + Sync + 'static {
 /// Its results are written in a temporary shared memory to correct the layout before storing to global memory.
 pub struct PartitionedStageMatmul<
     MP: MatmulPrecision,
-    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     RL: StageToTileReader<LhsS<MP>>,
     RR: StageToTileReader<RhsS<MP>>,
     SP: StagePartitioner,
@@ -59,7 +61,11 @@ pub struct PartitionedStageMatmul<
 impl<MP, TM, RL, RR, SP, S> StageMatmul<MP> for PartitionedStageMatmul<MP, TM, RL, RR, SP, S>
 where
     MP: MatmulPrecision,
-    TM: TileMatmul<MP::EA, MP::EA, MP::EA>,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            MP::EA,
+        >,
     RL: StageToTileReader<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage>,
     RR: StageToTileReader<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage>,
     SP: StagePartitioner,

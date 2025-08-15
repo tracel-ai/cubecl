@@ -1,7 +1,5 @@
 use crate::components::InputPrecision;
-use crate::components::LhsR;
 use crate::components::MatmulPrecision;
-use crate::components::RhsR;
 use crate::components::global::PlaneWriter;
 use crate::components::global::RoleRule;
 use crate::components::stage::StageConfig;
@@ -18,8 +16,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 pub type PlaneMatmul<
     MP: MatmulPrecision,
     TMM: TileMatmul<
-            <MP as MatmulPrecision>::EA,
-            <MP as MatmulPrecision>::EA,
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
             <MP as MatmulPrecision>::EA,
         >,
     RL,
