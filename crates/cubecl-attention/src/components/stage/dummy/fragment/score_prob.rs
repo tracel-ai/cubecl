@@ -88,7 +88,8 @@ pub struct SeparateSP<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatm
 #[cube]
 impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>, VM: ValueMatmul<AP>> SeparateSP<AP, SM, VM> {
     pub fn new(#[comptime] score_config: SM::Config, #[comptime] value_config: VM::Config) -> Self {
-        let score = SM::allocate_accumulator(score_config);
+        let mut score = SM::allocate_accumulator(score_config);
+        SM::zero_accumulator(&mut score, score_config);
         let prob = VM::allocate_lhs(value_config);
         SeparateSP::<AP, SM, VM> { score, prob }
     }
