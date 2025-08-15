@@ -1,13 +1,11 @@
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::prelude::Numeric;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{
-    LhsR, MatmulElems, MatmulPrecision, MatrixLayout, RhsR, StageIdent, TileSize, TilingScheme,
-};
-use cubecl_core::frontend::CubePrimitive;
+use crate::components::{MatrixLayout, StageIdent, TileSize, TilingScheme};
 
 /// Execution mode for the RegisterMatmul
 pub enum ProductType {
@@ -78,7 +76,7 @@ impl RegisterConfig {
     /// May return an error if:
     /// - Line sizes do not evenly divide tile sizes in the lined axis
     /// - Types are unavailable
-    pub fn new<MP: MatmulPrecision, R: Runtime>(
+    pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         tiling_scheme: TilingScheme,
         plane_dim: u32,
@@ -102,7 +100,7 @@ impl RegisterConfig {
             rhs_stage_line_size,
         }
         .validate()?
-        .check_availability::<MP, R>(client)
+        .check_availability::<Lhs, Rhs, Acc, R>(client)
     }
 
     pub fn product_type(&self) -> ProductType {
@@ -161,30 +159,29 @@ impl RegisterConfig {
         Ok(self)
     }
 
-    fn check_availability<MP: MatmulPrecision, R: Runtime>(
+    fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let elems = MatmulElems::new::<MP>();
+        let lhs = Lhs::as_elem_native_unchecked();
+        let rhs = Rhs::as_elem_native_unchecked();
+        let acc = Acc::as_elem_native_unchecked();
 
-        let lhs = match elems.lhs_register {
+        let lhs = match lhs {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => elems.lhs_register,
+            _ => lhs,
         };
-        let rhs = match elems.rhs_register {
+        let rhs = match rhs {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => elems.rhs_register,
-        };
-
-        let output = match elems.acc {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => elems.acc,
+            _ => rhs,
         };
 
-        if !(LhsR::<MP>::is_supported(client)
-            && RhsR::<MP>::is_supported(client)
-            && MP::EA::is_supported(client))
-        {
+        let output = match acc {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => acc,
+        };
+
+        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));

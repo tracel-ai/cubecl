@@ -4,13 +4,12 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSelection,
+    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection,
 };
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {
-    type Matmul<MP: MatmulPrecision> = RegisterMatmul;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = RegisterMatmul;
     type Config = RegisterConfig;
 
     fn requires_accelerator() -> bool {
@@ -21,13 +20,13 @@ impl TileMatmulFamily for RegisterMatmul {
         Ok(ComputeResources::Units(1))
     }
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        RegisterConfig::new::<MP, R>(
+        RegisterConfig::new::<Lhs, Rhs, Acc, R>(
             client,
             selection.tiling_scheme,
             selection.plane_dim,
