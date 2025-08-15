@@ -8,9 +8,7 @@ use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::stage::dummy::DummyStageConfig;
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
-use crate::components::{
-    AttentionPrecision, global::GlobalAttentionConfig, tile::dummy::DummyWriter,
-};
+use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, R, TA)>,
@@ -24,14 +22,13 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
     type KeyReader = R;
     type ValueReader = R;
-    type Writer = DummyWriter<AP::EO>;
 
-    type State = DummyStageState<AP::EA>;
-
+    type State = TA::State;
     type Query = TA::Query;
     type KeyValue = TA::KeyValue;
     type ScoreProb = TA::ScoreProb;
     type Accumulator = TA::Accumulator;
+    type Writer = TA::Writer;
 
     fn execute(
         key_reader: &Self::KeyReader,
@@ -49,20 +46,27 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         let value_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
             <Self::Config as StageAttentionConfig>::ValueStageMemoryConfig,
         >(value_reader, 0, 0, config.value_stage_memory_config());
+
+        TA::execute(
+            &key_tile,
+            &value_tile,
+            query,
+            key_value,
+            score_prob,
+            accumulator,
+            state,
+            config.tile_config(),
+        );
     }
 
     fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
         comment!("Stage: Rescale");
+        TA::rescale(acc, state, config.tile_config())
     }
 
-    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
+    fn init_state(#[comptime] config: Self::Config) -> Self::State {
         comment!("Stage: Init Stage");
-
-        DummyStageState::<AP::EA> {
-            // TODO Neg infinity
-            m: AP::EA::from_int(-99999999999),
-            l: AP::EA::from_int(0),
-        }
+        TA::init_state(config.tile_config())
     }
 
     fn write<G: GlobalAttentionConfig>(
@@ -72,10 +76,11 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         #[comptime] global_config: G,
     ) {
         comment!("Stage: Write");
+        TA::write::<G>(acc, writer, stage_config.tile_config(), global_config);
     }
 
     fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
-        DummyWriter::new(out, 0, 0, 0)
+        TA::init_writer(out)
     }
 
     fn init_fragments(
@@ -89,16 +94,4 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     ) {
         TA::init_fragments(query_reader, config.tile_config())
     }
-}
-
-#[derive(CubeType)]
-// There should be two strategies for state
-// - Elect: one thread holds the state and shares it with row neighbours when necessary (needs broadcast at the beginning)
-// - Duplicate: all neighbours hold the value (needs broadcast at the end)
-//
-// Note: this assumes plane_dim >= row count and plane_dim % row count == 0
-pub struct DummyStageState<E: Float> {
-    // Equal m_i'(j-1)
-    m: E,
-    l: E,
 }

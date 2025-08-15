@@ -64,7 +64,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::ScoreProb,
         accumulator: &mut Self::Accumulator,
-        prev_state: &mut Self::State,
+        state: &mut Self::State,
         #[comptime] config: Self::Config,
     );
 

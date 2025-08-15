@@ -35,7 +35,7 @@ impl<
 
     type Writer = DummyWriter<AP::EO>;
 
-    type State = DummyStageState<AP::EA>;
+    type State = RunningState<AP::EA>;
 
     type Query = QueryFragment<AP, SM>;
     type KeyValue = KeyValueFragment<AP, SM, VM>;
@@ -172,7 +172,7 @@ impl<
     fn init_state(#[comptime] _config: Self::Config) -> Self::State {
         comment!("Tile: Init Stage");
 
-        DummyStageState::<AP::EA> {
+        RunningState::<AP::EA> {
             // TODO Neg infinity
             m: AP::EA::from_int(-99999999999),
             l: AP::EA::from_int(0),
@@ -225,13 +225,7 @@ impl<
 }
 
 #[derive(CubeType)]
-// There should be two strategies for state
-// - Elect: one thread holds the state and shares it with row neighbours when necessary (needs broadcast at the beginning)
-// - Duplicate: all neighbours hold the value (needs broadcast at the end)
-//
-// Note: this assumes plane_dim >= row count and plane_dim % row count == 0
-pub struct DummyStageState<E: Float> {
-    // Equal m_i'(j-1)
+pub struct RunningState<E: Float> {
     m: E,
     l: E,
 }
