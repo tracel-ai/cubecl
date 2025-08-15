@@ -12,6 +12,7 @@ use crate::components::{
     PartitionSize, StageSize, TileSize, TilingScheme,
 };
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
+use crate::kernels::layered::selector::is_tiny;
 
 pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
@@ -24,6 +25,7 @@ pub struct PlaneMatmulSelectionOptions {
     pub row_count: Option<u32>,
     pub multi_row_strategy: MultiRowStrategy,
     pub partition_buffering: Option<PartitionBuffering>,
+    pub shrink_if_tiny: bool,
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
@@ -51,6 +53,36 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.m,
         problem.n,
     );
+
+    if options.shrink_if_tiny && is_tiny(problem, &tile_size) {
+        let tiling_scheme = TilingScheme::builder()
+            .with_tile_size(tile_size)
+            .with_partition_size((1, 1, 1).into())
+            .with_stage_size((1, 1, 1).into())
+            .build()
+            .unwrap();
+        let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
+            Some(num_sms) => CubeCountPlanSelection::Sm {
+                num_sms,
+                sm_usage: SmAllocation::Exact,
+                cubes_first: true,
+            },
+            None => CubeCountPlanSelection::FromProblem,
+        };
+
+        let hypercube = HypercubeSelection::builder(&tiling_scheme)
+            .global_order(GlobalOrderSelection::SwizzleRow {
+                m: problem.m as u32,
+                w: 2,
+            })
+            .cube_count_plan(cube_count_plan)
+            .build();
+
+        return Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
+            .partition_buffering(PartitionBuffering::Single)
+            .hypercube_config(hypercube)
+            .build());
+    }
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
