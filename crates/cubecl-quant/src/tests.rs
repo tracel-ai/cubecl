@@ -16,7 +16,7 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize) {
     let input_alloc = client.create_tensor(f32::as_bytes(&data), &shape, f32::elem_size() as usize);
 
     let q_max = i8::MAX as f32;
-    let q_min = -q_max as f32;
+    let q_min = -q_max;
     let range = num_elems as f32 - 1.0;
     let scale_f32 = (2.0 * range) / (q_max - q_min);
     let data_scale = vec![scale_f32];
@@ -83,7 +83,7 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize) {
     let data_restored = f32::from_bytes(&computed);
 
     assert_eq!(data_restored.len(), data.len());
-    for (actual, expected) in data_restored.into_iter().zip(data.into_iter()) {
+    for (actual, expected) in data_restored.iter().zip(data.into_iter()) {
         let diff = f32::abs(actual - expected);
         assert!(diff <= scale_f32);
     }

@@ -3,7 +3,7 @@ use cubecl_core::{
     server::{Binding, Handle, IoError},
 };
 use cubecl_runtime::{
-    memory_management::{MemoryDeviceProperties, MemoryManagement, StorageExclude},
+    memory_management::{MemoryDeviceProperties, MemoryHandle, MemoryManagement, SliceHandle},
     storage::ComputeStorage,
 };
 use wgpu::BufferUsages;
@@ -13,7 +13,8 @@ use super::{WgpuResource, WgpuStorage};
 #[derive(Debug)]
 pub(crate) struct WgpuMemManager {
     memory_pool: MemoryManagement<WgpuStorage>,
-    pending_operations: StorageExclude,
+    memory_uniforms: MemoryManagement<WgpuStorage>,
+    uniforms: Vec<SliceHandle>,
 }
 
 impl WgpuMemManager {
@@ -25,8 +26,7 @@ impl WgpuMemManager {
         // Allocate storage & memory management for the main memory buffers. Any calls
         // to empty() or create() with a small enough size will be allocated from this
         // main memory pool.
-        #[allow(unused_mut)]
-        let mut memory_main = MemoryManagement::from_configuration(
+        let memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 memory_properties.alignment as usize,
                 device.clone(),
@@ -39,24 +39,28 @@ impl WgpuMemManager {
             memory_config.clone(),
         );
 
+        // TODO: In the future this should not need STORAGE, if cube writes out all
+        // uniforms as having <uniform> usage.
+        let memory_uniforms = MemoryManagement::from_configuration(
+            WgpuStorage::new(
+                memory_properties.alignment as usize,
+                device.clone(),
+                BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ),
+            &memory_properties,
+            MemoryConfiguration::ExclusivePages,
+        );
+
         Self {
             memory_pool: memory_main,
-            pending_operations: StorageExclude::default(),
+            memory_uniforms,
+            uniforms: vec![],
         }
     }
 
-    pub(crate) fn reserve(
-        &mut self,
-        size: u64,
-        exclude_pending_operations: bool,
-    ) -> Result<Handle, IoError> {
-        let exclude = if exclude_pending_operations {
-            Some(&self.pending_operations)
-        } else {
-            None
-        };
+    pub(crate) fn reserve(&mut self, size: u64) -> Result<Handle, IoError> {
         Ok(Handle::new(
-            self.memory_pool.reserve(size, exclude)?,
+            self.memory_pool.reserve(size)?,
             None,
             None,
             size,
@@ -76,10 +80,21 @@ impl WgpuMemManager {
             Some(offset) => handle.offset_end(offset),
             None => handle,
         };
-        // Assume this resource is now used for something. That means we can't copy to it anymore,
-        // as any copy will get ordered first.
-        self.pending_operations.exclude_storage(handle.id);
         self.memory_pool.storage().get(&handle)
+    }
+
+    pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {
+        let slice = self
+            .memory_uniforms
+            .reserve(size)
+            .expect("Must have enough memory for a uniform");
+        // Keep track of this uniform until it is released.
+        self.uniforms.push(slice.clone());
+        let handle = self
+            .memory_uniforms
+            .get(slice.binding())
+            .expect("Failed to find storage!");
+        self.memory_uniforms.storage().get(&handle)
     }
 
     pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -90,15 +105,11 @@ impl WgpuMemManager {
         self.memory_pool.cleanup(explicit);
     }
 
-    pub(crate) fn clear_pending(&mut self) {
-        self.pending_operations.clear();
-    }
-
-    pub(crate) fn needs_flush(&self, max_pending: usize) -> bool {
-        self.pending_operations.count() > max_pending
-    }
-
     pub(crate) fn mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         self.memory_pool.mode(mode);
+    }
+
+    pub(crate) fn release_uniforms(&mut self) {
+        self.uniforms.clear();
     }
 }

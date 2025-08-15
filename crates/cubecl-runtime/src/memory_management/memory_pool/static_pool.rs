@@ -27,11 +27,7 @@ impl MemoryPool for StaticPool {
         self.slices.get(binding.id()).map(|slice| &slice.storage)
     }
 
-    fn try_reserve(
-        &mut self,
-        _size: u64,
-        _exclude: Option<&crate::memory_management::StorageExclude>,
-    ) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, _size: u64) -> Option<SliceHandle> {
         None
     }
 

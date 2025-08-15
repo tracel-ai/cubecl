@@ -127,7 +127,7 @@ where
         dimensionality,
     };
 
-    let selection = Alg::selection::<R>(client, &problem, plane_dim, MatmulElems::new::<MP>());
+    let selection = Alg::selection::<R>(client, &problem, plane_dim, MatmulElems::new::<MP>())?;
 
     let lhs_is_f32 = TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>();
     let rhs_is_f32 = TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>();

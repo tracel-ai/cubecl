@@ -25,13 +25,6 @@ impl IntoType for Item {
 }
 
 impl<'a> Visitor<'a> {
-    pub fn into_i64(var: Variable) -> i64 {
-        match var.kind {
-            VariableKind::ConstantScalar(constant_scalar) => constant_scalar.as_i64(),
-            _ => panic!("Variable index to access line element is not supported in MLIR"),
-        }
-    }
-
     pub fn into_attribute(
         context: &'a Context,
         var: Variable,

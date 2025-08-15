@@ -8,8 +8,8 @@ use crate::components::batch::{
 use crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
-    MatmulElems, MatmulSelection, MultiRowStrategy, PartitionSize, StageSize, TileSize,
-    TilingScheme,
+    MatmulAvailabilityError, MatmulElems, MatmulSelection, MatmulSetupError, MultiRowStrategy,
+    PartitionSize, StageSize, TileSize, TilingScheme,
 };
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 
@@ -32,7 +32,13 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     plane_dim: u32,
     elems: MatmulElems,
     options: PlaneMatmulSelectionOptions,
-) -> MatmulSelection {
+) -> Result<MatmulSelection, MatmulSetupError> {
+    if plane_dim == 1 {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim: 1 },
+        ));
+    }
+
     let tile_size = find_instruction_size(
         if TMM::requires_accelerator() {
             Some((
@@ -115,7 +121,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         });
     }
 
-    builder.build()
+    Ok(builder.build())
 }
 
 fn select_size(
