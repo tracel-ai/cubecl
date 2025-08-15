@@ -40,6 +40,12 @@ pub fn mma_template<D: Dialect>(
         .collect::<Vec<_>>()
         .join(", ");
 
+    let kind = if is_fp6_fp4(a_elem) || is_fp6_fp4(b_elem) {
+        ".kind::f8f6f4"
+    } else {
+        ""
+    };
+
     let mut idx = 0usize;
 
     let placeholders_d = comma_separated((0..n_d_registers).map(|_| placeholder(&mut idx)));
@@ -65,13 +71,17 @@ pub fn mma_template<D: Dialect>(
         r#"
 inline __device__ void
 __mma_m16n8k{k}_{a_elem}_{b_elem}_{cd_elem}({args}) {{
-  asm volatile("mma.sync.aligned.m16n8k{k}.row.col.{cd_ty}.{a_ty}.{b_ty}.{cd_ty}"
+  asm volatile("mma.sync.aligned.m16n8k{k}.row.col{kind}.{cd_ty}.{a_ty}.{b_ty}.{cd_ty}"
                " {placeholders_d}, {placeholders_a}, {placeholders_b}, {placeholders_c};"
                : {params_out}
                : {params_in});
     }}
     "#
     )
+}
+
+fn is_fp6_fp4<D: Dialect>(elem: Elem<D>) -> bool {
+    matches!(elem, Elem::<D>::FP4(_) | Elem::<D>::FP6(_))
 }
 
 #[allow(clippy::too_many_arguments)]
