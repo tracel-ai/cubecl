@@ -299,8 +299,8 @@ impl Elem {
             Elem::Bool if value.as_u64() != 0 => b.constant_true(ty),
             Elem::Bool => b.constant_false(ty),
             _ => match value {
-                ConstVal::Bit32(val) => b.constant_bit32(ty, val),
-                ConstVal::Bit64(val) => b.constant_bit64(ty, val),
+                ConstVal::Bit32(val) => b.dedup_constant_bit32(ty, val),
+                ConstVal::Bit64(val) => b.dedup_constant_bit64(ty, val),
             },
         }
     }
