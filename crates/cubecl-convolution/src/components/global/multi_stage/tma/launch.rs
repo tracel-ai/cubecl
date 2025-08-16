@@ -49,7 +49,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
                 LhsG<MS>,
                 RhsG<MS>,
                 LhsS<MS>,
-                LhsG<MS>,
+                LhsS<MS>,
                 EA<MS>,
                 EO<MS>,
                 Self,
