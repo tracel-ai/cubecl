@@ -91,7 +91,6 @@ impl Runtime for CpuRuntime {
         "cpu"
     }
 
-    // TODO Should be removed because it depends on element size
     fn supported_line_sizes() -> &'static [u8] {
         &[64, 32, 16, 8, 4, 2, 1]
     }

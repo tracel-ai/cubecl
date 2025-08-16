@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator};
+use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator, VariableKind};
 use tracel_llvm::melior::{
     dialect::{
         arith, index, memref,
@@ -60,14 +60,11 @@ impl<'a> Visitor<'a> {
                 todo!("copy_memory_bulk is not implemented {}", operator)
             }
             Operator::Index(index) | Operator::UncheckedIndex(index) => {
-                let index_value = self.get_index(index.index, out.item);
-                let load_ssa = self.visit_index(index, index_value, out);
+                let load_ssa = self.visit_index(index, out);
                 self.insert_variable(out, load_ssa);
             }
             Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
-                let index_assign_value =
-                    self.get_index(index_assign.index, index_assign.value.item);
-                self.visit_index_assign(index_assign, index_assign_value, out)
+                self.visit_index_assign(index_assign, out)
             }
             Operator::InitLine(init_line) => {
                 let inputs: Vec<_> = init_line
@@ -122,12 +119,9 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_index(
-        &mut self,
-        index: &IndexOperator,
-        mut index_value: Value<'a, 'a>,
-        out: Variable,
-    ) -> Value<'a, 'a> {
+    fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
+        assert!(index.line_size == 0);
+        let mut index_value = self.get_index(index.index, out.item);
         let vector_type = index.list.item.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
@@ -162,25 +156,21 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_index_assign(
-        &mut self,
-        index_assign: &IndexAssignOperator,
-        index_assign_value: Value<'a, 'a>,
-        out: Variable,
-    ) {
-        let value = self.get_variable(index_assign.value);
+    fn visit_index_assign(&mut self, index_assign: &IndexAssignOperator, out: Variable) {
+        assert!(index_assign.line_size == 0);
+        let mut index_assign_value = index_assign.value;
+        if matches!(index_assign_value.kind, VariableKind::GlobalScalar(_))
+            && !index_assign_value.item.is_vectorized()
+        {
+            index_assign_value.item.vectorization = out.item.vectorization;
+        }
+        let indices = self.get_index(index_assign.index, index_assign_value.item);
+        let value = self.get_variable(index_assign_value);
         let memref = self.get_memory(out);
-        let operation = if index_assign.value.item.is_vectorized() {
-            vector::store(
-                self.context,
-                value,
-                memref,
-                &[index_assign_value],
-                self.location,
-            )
-            .into()
+        let operation = if index_assign_value.item.is_vectorized() {
+            vector::store(self.context, value, memref, &[indices], self.location).into()
         } else {
-            memref::store(value, memref, &[index_assign_value], self.location)
+            memref::store(value, memref, &[indices], self.location)
         };
         self.block.append_operation(operation);
     }
