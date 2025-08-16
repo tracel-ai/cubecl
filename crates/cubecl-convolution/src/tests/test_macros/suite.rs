@@ -1,8 +1,10 @@
-use crate::base::ConvolutionProblem;
-use crate::tests::convolution_test_launcher::test_convolution_algorithm;
 use crate::{
-    algorithm::Algorithm, args::ConvInputsLaunch, base::Dimensionality,
+    components::{ConvolutionProblem, Dimensionality, global::args::ConcreteInputsFactory},
     tests::test_utils::TestPrecision,
+};
+use crate::{
+    kernels::layered::algorithm::Algorithm,
+    tests::convolution_test_launcher::test_convolution_algorithm,
 };
 use cubecl_core::Runtime;
 use cubecl_matmul::components::global::args::ConcreteOutputFactory;
@@ -27,7 +29,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     stage_size: StageSize,
     problem: ConvolutionSize,
 ) where
-    Args::Input<P::EG, P::EG>: ConvInputsLaunch,
+    Args::Input<P::EG, P::EG>: ConcreteInputsFactory,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
