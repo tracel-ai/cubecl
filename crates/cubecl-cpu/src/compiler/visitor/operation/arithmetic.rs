@@ -41,17 +41,20 @@ impl<'a> Visitor<'a> {
                 let value = self.get_variable(clamp.input);
                 let mut min = self.get_variable(clamp.min_value);
                 let mut max = self.get_variable(clamp.max_value);
-                if clamp.input.item.is_vectorized() {
-                    let vector_type = Type::vector(
-                        &[clamp.input.vectorization_factor() as u64],
-                        clamp.input.elem().to_type(self.context),
-                    );
+                let vector_type = Type::vector(
+                    &[clamp.input.vectorization_factor() as u64],
+                    clamp.input.elem().to_type(self.context),
+                );
+                if clamp.input.item.is_vectorized() && !clamp.min_value.item.is_vectorized() {
                     min = self.append_operation_with_result(vector::splat(
                         self.context,
                         vector_type,
                         min,
                         self.location,
                     ));
+                }
+
+                if clamp.input.item.is_vectorized() && !clamp.max_value.item.is_vectorized() {
                     max = self.append_operation_with_result(vector::splat(
                         self.context,
                         vector_type,
@@ -59,6 +62,7 @@ impl<'a> Visitor<'a> {
                         self.location,
                     ));
                 }
+
                 let value = if clamp.input.elem().is_signed_int() {
                     let clamp_down =
                         self.append_operation_with_result(arith::maxsi(value, min, self.location));
@@ -364,7 +368,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Round(round) => {
                 let input = self.get_variable(round.input);
-                let output = self.append_operation_with_result(llvm_ods::intr_round(
+                let output = self.append_operation_with_result(llvm_ods::intr_roundeven(
                     self.context,
                     input,
                     self.location,
