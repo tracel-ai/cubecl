@@ -1,6 +1,6 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
-    EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG,
+    EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     global::GlobalConfig as _,
     stage::{FullReaderFamily, StageMatmulFamily},
 };
@@ -49,7 +49,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
                 LhsG<MS>,
                 RhsG<MS>,
                 LhsS<MS>,
-                LhsS<MS>,
+                RhsS<MS>,
                 EA<MS>,
                 EO<MS>,
                 Self,
