@@ -21,16 +21,18 @@ pub trait ConcreteInputsFactory: LaunchArg {
     fn create<'a, R: Runtime>(
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
+        bias: Option<&'a TensorHandleRef<'a, R>>,
         selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
-impl<Lhs: Numeric, Rhs: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs> {
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs, EO> {
     fn create<'a, R: Runtime>(
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
+        bias: Option<&'a TensorHandleRef<'a, R>>,
         _selection: &MatmulSelection,
         _problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
@@ -40,14 +42,18 @@ impl<Lhs: Numeric, Rhs: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs
             lhs.scale().map(|it| it.as_tensor_arg(1)).into(),
             rhs.data().as_tensor_arg(line_sizes.rhs),
             rhs.scale().map(|it| it.as_tensor_arg(1)).into(),
+            bias.map(|it| it.as_tensor_arg(line_sizes.out)).into(),
         )
     }
 }
 
-impl<Lhs: Numeric, Rhs: Numeric> ConcreteInputsFactory for TensorMapInputs<Lhs, Rhs> {
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
+    for TensorMapInputs<Lhs, Rhs, EO>
+{
     fn create<'a, R: Runtime>(
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
+        bias: Option<&'a TensorHandleRef<'a, R>>,
         selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
@@ -113,7 +119,9 @@ impl<Lhs: Numeric, Rhs: Numeric> ConcreteInputsFactory for TensorMapInputs<Lhs, 
         )
         .with_prefetch(prefetch_rhs);
 
+        let bias = bias.map(|it| it.as_tensor_arg(line_sizes.out));
+
         // TODO: Think about how to handle scales with TMA
-        TensorMapInputsLaunch::new(lhs, rhs)
+        TensorMapInputsLaunch::new(lhs, rhs, bias.into())
     }
 }

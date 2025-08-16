@@ -109,6 +109,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                     .as_ref()
                     .map(|it| TensorArg::<R>::from_raw_parts::<P::EG>(it, &[1], &[1], 1))
                     .into(),
+                None.into(),
             ),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,

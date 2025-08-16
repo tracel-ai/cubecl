@@ -21,6 +21,7 @@ use cubecl_matmul::components::{
 type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<
     <<MP as MatmulPrecision>::Lhs as InputPrecision>::Global,
     <<MP as MatmulPrecision>::Rhs as InputPrecision>::Global,
+    <MP as MatmulPrecision>::EO,
 >;
 type Output<Alg, MP> =
     <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;

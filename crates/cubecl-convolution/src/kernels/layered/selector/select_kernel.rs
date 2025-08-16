@@ -3,7 +3,8 @@ use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
-        InputArg, MatmulLineSizes, MatmulSelection, MatmulSpec, OutputArg,
+        InputArg, InputRuntimeArg, MatmulLineSizes, MatmulSelection, MatmulSpec, OutputArg,
+        OutputRuntimeArg,
         global::{GlobalConfig as _, args::ConcreteOutputFactory},
     },
 };
@@ -39,6 +40,7 @@ where
     let input = <InputArg<MS> as ConcreteInputsFactory>::create(
         input,
         weight,
+        bias.as_ref(),
         &selection,
         &problem,
         &line_sizes,
@@ -49,7 +51,6 @@ where
         &problem.as_matmul_problem(),
         &line_sizes,
     );
-    let bias = bias.as_ref().map(|bias| bias.as_tensor_arg(line_sizes.out));
 
     unsafe {
         A::GlobalConvolution::launch_unchecked::<MS, R>(
@@ -57,7 +58,6 @@ where
             config.cube_dim(),
             A::cube_count(&selection, &problem),
             input,
-            bias,
             output,
             &problem,
             config,
@@ -67,32 +67,28 @@ where
     Ok(())
 }
 
-// Need bias launch arg
+/// Select which kernel to launch for the given Algorithm.
+pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
+    problem: ConvolutionProblem,
+    line_sizes: MatmulLineSizes,
+    selection: MatmulSelection,
+) -> Result<(), ConvSetupError> {
+    let config = A::setup::<R, MS::Precision>(client, &problem, &selection, &line_sizes)?;
 
-// /// Select which kernel to launch for the given Algorithm.
-// pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-//     client: &ComputeClient<R::Server, R::Channel>,
-//     input: InputRuntimeArg<'a, MS, R>,
-//     output: OutputRuntimeArg<'a, MS, R>,
-//     problem: ConvolutionProblem,
-//     line_sizes: MatmulLineSizes,
-//     plane_dim: u32,
-//     selection: MatmulSelection,
-// ) -> Result<(), ConvSetupError> {
-//     let elems = MatmulElems::new::<MS::Precision>();
+    unsafe {
+        A::GlobalConvolution::launch_unchecked::<MS, R>(
+            client,
+            config.cube_dim(),
+            A::cube_count(&selection, &problem),
+            input,
+            output,
+            &problem,
+            config,
+        );
+    }
 
-//     let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
-
-//     unsafe {
-//         A::GlobalConvolution::launch_unchecked::<MS, R>(
-//             client,
-//             config.cube_dim(),
-//             A::cube_count(&selection, &problem),
-//             input,
-//             bias,
-//             output,
-//             &problem,
-//             config,
-//         );
-//     }
-// }
+    Ok(())
+}

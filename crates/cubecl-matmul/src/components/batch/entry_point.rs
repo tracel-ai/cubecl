@@ -9,7 +9,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-type Input<Args, Lhs, Rhs> = <Args as MatmulArgs>::Input<Lhs, Rhs>;
+type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 #[cube(launch_unchecked)]
@@ -24,7 +24,7 @@ pub(crate) fn matmul<
     EO: Numeric,
     BMMF: BatchMatmulFamily,
 >(
-    inputs: &Input<Args, LhsG, RhsG>,
+    inputs: &Input<Args, LhsG, RhsG, EO>,
     output: &mut Output<Args, EO>,
     cube_count_args: CubeCountInput,
     #[comptime] config: BMMF::Config,

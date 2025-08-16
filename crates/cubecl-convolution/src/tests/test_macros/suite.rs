@@ -29,7 +29,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     stage_size: StageSize,
     problem: ConvolutionSize,
 ) where
-    Args::Input<P::EG, P::EG>: ConcreteInputsFactory,
+    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
@@ -325,9 +325,9 @@ macro_rules! conv2d_standard_tests {
 
     ($tile:expr, $partition:expr, $stage:expr, $problem:expr) => {
         use cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
-        use $crate::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
-        use $crate::algorithm::simple::SimpleConvAlgorithm;
-        use $crate::algorithm::simple_tma::SimpleTmaConvAlgorithm;
+        use $crate::kernels::layered::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
+        use $crate::kernels::layered::algorithm::simple::SimpleConvAlgorithm;
+        use $crate::kernels::layered::algorithm::simple_tma::SimpleTmaConvAlgorithm;
 
         #[test]
         pub fn simple_coalesced_im2col() {

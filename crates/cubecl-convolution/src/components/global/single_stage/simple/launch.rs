@@ -1,8 +1,4 @@
-use cubecl_core::{
-    CubeCount, CubeDim, Runtime,
-    client::ComputeClient,
-    prelude::{ScalarArg, TensorArg},
-};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
     EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     stage::{FullReaderFamily, StageMatmulFamily},
@@ -29,7 +25,6 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
-        bias: Option<TensorArg<'a, R>>,
         output: OutputRuntimeArg<'a, MS, R>,
         problem: &ConvolutionProblem,
         config: GlobalConfig<Self>,
@@ -58,7 +53,6 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
                 cube_count,
                 cube_dim,
                 input,
-                bias.into(),
                 output,
                 runtime_args,
                 config,

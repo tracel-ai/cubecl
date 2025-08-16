@@ -19,7 +19,7 @@ use crate::{
 
 use super::test_utils::TestPrecision;
 
-type Input<Args, Lhs, Rhs> = <Args as MatmulArgs>::Input<Lhs, Rhs>;
+type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 /// Test the correctness of the specified Matmul on the given device,
@@ -33,7 +33,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     Args: MatmulArgs,
     P: TestPrecision,
     R: Runtime,
-    Args::Input<P::EG, P::EG>: ConcreteInputsFactory,
+    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
@@ -96,9 +96,10 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let lhs_handle = MatmulInputHandleRef::new(lhs_handle.as_ref());
     let rhs_handle = MatmulInputHandleRef::new(rhs_handle.as_ref());
 
-    let inputs = <Input<Args, P::EG, P::EG> as ConcreteInputsFactory>::create(
+    let inputs = <Input<Args, P::EG, P::EG, P::EG> as ConcreteInputsFactory>::create(
         &lhs_handle,
         &rhs_handle,
+        None,
         &selection,
         &problem,
         &config.line_sizes(),
@@ -119,7 +120,6 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
             config.cube_dim(),
             A::cube_count(&selection, &problem),
             inputs,
-            None,
             output,
             &problem,
             config,
