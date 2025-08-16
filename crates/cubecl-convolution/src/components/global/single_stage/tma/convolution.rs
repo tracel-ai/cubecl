@@ -72,8 +72,8 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        let total_stage_elems = config.tiling_scheme().elements_in_stage_mk()
-            + config.tiling_scheme().elements_in_stage_nk();
+        let stage_elems_lhs = config.tiling_scheme().elements_in_stage_mk();
+        let stage_elems_rhs = config.tiling_scheme().elements_in_stage_nk();
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
@@ -95,8 +95,8 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, &lhs_barrier, 0u32, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &rhs_barrier, 0u32, config.stage_config());
 
-            arrive_tma::<LhsS<MP>>(&lhs_barrier, total_stage_elems);
-            arrive_tma::<RhsS<MP>>(&rhs_barrier, total_stage_elems);
+            arrive_tma::<LhsS<MP>>(&lhs_barrier, stage_elems_lhs);
+            arrive_tma::<RhsS<MP>>(&rhs_barrier, stage_elems_rhs);
 
             lhs_barrier.wait();
             rhs_barrier.wait();

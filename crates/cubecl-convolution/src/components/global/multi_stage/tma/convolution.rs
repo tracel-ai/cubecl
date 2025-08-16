@@ -91,8 +91,8 @@ where
         // so the stage index is comptime. This is needed to make `Sequence` work.
         let num_loops = (num_loops + num_stages - 1) / num_stages;
 
-        let total_stage_elems = config.tiling_scheme().elements_in_stage_mk()
-            + config.tiling_scheme().elements_in_stage_nk();
+        let stage_elems_lhs = config.tiling_scheme().elements_in_stage_mk();
+        let stage_elems_rhs = config.tiling_scheme().elements_in_stage_nk();
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
 
@@ -116,8 +116,8 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, &lhs_barrier, stage, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &rhs_barrier, stage, stage_config);
 
-            arrive_tma::<LhsS<MP>>(&lhs_barrier, total_stage_elems);
-            arrive_tma::<RhsS<MP>>(&rhs_barrier, total_stage_elems);
+            arrive_tma::<LhsS<MP>>(&lhs_barrier, stage_elems_lhs);
+            arrive_tma::<RhsS<MP>>(&rhs_barrier, stage_elems_rhs);
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
@@ -176,8 +176,8 @@ where
                             stage_config,
                         );
 
-                        arrive_tma::<LhsS<MP>>(lhs_barrier, total_stage_elems);
-                        arrive_tma::<RhsS<MP>>(rhs_barrier, total_stage_elems);
+                        arrive_tma::<LhsS<MP>>(lhs_barrier, stage_elems_lhs);
+                        arrive_tma::<RhsS<MP>>(rhs_barrier, stage_elems_rhs);
 
                         Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
                         Self::RhsLoader::advance_view(&mut rhs_loader, k_step);

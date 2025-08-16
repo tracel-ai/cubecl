@@ -69,6 +69,7 @@ where
             arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_rhs);
 
             barrier_lhs.wait();
+            barrier_rhs.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
