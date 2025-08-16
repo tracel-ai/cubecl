@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
-use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::{Runtime, server};
 use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
+use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_runtime::server::Handle;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
@@ -124,6 +124,15 @@ where
                 handle.shape,
                 vectorisation,
             )
+        }
+    }
+
+    pub fn as_copy_descriptor<'a>(&'a self) -> CopyDescriptor<'a> {
+        CopyDescriptor {
+            binding: self.handle.clone().binding(),
+            shape: &self.shape,
+            strides: &self.strides,
+            elem_size: size_of::<E>(),
         }
     }
 
