@@ -39,24 +39,45 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Clamp(clamp) => {
                 let value = self.get_variable(clamp.input);
-                let min = self.get_variable(clamp.input);
-                let max = self.get_variable(clamp.input);
-
+                let mut min = self.get_variable(clamp.min_value);
+                let mut max = self.get_variable(clamp.max_value);
+                if clamp.input.item.is_vectorized() {
+                    let vector_type = Type::vector(
+                        &[clamp.input.vectorization_factor() as u64],
+                        clamp.input.elem().to_type(self.context),
+                    );
+                    min = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector_type,
+                        min,
+                        self.location,
+                    ));
+                    max = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector_type,
+                        max,
+                        self.location,
+                    ));
+                }
                 let value = if clamp.input.elem().is_signed_int() {
-                    let min =
+                    let clamp_down =
                         self.append_operation_with_result(arith::maxsi(value, min, self.location));
-                    self.append_operation_with_result(arith::minsi(min, max, self.location))
+                    self.append_operation_with_result(arith::minsi(clamp_down, max, self.location))
                 } else if clamp.input.elem().is_unsigned_int() {
-                    let min =
+                    let clamp_down =
                         self.append_operation_with_result(arith::maxui(value, min, self.location));
-                    self.append_operation_with_result(arith::minui(min, max, self.location))
+                    self.append_operation_with_result(arith::minui(clamp_down, max, self.location))
                 } else {
-                    let min = self.append_operation_with_result(arith::maxnumf(
+                    let clamp_down = self.append_operation_with_result(arith::maxnumf(
                         value,
                         min,
                         self.location,
                     ));
-                    self.append_operation_with_result(arith::minimumf(min, max, self.location))
+                    self.append_operation_with_result(arith::minimumf(
+                        clamp_down,
+                        max,
+                        self.location,
+                    ))
                 };
                 self.insert_variable(out, value);
             }
