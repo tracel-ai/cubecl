@@ -84,7 +84,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
 /// Map bitwise on boolean to logical, since bitwise ops aren't allowed in Vulkan. This fixes the
 /// case of
-/// ```
+/// ```ignore
 /// let a = true;
 /// for shape in 0..dims {
 ///     a |= shape < width;
