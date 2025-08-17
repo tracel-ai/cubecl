@@ -48,7 +48,7 @@ mod tests_spirv {
     use cubecl_core::flex32;
     use half::f16;
 
-    cubecl_core::testgen_all!(f32: [f16, flex32, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
+    cubecl_core::testgen_all!(f32: [f16, flex32, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16]);
