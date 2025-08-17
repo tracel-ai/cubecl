@@ -34,7 +34,7 @@ pub struct LookupTables {
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
     pub scalars: HashMap<(Id, ir::Elem), Word>,
-    pub array_types: HashMap<Word, Word>,
+    pub array_types: HashSet<Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<Id, Word>,
     pub variables: HashMap<Id, Word>,

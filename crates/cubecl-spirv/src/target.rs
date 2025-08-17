@@ -135,11 +135,18 @@ impl SpirvTarget for GLCompute {
     ) -> Word {
         let index = binding.id;
         let item = b.compile_item(binding.item);
+        let item_size = item.size();
         let item = match binding.size {
             Some(size) => Item::Array(Box::new(item), size as u32),
             None => Item::RuntimeArray(Box::new(item)),
         };
         let arr = item.id(b); // pre-generate type
+
+        if !b.state.array_types.contains(&arr) {
+            b.decorate(arr, Decoration::ArrayStride, [item_size.into()]);
+            b.state.array_types.insert(arr);
+        }
+
         let struct_ty = b.id();
         b.type_struct_id(Some(struct_ty), vec![arr]);
 
