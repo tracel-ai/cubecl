@@ -24,7 +24,11 @@ bitflags::bitflags! {
         /// Allow all mathematical transformations for float operations, including contraction and
         /// reassociation, even if the precision could change.
         const AllowTransform = 1 << 6;
-        /// Allow using slightly lower precision intrinsics (CUDA `--use_fast_math`)
+        /// Allow using lower precision intrinsics (CUDA `--use_fast_math`)
+        /// Also impacts `NaN`, `Inf` and signed zero handling, as well as subnormals and rounding.
+        ///
+        /// Notable edge case:
+        /// powf - Returns `NaN` for negative bases
         const ReducedPrecision = 1 << 7;
     }
 }
