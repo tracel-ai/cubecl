@@ -95,14 +95,14 @@ impl MatmulPrecision for u8 {
     type Lhs = (u8, u8);
     type Rhs = (u8, u8);
     type EA = i32;
-    type EO = u8;
+    type EO = i32;
 }
 
 impl MatmulPrecision for u16 {
     type Lhs = (u16, u16);
     type Rhs = (u16, u16);
-    type EA = u32;
-    type EO = u16;
+    type EA = i32;
+    type EO = i32;
 }
 
 impl MatmulPrecision for u32 {
