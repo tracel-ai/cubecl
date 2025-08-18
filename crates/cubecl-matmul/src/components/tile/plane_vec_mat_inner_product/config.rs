@@ -1,0 +1,192 @@
+use cubecl_core::Runtime;
+use cubecl_core::client::ComputeClient;
+use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::prelude::Numeric;
+
+use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
+use crate::components::tile::TileConfig;
+use crate::components::{MatrixLayout, StageIdent, TileSize, TilingScheme};
+
+/// Execution mode for the RegisterMatmul
+pub enum ProductType {
+    /// Computes the Tile Matmul as m*n inner products of length k.
+    ///
+    /// Needs Lhs to be row major and Rhs to be col major
+    /// If not the case, tile will be transposed during fill
+    Inner,
+    /// Computes the Stage Matmul as the sum of k outer products of size m*n.
+    ///
+    /// Needs Lhs to be col major and Rhs to be row major
+    /// If not the case, tile will be transposed during fill
+    Outer,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for Register Matmul
+pub struct PlaneVecMatInnerProductConfig {
+    tiling_scheme: TilingScheme,
+    plane_dim: u32,
+    lhs_layout: MatrixLayout,
+    rhs_layout: MatrixLayout,
+    lhs_global_line_size: u32,
+    rhs_global_line_size: u32,
+    out_global_line_size: u32,
+    lhs_stage_line_size: u32,
+    rhs_stage_line_size: u32,
+}
+
+impl TileConfig for PlaneVecMatInnerProductConfig {
+    fn plane_dim(&self) -> u32 {
+        self.plane_dim
+    }
+
+    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
+        match ident {
+            StageIdent::Lhs => self.lhs_layout,
+            StageIdent::Rhs => self.rhs_layout,
+            StageIdent::Acc => MatrixLayout::RowMajor,
+        }
+    }
+
+    fn stage_line_size(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.lhs_stage_line_size,
+            StageIdent::Rhs => self.rhs_stage_line_size,
+            StageIdent::Acc => self.out_global_line_size,
+        }
+    }
+
+    fn global_line_size(&self, ident: StageIdent) -> u32 {
+        match ident {
+            StageIdent::Lhs => self.lhs_global_line_size,
+            StageIdent::Rhs => self.rhs_global_line_size,
+            StageIdent::Acc => self.out_global_line_size,
+        }
+    }
+
+    fn tile_size(&self) -> &TileSize {
+        &self.tiling_scheme.tile_size
+    }
+}
+
+impl PlaneVecMatInnerProductConfig {
+    #[allow(clippy::too_many_arguments)]
+    /// Create a new config for register matmul
+    ///
+    /// May return an error if:
+    /// - Line sizes do not evenly divide tile sizes in the lined axis
+    /// - Types are unavailable
+    pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        tiling_scheme: TilingScheme,
+        plane_dim: u32,
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
+        lhs_global_line_size: u32,
+        rhs_global_line_size: u32,
+        out_global_line_size: u32,
+        lhs_stage_line_size: u32,
+        rhs_stage_line_size: u32,
+    ) -> Result<Self, MatmulSetupError> {
+        Self {
+            tiling_scheme,
+            plane_dim,
+            lhs_layout,
+            rhs_layout,
+            lhs_global_line_size,
+            rhs_global_line_size,
+            out_global_line_size,
+            lhs_stage_line_size,
+            rhs_stage_line_size,
+        }
+        .validate()?
+        .check_availability::<Lhs, Rhs, Acc, R>(client)
+    }
+
+    pub fn product_type(&self) -> ProductType {
+        // TODO: Make it configurable.
+        ProductType::Outer
+    }
+
+    fn validate(self) -> Result<Self, MatmulSetupError> {
+        let m = self.tile_size().m();
+        let n = self.tile_size().n();
+        let k = self.tile_size().k();
+
+        let lhs = self.lhs_stage_line_size;
+        let rhs = self.rhs_stage_line_size;
+        let out = self.out_global_line_size;
+
+        match self.matrix_layout(StageIdent::Lhs) {
+            MatrixLayout::RowMajor => {
+                if k % lhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {k:?} should be divisible by line size {lhs:?}"
+                    ))));
+                }
+            }
+            MatrixLayout::ColMajor => {
+                if m % lhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {m:?} should be divisible by line size {lhs:?}"
+                    ))));
+                }
+            }
+        }
+        match self.matrix_layout(StageIdent::Rhs) {
+            MatrixLayout::RowMajor => {
+                if n % rhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
+                    ))));
+                }
+            }
+            MatrixLayout::ColMajor => {
+                if k % rhs != 0 {
+                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                        "Tile shape in lined axis {k:?} should be divisible by line size {rhs:?}"
+                    ))));
+                }
+            }
+        }
+
+        if n % out != 0 {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
+            ))));
+        }
+
+        Ok(self)
+    }
+
+    fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+        self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<Self, MatmulSetupError> {
+        let lhs = Lhs::as_elem_native_unchecked();
+        let rhs = Rhs::as_elem_native_unchecked();
+        let acc = Acc::as_elem_native_unchecked();
+
+        let lhs = match lhs {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => lhs,
+        };
+        let rhs = match rhs {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => rhs,
+        };
+
+        let output = match acc {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => acc,
+        };
+
+        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
+            ));
+        }
+
+        Ok(self)
+    }
+}
