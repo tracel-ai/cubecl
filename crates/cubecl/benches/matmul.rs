@@ -129,7 +129,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 
     let b = usize::max(expected / num_ops, 1);
     let b = 2usize.pow((b as f64).log(2.0).floor() as u32);
-    let b = usize::min(8192, b);
+    let b = usize::min(4096, b);
 
     (b, m, n, k)
 }
@@ -145,9 +145,15 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // entry(2048, 2048, 2048),
                 // entry(1024, 1024, 1024),
                 // entry(512, 512, 512),
-                entry(10, 10, 64),
-                entry(10, 64, 10),
-                entry(64, 10, 10),
+                entry(64, 1024, 64),
+                entry(32, 1024, 32),
+                entry(10, 1024, 10),
+                entry(64, 64, 1024),
+                entry(32, 32, 1024),
+                entry(10, 10, 1024),
+                entry(1024, 64, 64),
+                entry(1024, 32, 32),
+                entry(1024, 10, 10),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
@@ -235,11 +241,8 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     Default::default(),
                     matmul::Strategy::Simple(
                         SyncLoadingStrategy::Cyclic,
-                        // Selection::Forced(selection.clone()),
-                        Selection::Inferred(Default::default()),
+                        Selection::Forced(selection.clone()),
                     ),
-                    // matmul::Strategy::OrderedDoubleBuffering(Selection::Forced(selection.clone())),
-                    // (8, 1024, 1024, 1024),
                     (4096, 10, 64, 10),
                     (false, false),
                 );
@@ -280,20 +283,20 @@ fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
         })),
     );
 
-    // println!("Double Unit Min");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-    //         tile_size: TileSizeSelection::MinTileSize,
-    //     })),
-    // );
-    // println!("Double Unit Max");
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-    //         tile_size: TileSizeSelection::MaxTileSize,
-    //     })),
-    // );
+    println!("Double Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
+    println!("Double Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
+    );
 }
 
 #[allow(unused)]
@@ -350,8 +353,8 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
-    run_algos_unit::<R, MP>();
-    // run_algos_wmma::<R, MP>();
+    // run_algos_unit::<R, MP>();
+    run_algos_wmma::<R, MP>();
 }
 
 fn main() {
