@@ -317,7 +317,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
             f,
             "
 
-extern \"C\" __global__ void "
+extern \"C\" __global__ void __launch_bounds__({})",
+            flags.cube_dim.num_elems()
         )?;
         if let Some(cluster_dim) = flags.cluster_dim {
             write!(
