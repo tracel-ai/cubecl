@@ -2,8 +2,8 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError, PartitionSize, TileSize,
-        TilingScheme,
+        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
+        PartitionSize, TileSize, TilingScheme,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -43,13 +43,14 @@ impl Algorithm for SimpleVecMatAlgorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         _elems: MatmulElems,
         _args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(selection_vecmat::<R>(
             client,
             problem,
-            (1, 4, 128).into(),
+            (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
             plane_dim,
         ))
     }
@@ -74,13 +75,14 @@ impl Algorithm for DoubleVecMatAlgorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         _elems: MatmulElems,
         _args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(selection_vecmat::<R>(
             client,
             problem,
-            (1, 4, 128).into(),
+            (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
             plane_dim,
         ))
     }
@@ -92,13 +94,9 @@ fn selection_vecmat<R: Runtime>(
     tile_size: TileSize,
     plane_dim: u32,
 ) -> MatmulSelection {
-    // If the K axis is big, we can leverage that.
-    let pk = u32::min(problem.k as u32 / tile_size.k(), 8);
-    let pk = u32::max(pk, 1);
-
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size(tile_size)
-        .with_partition_size(PartitionSize::new(1, 1, pk))
+        .with_partition_size(PartitionSize::new(1, 1, 1))
         .with_stage_size((1, 1, 1).into())
         .build()
         .unwrap();

@@ -9,7 +9,7 @@ use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmu
 use crate::components::stage::{
     FullReaderFamily, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
-use crate::components::{MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError};
+use crate::components::{MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError};
 use crate::components::{MultiRowStrategy, tile};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
@@ -44,6 +44,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
