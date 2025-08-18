@@ -7,20 +7,6 @@ use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
 use crate::components::{MatrixLayout, StageIdent, TileSize, TilingScheme};
 
-/// Execution mode for the RegisterMatmul
-pub enum ProductType {
-    /// Computes the Tile Matmul as m*n inner products of length k.
-    ///
-    /// Needs Lhs to be row major and Rhs to be col major
-    /// If not the case, tile will be transposed during fill
-    Inner,
-    /// Computes the Stage Matmul as the sum of k outer products of size m*n.
-    ///
-    /// Needs Lhs to be col major and Rhs to be row major
-    /// If not the case, tile will be transposed during fill
-    Outer,
-}
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register Matmul
 pub struct PlaneVecMatInnerProductConfig {
@@ -103,58 +89,39 @@ impl PlaneVecMatInnerProductConfig {
         .check_availability::<Lhs, Rhs, Acc, R>(client)
     }
 
-    pub fn product_type(&self) -> ProductType {
-        // TODO: Make it configurable.
-        ProductType::Outer
-    }
-
     fn validate(self) -> Result<Self, MatmulSetupError> {
+        if self.matrix_layout(StageIdent::Lhs) != MatrixLayout::RowMajor {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Only Row Major layout is supported for Lhs"
+            ))));
+        }
+
+        if self.matrix_layout(StageIdent::Rhs) != MatrixLayout::ColMajor {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Only Col Major layout is supported for Rhs"
+            ))));
+        }
+
         let m = self.tile_size().m();
         let n = self.tile_size().n();
         let k = self.tile_size().k();
 
-        let lhs = self.lhs_stage_line_size;
-        let rhs = self.rhs_stage_line_size;
-        let out = self.out_global_line_size;
+        let lhs_line = self.lhs_stage_line_size;
+        let rhs_line = self.rhs_stage_line_size;
+        let out_line = self.out_global_line_size;
 
-        match self.matrix_layout(StageIdent::Lhs) {
-            MatrixLayout::RowMajor => {
-                if k % lhs != 0 {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {k:?} should be divisible by line size {lhs:?}"
-                    ))));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if m % lhs != 0 {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {m:?} should be divisible by line size {lhs:?}"
-                    ))));
-                }
-            }
-        }
-        match self.matrix_layout(StageIdent::Rhs) {
-            MatrixLayout::RowMajor => {
-                if n % rhs != 0 {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
-                    ))));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if k % rhs != 0 {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {k:?} should be divisible by line size {rhs:?}"
-                    ))));
-                }
-            }
-        }
-
-        if n % out != 0 {
+        if m != 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
+                "Only m=1 is supported"
             ))));
         }
+
+        if lhs_line != rhs_line {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "Lhs and Rhs must have same line size"
+            ))));
+        }
+
 
         Ok(self)
     }
