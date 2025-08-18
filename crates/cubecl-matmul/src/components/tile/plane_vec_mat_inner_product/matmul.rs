@@ -48,7 +48,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
             let lhs: Line<A> = Line::cast_from(lhs.line);
             let rhs: Line<A> = Line::cast_from(rhs.index(n).line);
 
-            acc.index_mut(n).line += plane_sum_lined(lhs * rhs, config.reduce_line_size());
+            plane_sum_lined(lhs * rhs, acc.index_mut(n), config.reduce_line_size());
 
             comptime![n += 1];
         }
@@ -169,17 +169,18 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
 }
 
 #[cube]
-fn plane_sum_lined<E: Numeric>(line: Line<E>, #[comptime] line_size: u32) -> Line<E> {
+fn plane_sum_lined<E: Numeric>(
+    line_to_sum: Line<E>,
+    line_accumulator: &mut LineContainer<E>,
+    #[comptime] line_size: u32,
+) {
     let mut line_iterator = comptime![0];
-    let mut sum = Line::empty(line_size);
 
     #[unroll]
     #[allow(clippy::explicit_counter_loop)]
     for _ in 0..line_size {
-        sum[line_iterator] = plane_sum(line[line_iterator]);
+        line_accumulator.line[line_iterator] += plane_sum(line_to_sum[line_iterator]);
 
         comptime![line_iterator += 1];
     }
-
-    sum
 }
