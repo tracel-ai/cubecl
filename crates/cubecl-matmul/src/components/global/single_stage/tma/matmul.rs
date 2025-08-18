@@ -49,8 +49,8 @@ where
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
-        let num_elems_stages = config.tiling_scheme().elements_in_stage_nk()
-            + config.tiling_scheme().elements_in_stage_mk();
+        let num_elems_lhs = config.tiling_scheme().elements_in_stage_mk();
+        let num_elems_rhs = config.tiling_scheme().elements_in_stage_nk();
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
@@ -65,10 +65,11 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_lhs, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_rhs, config);
 
-            arrive_tma::<LhsS<MP>>(&barrier_lhs, num_elems_stages);
-            arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_stages);
+            arrive_tma::<LhsS<MP>>(&barrier_lhs, num_elems_lhs);
+            arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_rhs);
 
             barrier_lhs.wait();
+            barrier_rhs.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);

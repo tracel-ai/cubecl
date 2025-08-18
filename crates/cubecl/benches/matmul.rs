@@ -129,6 +129,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 
     let b = usize::max(expected / num_ops, 1);
     let b = 2usize.pow((b as f64).log(2.0).floor() as u32);
+    let b = usize::min(4096, b);
 
     (b, m, n, k)
 }
@@ -138,12 +139,21 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     for tl in [false] {
         for tr in [false] {
             for (b, m, n, k) in [
-                entry(8192, 8192, 8192),
-                entry(6144, 6144, 6144),
-                entry(4096, 4096, 4096),
-                entry(2048, 2048, 2048),
-                entry(1024, 1024, 1024),
-                entry(512, 512, 512),
+                // entry(8192, 8192, 8192),
+                // entry(6144, 6144, 6144),
+                // entry(4096, 4096, 4096),
+                // entry(2048, 2048, 2048),
+                // entry(1024, 1024, 1024),
+                // entry(512, 512, 512),
+                entry(64, 1024, 64),
+                entry(32, 1024, 32),
+                entry(10, 1024, 10),
+                entry(64, 64, 1024),
+                entry(32, 32, 1024),
+                entry(10, 10, 1024),
+                entry(1024, 64, 64),
+                entry(1024, 32, 32),
+                entry(1024, 10, 10),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
@@ -201,9 +211,9 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
 
     let mut algos = BTreeMap::<u64, (BenchmarkDurations, MatmulSelection, f64)>::new();
 
-    for t in [(1, 4, 4), (4, 4, 4)] {
-        for p in [(1, 2, 8), (1, 2, 2), (8, 2, 2), (4, 4, 4)] {
-            for s in [(8, 8), (16, 16)] {
+    for t in [(16, 16, 16)] {
+        for p in [(1, 1, 1)] {
+            for s in [(1, 1, 1)] {
                 let plane_dim = client.properties().hardware.plane_size_min;
                 let tiling = TilingScheme::builder()
                     .with_tile_size(t.into())
@@ -211,7 +221,7 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .with_stage_size(StageSize {
                         m: s.0,
                         n: s.1,
-                        k: 1,
+                        k: s.2,
                     })
                     .build()
                     .unwrap();
@@ -223,15 +233,17 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .build();
                 let selection = MatmulSelection::builder(tiling, plane_dim)
                     .plane_dim(plane_dim)
-                    .partition_buffering(PartitionBuffering::Double)
+                    .partition_buffering(PartitionBuffering::Single)
                     .hypercube_config(hypercube)
                     .loading_precompute_strategy(LoadingPrecomputeStrategy::Always)
                     .build();
                 let result = run_one::<R, MP>(
                     Default::default(),
-                    matmul::Strategy::DoubleUnit(Selection::Forced(selection.clone())),
-                    // (8, 1024, 1024, 1024),
-                    (1, 4096, 4096, 4096),
+                    matmul::Strategy::Simple(
+                        SyncLoadingStrategy::Cyclic,
+                        Selection::Forced(selection.clone()),
+                    ),
+                    (4096, 10, 64, 10),
                     (false, false),
                 );
 

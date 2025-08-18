@@ -157,7 +157,7 @@ impl<LhsG: Numeric, RhsG: Numeric, LhsS: Numeric, RhsS: Numeric, EA: Numeric, EO
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<LhsG<MS>, RhsG<MS>>;
+pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<LhsG<MS>, RhsG<MS>, EO<MS>>;
 
 /// Output argument
 pub type OutputArg<MS> = <Args<MS> as MatmulArgs>::Output<EO<MS>>;
