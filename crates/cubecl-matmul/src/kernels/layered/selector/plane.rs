@@ -25,7 +25,8 @@ pub struct PlaneMatmulSelectionOptions {
     pub row_count: Option<u32>,
     pub multi_row_strategy: MultiRowStrategy,
     pub partition_buffering: Option<PartitionBuffering>,
-    pub shrink_if_tiny: bool,
+    /// Enables the tiny selector when the [matmul problem](MatmulProblem) is flagged as tiny.
+    pub tiny_selection_enabled: bool,
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
@@ -54,7 +55,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.n,
     );
 
-    if options.shrink_if_tiny && is_tiny(problem, &tile_size) {
+    if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
         return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
     }
 

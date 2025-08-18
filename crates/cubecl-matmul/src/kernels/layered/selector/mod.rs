@@ -8,7 +8,7 @@ pub use unit::*;
 
 use crate::components::{MatmulProblem, TileSize};
 
-/// Returns if a [matmul problem](MatmulProblem) is very small.
+/// Returns  true if a [matmul problem](MatmulProblem) is very small.
 ///
 /// A matmul is considered small based on the number of [tiles](TileSize) that fit across 2
 /// dimensions, meaning that 1 dimension can still be large.

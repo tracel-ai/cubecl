@@ -72,7 +72,7 @@ where
                 elems,
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
-                    shrink_if_tiny: true,
+                    tiny_selection_enabled: true,
                     ..Default::default()
                 },
             )
