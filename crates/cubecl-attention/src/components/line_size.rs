@@ -6,7 +6,7 @@ use crate::components::{AttentionSetupError, FlashIdent};
 
 #[derive(Debug)]
 /// Line size used for each tensor in global memory accesses.
-/// Represents the numbe of elements processed per SIMD load/store.
+/// Represents the number of elements processed per SIMD load/store.
 pub struct AttentionLineSizes {
     pub query: u8,
     pub key: u8,
