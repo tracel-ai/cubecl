@@ -56,6 +56,16 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
 }
 
 impl PlaneVecMatInnerProductConfig {
+    pub fn reduce_line_size(&self) -> u32 {
+        self.lhs_stage_line_size
+    }
+
+    pub fn n(&self) -> u32 {
+        self.tile_size().n()
+    }
+}
+
+impl PlaneVecMatInnerProductConfig {
     #[allow(clippy::too_many_arguments)]
     /// Create a new config for register matmul
     ///
@@ -91,15 +101,15 @@ impl PlaneVecMatInnerProductConfig {
 
     fn validate(self) -> Result<Self, MatmulSetupError> {
         if self.matrix_layout(StageIdent::Lhs) != MatrixLayout::RowMajor {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Only Row Major layout is supported for Lhs"
-            ))));
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Only Row Major layout is supported for Lhs",
+            )));
         }
 
         if self.matrix_layout(StageIdent::Rhs) != MatrixLayout::ColMajor {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Only Col Major layout is supported for Rhs"
-            ))));
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                "Only Col Major layout is supported for Rhs",
+            )));
         }
 
         let m = self.tile_size().m();
@@ -112,16 +122,31 @@ impl PlaneVecMatInnerProductConfig {
 
         if m != 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Only m=1 is supported"
+                "Only m=1 is supported, got m={:?}",
+                m
             ))));
         }
 
         if lhs_line != rhs_line {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Lhs and Rhs must have same line size"
+                "Lhs and Rhs must have same line size, got lhs={:?} and rhs={:?}",
+                lhs_line, rhs_line
             ))));
         }
 
+        if k != self.plane_dim * lhs_line {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "k must be equal to plane_dim times line size (of both lhs and rhs), got k={:?}, plane_dim={:?} line_size={:?}",
+                k, self.plane_dim, lhs_line
+            ))));
+        }
+
+        if n % out_line != 0 {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                "n must be divisible by out line size, got n={:?}, out_line_size={:?}",
+                n, out_line
+            ))));
+        }
 
         Ok(self)
     }
