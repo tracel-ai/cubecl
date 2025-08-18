@@ -28,11 +28,11 @@ impl TileMatmulFamily for AcceleratedMatmul {
             tile_setup_info.plane_dim,
             tile_setup_info.lhs_layout,
             tile_setup_info.rhs_layout,
-            tile_setup_info.lhs_line_size as u32,
-            tile_setup_info.rhs_line_size as u32,
-            tile_setup_info.out_line_size as u32,
-            tile_setup_info.lhs_line_size as u32,
-            tile_setup_info.rhs_line_size as u32,
+            tile_setup_info.lhs_line_size,
+            tile_setup_info.rhs_line_size,
+            tile_setup_info.out_line_size,
+            tile_setup_info.lhs_line_size,
+            tile_setup_info.rhs_line_size,
         )
     }
 }
