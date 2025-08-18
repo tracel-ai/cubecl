@@ -374,7 +374,7 @@ impl WgpuStream {
     }
 
     // Nb: this function submits a command to the _queue_ not to the encoder,
-    // so you have to be really carefuly about the ordering of operations here.
+    // so you have to be really careful about the ordering of operations here.
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
