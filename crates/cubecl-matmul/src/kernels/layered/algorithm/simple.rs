@@ -17,7 +17,7 @@ use crate::{
             ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
             RowMajorTilingOrder,
         },
-        tile::{TileMatmulFamily, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
+        tile::TileMatmulFamily,
     },
     kernels::layered::{
         Algorithm,
@@ -161,9 +161,3 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
         )
     }
 }
-
-pub type SimpleVecMat = SimpleAlgorithm<
-    PlaneVecMatInnerProduct,
-    SyncFullCyclicLoading<RowMajorTilingOrder>,
-    SyncFullCyclicLoading<ColMajorTilingOrder>,
->;

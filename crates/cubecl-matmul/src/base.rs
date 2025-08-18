@@ -15,6 +15,7 @@ use crate::{
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
+        vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
 
@@ -55,6 +56,8 @@ pub enum Strategy {
     DoubleBuffering(SyncPartialLoadingStrategy, Selection<DoubleBufferingArgs>),
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
     DoubleUnit(Selection<DoubleUnitSelectionArgs>),
+    SimpleVecMat(Selection<()>),
+    DoubleVecMat(Selection<()>),
     OrderedDoubleBuffering(Selection<OrderedSelectionArgs>),
     Naive,
     #[default]
@@ -329,6 +332,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             }
 
             Ok(())
+        }
+        Strategy::SimpleVecMat(selection) => {
+            layered::launch_ref::<R, MP, SimpleVecMatAlgorithm>(client, lhs, rhs, out, selection)
+        }
+        Strategy::DoubleVecMat(selection) => {
+            layered::launch_ref::<R, MP, DoubleVecMatAlgorithm>(client, lhs, rhs, out, selection)
         }
     }
 }

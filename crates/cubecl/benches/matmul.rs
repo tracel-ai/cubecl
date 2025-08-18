@@ -137,7 +137,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [false] {
-        for tr in [false] {
+        for tr in [true] {
             for (b, m, n, k) in [
                 // entry(8192, 8192, 8192),
                 // entry(6144, 6144, 6144),
@@ -264,6 +264,23 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
 }
 
 #[allow(unused)]
+fn run_algos_vecmat<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
+
+    println!("Simple VecMat");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleVecMat(Selection::Inferred(())),
+    );
+
+    println!("Double VecMat");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleVecMat(Selection::Inferred(())),
+    );
+}
+
+#[allow(unused)]
 fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
@@ -354,7 +371,8 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
     // run_algos_unit::<R, MP>();
-    run_algos_wmma::<R, MP>();
+    // run_algos_wmma::<R, MP>();
+    run_algos_vecmat::<R, MP>();
 }
 
 fn main() {
