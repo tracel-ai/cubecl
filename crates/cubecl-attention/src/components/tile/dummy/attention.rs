@@ -54,7 +54,7 @@ impl<
     ) {
         comment!("Tile: Execute");
         // 1/sqrt(8)
-        let inv_sqrt_dk = AP::EA::new(0.35355339059);
+        let inv_sqrt_dk = AP::EA::new(0.35355);
 
         let prev_m = state.m;
         let prev_l = state.l;
@@ -65,7 +65,7 @@ impl<
 
         comment!("Tile-Execute: Put K in fragment from reader for Score Matmul");
 
-        SM::fill_rhs(&key_tile, key_value.key_mut(), config.score_config());
+        SM::fill_rhs(key_tile, key_value.key_mut(), config.score_config());
 
         comment!("Tile-Execute: Score matmul S=Q·K+0");
         SM::execute(
@@ -80,7 +80,7 @@ impl<
         );
         // TODO work on scores register directly
         SM::write_results::<AP::EA>(
-            &mut score_prob.score(),
+            score_prob.score(),
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
             config.score_config(),
         );
@@ -116,7 +116,7 @@ impl<
 
         comment!("Tile-Execute: Put V in fragment from reader for Value Matmul");
 
-        VM::fill_rhs(&value_tile, key_value.value_mut(), config.value_config());
+        VM::fill_rhs(value_tile, key_value.value_mut(), config.value_config());
 
         comment!("Tile-Execute: Scale acc by epm");
         // TODO modify registers directly when we are certain we are in the right row
@@ -138,7 +138,7 @@ impl<
         comment!("Tile-Execute: Value Matmul O = P·V + scaled_O");
         VM::execute(
             score_prob.prob(),
-            &key_value.value(),
+            key_value.value(),
             &mut accumulator.fragment,
             config.value_config(),
         );

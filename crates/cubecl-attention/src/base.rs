@@ -66,10 +66,10 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         &AP::EO::as_elem_native_unchecked(),
     );
     let line_sizes = DummyAlgorithm::filter_line_sizes(line_sizes)
-        .filter_with_tensor(FlashIdent::Query, &query.strides, &query.shape)
-        .filter_with_tensor(FlashIdent::Key, &key.strides, &key.shape)
-        .filter_with_tensor(FlashIdent::Value, &value.strides, &value.shape)
-        .filter_with_tensor(FlashIdent::Out, &out.strides, &out.shape)
+        .filter_with_tensor(FlashIdent::Query, query.strides, query.shape)
+        .filter_with_tensor(FlashIdent::Key, key.strides, key.shape)
+        .filter_with_tensor(FlashIdent::Value, value.strides, value.shape)
+        .filter_with_tensor(FlashIdent::Out, out.strides, out.shape)
         .pick_max()
         .unwrap();
 
@@ -89,7 +89,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         plane_dim: 32,
     };
 
-    let config = DummyAlgorithm::setup::<AP, R>(&client, &problem, &selection, &line_sizes)?;
+    let config = DummyAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
@@ -98,7 +98,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     unsafe {
         <DummyAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
-            &client,
+            client,
             config.cube_dim(),
             cube_count_plan.resolve(),
             TensorInputsLaunch::new(

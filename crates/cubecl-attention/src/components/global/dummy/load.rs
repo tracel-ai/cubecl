@@ -170,7 +170,6 @@ pub struct QueryRegisterReader<AP: AttentionPrecision> {
 #[cube]
 impl<AP: AttentionPrecision> QueryRegisterReader<AP> {
     pub fn read_tile<TM: ScoreMatmul<AP>>(&self, #[comptime] tile_config: TM::Config) -> TM::Lhs {
-        let fragment = TM::allocate_fill_cast_lhs(&self.tile, tile_config);
-        fragment
+        TM::allocate_fill_cast_lhs(&self.tile, tile_config)
     }
 }
