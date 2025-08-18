@@ -48,9 +48,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
             let lhs: Line<A> = Line::cast_from(lhs.line);
             let rhs: Line<A> = Line::cast_from(rhs.index(n).line);
 
-            let mul = lhs * rhs;
-            let sum = plane_sum(mul);
-            acc.index_mut(n).line = sum;
+            acc.index_mut(n).line += plane_sum_lined(lhs * rhs, config.reduce_line_size());
 
             comptime![n += 1];
         }
@@ -97,7 +95,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
             let line_container = rhs.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_PLANE + tile.stride]);
+            line_container.line = Line::cast_from(tile.slice[UNIT_POS_PLANE + n * tile.stride]);
 
             comptime![n += 1];
         }
@@ -114,7 +112,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
             let line_container = acc.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_PLANE + tile.stride]);
+            line_container.line = Line::cast_from(tile.slice[UNIT_POS_PLANE + n * tile.stride]);
 
             comptime![n += 1];
         }
@@ -168,4 +166,20 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
             }
         }
     }
+}
+
+#[cube]
+fn plane_sum_lined<E: Numeric>(line: Line<E>, #[comptime] line_size: u32) -> Line<E> {
+    let mut line_iterator = comptime![0];
+    let mut sum = Line::empty(line_size);
+
+    #[unroll]
+    #[allow(clippy::explicit_counter_loop)]
+    for _ in 0..line_size {
+        sum[line_iterator] = plane_sum(line[line_iterator]);
+
+        comptime![line_iterator += 1];
+    }
+
+    sum
 }

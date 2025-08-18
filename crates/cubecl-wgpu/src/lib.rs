@@ -34,6 +34,7 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_matmul::testgen_matmul_simple!([flex32, f32]);
+    cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
