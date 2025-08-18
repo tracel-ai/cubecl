@@ -17,7 +17,7 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "cudarc/cuda-12050",
+    "cudarc/cuda-12080",
     "cudarc/dynamic-loading",
 ]
 ptx-wmma = []
