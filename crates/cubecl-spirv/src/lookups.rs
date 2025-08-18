@@ -7,7 +7,10 @@ use cubecl_core::{
 };
 use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};
-use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
+use rspirv::{
+    dr,
+    spirv::{self, BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word},
+};
 
 use crate::{
     MAX_VECTORIZATION, SpirvCompiler, SpirvTarget,
@@ -31,7 +34,7 @@ pub struct LookupTables {
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
     pub scalars: HashMap<(Id, ir::Elem), Word>,
-    pub array_types: HashMap<Word, Word>,
+    pub array_types: HashSet<Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<Id, Word>,
     pub variables: HashMap<Id, Word>,
@@ -154,10 +157,50 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.cube_size = self.const_u32(cube_dims.iter().product());
     }
 
+    fn dedup_const(&mut self, inst: &dr::Instruction) -> Option<Word> {
+        self.module_ref()
+            .types_global_values
+            .iter()
+            .find(|it| {
+                it.class == inst.class
+                    && it.result_type == inst.result_type
+                    && it.operands == inst.operands
+            })
+            .and_then(|it| it.result_id)
+    }
+
+    pub fn dedup_constant_bit32(&mut self, ty: Word, val: u32) -> Word {
+        let inst = dr::Instruction::new(
+            spirv::Op::Constant,
+            Some(ty),
+            None,
+            vec![dr::Operand::LiteralBit32(val)],
+        );
+        if let Some(id) = self.dedup_const(&inst) {
+            id
+        } else {
+            self.constant_bit32(ty, val)
+        }
+    }
+
+    pub fn dedup_constant_bit64(&mut self, ty: Word, val: u64) -> Word {
+        let inst = dr::Instruction::new(
+            spirv::Op::Constant,
+            Some(ty),
+            None,
+            vec![dr::Operand::LiteralBit64(val)],
+        );
+        if let Some(id) = self.dedup_const(&inst) {
+            id
+        } else {
+            self.constant_bit64(ty, val)
+        }
+    }
+
     pub fn const_u32(&mut self, value: u32) -> Word {
         let ty = Item::Scalar(Elem::Int(32, false));
         let ty_id = ty.id(self);
-        self.constant_bit32(ty_id, value)
+        self.dedup_constant_bit32(ty_id, value)
     }
 
     pub fn insert_global(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {

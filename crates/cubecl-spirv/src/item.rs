@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
-use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, Scope, StorageClass, Word};
+use rspirv::spirv::{Capability, CooperativeMatrixUse, Scope, StorageClass, Word};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 
@@ -29,27 +29,13 @@ impl Item {
                 b.type_vector(elem, *vec)
             }
             Item::Array(item, len) => {
-                let size = item.size();
                 let item = item.id(b);
                 let len = b.const_u32(*len);
-                let ty = b.type_array(item, len);
-                if !b.state.array_types.contains_key(&ty) {
-                    b.decorate(ty, Decoration::ArrayStride, vec![size.into()]);
-                    b.state.array_types.insert(ty, ty);
-                }
-                ty
+                b.type_array(item, len)
             }
             Item::RuntimeArray(item) => {
-                let size = item.size();
                 let item = item.id(b);
-                if let Some(existing) = b.state.array_types.get(&item) {
-                    *existing
-                } else {
-                    let ty = b.type_runtime_array(item);
-                    b.decorate(ty, Decoration::ArrayStride, vec![size.into()]);
-                    b.state.array_types.insert(item, ty);
-                    ty
-                }
+                b.type_runtime_array(item)
             }
             Item::Struct(vec) => {
                 let items: Vec<_> = vec.iter().map(|item| item.id(b)).collect();
@@ -299,8 +285,8 @@ impl Elem {
             Elem::Bool if value.as_u64() != 0 => b.constant_true(ty),
             Elem::Bool => b.constant_false(ty),
             _ => match value {
-                ConstVal::Bit32(val) => b.constant_bit32(ty, val),
-                ConstVal::Bit64(val) => b.constant_bit64(ty, val),
+                ConstVal::Bit32(val) => b.dedup_constant_bit32(ty, val),
+                ConstVal::Bit64(val) => b.dedup_constant_bit64(ty, val),
             },
         }
     }

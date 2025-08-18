@@ -40,6 +40,14 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
+impl<'a, R: Runtime> Clone for TensorHandleRef<'a, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, R: Runtime> Copy for TensorHandleRef<'a, R> {}
+
 impl<R: Runtime> TensorHandleRef<'_, R> {
     pub fn size(&self) -> usize {
         self.shape.iter().product()
