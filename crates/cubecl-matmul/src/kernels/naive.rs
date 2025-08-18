@@ -2,14 +2,17 @@
 //!
 //! Each local unit will compute a single element of the output matrix.
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{
+    self as cubecl,
+    ir::{Elem, IntKind, UIntKind},
+};
 
 use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 
 use crate::components::{MatmulAvailabilityError, MatmulSetupError};
 
 #[cube(launch_unchecked)]
-fn matmul_kernel<I: Numeric, O: Numeric>(
+fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
     lhs: &Tensor<Line<I>>,
     rhs: &Tensor<Line<I>>,
     out: &mut Tensor<O>,
@@ -57,7 +60,9 @@ fn matmul_kernel<I: Numeric, O: Numeric>(
         let lhs_index = row * lhs.stride(rank - 2) / line_size + i + offset_lhs;
         let rhs_index = col * rhs.stride(rank - 1) / line_size + i + offset_rhs;
 
-        sum += Line::cast_from(lhs[lhs_index] * rhs[rhs_index]);
+        sum += Line::cast_from(
+            Line::<M>::cast_from(lhs[lhs_index]) * Line::<M>::cast_from(rhs[rhs_index]),
+        );
     }
 
     let mut out_index = row * out.stride(rank - 2) + col;
@@ -159,8 +164,17 @@ pub fn launch<R: Runtime, EI: Numeric, EO: Numeric>(
         false => 1,
     };
 
+    let launch = match EI::as_elem_native_unchecked() {
+        Elem::Int(IntKind::I8) => matmul_kernel::launch_unchecked::<EI, i16, EO, R>,
+        Elem::Int(IntKind::I16) | Elem::UInt(UIntKind::U16) => {
+            matmul_kernel::launch_unchecked::<EI, i32, EO, R>
+        }
+        Elem::UInt(UIntKind::U8) => matmul_kernel::launch_unchecked::<EI, u16, EO, R>,
+        _ => matmul_kernel::launch_unchecked::<EI, EI, EO, R>,
+    };
+
     unsafe {
-        matmul_kernel::launch_unchecked::<EI, EO, R>(
+        launch(
             client,
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
