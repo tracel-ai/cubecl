@@ -123,14 +123,14 @@ impl MatmulPrecision for i8 {
     type Lhs = (i8, i8);
     type Rhs = (i8, i8);
     type EA = i32;
-    type EO = i8;
+    type EO = i32;
 }
 
 impl MatmulPrecision for i16 {
     type Lhs = (i16, i16);
     type Rhs = (i16, i16);
     type EA = i32;
-    type EO = i16;
+    type EO = i32;
 }
 
 impl MatmulPrecision for i32 {

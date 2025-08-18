@@ -7,7 +7,7 @@ use cubecl_core::{
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{LhsG, MatmulSetupError, RhsG, tile::accelerated::AcceleratedMatmul},
+    components::{EO, LhsG, MatmulSetupError, RhsG, tile::accelerated::AcceleratedMatmul},
     kernels::layered::{
         Selection,
         double_buffering::DoubleBufferingArgs,
@@ -302,7 +302,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
         }
         Strategy::Naive => {
             // Warning: this assumes Lhs, Rhs and Output have the same type
-            naive::launch_ref::<R, LhsG<MP>>(client, lhs.data(), rhs.data(), out)?;
+            naive::launch_ref::<R, LhsG<MP>, EO<MP>>(client, lhs.data(), rhs.data(), out)?;
             Ok(())
         }
         Strategy::Auto => {

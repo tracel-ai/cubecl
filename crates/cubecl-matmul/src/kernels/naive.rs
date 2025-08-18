@@ -9,10 +9,10 @@ use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matri
 use crate::components::{MatmulAvailabilityError, MatmulSetupError};
 
 #[cube(launch_unchecked)]
-fn matmul_kernel<N: Numeric>(
-    lhs: &Tensor<Line<N>>,
-    rhs: &Tensor<Line<N>>,
-    out: &mut Tensor<N>,
+fn matmul_kernel<I: Numeric, O: Numeric>(
+    lhs: &Tensor<Line<I>>,
+    rhs: &Tensor<Line<I>>,
+    out: &mut Tensor<O>,
     // number of dimensions not involved in the matmul
     #[comptime] num_batches: Option<u32>,
 ) {
@@ -49,7 +49,7 @@ fn matmul_kernel<N: Numeric>(
     offset_lhs /= line_size.runtime();
     offset_rhs /= line_size.runtime();
 
-    let mut sum = Line::empty(line_size).fill(N::from_int(0));
+    let mut sum = Line::empty(line_size).fill(O::from_int(0));
 
     k /= line_size.runtime();
 
@@ -57,7 +57,7 @@ fn matmul_kernel<N: Numeric>(
         let lhs_index = row * lhs.stride(rank - 2) / line_size + i + offset_lhs;
         let rhs_index = col * rhs.stride(rank - 1) / line_size + i + offset_rhs;
 
-        sum += lhs[lhs_index] * rhs[rhs_index];
+        sum += Line::cast_from(lhs[lhs_index] * rhs[rhs_index]);
     }
 
     let mut out_index = row * out.stride(rank - 2) + col;
@@ -65,7 +65,7 @@ fn matmul_kernel<N: Numeric>(
 
     let unroll_sum = line_size != 1;
     if unroll_sum {
-        let mut accum = N::from_int(0);
+        let mut accum = O::from_int(0);
         // we unroll the loop to sum `vectorization_factor` elements at once, which lets us
         // use SIMD instructions to speed up the computation
         #[unroll]
@@ -81,23 +81,23 @@ fn matmul_kernel<N: Numeric>(
 
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, E: Numeric>(
+pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulSetupError> {
-    let lhs = TensorHandle::<R, E>::from_ref(lhs);
-    let rhs = TensorHandle::<R, E>::from_ref(rhs);
+    let lhs = TensorHandle::<R, EI>::from_ref(lhs);
+    let rhs = TensorHandle::<R, EI>::from_ref(rhs);
 
-    launch(client, lhs, rhs, out)
+    launch::<R, EI, EO>(client, lhs, rhs, out)
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, E: Numeric>(
+pub fn launch<R: Runtime, EI: Numeric, EO: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, E>,
-    rhs: TensorHandle<R, E>,
+    lhs: TensorHandle<R, EI>,
+    rhs: TensorHandle<R, EI>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulSetupError> {
     let (cube_dim_x, cube_dim_y) = (32, 8);
@@ -109,7 +109,7 @@ pub fn launch<R: Runtime, E: Numeric>(
     let rhs_layout = matrix_batch_layout(&rhs.strides);
 
     let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
-        into_contiguous::<R, E>(client, &lhs.as_ref())
+        into_contiguous::<R, EI>(client, &lhs.as_ref())
     } else {
         lhs
     };
@@ -117,12 +117,12 @@ pub fn launch<R: Runtime, E: Numeric>(
     // we swap the dimensions to achieve memory-coalescing:
     // consecutive elements of a column in the original rhs tensor will now be stored
     // consecutively in memory, which allows to fetch them with fewer memory instructions
-    let correct_rhs_layout = |mut rhs: TensorHandle<R, E>| {
+    let correct_rhs_layout = |mut rhs: TensorHandle<R, EI>| {
         let rhs_original_shape = rhs.shape.to_vec();
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
 
-        let mut rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
+        let mut rhs = into_contiguous::<R, EI>(client, &rhs.as_ref());
 
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
@@ -160,7 +160,7 @@ pub fn launch<R: Runtime, E: Numeric>(
     };
 
     unsafe {
-        matmul_kernel::launch_unchecked::<E, R>(
+        matmul_kernel::launch_unchecked::<EI, EO, R>(
             client,
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
