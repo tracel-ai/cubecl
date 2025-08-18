@@ -120,6 +120,7 @@ impl<R: Runtime, E: Numeric> Clone for MatmulInputHandle<R, E> {
     }
 }
 
+#[derive(Debug)]
 pub enum MatmulInputHandleRef<'a, R: Runtime> {
     Normal(TensorHandleRef<'a, R>),
     Quantized {
@@ -128,8 +129,31 @@ pub enum MatmulInputHandleRef<'a, R: Runtime> {
     },
 }
 
+impl<'a, R: Runtime> Clone for MatmulInputHandleRef<'a, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, R: Runtime> Copy for MatmulInputHandleRef<'a, R> {}
+
 impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
+    pub fn new(data: TensorHandleRef<'a, R>) -> Self {
+        Self::Normal(data)
+    }
+
+    pub fn quantized(data: TensorHandleRef<'a, R>, scale: TensorHandleRef<'a, R>) -> Self {
+        Self::Quantized { data, scale }
+    }
+
     pub fn data(&self) -> &TensorHandleRef<'a, R> {
+        match self {
+            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Quantized { data, .. } => data,
+        }
+    }
+
+    pub fn data_mut(&mut self) -> &mut TensorHandleRef<'a, R> {
         match self {
             MatmulInputHandleRef::Normal(handle) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
