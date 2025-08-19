@@ -58,16 +58,9 @@ impl<
 
         let prev_m = state.m;
         let prev_l = state.l;
-        let row = UNIT_POS_X / 4;
-        let index_0 = 2 * UNIT_POS_X;
-        let index_1 = index_0 + 1;
-        let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
-
-        comment!("Tile-Execute: Put K in fragment from reader for Score Matmul");
 
         SM::fill_rhs(key_tile, key_value.key_mut(), config.score_config());
 
-        comment!("Tile-Execute: Score matmul S=Q·K+0");
         SM::execute(
             &query.fragment,
             key_value.key(),
@@ -75,67 +68,18 @@ impl<
             config.score_config(),
         );
 
-        comment!(
-            "Tile-Execute: Make sure we work with the right registers for scores, and scale them"
-        );
-        // TODO work on scores register directly
-        SM::write_results::<AP::EA>(
-            score_prob.score(),
-            &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
-            config.score_config(),
-        );
-        tmp_smem[index_0] *= inv_sqrt_dk;
-        tmp_smem[index_1] *= inv_sqrt_dk;
+        score_prob.multiply_score(inv_sqrt_dk);
+        let new_m = score_prob.row_max(prev_m);
+        score_prob.to_prob(new_m);
+        let row_sum = score_prob.row_sum();
 
-        comment!("Tile-Execute: Compute running m");
-        let mut m = prev_m;
-        for i in 0..8 {
-            let ts = tmp_smem[row * 8 + i];
-            if ts > m {
-                m = ts;
-            }
-        }
-
-        comment!("Tile-Execute: Compute P and put it to fragment for Value Matmul");
-        tmp_smem[index_0] = Exp::exp(tmp_smem[index_0] - m);
-        tmp_smem[index_1] = Exp::exp(tmp_smem[index_1] - m);
-        let p = Tile::<AP::ES> {
-            slice: tmp_smem.to_slice().try_cast_unchecked(),
-            stride: 8,
-            layout: MatrixLayout::RowMajor,
-        };
-        VM::fill_lhs(&p, score_prob.prob_mut(), config.value_config());
-
-        comment!("Tile-Execute: Compute running l");
-        let epm = Exp::exp(prev_m - m);
-        let mut rowsum = AP::EA::from_int(0);
-        for i in 0..8 {
-            rowsum += tmp_smem[row * 8 + i];
-        }
-        let l = epm * prev_l + rowsum;
-
-        comment!("Tile-Execute: Put V in fragment from reader for Value Matmul");
+        let exp_m_diff = Exp::exp(prev_m - new_m);
+        let new_l = exp_m_diff * prev_l + row_sum;
 
         VM::fill_rhs(value_tile, key_value.value_mut(), config.value_config());
 
-        comment!("Tile-Execute: Scale acc by epm");
-        // TODO modify registers directly when we are certain we are in the right row
-        // Instead of storing modifying then refilling
-        VM::write_results::<AP::EA>(
-            &accumulator.fragment,
-            &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
-            config.value_config(),
-        );
-        tmp_smem[index_0] *= epm;
-        tmp_smem[index_1] *= epm;
-        let tile = Tile::<AP::EA> {
-            slice: tmp_smem.to_slice().try_cast_unchecked(),
-            stride: 8,
-            layout: MatrixLayout::RowMajor,
-        };
-        VM::fill_accumulator(&tile, &mut accumulator.fragment, config.value_config());
+        accumulator.scale(exp_m_diff);
 
-        comment!("Tile-Execute: Value Matmul O = P·V + scaled_O");
         VM::execute(
             score_prob.prob(),
             key_value.value(),
@@ -143,8 +87,8 @@ impl<
             config.value_config(),
         );
 
-        state.m = m;
-        state.l = l;
+        state.m = new_m;
+        state.l = new_l;
     }
 
     fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
