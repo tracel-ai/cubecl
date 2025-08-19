@@ -301,7 +301,6 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
         }
         Strategy::Naive => {
-            // Warning: this assumes Lhs, Rhs and Output have the same type
             naive::launch_ref::<R, LhsG<MP>, EO<MP>>(client, lhs.data(), rhs.data(), out)?;
             Ok(())
         }
