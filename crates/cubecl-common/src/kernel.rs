@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const PLANE_DIM_APPROX: usize = 16;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub struct CubeDim {
     pub x: u32,
