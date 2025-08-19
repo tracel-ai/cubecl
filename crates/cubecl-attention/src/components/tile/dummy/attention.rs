@@ -5,13 +5,12 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
+use crate::components::tile::dummy::ScoreFragment;
 use crate::components::tile::{ScoreMatmul, TileAttention, TileAttentionConfig, ValueMatmul};
 use crate::components::{
     AttentionPrecision,
     global::GlobalAttentionConfig,
-    tile::dummy::{
-        AccumulatorFragment, DummyWriter, KeyValueFragment, QueryFragment, ScoreProbFragment,
-    },
+    tile::dummy::{AccumulatorFragment, DummyWriter, KeyValueFragment, QueryFragment},
 };
 
 pub struct DummyTileAttention<
@@ -39,7 +38,7 @@ impl<
 
     type Query = QueryFragment<AP, SM>;
     type KeyValue = KeyValueFragment<AP, SM, VM>;
-    type ScoreProb = ScoreProbFragment<AP, SM, VM>;
+    type Score = ScoreFragment<AP, SM>;
     type Accumulator = AccumulatorFragment<AP, VM>;
 
     fn execute(
@@ -47,7 +46,7 @@ impl<
         value_tile: &Tile<AP::ES>,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
-        score_prob: &mut Self::ScoreProb,
+        score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
         #[comptime] config: Self::Config,
@@ -64,14 +63,14 @@ impl<
         SM::execute(
             &query.fragment,
             key_value.key(),
-            score_prob.score_mut(),
+            &mut score.fragment,
             config.score_config(),
         );
 
-        score_prob.multiply_score(inv_sqrt_dk);
-        let new_m = score_prob.row_max(prev_m);
-        score_prob.to_prob(new_m);
-        let row_sum = score_prob.row_sum();
+        score.multiply_score(inv_sqrt_dk);
+        let new_m = score.row_max(prev_m);
+        let prob = score.to_prob::<VM>(new_m, config.value_config());
+        let row_sum = prob.row_sum();
 
         let exp_m_diff = Exp::exp(prev_m - new_m);
         let new_l = exp_m_diff * prev_l + row_sum;
@@ -81,7 +80,7 @@ impl<
         accumulator.scale(exp_m_diff);
 
         VM::execute(
-            score_prob.prob(),
+            &prob.fragment,
             key_value.value(),
             &mut accumulator.fragment,
             config.value_config(),
@@ -153,16 +152,11 @@ impl<
     fn init_fragments(
         query_reader: QueryRegisterReader<AP>,
         #[comptime] config: Self::Config,
-    ) -> (
-        Self::Query,
-        Self::KeyValue,
-        Self::ScoreProb,
-        Self::Accumulator,
-    ) {
+    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
         (
             Self::Query::new(query_reader, config.score_config()),
             Self::KeyValue::new::<Self::Config>(config),
-            Self::ScoreProb::new::<Self::Config>(config),
+            Self::Score::new(config.score_config()),
             Self::Accumulator::new(config.value_config()),
         )
     }

@@ -52,7 +52,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type Query: CubeType;
     type KeyValue: CubeType;
-    type ScoreProb: CubeType;
+    type Score: CubeType;
     type Accumulator: CubeType;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
@@ -62,7 +62,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         value_tile: &Tile<AP::ES>,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
-        score_prob: &mut Self::ScoreProb,
+        score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
         #[comptime] config: Self::Config,
@@ -86,12 +86,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_fragments(
         query_reader: QueryRegisterReader<AP>,
         #[comptime] config: Self::Config,
-    ) -> (
-        Self::Query,
-        Self::KeyValue,
-        Self::ScoreProb,
-        Self::Accumulator,
-    );
+    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
 }
 
 /// Configuration for the Tile Attention level

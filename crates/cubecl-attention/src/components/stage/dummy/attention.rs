@@ -26,7 +26,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     type State = TA::State;
     type Query = TA::Query;
     type KeyValue = TA::KeyValue;
-    type ScoreProb = TA::ScoreProb;
+    type Score = TA::Score;
     type Accumulator = TA::Accumulator;
     type Writer = TA::Writer;
 
@@ -35,7 +35,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         value_reader: &Self::ValueReader,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
-        score_prob: &mut Self::ScoreProb,
+        score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
         #[comptime] config: Self::Config,
@@ -86,12 +86,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     fn init_fragments(
         query_reader: QueryRegisterReader<AP>,
         #[comptime] config: Self::Config,
-    ) -> (
-        Self::Query,
-        Self::KeyValue,
-        Self::ScoreProb,
-        Self::Accumulator,
-    ) {
+    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
         TA::init_fragments(query_reader, config.tile_config())
     }
 }
