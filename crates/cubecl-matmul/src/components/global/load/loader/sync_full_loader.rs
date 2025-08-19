@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::InputPrecision;
 use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::load::LoadingJob;
@@ -14,6 +13,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
+use crate::components::{InputPrecision, global::memory::SimpleGlobalLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -28,7 +28,7 @@ pub trait SyncFullLoadingStrategy:
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: LoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: LoadingJob<IP, SimpleGlobalLayout, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: InputPrecision, G: GlobalConfig>(
@@ -43,7 +43,7 @@ pub trait SyncFullLoadingStrategy:
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
-    tensor_reader: TensorReader<IP::Global>,
+    tensor_reader: TensorReader<IP::Global, SimpleGlobalLayout>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
@@ -68,7 +68,10 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let global_layout =
+            SimpleGlobalLayout::new(&tensor, config.global_memory_config(ident).matrix_layout);
+        let tensor_reader =
+            TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),

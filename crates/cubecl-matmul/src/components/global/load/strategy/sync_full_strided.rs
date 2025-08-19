@@ -1,7 +1,7 @@
-use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{load::SyncFullLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -89,11 +89,13 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStridedJob {
+impl<IP: InputPrecision> LoadingJob<IP, SimpleGlobalLayout, StridedTilingLayout>
+    for SyncFullStridedJob
+{
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {

@@ -1,9 +1,9 @@
 use super::StageBuffer;
-use crate::components::global::CopyMechanism;
 use crate::components::global::base::GlobalConfig;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
+use crate::components::global::{CopyMechanism, memory::SimpleGlobalLayout};
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
@@ -22,7 +22,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, SimpleGlobalLayout, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: InputPrecision, G: GlobalConfig>(
@@ -46,7 +46,7 @@ pub struct AsyncBufferLoader<
     CM: CopyMechanism<IP::Stage>,
     L: AsyncPartialLoadingStrategy,
 > {
-    tensor_reader: TensorReader<IP::Global>,
+    tensor_reader: TensorReader<IP::Global, SimpleGlobalLayout>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
@@ -77,7 +77,10 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let global_layout =
+            SimpleGlobalLayout::new(&tensor, config.global_memory_config(ident).matrix_layout);
+        let tensor_reader =
+            TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((

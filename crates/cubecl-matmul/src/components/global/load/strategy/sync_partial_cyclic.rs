@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{load::SyncPartialLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme};
 use cubecl_core as cubecl;
@@ -130,13 +130,13 @@ pub struct SyncPartialCyclicJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
-    for SyncPartialCyclicJob
+impl<IP: InputPrecision, TO: TilingOrder>
+    LoadingJob<IP, SimpleGlobalLayout, ContiguousTilingLayout<TO>> for SyncPartialCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -161,7 +161,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
 pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
-    tensor_reader: &TensorReader<IP::Global>,
+    tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
     stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {

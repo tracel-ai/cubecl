@@ -1,7 +1,10 @@
-use crate::components::global::memory::TensorReader;
-use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::{StageMemory, TilingLayout};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent};
+use crate::components::{global::memory::TensorReader, layout::Layout};
+use crate::components::{
+    global::{CopyMechanism, GlobalConfig},
+    layout::Coords2d,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -11,12 +14,14 @@ use cubecl_core::prelude::*;
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+pub trait LoadingJob<IP: InputPrecision, LayoutG: Layout<Coordinates = Coords2d>, TL: TilingLayout>:
+    CubeType + Copy + Clone
+{
     /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage_memory: &mut StageMemory<IP::Stage, TL>,
         #[comptime] config: G,
     );
@@ -31,12 +36,17 @@ pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Cl
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait AsyncLoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+pub trait AsyncLoadingJob<
+    IP: InputPrecision,
+    LayoutG: Layout<Coordinates = Coords2d>,
+    TL: TilingLayout,
+>: CubeType + Copy + Clone
+{
     /// Execute the `task_id`th loading task
     fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage_memory: &mut StageMemory<IP::Stage, TL>,
         mechanism: &CM,
         #[comptime] config: G,

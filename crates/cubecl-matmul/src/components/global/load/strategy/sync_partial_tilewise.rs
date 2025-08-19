@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::global::RoleRule;
 use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
@@ -159,13 +159,13 @@ pub struct SyncPartialTilewiseJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
-    for SyncPartialTilewiseJob
+impl<IP: InputPrecision, TO: TilingOrder>
+    LoadingJob<IP, SimpleGlobalLayout, ContiguousTilingLayout<TO>> for SyncPartialTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -228,7 +228,7 @@ impl SyncPartialTilewiseJob {
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

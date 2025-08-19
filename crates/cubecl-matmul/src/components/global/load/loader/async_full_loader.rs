@@ -1,12 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
-use crate::components::global::memory::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig};
+use crate::components::global::{
+    load::{AsyncLoadingJob, LoadingValidation},
+    memory::SimpleGlobalLayout,
+};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
 use crate::components::{InputPrecision, MatmulIdent};
+use crate::components::{global::memory::TensorReader, layout::Layout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -20,7 +23,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, SimpleGlobalLayout, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: InputPrecision, G: GlobalConfig>(
@@ -44,7 +47,7 @@ pub struct AsyncFullLoader<
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
 > {
-    tensor_reader: TensorReader<IP::Global>,
+    tensor_reader: TensorReader<IP::Global, SimpleGlobalLayout>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
@@ -76,7 +79,11 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let global_layout =
+            SimpleGlobalLayout::new(&tensor, config.global_memory_config(ident).matrix_layout);
+        let (shape_x, shape_y) = SimpleGlobalLayout::shape(&global_layout);
+        let tensor_reader =
+            TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
@@ -88,8 +95,8 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
-                    if tensor_reader.x_offset.read()
-                        > tensor_reader.shape_x - config.tiling_scheme().elements_in_stage_m()
+                    if tensor_reader.row_offset.read()
+                        > shape_x - config.tiling_scheme().elements_in_stage_m()
                     {
                         stage_memory.clear_all::<G>(ident, config);
                     }
@@ -99,8 +106,8 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
-                    if tensor_reader.y_offset.read()
-                        > tensor_reader.shape_y - config.tiling_scheme().elements_in_stage_n()
+                    if tensor_reader.col_offset.read()
+                        > shape_y - config.tiling_scheme().elements_in_stage_n()
                     {
                         stage_memory.clear_all::<G>(ident, config);
                     }
