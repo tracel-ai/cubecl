@@ -260,20 +260,9 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         let view_y = load_offsets.1 + self.col_offset.read();
 
         let offset = L::to_linear(&self.layout, (view_x, view_y));
-        let read_pos = (offset + self.batch_offset) / line_size;
         let (shape_x, shape_y) = L::shape(&self.layout);
 
-        // if UNIT_POS == 0 {
-        //     debug_print!(
-        //         "view_x: %d, view_y: %d, offset: %d, read_pos: %d, shape_x: %d, shape_y: %d\n",
-        //         view_x,
-        //         view_y,
-        //         offset,
-        //         read_pos,
-        //         shape_x,
-        //         shape_y
-        //     );
-        // }
+        let read_pos = (offset + self.batch_offset) / line_size;
 
         match comptime!((config.check_row_bounds, config.check_col_bounds)) {
             (true, true) => read_masked::<Line<EG>>(
