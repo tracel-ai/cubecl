@@ -1,4 +1,3 @@
-use crate::components::global::Specializer;
 use crate::components::global::load::{
     StageBuffer, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
     SyncPartialLoadingStrategy,
@@ -8,6 +7,7 @@ use crate::components::global::multi_stage::double_buffer_execution::{
 };
 use crate::components::global::multi_stage::ordered::LL;
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::{LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS, stage};
@@ -47,7 +47,7 @@ where
             >,
             RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
         >,
-    RL: SyncPartialLoadingStrategy,
+    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP::Lhs, Self::Config, LL>;
@@ -167,8 +167,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         SyncFullLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs,
+            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -185,8 +187,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs,
+            layout,
             x_offset,
             y_offset,
             batch_offset,

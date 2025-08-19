@@ -259,31 +259,18 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         let view_x = load_offsets.0 + self.row_offset.read();
         let view_y = load_offsets.1 + self.col_offset.read();
 
-        let offset = L::to_linear(&self.layout, (view_x, view_y));
-        let (shape_x, shape_y) = L::shape(&self.layout);
+        let (offset, in_bounds) = L::to_linear_checked(&self.layout, (view_x, view_y));
 
         let read_pos = (offset + self.batch_offset) / line_size;
 
         match comptime!((config.check_row_bounds, config.check_col_bounds)) {
-            (true, true) => read_masked::<Line<EG>>(
-                view_x < shape_x && view_y < shape_y,
-                self.tensor.as_slice(0, self.tensor.len()),
-                read_pos,
-                Line::cast_from(0),
-            ),
-            (true, false) => read_masked::<Line<EG>>(
-                view_x < shape_x,
-                self.tensor.as_slice(0, self.tensor.len()),
-                read_pos,
-                Line::cast_from(0),
-            ),
-            (false, true) => read_masked::<Line<EG>>(
-                view_y < shape_y,
-                self.tensor.as_slice(0, self.tensor.len()),
-                read_pos,
-                Line::cast_from(0),
-            ),
             (false, false) => self.tensor.read(read_pos),
+            _ => read_masked::<Line<EG>>(
+                in_bounds,
+                self.tensor.as_slice(0, self.tensor.len()),
+                read_pos,
+                Line::cast_from(0),
+            ),
         }
     }
 }

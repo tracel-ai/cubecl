@@ -3,6 +3,7 @@ use crate::components::{
     global::{
         GlobalMatmul, ZeroAccumulatorLoader,
         load::{SyncFullLoader, SyncFullLoadingStrategy},
+        memory::SimpleGlobalLayout,
         single_stage::simple::SimpleConfig,
     },
     stage::{FullStageToTileReader, StageMatmul},
@@ -35,8 +36,8 @@ where
             LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
         >,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    RL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type Config = SimpleConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP::Lhs, Self::Config, LL>;
@@ -95,8 +96,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         Self::LhsLoader::new(
             lhs,
+            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -113,8 +116,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         Self::RhsLoader::new(
             rhs,
+            layout,
             x_offset,
             y_offset,
             batch_offset,

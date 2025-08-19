@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulIdent;
+use crate::components::InputPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
@@ -13,7 +13,10 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
-use crate::components::{InputPrecision, global::memory::SimpleGlobalLayout};
+use crate::components::{
+    MatmulIdent,
+    layout::{Coords2d, Layout},
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -24,11 +27,12 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 pub trait SyncFullLoadingStrategy:
     'static + Send + Sync + Clone + LoadingValidation + LoadMaxRoundPlaneCount
 {
+    type GlobalLayout: Layout<Coordinates = Coords2d> + Clone;
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: LoadingJob<IP, SimpleGlobalLayout, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: LoadingJob<IP, Self::GlobalLayout, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: InputPrecision, G: GlobalConfig>(
@@ -43,7 +47,7 @@ pub trait SyncFullLoadingStrategy:
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
-    tensor_reader: TensorReader<IP::Global, SimpleGlobalLayout>,
+    tensor_reader: TensorReader<IP::Global, L::GlobalLayout>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
@@ -57,6 +61,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
     /// Create a new SyncFullLoader
     pub fn new(
         tensor: VirtualTensor<IP::Global>,
+        global_layout: L::GlobalLayout,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -68,7 +73,6 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let global_layout = SimpleGlobalLayout::new(&tensor);
         let tensor_reader =
             TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
 

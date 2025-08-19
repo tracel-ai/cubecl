@@ -3,6 +3,7 @@ use crate::components::{
     error::MatmulSetupError,
     global::{
         load::SyncFullLoadingStrategy,
+        memory::SimpleGlobalLayout,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
     stage::StageConfig,
@@ -30,8 +31,8 @@ pub struct SimpleMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    RL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;

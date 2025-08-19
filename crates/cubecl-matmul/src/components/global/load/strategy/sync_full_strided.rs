@@ -1,10 +1,15 @@
-use crate::components::global::memory::TensorReader;
+use std::marker::PhantomData;
+
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{load::SyncFullLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::{
+    global::memory::TensorReader,
+    layout::{Coords2d, Layout},
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -13,9 +18,12 @@ use super::{LoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the stage using all planes,
 /// keeping the original layout, making each tile strided
-pub struct SyncFullStridedLoading {}
+pub struct SyncFullStridedLoading<LayoutG = SimpleGlobalLayout> {
+    #[cube(comptime)]
+    _layout: PhantomData<LayoutG>,
+}
 
-impl LoadingValidation for SyncFullStridedLoading {
+impl<LayoutG> LoadingValidation for SyncFullStridedLoading<LayoutG> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
 
@@ -33,7 +41,7 @@ impl LoadingValidation for SyncFullStridedLoading {
     }
 }
 
-impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
+impl<LayoutG> LoadMaxRoundPlaneCount for SyncFullStridedLoading<LayoutG> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
@@ -46,7 +54,10 @@ impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for SyncFullStridedLoading {
+impl<LayoutG: Layout<Coordinates = Coords2d>> SyncFullLoadingStrategy
+    for SyncFullStridedLoading<LayoutG>
+{
+    type GlobalLayout = LayoutG;
     type TilingLayout = StridedTilingLayout;
     type Job<IP: InputPrecision> = SyncFullStridedJob;
 
@@ -89,13 +100,13 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> LoadingJob<IP, SimpleGlobalLayout, StridedTilingLayout>
-    for SyncFullStridedJob
+impl<IP: InputPrecision, LayoutG: Layout<Coordinates = Coords2d>>
+    LoadingJob<IP, LayoutG, StridedTilingLayout> for SyncFullStridedJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {

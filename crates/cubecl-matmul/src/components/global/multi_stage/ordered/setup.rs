@@ -1,4 +1,3 @@
-use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::load::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
@@ -6,6 +5,7 @@ use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
+use crate::components::{error::MatmulSetupError, global::memory::SimpleGlobalLayout};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -24,7 +24,7 @@ pub struct OrderedDoubleBufferingMatmulFamily<
 impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = PartialReaderFamily>,
-    RL: SyncPartialLoadingStrategy,
+    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,

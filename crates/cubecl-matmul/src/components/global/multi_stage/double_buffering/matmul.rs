@@ -1,10 +1,10 @@
-use crate::components::global::Specializer;
 use crate::components::global::load::{StageBuffer, SyncPartialLoader, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::{LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
@@ -20,8 +20,8 @@ use std::marker::PhantomData;
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LL: SyncPartialLoadingStrategy,
-    RL: SyncPartialLoadingStrategy,
+    LL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -38,8 +38,8 @@ where
             LhsReader = PartialStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
         >,
-    LL: SyncPartialLoadingStrategy,
-    RL: SyncPartialLoadingStrategy,
+    LL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncPartialLoader<MP::Lhs, Self::Config, LL>;
@@ -157,8 +157,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         SyncPartialLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs,
+            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -175,8 +177,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs,
+            layout,
             x_offset,
             y_offset,
             batch_offset,

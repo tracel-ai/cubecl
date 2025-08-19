@@ -11,6 +11,7 @@ use crate::{
         },
         global::{
             load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            memory::SimpleGlobalLayout,
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
@@ -45,8 +46,8 @@ pub struct SimpleArgs {
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
     TMM: TileMatmulFamily,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    RL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;

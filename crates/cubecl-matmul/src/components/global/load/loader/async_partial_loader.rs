@@ -77,7 +77,7 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let global_layout = SimpleGlobalLayout::new(&tensor);
+        let global_layout = SimpleGlobalLayout::new(&tensor, config.global_memory_config(ident));
         let tensor_reader =
             TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
 

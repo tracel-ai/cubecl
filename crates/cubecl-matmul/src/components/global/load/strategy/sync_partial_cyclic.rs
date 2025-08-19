@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::components::global::memory::TensorReader;
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{load::SyncPartialLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{global::memory::TensorReader, layout::Coords2d};
+use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, layout::Layout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -14,12 +14,14 @@ use super::{LoaderMode, LoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct SyncPartialCyclicLoading<T: TilingOrder> {
+pub struct SyncPartialCyclicLoading<T: TilingOrder, LayoutG = SimpleGlobalLayout> {
     #[cube(comptime)]
     _phantom: PhantomData<T>,
+    #[cube(comptime)]
+    _layout: PhantomData<LayoutG>,
 }
 
-impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
+impl<TO: TilingOrder, LayoutG> LoadingValidation for SyncPartialCyclicLoading<TO, LayoutG> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
@@ -48,7 +50,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
     }
 }
 
-impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
+impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO, LayoutG> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
@@ -63,7 +65,10 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
+impl<TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>> SyncPartialLoadingStrategy
+    for SyncPartialCyclicLoading<TO, LayoutG>
+{
+    type GlobalLayout = LayoutG;
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<IP: InputPrecision> = SyncPartialCyclicJob;
 
@@ -130,13 +135,13 @@ pub struct SyncPartialCyclicJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder>
-    LoadingJob<IP, SimpleGlobalLayout, ContiguousTilingLayout<TO>> for SyncPartialCyclicJob
+impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>>
+    LoadingJob<IP, LayoutG, ContiguousTilingLayout<TO>> for SyncPartialCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -144,10 +149,22 @@ impl<IP: InputPrecision, TO: TilingOrder>
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+            load_and_store_line::<IP, TO, G, LayoutG>(
+                this,
+                unit_position,
+                tensor_reader,
+                stage,
+                config,
+            );
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+                load_and_store_line::<IP, TO, G, LayoutG>(
+                    this,
+                    unit_position,
+                    tensor_reader,
+                    stage,
+                    config,
+                );
             }
         }
     }
@@ -158,10 +175,15 @@ impl<IP: InputPrecision, TO: TilingOrder>
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<
+    IP: InputPrecision,
+    TO: TilingOrder,
+    G: GlobalConfig,
+    LayoutG: Layout<Coordinates = Coords2d>,
+>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
-    tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+    tensor_reader: &TensorReader<IP::Global, LayoutG>,
     stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {

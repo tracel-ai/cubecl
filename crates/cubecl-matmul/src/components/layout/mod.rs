@@ -8,17 +8,13 @@ pub trait Coordinates: CubeType {
 }
 
 #[cube]
-pub trait Layout: CubeType {
+pub trait Layout: CubeType + Clone + Send + Sync + 'static {
     type Coordinates: Coordinates;
 
     fn to_linear(this: &Self, coords: Self::Coordinates) -> u32;
+    fn to_linear_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool);
     fn from_linear(this: &Self, idx: u32) -> Self::Coordinates;
     fn shape(this: &Self) -> Self::Coordinates;
-    fn offset(
-        this: &Self,
-        coords: Self::Coordinates,
-        offset: Self::Coordinates,
-    ) -> Self::Coordinates;
 }
 
 pub type Coords2d = (u32, u32);

@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncPartialLoadingStrategy;
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
+use crate::components::{global::load::SyncPartialLoadingStrategy, layout::Coords2d};
+use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, layout::Layout};
 use crate::components::{
     global::{GlobalConfig, memory::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
@@ -24,12 +24,14 @@ use super::{LoadingJob, LoadingValidation};
 /// row or column of the same stage, skipping over the memory region of the other stage.
 ///
 /// Only supports RowMajorTilingOrder for Lhs and ColMajorTilingOrder for Rhs
-pub struct SyncPartialTilewiseLoading<T: TilingOrder> {
+pub struct SyncPartialTilewiseLoading<T: TilingOrder, LayoutG = SimpleGlobalLayout> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
+    #[cube(comptime)]
+    _layout: PhantomData<LayoutG>,
 }
 
-impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> {
+impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO, LayoutG> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
@@ -40,7 +42,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> 
     }
 }
 
-impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
+impl<T: TilingOrder, LayoutG> LoadingValidation for SyncPartialTilewiseLoading<T, LayoutG> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
@@ -89,7 +91,10 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
+impl<TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>> SyncPartialLoadingStrategy
+    for SyncPartialTilewiseLoading<TO, LayoutG>
+{
+    type GlobalLayout = LayoutG;
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<IP: InputPrecision> = SyncPartialTilewiseJob;
 
@@ -159,13 +164,13 @@ pub struct SyncPartialTilewiseJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder>
-    LoadingJob<IP, SimpleGlobalLayout, ContiguousTilingLayout<TO>> for SyncPartialTilewiseJob
+impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>>
+    LoadingJob<IP, LayoutG, ContiguousTilingLayout<TO>> for SyncPartialTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -204,7 +209,7 @@ impl<IP: InputPrecision, TO: TilingOrder>
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
 
-        SyncPartialTilewiseJob::load_and_store_line::<IP, TO, G>(
+        SyncPartialTilewiseJob::load_and_store_line::<IP, TO, G, LayoutG>(
             this,
             tile,
             line_index_within_tile,
@@ -223,12 +228,17 @@ impl<IP: InputPrecision, TO: TilingOrder>
 #[cube]
 impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<
+        IP: InputPrecision,
+        TO: TilingOrder,
+        G: GlobalConfig,
+        LayoutG: Layout<Coordinates = Coords2d>,
+    >(
         this: &Self,
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

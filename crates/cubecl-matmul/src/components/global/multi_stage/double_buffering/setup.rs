@@ -1,4 +1,3 @@
-use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::double_buffering::{
@@ -7,6 +6,7 @@ use crate::components::global::multi_stage::double_buffering::{
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
+use crate::components::{error::MatmulSetupError, global::memory::SimpleGlobalLayout};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -25,8 +25,8 @@ pub struct DoubleBufferingMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = PartialReaderFamily, RhsReader = PartialReaderFamily>,
-    LL: SyncPartialLoadingStrategy,
-    RL: SyncPartialLoadingStrategy,
+    LL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
 {
     type Matmul<MP: MatmulPrecision> =
         DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;

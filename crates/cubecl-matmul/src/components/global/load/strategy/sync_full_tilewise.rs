@@ -1,10 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
+};
+use crate::components::{
+    global::load::SyncFullLoadingStrategy,
+    layout::{Coords2d, Layout},
 };
 use crate::components::{
     global::{GlobalConfig, memory::TensorReader},
@@ -24,12 +27,14 @@ use super::{LoadingJob, LoadingValidation};
 /// each plane loads its own row and a sync can be saved.
 /// In multi-row, number of planes must divide number of rows,
 /// and each plane loads a contiguous chunk of rows (e.g. plane 0 loads rows 0–1, plane 1 loads 2–3, etc.).
-pub struct SyncFullTilewiseLoading<T: TilingOrder> {
+pub struct SyncFullTilewiseLoading<T: TilingOrder, LayoutG = SimpleGlobalLayout> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
+    #[cube(comptime)]
+    _layout: PhantomData<LayoutG>,
 }
 
-impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
+impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO, LayoutG> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
@@ -40,7 +45,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
     }
 }
 
-impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
+impl<T: TilingOrder, LayoutG> LoadingValidation for SyncFullTilewiseLoading<T, LayoutG> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
@@ -73,7 +78,10 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
+impl<TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>> SyncFullLoadingStrategy
+    for SyncFullTilewiseLoading<TO, LayoutG>
+{
+    type GlobalLayout = LayoutG;
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<IP: InputPrecision> = SyncFullTilewiseJob;
 
@@ -127,13 +135,13 @@ pub struct SyncFullTilewiseJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder>
-    LoadingJob<IP, SimpleGlobalLayout, ContiguousTilingLayout<TO>> for SyncFullTilewiseJob
+impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>>
+    LoadingJob<IP, LayoutG, ContiguousTilingLayout<TO>> for SyncFullTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -148,7 +156,7 @@ impl<IP: InputPrecision, TO: TilingOrder>
             config.stage_memory_config(),
         );
 
-        SyncFullTilewiseJob::load_and_store_line::<IP, TO, G>(
+        SyncFullTilewiseJob::load_and_store_line::<IP, TO, G, LayoutG>(
             this,
             tile,
             line_index_within_tile,
@@ -167,12 +175,17 @@ impl<IP: InputPrecision, TO: TilingOrder>
 #[cube]
 impl SyncFullTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<
+        IP: InputPrecision,
+        TO: TilingOrder,
+        G: GlobalConfig,
+        LayoutG: Layout<Coordinates = Coords2d>,
+    >(
         this: &Self,
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global, LayoutG>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

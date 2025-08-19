@@ -7,6 +7,7 @@ use cubecl_matmul::components::{
     global::{
         AccumulatorLoader, GlobalConfig as _,
         load::{SyncFullLoader, sync_full_cyclic},
+        memory::SimpleGlobalLayout,
         single_stage::simple::SimpleConfig,
     },
     stage::{FullStageToTileReader, RowMajorTilingOrder, StageMatmul},
@@ -129,7 +130,8 @@ where
         _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
+        Self::RhsLoader::new(rhs, layout, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
     }
 
     fn init_bias_loader(
