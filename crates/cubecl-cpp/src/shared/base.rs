@@ -85,6 +85,7 @@ pub struct Flags {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
 }
 
@@ -178,6 +179,7 @@ impl<D: Dialect> CppCompiler<D> {
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
+            cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
         };
 
