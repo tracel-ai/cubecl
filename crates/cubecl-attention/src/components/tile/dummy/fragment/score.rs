@@ -4,6 +4,7 @@ use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::Tile;
 
 use crate::components::AttentionPrecision;
+use crate::components::tile::dummy::fragment::prob::ProbFragment;
 use crate::components::tile::{ScoreMatmul, ValueMatmul};
 
 #[derive(CubeType)]
@@ -78,30 +79,5 @@ impl<AP: AttentionPrecision, SM: ScoreMatmul<AP>> ScoreFragment<AP, SM> {
         VM::fill_lhs(&tile, &mut fragment, value_config);
 
         ProbFragment::new(fragment, self.tmp_smem)
-    }
-}
-
-#[derive(CubeType)]
-pub struct ProbFragment<AP: AttentionPrecision, VM: ValueMatmul<AP>> {
-    tmp_smem: SharedMemory<AP::EA>,
-    pub fragment: VM::Lhs,
-}
-
-#[cube]
-impl<AP: AttentionPrecision, VM: ValueMatmul<AP>> ProbFragment<AP, VM> {
-    fn new(fragment: VM::Lhs, tmp_smem: SharedMemory<AP::EA>) -> Self {
-        ProbFragment::<AP, VM> { tmp_smem, fragment }
-    }
-
-    pub fn row_sum(&self) -> AP::EA {
-        let row = UNIT_POS_X / 4;
-        let row_offset = row * 8;
-
-        let mut rowsum = AP::EA::from_int(0);
-        for i in 0..8 {
-            rowsum += self.tmp_smem[row_offset + i];
-        }
-
-        rowsum
     }
 }
