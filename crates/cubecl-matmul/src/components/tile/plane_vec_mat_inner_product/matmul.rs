@@ -83,7 +83,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
     ) {
         comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
 
-        lhs.line = Line::cast_from(tile.slice[UNIT_POS_PLANE]);
+        lhs.line = Line::cast_from(tile.slice[UNIT_POS_X]);
     }
 
     fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
@@ -95,7 +95,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
             let line_container = rhs.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_PLANE + n * tile.stride]);
+            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n * tile.stride]);
 
             comptime![n += 1];
         }
@@ -112,7 +112,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
             let line_container = acc.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_PLANE + n * tile.stride]);
+            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n * tile.stride]);
 
             comptime![n += 1];
         }
@@ -136,7 +136,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS_PLANE == 0 {
+        if UNIT_POS_X == 0 {
             let out_line_size = config.stage_line_size(StageIdent::Acc);
             let total_out_lines = config.n() / out_line_size;
             let mut out_line_iter = comptime![0];
