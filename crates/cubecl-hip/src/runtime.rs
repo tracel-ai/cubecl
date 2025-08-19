@@ -178,6 +178,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
 
     device_props.register_feature(Feature::DynamicLineSize);
+    device_props.register_feature(Feature::PlaneOps);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);

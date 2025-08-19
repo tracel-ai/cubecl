@@ -154,8 +154,7 @@ where
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
     ) {
-        // TODO have OUT SMEM vec 1, then collect out_line_size elements to write to global
-        // let out_smem_line_size = stage_config.stage_line_size(StageIdent::Acc);
+        let out_smem_line_size = stage_config.stage_line_size(StageIdent::Acc);
         let num_tile_lines =
             stage_config.tiling_scheme().elements_in_tile_mn() / out_smem_line_size;
         let out_smem_num_lines = num_tile_lines * comptime!(SP::num_primitives(stage_config));

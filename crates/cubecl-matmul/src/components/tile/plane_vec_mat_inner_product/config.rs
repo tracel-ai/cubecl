@@ -1,7 +1,7 @@
-use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::prelude::Numeric;
+use cubecl_core::{Feature, Runtime};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -38,7 +38,7 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
         match ident {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
-            StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Acc => 1,
         }
     }
 
@@ -155,6 +155,12 @@ impl PlaneVecMatInnerProductConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
+        if !client.properties().feature_enabled(Feature::PlaneOps) {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::PlaneOpsUnavailable,
+            ));
+        }
+
         let lhs = Lhs::as_elem_native_unchecked();
         let rhs = Rhs::as_elem_native_unchecked();
         let acc = Acc::as_elem_native_unchecked();

@@ -140,11 +140,11 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
             let out_line_size = config.stage_line_size(StageIdent::Acc);
             let total_out_lines = config.n() / out_line_size;
             let mut out_line_iter = comptime![0];
-            let mut within_line = comptime![0];
 
             #[unroll]
             for _ in 0..total_out_lines {
                 let mut out_line = Line::<E>::empty(out_line_size);
+                let mut within_line = comptime![0];
 
                 #[unroll]
                 for _ in 0..out_line_size {
