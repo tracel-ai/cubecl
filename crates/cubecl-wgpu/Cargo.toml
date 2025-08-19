@@ -75,6 +75,7 @@ matmul_tests_all = [
     "matmul_tests_hypercube",
 ]
 conv_tests = ["cubecl-convolution/conv_tests"]
+attention_tests = ["cubecl-attention/attention_tests"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }

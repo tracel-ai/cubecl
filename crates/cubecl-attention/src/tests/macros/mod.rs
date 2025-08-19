@@ -30,6 +30,7 @@ pub fn attention_first_test<R: Runtime>(client: ComputeClient<R::Server, R::Chan
 #[macro_export]
 macro_rules! testgen_attention {
     () => {
+        #[cfg(feature = "attention_tests")]
         mod attention {
             use super::*;
 
