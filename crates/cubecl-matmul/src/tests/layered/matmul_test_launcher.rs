@@ -79,7 +79,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     };
 
     let props = &client.properties().hardware;
-    if config.cube_dim() > props.max_cube_dim
+    if !props.max_cube_dim.can_contain(config.cube_dim())
         || config.cube_dim().num_elems() > props.max_units_per_cube
     {
         println!("Skipping test, too many resources requested");

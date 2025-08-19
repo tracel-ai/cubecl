@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const PLANE_DIM_APPROX: usize = 16;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
+#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 #[allow(missing_docs)]
 pub struct CubeDim {
     pub x: u32,
@@ -37,6 +37,11 @@ impl CubeDim {
     /// Total numbers of units per cube
     pub const fn num_elems(&self) -> u32 {
         self.x * self.y * self.z
+    }
+
+    /// Whether this `CubeDim` can fully contain `other`
+    pub const fn can_contain(&self, other: CubeDim) -> bool {
+        self.x >= other.x && self.y >= other.y && self.z >= other.z
     }
 }
 
