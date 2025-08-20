@@ -72,12 +72,6 @@ impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
         Self::to_linear_checked(this, coords).0
     }
 
-    fn from_linear(this: &Self, idx: u32) -> Self::Coordinates {
-        let k = idx % this.shape_k;
-        let m = idx / this.shape_k;
-        (m, k)
-    }
-
     fn shape(this: &Self) -> Self::Coordinates {
         (this.shape_m, this.shape_k)
     }
@@ -151,6 +145,6 @@ impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
 
 #[allow(unused_variables)]
 #[cube]
-fn unwrap(v: u32) -> comptime_type!(u32) {
+pub(crate) fn unwrap(v: u32) -> comptime_type!(u32) {
     intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
 }

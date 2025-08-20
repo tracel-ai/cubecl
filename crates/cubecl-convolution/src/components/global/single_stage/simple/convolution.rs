@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
     global::{
         AccumulatorLoader, GlobalConfig as _,
         load::{SyncFullLoader, sync_full_cyclic},
-        memory::SimpleGlobalLayout,
         single_stage::simple::SimpleConfig,
     },
     stage::{FullStageToTileReader, RowMajorTilingOrder, StageMatmul},
@@ -21,7 +20,9 @@ use crate::{
     components::{
         ConvolutionConfig,
         global::{
-            ConvTilingLayout, GlobalConvolution, layout::Im2colGlobalLayout, load::bias::BiasLoader,
+            ConvTilingLayout, GlobalConvolution,
+            layout::{Im2colGlobalLayout, WeightGlobalLayout},
+            load::bias::BiasLoader,
         },
     },
     kernels::layered::selector::RuntimeArgs,
@@ -56,7 +57,10 @@ where
     type RhsLoader = SyncFullLoader<
         MP::Rhs,
         Self::Config,
-        sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
+        sync_full_cyclic::SyncFullCyclicLoading<
+            RowMajorTilingOrder,
+            WeightGlobalLayout<Self::Config>,
+        >,
     >;
     type AccumulatorLoader = BiasLoader<MP>;
 
@@ -139,10 +143,16 @@ where
         rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
-        _runtime_args: &RuntimeArgs,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
+        let layout = WeightGlobalLayout::new(
+            &rhs,
+            runtime_args.size_k,
+            runtime_args.size_n,
+            runtime_args.padded_channels,
+            config,
+        );
         Self::RhsLoader::new(rhs, layout, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
     }
 

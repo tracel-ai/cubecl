@@ -59,13 +59,6 @@ impl Layout for SimpleGlobalLayout {
         (idx, in_bounds)
     }
 
-    #[allow(clippy::wrong_self_convention)]
-    fn from_linear(this: &Self, idx: u32) -> Self::Coordinates {
-        let row = (idx / this.stride_row) % this.rows;
-        let col = (idx / this.stride_col) % this.columns;
-        (row, col)
-    }
-
     fn shape(this: &Self) -> Self::Coordinates {
         (this.rows, this.columns)
     }

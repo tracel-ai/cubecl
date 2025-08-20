@@ -9,7 +9,6 @@ pub trait Layout: CubeType + Clone + Send + Sync + 'static {
 
     fn to_linear(this: &Self, coords: Self::Coordinates) -> u32;
     fn to_linear_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool);
-    fn from_linear(this: &Self, idx: u32) -> Self::Coordinates;
     fn shape(this: &Self) -> Self::Coordinates;
 }
 
