@@ -17,11 +17,21 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     type ScoreProb = cmma::Matrix<FP::SP>;
     type Accumulator = cmma::Matrix<FP::A>;
 
-    fn score_matmul(lhs: &Self::Query, rhs: &Self::KeyValue, out: &mut Self::ScoreProb) {
+    fn score_matmul(
+        lhs: &Self::Query,
+        rhs: &Self::KeyValue,
+        out: &mut Self::ScoreProb,
+        #[comptime] _config: Self::Config,
+    ) {
         cmma::execute::<FP::Q, FP::KV, FP::SP, FP::SP>(lhs, rhs, out, out);
     }
 
-    fn value_matmul(lhs: &Self::ScoreProb, rhs: &Self::KeyValue, out: &mut Self::Accumulator) {
+    fn value_matmul(
+        lhs: &Self::ScoreProb,
+        rhs: &Self::KeyValue,
+        out: &mut Self::Accumulator,
+        #[comptime] _config: Self::Config,
+    ) {
         cmma::execute::<FP::SP, FP::KV, FP::A, FP::A>(lhs, rhs, out, out);
     }
 
@@ -30,7 +40,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         #[comptime] config: Self::Config,
     ) -> Self::Query {
         let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Query));
-        let size = config.tile_size();
+        let size = config.attention_tile_size().to_score_matmul();
 
         if config.cast_query() {
             let query = unsafe {
@@ -61,36 +71,66 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         }
     }
 
-    fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        let size = config.tile_size();
+    fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
+        let size = config.attention_tile_size();
         unsafe {
             cmma::Matrix::<FP::KV>::uninitialized(
                 cmma::MatrixIdent::B,
-                size.m(),
-                size.n(),
-                size.k(),
+                size.seq_q,
+                size.seq_kv,
+                size.head_dim,
                 cmma::MatrixLayout::RowMajor,
             )
         }
     }
 
-    fn fill_rhs<E: Numeric>(
+    fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue {
+        let size = config.attention_tile_size();
+        unsafe {
+            cmma::Matrix::<FP::KV>::uninitialized(
+                cmma::MatrixIdent::B,
+                size.seq_q,
+                size.val_dim,
+                size.seq_kv,
+                cmma::MatrixLayout::RowMajor,
+            )
+        }
+    }
+
+    fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
+        let size = config.attention_tile_size();
+        assert!(size.can_reuse_key_value());
+
+        unsafe {
+            cmma::Matrix::<FP::KV>::uninitialized(
+                cmma::MatrixIdent::B,
+                // m not relevant because it's a B
+                size.seq_q,
+                // n and k match key, but we are guaranteed that value takes the same space (albeit not the same shape)
+                size.seq_kv,
+                size.head_dim,
+                cmma::MatrixLayout::RowMajor,
+            )
+        }
+    }
+
+    fn fill_key_value<E: Numeric>(
         tile: &Tile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Query));
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Key));
         cmma::load(rhs, &slice, stride);
     }
 
     fn allocate_score_prob(#[comptime] config: Self::Config) -> Self::ScoreProb {
-        let size = config.tile_size();
+        let size = config.attention_tile_size();
         unsafe {
             cmma::Matrix::<FP::SP>::uninitialized(
                 cmma::MatrixIdent::Accumulator,
-                size.m(),
-                size.n(),
-                size.k(),
+                size.seq_q,
+                size.seq_kv,
+                size.head_dim, // k, because we take accumulator point of view
                 cmma::MatrixLayout::RowMajor,
             )
         }
@@ -101,7 +141,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let size = config.tile_size();
+        let size = config.attention_tile_size().to_value_matmul();
         unsafe {
             cmma::Matrix::<FP::A>::uninitialized(
                 cmma::MatrixIdent::Accumulator,
@@ -126,7 +166,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         cmma::store(
             slice,
             &acc,
-            config.tile_size().n(),
+            config.attention_tile_size().val_dim,
             cmma::MatrixLayout::RowMajor,
         );
     }
@@ -155,7 +195,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         cmma::store(
             slice,
             &score_prob,
-            config.tile_size().n(),
+            config.attention_tile_size().seq_kv,
             cmma::MatrixLayout::RowMajor,
         );
     }

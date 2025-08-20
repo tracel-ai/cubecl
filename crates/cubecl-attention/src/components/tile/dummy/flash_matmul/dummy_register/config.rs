@@ -2,14 +2,15 @@ use cubecl_matmul::components::{MatrixLayout, StageIdent, TileSize, tile::TileCo
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use crate::components::tile::dummy::AttentionTileSize;
 use crate::components::{
     AttentionPrecision, AttentionSetupError, FlashIdent,
-    tile::dummy::{AttentionTileSize, FlashMatmulConfig, FlashPrecision},
+    tile::dummy::{FlashMatmulConfig, FlashPrecision},
 };
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AcceleratedFlashMatmulConfig {
+pub struct DummyRegisterFlashMatmulConfig {
     plane_dim: u32,
     score_config: ScoreConfig,
     value_config: ValueConfig,
@@ -87,7 +88,7 @@ impl TileConfig for ValueConfig {
     }
 }
 
-impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
+impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
     type ScoreConfig = ScoreConfig;
     type ValueConfig = ValueConfig;
 
@@ -130,7 +131,7 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
     }
 }
 
-impl AcceleratedFlashMatmulConfig {
+impl DummyRegisterFlashMatmulConfig {
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,

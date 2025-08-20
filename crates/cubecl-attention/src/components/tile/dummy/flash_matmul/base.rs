@@ -1,8 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::{Tile, TileConfig};
-use cubecl_matmul::components::{ComputeResources, TileSize};
 
+use crate::components::tile::dummy::AttentionTileSize;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, FlashIdent, InvalidConfigError,
@@ -22,21 +23,33 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     type Config: FlashMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type ScoreProb: CubeType + Copy;
+    type ScoreProb: CubeType;
     type Accumulator: CubeType;
 
-    fn score_matmul(lhs: &Self::Query, rhs: &Self::KeyValue, out: &mut Self::ScoreProb);
+    fn score_matmul(
+        lhs: &Self::Query,
+        rhs: &Self::KeyValue,
+        out: &mut Self::ScoreProb,
+        #[comptime] config: Self::Config,
+    );
 
-    fn value_matmul(lhs: &Self::ScoreProb, rhs: &Self::KeyValue, out: &mut Self::Accumulator);
+    fn value_matmul(
+        lhs: &Self::ScoreProb,
+        rhs: &Self::KeyValue,
+        out: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
 
     fn allocate_fill_query<EI: Numeric>(
         tile: &Tile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query;
 
+    fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
-    fn fill_rhs<E: Numeric>(
+    fn fill_key_value<E: Numeric>(
         tile: &Tile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
@@ -83,10 +96,9 @@ pub trait FlashMatmulConfig:
     fn value_config(&self) -> Self::ValueConfig;
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
-    fn rows_per_plane(&self) -> u32;
     fn reuse_key_value(&self) -> bool;
     fn stage_line_size(&self, ident: FlashIdent) -> u32;
-    fn tile_size(&self) -> TileSize;
+    fn attention_tile_size(&self) -> AttentionTileSize;
     // If AP::EI != FP::Q
     fn cast_query(&self) -> bool;
 }

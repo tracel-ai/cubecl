@@ -49,9 +49,14 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         let prev_m = state.m;
         let prev_l = state.l;
 
-        FM::fill_rhs(key_tile, key_value.key_mut(), config);
+        FM::fill_key_value(key_tile, key_value.key_mut(), config);
 
-        FM::score_matmul(&query.fragment, key_value.key(), &mut score_prob.fragment);
+        FM::score_matmul(
+            &query.fragment,
+            key_value.key(),
+            &mut score_prob.fragment,
+            config,
+        );
 
         score_prob.multiply_score(inv_sqrt_dk);
         let new_m = score_prob.row_max(prev_m);
@@ -61,7 +66,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         let exp_m_diff = Exp::exp(prev_m - new_m);
         let new_l = exp_m_diff * prev_l + row_sum;
 
-        FM::fill_rhs(value_tile, key_value.value_mut(), config);
+        FM::fill_key_value(value_tile, key_value.value_mut(), config);
 
         accumulator.scale(exp_m_diff);
 
@@ -69,6 +74,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             &score_prob.fragment,
             key_value.value(),
             &mut accumulator.fragment,
+            config,
         );
 
         state.m = new_m;

@@ -4,14 +4,14 @@ use crate::components::{
     AttentionPrecision, AttentionSetupError, InvalidConfigError,
     tile::dummy::{
         AttentionTileSize, FlashMatmulFamily, FlashPrecision,
-        accelerated::{AcceleratedFlashMatmul, AcceleratedFlashMatmulConfig},
+        dummy_register::{DummyRegisterFlashMatmul, DummyRegisterFlashMatmulConfig},
     },
 };
 
-impl FlashMatmulFamily for AcceleratedFlashMatmul {
-    type Matmul<F: FlashPrecision> = AcceleratedFlashMatmul;
+impl FlashMatmulFamily for DummyRegisterFlashMatmul {
+    type Matmul<F: FlashPrecision> = DummyRegisterFlashMatmul;
 
-    type Config = AcceleratedFlashMatmulConfig;
+    type Config = DummyRegisterFlashMatmulConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -27,7 +27,7 @@ impl FlashMatmulFamily for AcceleratedFlashMatmul {
         selection: &crate::components::AttentionSelection,
         line_sizes: &crate::components::AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        AcceleratedFlashMatmulConfig::new::<AP>(
+        DummyRegisterFlashMatmulConfig::new::<AP>(
             selection.plane_dim,
             AttentionTileSize {
                 seq_q: 8,
