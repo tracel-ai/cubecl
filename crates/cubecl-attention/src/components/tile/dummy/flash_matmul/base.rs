@@ -4,8 +4,8 @@ use cubecl_matmul::components::tile::{Tile, TileConfig};
 use cubecl_matmul::components::{ComputeResources, TileSize};
 
 use crate::components::{
-    AttentionLineSizes, AttentionProblem, AttentionSelection, AttentionSetupError,
-    AvailableLineSizes, FlashIdent, InvalidConfigError,
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AvailableLineSizes, FlashIdent, InvalidConfigError,
 };
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -87,6 +87,8 @@ pub trait FlashMatmulConfig:
     fn reuse_key_value(&self) -> bool;
     fn stage_line_size(&self, ident: FlashIdent) -> u32;
     fn tile_size(&self) -> TileSize;
+    // If AP::EI != FP::Q
+    fn cast_query(&self) -> bool;
 }
 
 pub trait FlashMatmulFamily: Send + Sync + 'static {
@@ -105,7 +107,7 @@ pub trait FlashMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<R: Runtime>(
+    fn setup<AP: AttentionPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,

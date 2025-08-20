@@ -15,6 +15,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> QueryFragment<FP, FM> {
         query_reader: QueryRegisterReader<E>,
         #[comptime] config: FM::Config,
     ) -> QueryFragment<FP, FM> {
+        comment!("Reading query");
         let fragment = query_reader.read_tile::<FP, FM>(config);
         QueryFragment::<FP, FM> { fragment }
     }

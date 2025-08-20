@@ -31,18 +31,34 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     ) -> Self::Query {
         let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Query));
         let size = config.tile_size();
-        let tmp = unsafe {
-            cmma::Matrix::<EI>::uninitialized(
-                cmma::MatrixIdent::A,
-                size.m(),
-                size.n(),
-                size.k(),
-                cmma::MatrixLayout::RowMajor,
-            )
-        };
 
-        cmma::load(&tmp, &slice, stride);
-        cmma::cast::<EI, FP::Q>(&tmp)
+        if config.cast_query() {
+            let query = unsafe {
+                cmma::Matrix::<FP::Q>::uninitialized(
+                    cmma::MatrixIdent::A,
+                    size.m(),
+                    size.n(),
+                    size.k(),
+                    cmma::MatrixLayout::RowMajor,
+                )
+            };
+
+            cmma::load(&query, &slice, stride);
+            query
+        } else {
+            let tmp = unsafe {
+                cmma::Matrix::<EI>::uninitialized(
+                    cmma::MatrixIdent::A,
+                    size.m(),
+                    size.n(),
+                    size.k(),
+                    cmma::MatrixLayout::RowMajor,
+                )
+            };
+
+            cmma::load(&tmp, &slice, stride);
+            cmma::cast::<EI, FP::Q>(&tmp)
+        }
     }
 
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {

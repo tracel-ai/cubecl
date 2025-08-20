@@ -57,27 +57,6 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
         cmma::load(lhs, &slice, stride);
     }
 
-    fn allocate_fill_cast_lhs<EI: Numeric>(
-        tile: &Tile<EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Lhs {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Lhs));
-        let size = config.tile_size();
-        let layout = config.matrix_layout(StageIdent::Lhs);
-        let tmp = unsafe {
-            cmma::Matrix::<EI>::uninitialized(
-                cmma::MatrixIdent::A,
-                size.m(),
-                size.n(),
-                size.k(),
-                as_cmma_layout(layout),
-            )
-        };
-
-        cmma::load(&tmp, &slice, stride);
-        cmma::cast::<EI, L>(&tmp)
-    }
-
     fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
         let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Rhs));
         cmma::load(rhs, &slice, stride);

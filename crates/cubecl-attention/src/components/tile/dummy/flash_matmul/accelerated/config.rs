@@ -2,7 +2,11 @@ use cubecl_matmul::components::{MatrixLayout, StageIdent, TileSize, tile::TileCo
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::{AttentionSetupError, FlashIdent, tile::dummy::FlashMatmulConfig};
+use crate::components::{
+    AttentionPrecision, AttentionSetupError, FlashIdent,
+    tile::dummy::{FlashMatmulConfig, FlashPrecision},
+};
+use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AcceleratedFlashMatmulConfig {
@@ -13,6 +17,7 @@ pub struct AcceleratedFlashMatmulConfig {
     num_planes: u32,
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
+    cast_query: bool,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -120,10 +125,14 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
     fn tile_size(&self) -> TileSize {
         self.tile_size
     }
+
+    fn cast_query(&self) -> bool {
+        self.cast_query
+    }
 }
 
 impl AcceleratedFlashMatmulConfig {
-    pub fn new(
+    pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         tile_size: TileSize,
         num_planes: u32,
@@ -141,6 +150,7 @@ impl AcceleratedFlashMatmulConfig {
             tile_size,
             key_value_stage_line_size,
         };
+
         Self {
             plane_dim,
             score_config,
@@ -149,6 +159,8 @@ impl AcceleratedFlashMatmulConfig {
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
+            cast_query: AP::EI::as_elem_native_unchecked()
+                == <AP::FlashPrecision as FlashPrecision>::Q::as_elem_native_unchecked(),
         }
         .validate()
     }

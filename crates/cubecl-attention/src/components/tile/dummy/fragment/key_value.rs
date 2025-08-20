@@ -55,6 +55,7 @@ pub struct ReuseKV<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ReuseKV<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
+        comment!("Allocating key-value (reuse)");
         let fragment = FM::allocate_key_value(config);
         ReuseKV::<FP, FM> { fragment }
     }
@@ -69,6 +70,7 @@ pub struct SeparateKV<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> SeparateKV<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
+        comment!("Allocating key-value (separate)");
         let key = FM::allocate_key_value(config);
         let value = FM::allocate_key_value(config);
         SeparateKV::<FP, FM> { key, value }

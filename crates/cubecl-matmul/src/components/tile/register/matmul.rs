@@ -149,13 +149,6 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for RegisterMatmul 
             acc.data[i] = A::cast_from(0);
         }
     }
-
-    fn allocate_fill_cast_lhs<EI: Numeric>(
-        _tile: &Tile<EI>,
-        #[comptime] _config: Self::Config,
-    ) -> Self::Lhs {
-        comptime!(unimplemented!())
-    }
 }
 
 #[cube]

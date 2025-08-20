@@ -27,6 +27,6 @@ impl<FM: FlashMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM>
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        FM::setup::<R>(client, problem, selection, line_sizes)
+        FM::setup::<AP, R>(client, problem, selection, line_sizes)
     }
 }
