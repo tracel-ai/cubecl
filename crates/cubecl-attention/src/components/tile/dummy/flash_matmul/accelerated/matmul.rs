@@ -136,7 +136,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         }
     }
 
-    fn zero_score_prob(acc: &mut Self::ScoreProb) {
+    fn zero_score_prob(acc: &mut Self::ScoreProb, #[comptime] _config: Self::Config) {
         cmma::fill(acc, FP::SP::from_int(0));
     }
 
@@ -153,7 +153,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         }
     }
 
-    fn zero_accumulator(acc: &mut Self::Accumulator) {
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
         cmma::fill(acc, FP::A::from_int(0));
     }
 

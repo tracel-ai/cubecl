@@ -19,7 +19,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> AccumulatorFragment<FP, FM> {
         comment!("Allocating accumulator");
         let mut fragment = FM::allocate_accumulator(config);
-        FM::zero_accumulator(&mut fragment);
+        FM::zero_accumulator(&mut fragment, config);
         AccumulatorFragment::<FP, FM> {
             tmp_smem: SharedMemory::new(64),
             fragment,

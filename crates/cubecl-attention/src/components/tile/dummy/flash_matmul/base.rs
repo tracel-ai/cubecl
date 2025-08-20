@@ -56,10 +56,10 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     );
 
     fn allocate_score_prob(#[comptime] config: Self::Config) -> Self::ScoreProb;
-    fn zero_score_prob(score_prob: &mut Self::ScoreProb);
+    fn zero_score_prob(score_prob: &mut Self::ScoreProb, #[comptime] config: Self::Config);
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-    fn zero_accumulator(acc: &mut Self::Accumulator);
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     fn write_results<E: Numeric>(
         out: &Self::Accumulator,

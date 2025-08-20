@@ -18,7 +18,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
         comment!("Allocating score-prob");
         let mut fragment = FM::allocate_score_prob(config);
-        FM::zero_score_prob(&mut fragment);
+        FM::zero_score_prob(&mut fragment, config);
         ScoreFragment::<FP, FM> {
             tmp_smem: SharedMemory::<FP::SP>::new(64),
             fragment,
@@ -37,7 +37,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         );
         self.tmp_smem[index_0] *= factor;
         self.tmp_smem[index_1] *= factor;
-        sync_plane();
+        sync_cube();
     }
 
     pub fn row_max(&mut self, base: FP::SP) -> FP::SP {
@@ -61,7 +61,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
 
         self.tmp_smem[index_0] = Exp::exp(self.tmp_smem[index_0] - m);
         self.tmp_smem[index_1] = Exp::exp(self.tmp_smem[index_1] - m);
-        sync_plane();
+        sync_cube();
 
         // Should be directly in registers
         let tile = Tile::<FP::SP> {
