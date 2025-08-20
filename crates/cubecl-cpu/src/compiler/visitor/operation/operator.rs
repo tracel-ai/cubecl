@@ -158,19 +158,37 @@ impl<'a> Visitor<'a> {
 
     fn visit_index_assign(&mut self, index_assign: &IndexAssignOperator, out: Variable) {
         assert!(index_assign.line_size == 0);
-        let mut index_assign_value = index_assign.value;
-        if matches!(index_assign_value.kind, VariableKind::GlobalScalar(_))
-            && !index_assign_value.item.is_vectorized()
-        {
-            index_assign_value.item.vectorization = out.item.vectorization;
-        }
-        let indices = self.get_index(index_assign.index, index_assign_value.item);
-        let value = self.get_variable(index_assign_value);
+        let value = self.get_variable(index_assign.value);
         let memref = self.get_memory(out);
-        let operation = if index_assign_value.item.is_vectorized() {
-            vector::store(self.context, value, memref, &[indices], self.location).into()
+        if matches!(
+            out.kind,
+            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. }
+        ) {
+            let indices = self.get_index(index_assign.index, index_assign.value.item);
+            let operation = if index_assign.value.item.is_vectorized() {
+                vector::store(self.context, value, memref, &[indices], self.location).into()
+            } else {
+                memref::store(value, memref, &[indices], self.location)
+            };
+            self.block.append_operation(operation);
+            return;
+        }
+        let operation = if index_assign.value.item.is_vectorized() {
+            let indices = self.get_index(index_assign.index, index_assign.value.item);
+            vector::store(self.context, value, memref, &[indices], self.location)
         } else {
-            memref::store(value, memref, &[indices], self.location)
+            let vector_type = Type::vector(
+                &[out.vectorization_factor() as u64],
+                index_assign.value.elem().to_type(self.context),
+            );
+            let indices = self.get_index(index_assign.index, out.item);
+            let splat = self.append_operation_with_result(vector::splat(
+                self.context,
+                vector_type,
+                value,
+                self.location,
+            ));
+            vector::store(self.context, splat, memref, &[indices], self.location)
         };
         self.block.append_operation(operation);
     }
