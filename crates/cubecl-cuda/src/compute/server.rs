@@ -11,14 +11,17 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::transfer::ComputeDataTransferId;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
+use crate::compute::{CudaDataHandle, CudaDataService};
+use crate::compute::sync::CrossFence;
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
-use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
+use super::sync::{Fence, SyncStream};
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{Elem, IntKind, UIntKind};
 use cubecl_core::prelude::*;
@@ -34,9 +37,10 @@ use cubecl_runtime::{
     server::{self, ComputeServer},
 };
 use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
-    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
-    cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    CUDA_MEMCPY2D_st, CUctx_st, CUevent_flags, CUevent_wait_flags, CUfunction_attribute,
+    CUmemorytype, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill,
+    CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col,
+    cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -177,6 +181,70 @@ impl CudaServer {
         async move {
             sync.wait();
         }
+    }
+
+    fn to_device(
+        &mut self,
+        src: CopyDescriptor<'_>,
+        dst: CopyDescriptor<'_>,
+        dst_server: &mut Self,
+    ) -> Result<(), IoError> {
+        if !valid_strides(src.shape, src.strides) || !valid_strides(dst.shape, dst.strides) {
+            return Err(IoError::UnsupportedStrides);
+        }
+        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
+
+        let src_ctx = self.get_context();
+
+        let src_resource = src_ctx
+            .memory_management
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)?;
+
+        let dst_ctx = dst_server.get_context();
+
+        let dst_resource = dst_ctx
+            .memory_management
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)?;
+
+        // Copy from receiving device, then create an event
+        let event = unsafe {
+            cudarc::driver::result::memcpy_dtod_async(
+                dst_resource.ptr,
+                src_resource.ptr,
+                num_bytes,
+                dst_ctx.stream,
+            )
+            .unwrap();
+            let event =
+                cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
+            cudarc::driver::result::event::record(event, dst_ctx.stream).unwrap();
+
+            event
+        };
+
+        let src_ctx = self.get_context();
+
+        unsafe {
+            cudarc::driver::result::stream::wait_event(
+                src_ctx.stream,
+                event,
+                CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
+            )
+            .unwrap();
+            cudarc::driver::result::event::destroy(event).unwrap();
+        }
+
+        Ok(())
     }
 }
 
@@ -541,6 +609,54 @@ impl ComputeServer for CudaServer {
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         self.ctx.memory_management.mode(mode);
     }
+
+    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
+
+        let src_ctx = self.get_context();
+
+        let src_resource = src_ctx
+            .memory_management
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)?;
+
+        let client = CudaDataService::get_client();
+        client.send(id, CudaDataHandle {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: src_resource,
+        }, num_bytes);
+
+        Ok(())
+    }
+
+    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError> {
+        let num_bytes = dst.shape.iter().product::<usize>() * dst.elem_size;
+    
+        let dst_ctx = self.get_context();
+        let dst_resource = dst_ctx
+            .memory_management
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)?;
+
+
+        let client = CudaDataService::get_client();
+        client.recv(id, CudaDataHandle {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: dst_resource,
+        }, num_bytes);
+
+        Ok(())
+    }
 }
 
 fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResource {
@@ -583,6 +699,10 @@ impl CudaContext {
 
     fn fence(&mut self) -> Fence {
         Fence::new(self.stream)
+    }
+
+    fn cross_fence(&mut self, consumer: Self) -> CrossFence {
+        CrossFence::new(self.stream, consumer.stream)
     }
 
     fn lazy_sync_stream(&mut self) -> SyncStream {

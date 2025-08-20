@@ -7,7 +7,7 @@ use crate::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
         CubeCount, IoError, ProfileError, ProfilingToken,
     },
-    storage::{BindingResource, ComputeStorage},
+    storage::{BindingResource, ComputeStorage}, transfer::ComputeDataTransferId,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -26,6 +26,9 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
 
     /// Write bytes to each binding
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
+
+    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError>;
+    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> DynFut<()>;

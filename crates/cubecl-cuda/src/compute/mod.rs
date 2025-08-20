@@ -1,10 +1,12 @@
 mod server;
 mod storage;
+mod data_service;
 
-pub(crate) mod fence;
+pub(crate) mod sync;
 
 pub use server::*;
 pub use storage::*;
+pub use data_service::*;
 
 #[allow(clippy::uninit_vec)]
 pub fn uninit_vec<I>(len: usize) -> Vec<I> {

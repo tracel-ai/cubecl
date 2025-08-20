@@ -2,11 +2,10 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryHandle, MemoryUsage,
-        memory_pool::{SliceBinding, SliceHandle},
+        memory_pool::{SliceBinding, SliceHandle}, MemoryAllocationMode, MemoryHandle, MemoryUsage
     },
     storage::{BindingResource, ComputeStorage},
-    tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
+    tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle}, transfer::ComputeDataTransferId,
 };
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -83,6 +82,9 @@ where
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> DynFut<()>;
 
+    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError>;
+    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError>;
+    
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,

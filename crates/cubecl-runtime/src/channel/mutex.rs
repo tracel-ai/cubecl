@@ -4,6 +4,7 @@ use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
 };
 use crate::storage::{BindingResource, ComputeStorage};
+use crate::transfer::ComputeDataTransferId;
 use crate::{
     logging::ServerLogger,
     server::{Allocation, AllocationDescriptor, IoError},
@@ -61,6 +62,16 @@ where
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         let mut server = self.server.lock();
         server.write(descriptors)
+    }
+
+    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+        let mut server = self.server.lock();
+        server.send_to_peer(id, src)
+    }
+
+    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError>{
+        let mut server = self.server.lock();
+        server.recv_from_peer(id, dst)
     }
 
     fn sync(&self) -> DynFut<()> {
