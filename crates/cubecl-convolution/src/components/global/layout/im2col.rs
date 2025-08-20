@@ -31,8 +31,8 @@ impl<C: ConvGemmConfig> Im2colGlobalLayout<C> {
     pub fn new<E: Numeric>(
         tensor: &VirtualTensor<E>,
         shape_out: Sequence<FastDivmod>,
-        shape_k: u32,
         shape_m: u32,
+        shape_k: u32,
         #[comptime] config: C,
     ) -> Im2colGlobalLayout<C> {
         let spatial_dims = comptime![shape_out.len()];

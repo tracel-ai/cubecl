@@ -21,9 +21,7 @@ use crate::{
     components::{
         ConvolutionConfig,
         global::{
-            GlobalConvolution,
-            load::{bias::BiasLoader, im2col::SimpleIm2colLoader},
-            memory::ConvTilingLayout,
+            ConvTilingLayout, GlobalConvolution, layout::Im2colGlobalLayout, load::bias::BiasLoader,
         },
     },
     kernels::layered::selector::RuntimeArgs,
@@ -46,7 +44,14 @@ where
             RhsReader = FullStageToTileReader<RhsS<MP>, ConvTilingLayout>,
         >,
 {
-    type LhsLoader = SimpleIm2colLoader<MP::Lhs, Self::Config>;
+    type LhsLoader = SyncFullLoader<
+        MP::Lhs,
+        Self::Config,
+        sync_full_cyclic::SyncFullCyclicLoading<
+            RowMajorTilingOrder,
+            Im2colGlobalLayout<Self::Config>,
+        >,
+    >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
     type RhsLoader = SyncFullLoader<
         MP::Rhs,
@@ -120,7 +125,14 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, config)
+        let layout = Im2colGlobalLayout::new(
+            &lhs,
+            runtime_args.out_shape.clone(),
+            runtime_args.size_m,
+            runtime_args.size_k,
+            config,
+        );
+        Self::LhsLoader::new(lhs, layout, x_offset, y_offset, 0, MatmulIdent::Lhs, config)
     }
 
     fn init_rhs_loader(
