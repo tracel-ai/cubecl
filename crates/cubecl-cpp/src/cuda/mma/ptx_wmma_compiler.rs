@@ -35,7 +35,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
         };
         let reg_count = get_fragment_register_total_count(&frag);
         let ty = match frag.elem {
-            Elem::F16 | Elem::BF16 | Elem::TF32 => "unsigned int",
+            Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::TF32 => "unsigned int",
             Elem::F32 => "float",
             Elem::F64 => "double",
             _ => panic!("unsupported type"),
@@ -95,10 +95,12 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                 };
                 let value_ty = value.item();
                 let opcode = match frag.elem {
-                    Elem::F16 | Elem::BF16 | Elem::F32 | Elem::TF32 => format!(
-                        "wmma.load.{matrix}.sync.aligned.{layout}.m{}n{}k{}.{ty}",
-                        frag.m, frag.n, frag.k,
-                    ),
+                    Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::F32 | Elem::TF32 => {
+                        format!(
+                            "wmma.load.{matrix}.sync.aligned.{layout}.m{}n{}k{}.{ty}",
+                            frag.m, frag.n, frag.k,
+                        )
+                    }
                     other => panic!("{other} fragment type not supported"),
                 };
                 // constraints
@@ -139,7 +141,7 @@ asm volatile(
                 let type_c = get_type_qualifier(var_c);
                 let type_d = get_type_qualifier(var_d);
                 let opcode = match var_a.elem() {
-                    Elem::F16 | Elem::F32 => format!(
+                    Elem::U8 | Elem::I8 | Elem::F16 | Elem::F32 => format!(
                         "wmma.mma.sync.aligned.m{}n{}k{}.{layout_a}.{layout_b}.{type_d}.{type_c}",
                         frag_a.m, frag_a.n, frag_a.k,
                     ),
@@ -232,6 +234,11 @@ asm volatile(
                     Elem::TF32 | Elem::F32 => format!(
                         // same hack for tf32
                         "wmma.store.d.sync.aligned.{layout}.m{}n{}k{}.f32",
+                        frag_acc.m, frag_acc.n, frag_acc.k,
+                    ),
+                    Elem::I32 => format!(
+                        // same hack for tf32
+                        "wmma.store.d.sync.aligned.{layout}.m{}n{}k{}.s32",
                         frag_acc.m, frag_acc.n, frag_acc.k,
                     ),
                     other => panic!("{other} fragment type not supported"),
@@ -344,6 +351,22 @@ for (int i = 0; i < {reg_count}; ++i) {{
                 .map(|(m, n, k)| (m, n, k, vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
+            if arch.get_version() >= 72 {
+                result.extend([
+                    (
+                        gpu::Elem::UInt(gpu::UIntKind::U8),
+                        gpu::Elem::UInt(gpu::UIntKind::U8),
+                        gpu::Elem::Int(gpu::IntKind::I32),
+                        vec![(16, 16, 16)],
+                    ),
+                    (
+                        gpu::Elem::Int(gpu::IntKind::I8),
+                        gpu::Elem::Int(gpu::IntKind::I8),
+                        gpu::Elem::Int(gpu::IntKind::I32),
+                        vec![(16, 16, 16)],
+                    ),
+                ]);
+            }
             if arch.get_version() >= 80 {
                 result.push((
                     gpu::Elem::Float(gpu::FloatKind::TF32),
@@ -382,11 +405,7 @@ fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler
         FragmentIdent::Accumulator => m * n,
         _ => unreachable!(),
     };
-    let bits_per_elem = match elem {
-        Elem::F16 | Elem::BF16 => 16,
-        Elem::F32 | Elem::TF32 => 32,
-        _ => panic!("unsupported WMMA element {:?}", elem),
-    };
+    let bits_per_elem = elem.size_bits() as u32;
     // TODO: retrieve the warp size from the compiler CompilationOptions
     let lanes_per_reg = 32 / bits_per_elem;
     // choose threads-per-frag:
@@ -409,10 +428,13 @@ fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler
 
 fn get_type_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {
     match var.elem() {
+        Elem::U8 => "u8",
+        Elem::I8 => "s8",
         Elem::F16 => "f16",
         Elem::BF16 => "bf16",
         Elem::F32 => "f32",
         Elem::TF32 => "tf32",
+        Elem::I32 => "s32",
         Elem::F64 => "f64",
         _ => panic!("unsupported WMMA fragment type"),
     }

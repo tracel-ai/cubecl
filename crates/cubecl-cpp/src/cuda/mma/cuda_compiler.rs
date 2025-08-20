@@ -103,6 +103,11 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
                     gpu::Elem::Int(gpu::IntKind::I8),
                     gpu::Elem::Int(gpu::IntKind::I32),
                 ),
+                (
+                    gpu::Elem::UInt(gpu::UIntKind::U8),
+                    gpu::Elem::UInt(gpu::UIntKind::U8),
+                    gpu::Elem::Int(gpu::IntKind::I32),
+                ),
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()

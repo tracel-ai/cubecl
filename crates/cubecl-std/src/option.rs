@@ -1,7 +1,8 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use serde::{Deserialize, Serialize};
 
-#[derive(CubeType, Clone, Copy)]
+#[derive(CubeType, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq, Debug)]
 pub enum CubeOption<T: CubeType> {
     Some(T),
     None,
@@ -58,6 +59,15 @@ impl<T: CubeType> CubeOptionExpand<T> {
         match self {
             CubeOptionExpand::Some(val) => val,
             CubeOptionExpand::None => fallback,
+        }
+    }
+}
+
+impl<T: CubeType + Into<T::ExpandType>> From<CubeOption<T>> for CubeOptionExpand<T> {
+    fn from(value: CubeOption<T>) -> Self {
+        match value {
+            CubeOption::Some(val) => CubeOptionExpand::Some(val.into()),
+            CubeOption::None => CubeOptionExpand::None,
         }
     }
 }
