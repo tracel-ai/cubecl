@@ -1,7 +1,7 @@
 use crate::components::tile::register::config::{ProductType, RegisterConfig};
 use crate::components::tile::tile_data::Tile;
 use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{LhsR, LhsS, MatmulPrecision, MatrixLayout, RhsR, RhsS, StageIdent};
+use crate::components::{MatrixLayout, StageIdent};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -24,11 +24,11 @@ pub struct TileAccumulator<EA: Numeric> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
+impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for RegisterMatmul {
     type Config = RegisterConfig;
-    type Lhs = Array<LhsR<MP>>;
-    type Rhs = Array<RhsR<MP>>;
-    type Accumulator = TileAccumulator<MP::EA>;
+    type Lhs = Array<L>;
+    type Rhs = Array<R>;
+    type Accumulator = TileAccumulator<A>;
 
     fn execute(
         lhs: &Self::Lhs,
@@ -50,7 +50,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         Array::new(config.tile_size().nk())
     }
 
-    fn fill_lhs(tile: &Tile<LhsS<MP>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
+    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
         let size = config.tile_size();
         let lhs_line_size = config.stage_line_size(StageIdent::Lhs);
         let lhs_layout = config.matrix_layout(StageIdent::Lhs);
@@ -75,7 +75,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         }
     }
 
-    fn fill_rhs(tile: &Tile<RhsS<MP>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
+    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
         let size = config.tile_size();
         let rhs_line_size = config.stage_line_size(StageIdent::Rhs);
         let rhs_layout = config.matrix_layout(StageIdent::Rhs);
@@ -101,7 +101,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     }
 
     fn fill_accumulator(
-        tile: &Tile<MP::EA>,
+        tile: &Tile<A>,
         acc: &mut Self::Accumulator,
         #[comptime] _config: Self::Config,
     ) {
@@ -115,9 +115,9 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         }
     }
 
-    fn write_results(
+    fn write_results<E: Numeric>(
         acc: &Self::Accumulator,
-        slice: &mut SliceMut<Line<MP::EO>>,
+        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
         let out_line_size = config.stage_line_size(StageIdent::Acc);
@@ -136,8 +136,8 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
         let rows = config.tile_size().m();
         let cols = config.tile_size().n();
 
-        TileAccumulator::<MP::EA> {
-            data: Array::<MP::EA>::new(rows * cols),
+        TileAccumulator::<A> {
+            data: Array::<A>::new(rows * cols),
             rows,
             cols,
         }
@@ -146,7 +146,7 @@ impl<MP: MatmulPrecision> TileMatmul<MP> for RegisterMatmul {
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
         #[unroll(UNROLL)]
         for i in 0..comptime!(acc.rows * acc.cols) {
-            acc.data[i] = MP::EA::cast_from(0);
+            acc.data[i] = A::cast_from(0);
         }
     }
 }

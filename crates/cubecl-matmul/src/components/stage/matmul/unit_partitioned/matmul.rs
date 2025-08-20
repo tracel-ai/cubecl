@@ -1,3 +1,5 @@
+use crate::components::InputPrecision;
+use crate::components::MatmulPrecision;
 use crate::components::global::RoleRule;
 use crate::components::global::UnitWriter;
 use crate::components::stage::StageConfig;
@@ -11,14 +13,16 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
-pub type UnitMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
-    MP,
-    TMM,
+pub type UnitMatmul<
+    MP: MatmulPrecision,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            <MP as MatmulPrecision>::EA,
+        >,
     RL,
     RR,
-    UnitPartitioner,
-    UnitPartitionedStageConfig<TMM::Config>,
->;
+> = PartitionedStageMatmul<MP, TM, RL, RR, UnitPartitioner, UnitPartitionedStageConfig<TM::Config>>;
 
 /// Defines how to partition across units
 pub struct UnitPartitioner {}

@@ -29,9 +29,10 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
-    ) -> MatmulSelection;
+    ) -> Result<MatmulSelection, MatmulSetupError>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         Self::BatchMatmul::filter_line_sizes(Self::GlobalMatmul::filter_line_sizes(

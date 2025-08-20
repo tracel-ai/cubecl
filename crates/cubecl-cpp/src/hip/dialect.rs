@@ -2,17 +2,20 @@ use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::ir::Id;
+use cubecl_core::ir::{Id, Processor};
 
-use crate::shared::{
-    Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable, unary,
-    variable_to_frag,
-};
 use crate::{
     Dialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWmmaCompiler, Flags, Item,
+        DialectWmmaCompiler, Flags, Item, ManualMma,
+    },
+};
+use crate::{
+    hip::processors::HipMmaProcessor,
+    shared::{
+        Component, DialectInstructions, DialectProcessors, Elem, Instruction, SharedMemory,
+        Variable, unary, variable_to_frag,
     },
 };
 
@@ -138,41 +141,69 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         extensions: &mut Vec<Self::Extension>,
         instruction: &shared::WmmaInstruction<Self>,
     ) {
-        if TypeId::of::<M>() != TypeId::of::<WmmaIntrinsicCompiler>() {
-            return;
-        }
+        if TypeId::of::<M>() == TypeId::of::<WmmaIntrinsicCompiler>() {
+            let extension = match instruction {
+                shared::WmmaInstruction::Fill { frag, .. } => {
+                    Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
+                }
+                shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
+                    WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
+                ),
+                shared::WmmaInstruction::Execute {
+                    frag_a,
+                    frag_b,
+                    frag_c,
+                    frag_d,
+                    warp_size: _,
+                } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
+                    variable_to_frag(frag_a),
+                    variable_to_frag(frag_b),
+                    variable_to_frag(frag_c),
+                    variable_to_frag(frag_d),
+                ))),
+                shared::WmmaInstruction::ExecuteManual {
+                    shape,
+                    frag_a,
+                    frag_c,
+                    ..
+                } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
+                    *shape,
+                    frag_a[0].elem(),
+                    frag_c[0].elem(),
+                ))),
+                shared::WmmaInstruction::ExecuteScaled { .. } => {
+                    unimplemented!("Not supported in HIP")
+                }
+                shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
+                    WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
+                ),
+                shared::WmmaInstruction::Cast { input, output } => {
+                    Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
+                        variable_to_frag(input),
+                        variable_to_frag(output),
+                    )))
+                }
+            };
 
-        let extension = match instruction {
-            shared::WmmaInstruction::Fill { frag, .. } => {
-                Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
             }
-            shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
-                WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
-            ),
-            shared::WmmaInstruction::Execute {
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                warp_size: _,
-            } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
-                variable_to_frag(frag_a),
-                variable_to_frag(frag_b),
-                variable_to_frag(frag_c),
-                variable_to_frag(frag_d),
-            ))),
-            shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
-                WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
-            ),
-            shared::WmmaInstruction::Cast { input, output } => {
-                Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
-                    variable_to_frag(input),
-                    variable_to_frag(output),
-                )))
+        } else if let shared::WmmaInstruction::ExecuteManual {
+            shape,
+            frag_a,
+            frag_c,
+            ..
+        } = instruction
+        {
+            let extension = Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
+                *shape,
+                frag_a[0].elem(),
+                frag_c[0].elem(),
+            )));
+
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
             }
-        };
-        if !extensions.contains(&extension) {
-            extensions.push(extension);
         }
     }
 }
@@ -301,8 +332,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
             f,
             "
 
-extern \"C\" __global__ void {kernel_name}(
-"
+extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
+",
+            flags.cube_dim.num_elems()
         )?;
         shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
         shared::compile_scalars_dynamic::<Self>(f, scalars)?;
@@ -504,9 +536,36 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
         M::compile_wmma_instruction(f, instruction)
     }
 
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        mma: ManualMma<Self>,
+    ) -> std::fmt::Result {
+        M::compile_manual_mma(f, mma)
+    }
+
     fn supported_wmma_combinations(
         arch: &AMDArchitecture,
     ) -> crate::shared::SupportedWmmaCombinations {
         M::supported_wmma_combinations(arch)
+    }
+
+    fn supported_mma_combinations(arch: &AMDArchitecture) -> shared::SupportedMmaCombinations {
+        M::supported_mma_combinations(arch)
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: ManualMma<Self>,
+        _scales_a: Variable<Self>,
+        _scales_b: Variable<Self>,
+        _scales_factor: u32,
+    ) -> std::fmt::Result {
+        panic!("Scaled MMA not supporter in HIP")
+    }
+}
+
+impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
+    fn processors() -> Vec<Box<dyn Processor>> {
+        vec![Box::new(HipMmaProcessor)]
     }
 }

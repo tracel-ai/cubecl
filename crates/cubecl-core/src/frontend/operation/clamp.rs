@@ -1,3 +1,4 @@
+use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use half::{bf16, f16};
 
 use crate::{
@@ -36,6 +37,10 @@ pub trait Clamp: CubePrimitive + Sized {
     }
 }
 
+impl Clamp for e2m1 {}
+impl Clamp for e4m3 {}
+impl Clamp for e5m2 {}
+impl Clamp for ue8m0 {}
 impl Clamp for f16 {}
 impl Clamp for bf16 {}
 impl Clamp for flex32 {}

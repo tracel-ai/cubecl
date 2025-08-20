@@ -28,6 +28,7 @@ spirv-dump = ["sanitize-filename"]
 
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
+matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 matmul_tests_tma = ["cubecl-matmul/matmul_tests_tma"]
 matmul_tests_double = ["cubecl-matmul/matmul_tests_double"]
 matmul_tests_simple = ["cubecl-matmul/matmul_tests_simple"]
@@ -48,6 +49,7 @@ matmul_tests_partition_buffering = [
 matmul_tests_hypercube = ["cubecl-matmul/matmul_tests_hypercube"]
 matmul_tests_base = [
     "matmul_tests_plane",
+    "matmul_tests_vecmat",
     "matmul_tests_double",
     "matmul_tests_simple",
     "matmul_tests_ordered",
@@ -57,6 +59,7 @@ matmul_tests_base = [
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",
+    "matmul_tests_vecmat",
     "matmul_tests_tma",
     "matmul_tests_double",
     "matmul_tests_simple",
@@ -136,6 +139,10 @@ cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", featur
 ] }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
     "export_tests",
+] }
+cubecl-quant = { path = "../cubecl-quant", version = "0.7.0", features = [
+    "export_tests",
+    "kernels",
 ] }
 cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
     "export_tests",

@@ -1,7 +1,9 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime, channel::MutexComputeChannel,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    channel::MpscComputeChannel,
     client::ComputeClient,
+    ir::{Elem, TargetProperties},
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -31,12 +33,11 @@ static RUNTIME: ComputeRuntime<CpuDevice, Server, Channel> = ComputeRuntime::new
 pub type CpuCompiler = MlirCompiler;
 
 type Server = CpuServer;
-// TODO Investigate MSPC channel, it blocks, but may be better
-type Channel = MutexComputeChannel<Server>;
+type Channel = MpscComputeChannel<Server>;
 
 fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
-    let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
+    let max_cube_count = CubeCount::Static(64, 64, 64);
     let system = System::new_all();
     let max_shared_memory_size = system
         .cgroup_limits()
@@ -44,8 +45,8 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         .unwrap_or(system.total_memory()) as usize;
 
     let topology = HardwareProperties {
-        plane_size_min: u32::MAX,
-        plane_size_max: u32::MAX,
+        plane_size_min: 1,
+        plane_size_max: 1,
         max_bindings: u32::MAX,
         max_shared_memory_size,
         max_cube_count,
@@ -71,7 +72,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
 
     let ctx = CpuContext::new(memory_management);
     let server = CpuServer::new(ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    ComputeClient::new(Channel::new(server), device_props, ())
 }
 
 impl Runtime for CpuRuntime {
@@ -91,7 +92,14 @@ impl Runtime for CpuRuntime {
 
     // TODO Should be removed because it depends on element size
     fn supported_line_sizes() -> &'static [u8] {
-        &[8, 1, 1, 1]
+        &[64, 32, 16, 8, 4, 2, 1]
+    }
+
+    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> + Clone {
+        Self::supported_line_sizes()
+            .iter()
+            .filter(|v| **v as usize * elem.size() <= 64)
+            .cloned() // 128 bits
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
@@ -108,5 +116,12 @@ impl Runtime for CpuRuntime {
 
     fn device_count() -> usize {
         1
+    }
+
+    fn target_properties() -> TargetProperties {
+        TargetProperties {
+            // Values are irrelevant, since no wgsl backends currently support manual mma
+            mma: Default::default(),
+        }
     }
 }

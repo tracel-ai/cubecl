@@ -81,7 +81,7 @@ impl WgpuServer {
                 }
             }
         };
-        let bindings = match &kernel.repr {
+        let bindings_info = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentation::Msl(repr)) => Some(cpp_metal::bindings(repr)),
@@ -89,21 +89,25 @@ impl WgpuServer {
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
         };
-        let layout = bindings.map(|bindings| {
+
+        let layout = bindings_info.map(|bindings| {
+            let (mut bindings, meta) = bindings;
+            // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
+            // and since we can't be sure, we'll assume everything is read-write.
+            if !cfg!(exclusive_memory_only) {
+                bindings.fill(cubecl_core::compute::Visibility::ReadWrite);
+            }
+
             let bindings = bindings
                 .into_iter()
-                .map(|(i, _visibility)| BindGroupLayoutEntry {
+                .chain(meta)
+                .enumerate()
+                .map(|(i, visibility)| BindGroupLayoutEntry {
                     binding: i as u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        #[cfg(not(exclusive_memory_only))]
-                        ty: BufferBindingType::Storage { read_only: false },
-                        #[cfg(exclusive_memory_only)]
                         ty: BufferBindingType::Storage {
-                            read_only: matches!(
-                                _visibility,
-                                cubecl_core::compute::Visibility::Read
-                            ),
+                            read_only: matches!(visibility, cubecl_core::compute::Visibility::Read),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,

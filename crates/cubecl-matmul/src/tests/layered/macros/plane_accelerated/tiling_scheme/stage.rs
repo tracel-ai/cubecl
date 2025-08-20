@@ -7,7 +7,7 @@ macro_rules! testgen_matmul_accelerated_stage {
             use super::*;
 
             $crate::testgen_matmul_advanced!(
-                PlaneAccelerated,
+                Normal,
                 $algorithm,
                 $precision,
                 $tiling_scheme_builder.with_stage_size(StageSize { m: 1, n: 1, k: 1 })
@@ -18,7 +18,7 @@ macro_rules! testgen_matmul_accelerated_stage {
             use super::*;
 
             $crate::testgen_matmul_advanced!(
-                PlaneAccelerated,
+                Normal,
                 $algorithm,
                 $precision,
                 $tiling_scheme_builder.with_stage_size(StageSize { m: 2, n: 2, k: 1 })
@@ -29,7 +29,7 @@ macro_rules! testgen_matmul_accelerated_stage {
             use super::*;
 
             $crate::testgen_matmul_advanced!(
-                PlaneAccelerated,
+                Normal,
                 $algorithm,
                 $precision,
                 $tiling_scheme_builder.with_stage_size(StageSize { m: 4, n: 4, k: 1 })
@@ -40,7 +40,7 @@ macro_rules! testgen_matmul_accelerated_stage {
             use super::*;
 
             $crate::testgen_matmul_advanced!(
-                PlaneAccelerated,
+                Normal,
                 $algorithm,
                 $precision,
                 $tiling_scheme_builder.with_stage_size(StageSize { m: 8, n: 4, k: 1 })
@@ -51,7 +51,7 @@ macro_rules! testgen_matmul_accelerated_stage {
             use super::*;
 
             $crate::testgen_matmul_advanced!(
-                PlaneAccelerated,
+                Normal,
                 $algorithm,
                 $precision,
                 $tiling_scheme_builder.with_stage_size(StageSize { m: 8, n: 8, k: 1 })

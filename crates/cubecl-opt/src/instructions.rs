@@ -309,6 +309,50 @@ impl Optimizer {
             CoopMma::Cast { input } => {
                 visit_read(self, input);
             }
+            CoopMma::RowIndex { lane_id, i, .. } => {
+                visit_read(self, lane_id);
+                visit_read(self, i);
+            }
+            CoopMma::ColIndex { lane_id, i, .. } => {
+                visit_read(self, lane_id);
+                visit_read(self, i);
+            }
+            CoopMma::ExecuteManual {
+                registers_a,
+                registers_b,
+                registers_c,
+                ..
+            } => {
+                for reg in registers_a {
+                    visit_read(self, reg);
+                }
+                for reg in registers_b {
+                    visit_read(self, reg);
+                }
+                for reg in registers_c {
+                    visit_read(self, reg);
+                }
+            }
+            CoopMma::ExecuteScaled {
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                ..
+            } => {
+                for reg in registers_a {
+                    visit_read(self, reg);
+                }
+                for reg in registers_b {
+                    visit_read(self, reg);
+                }
+                for reg in registers_c {
+                    visit_read(self, reg);
+                }
+                visit_read(self, scales_a);
+                visit_read(self, scales_b);
+            }
         }
     }
 

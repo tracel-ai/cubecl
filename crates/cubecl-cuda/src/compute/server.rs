@@ -15,8 +15,8 @@ use cubecl_runtime::transfer::ComputeDataTransferId;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
-use crate::compute::{CudaDataHandle, CudaDataService};
 use crate::compute::sync::CrossFence;
+use crate::compute::{CudaDataHandle, CudaDataService};
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
@@ -39,8 +39,8 @@ use cubecl_runtime::{
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUctx_st, CUevent_flags, CUevent_wait_flags, CUfunction_attribute,
     CUmemorytype, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill,
-    CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col,
-    cuTensorMapEncodeTiled,
+    CUtensorMapIm2ColWideMode, CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2,
+    cuTensorMapEncodeIm2col, cuTensorMapEncodeIm2colWide, cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -298,7 +298,7 @@ impl ComputeServer for CudaServer {
         }
 
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(total_size as u64, None)?;
+        let handle = ctx.memory_management.reserve(total_size as u64)?;
         let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
 
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
@@ -541,9 +541,33 @@ impl ComputeServer for CudaServer {
                         .result()
                         .unwrap()
                     },
-                    TensorMapFormat::Im2colWide { .. } => {
-                        unimplemented!("Not yet implemented in cudarc")
-                    }
+                    TensorMapFormat::Im2colWide {
+                        pixel_box_lower_corner_width,
+                        pixel_box_upper_corner_width,
+                        channels_per_pixel,
+                        pixels_per_column,
+                    } => unsafe {
+                        cuTensorMapEncodeIm2colWide(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.elem),
+                            map.rank as u32,
+                            device_ptr,
+                            shape.as_ptr(),
+                            strides.as_ptr(),
+                            *pixel_box_lower_corner_width,
+                            *pixel_box_upper_corner_width,
+                            *channels_per_pixel,
+                            *pixels_per_column,
+                            elem_stride.as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        )
+                        .result()
+                        .unwrap()
+                    },
                 };
                 unsafe { map_ptr.assume_init() }
             })
@@ -610,7 +634,11 @@ impl ComputeServer for CudaServer {
         self.ctx.memory_management.mode(mode);
     }
 
-    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn send_to_peer(
+        &mut self,
+        id: ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
         let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
 
         let src_ctx = self.get_context();
@@ -625,18 +653,26 @@ impl ComputeServer for CudaServer {
             .ok_or(IoError::InvalidHandle)?;
 
         let client = CudaDataService::get_client();
-        client.send(id, CudaDataHandle {
-            context: self.ctx.context,
-            stream: self.ctx.stream,
-            resource: src_resource,
-        }, num_bytes);
+        client.send(
+            id,
+            CudaDataHandle {
+                context: self.ctx.context,
+                stream: self.ctx.stream,
+                resource: src_resource,
+            },
+            num_bytes,
+        );
 
         Ok(())
     }
 
-    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn recv_from_peer(
+        &mut self,
+        id: ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
         let num_bytes = dst.shape.iter().product::<usize>() * dst.elem_size;
-    
+
         let dst_ctx = self.get_context();
         let dst_resource = dst_ctx
             .memory_management
@@ -647,13 +683,16 @@ impl ComputeServer for CudaServer {
             )
             .ok_or(IoError::InvalidHandle)?;
 
-
         let client = CudaDataService::get_client();
-        client.recv(id, CudaDataHandle {
-            context: self.ctx.context,
-            stream: self.ctx.stream,
-            resource: dst_resource,
-        }, num_bytes);
+        client.recv(
+            id,
+            CudaDataHandle {
+                context: self.ctx.context,
+                stream: self.ctx.stream,
+                resource: dst_resource,
+            },
+            num_bytes,
+        );
 
         Ok(())
     }
@@ -956,11 +995,16 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
     match elem {
         Elem::Float(kind) => match kind {
-            FloatKind::E2M1 | FloatKind::E2M3 | FloatKind::E3M2 => {
-                todo!("Needs more complex handling and CUDA 12.8")
-            }
+            // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
+            // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
+            FloatKind::E2M1x2 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
-            FloatKind::E4M3 | FloatKind::E5M2 | FloatKind::UE8M0 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
+            FloatKind::E2M1 // single fp4s are padded to a full byte
+            | FloatKind::E4M3
+            | FloatKind::E5M2
+            | FloatKind::UE8M0
+            | FloatKind::E2M3
+            | FloatKind::E3M2 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             FloatKind::F16 => CU_TENSOR_MAP_DATA_TYPE_FLOAT16,
             FloatKind::BF16 => CU_TENSOR_MAP_DATA_TYPE_BFLOAT16,
             FloatKind::Flex32 | FloatKind::F32 => CU_TENSOR_MAP_DATA_TYPE_FLOAT32,

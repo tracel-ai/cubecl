@@ -4,14 +4,15 @@ use cubecl_cpp::{
     hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
     shared::{
-        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_wmma_features,
+        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_mma_features,
+        register_scaled_mma_features, register_wmma_features,
     },
 };
 
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{Elem, FloatKind, IntKind, UIntKind},
+    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, TargetProperties, UIntKind},
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
 use cubecl_runtime::id::DeviceId;
@@ -62,7 +63,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     #[allow(unused_assignments)]
     let mut prop_max_threads = 0;
     let mut max_cube_dim = CubeDim::new_single();
-    let mut mem_aligment = 32;
+    let mut mem_alignment = 32;
     unsafe {
         let mut ll_device_props = MaybeUninit::uninit();
         let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
@@ -87,8 +88,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_cube_dim.z = ll_device_props.maxThreadsDim[2] as u32;
 
         // Just to be sure we check both.
-        mem_aligment = usize::max(mem_aligment, ll_device_props.textureAlignment);
-        mem_aligment = usize::max(mem_aligment, ll_device_props.surfaceAlignment);
+        mem_alignment = usize::max(mem_alignment, ll_device_props.textureAlignment);
+        mem_alignment = usize::max(mem_alignment, ll_device_props.surfaceAlignment);
     };
     let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
     let arch = AMDArchitecture::parse(normalized_arch_name).unwrap();
@@ -122,12 +123,16 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = HipStorage::new(mem_aligment, stream);
+    let storage = HipStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
-        alignment: mem_aligment as u64,
+        alignment: mem_alignment as u64,
     };
+
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
+    let supported_mma_combinations = M::supported_mma_combinations(&arch);
+    let supported_scaled_mma_combinations = M::supported_scaled_mma_combinations(&arch);
+
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
@@ -173,8 +178,11 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
 
     device_props.register_feature(Feature::DynamicLineSize);
+    device_props.register_feature(Feature::PlaneOps);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
+    register_mma_features(supported_mma_combinations, &mut device_props);
+    register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
     let comp_opts = CompilationOptions {
         warp_size: arch.warp_size(),
@@ -182,7 +190,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         supports_clusters: false,
     };
     let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
-    let server = HipServer::new(mem_aligment, hip_ctx);
+    let server = HipServer::new(mem_alignment, hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 
@@ -242,6 +250,21 @@ impl Runtime for HipRuntime {
             device_count.try_into().unwrap_or(0)
         } else {
             0
+        }
+    }
+
+    fn target_properties() -> TargetProperties {
+        TargetProperties {
+            mma: MmaProperties {
+                register_size_bits: 32,
+                const_plane_size: 32,
+                register_layout_a: MatrixLayout::ColMajor,
+                register_layout_b: MatrixLayout::RowMajor,
+                register_layout_acc: MatrixLayout::RowMajor,
+                register_duplication_a: 2,
+                register_duplication_b: 2,
+                register_duplication_acc: 1,
+            },
         }
     }
 }

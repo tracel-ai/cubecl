@@ -39,6 +39,10 @@ impl<'a> Visitor<'a> {
         let this_block = self
             .current_region
             .insert_block_before(self.last_block, block);
+
+        if self.first_block.is_none() {
+            self.first_block = Some(this_block);
+        }
         self.block = this_block;
 
         self.blocks.insert(block_id, this_block);
@@ -54,6 +58,7 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let condition = self.get_variable(*cond);
+                let condition = self.cast_to_bool(condition, cond.item);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, opt);
                 }
@@ -132,6 +137,7 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let condition = self.get_variable(*break_cond);
+                let condition = self.cast_to_bool(condition, break_cond.item);
                 let body_block = self.visit_basic_block(*body, opt);
                 self.visit_basic_block(*continue_target, opt);
                 let next_block = self.visit_basic_block(*merge, opt);

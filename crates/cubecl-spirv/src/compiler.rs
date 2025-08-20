@@ -72,7 +72,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             current_block: self.current_block,
 
             capabilities: self.capabilities.clone(),
-            float_controls: false,
+            float_controls: self.float_controls,
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
             fp_math_mode: self.fp_math_mode,
@@ -207,8 +207,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             true => convert_math_mode(options.fp_math_mode),
             false => FPFastMathMode::NONE,
         };
+        self.float_controls = self.fp_math_mode != FPFastMathMode::NONE;
 
-        if self.fp_math_mode != FPFastMathMode::NONE {
+        if self.float_controls {
             let inst = dr::Instruction::new(
                 spirv::Op::Capability,
                 None,
@@ -396,6 +397,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .filter(|inst| inst.class.opcode == Op::TypeFloat)
             .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
             .collect::<Vec<_>>();
+        println!("Scalars: {scalars:?}");
         for ty in scalars {
             let operands = vec![
                 dr::Operand::IdRef(main),

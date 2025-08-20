@@ -14,7 +14,7 @@ rust-version = "1.88"
 version = "0.7.0"
 
 [workspace.dependencies]
-bitflags = { version = "2.8.0", features = ["serde"] }
+bitflags = { version = "2.9.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
 log = { default-features = false, version = "0.4.22" }
@@ -30,11 +30,11 @@ variadics_please = "1"
 
 dashmap = "6.1.0"
 foldhash = { version = "0.1.2", default-features = false }
-hashbrown = "0.15.4"
+hashbrown = "0.15.5"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 spin = { version = "0.10.0", features = ["mutex", "spin_mutex"] }
 
-rand = { version = "0.9.0", default-features = false, features = [
+rand = { version = "0.9.2", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
 
@@ -52,6 +52,8 @@ rstest = "0.25.0"
 serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
+float4 = "0.1"
+float8 = "0.4"
 half = { version = "2.5", features = [
     "alloc",
     "num-traits",
@@ -64,7 +66,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 cfg-if = "1.0.0"
 darling = "0.21.0"
 ident_case = "1"
-paste = "1.0.15"
+paste = "1"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
@@ -86,7 +88,6 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-libc = "0.2.172"
 sysinfo = "0.36.1"
 
 [profile.dev]

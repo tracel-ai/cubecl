@@ -1,9 +1,9 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
 
-use cubecl_core::ir::Id;
+use cubecl_core::ir::{Id, Processor};
 
-use crate::shared::FmtLeft;
+use crate::shared::{FmtLeft, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations};
 
 use super::{
     Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
@@ -20,6 +20,7 @@ pub trait Dialect:
     + DialectCubeBuiltins<Self>
     + DialectInstructions<Self>
     + DialectWmmaCompiler<Self>
+    + DialectProcessors<Self>
     + Default
     + Clone
     + Copy
@@ -643,6 +644,15 @@ pub trait DialectInstructions<D: Dialect> {
     ) -> std::fmt::Result;
 }
 
+#[derive(Debug, Clone, Copy, new)]
+pub struct ManualMma<'a, D: Dialect> {
+    pub shape: MmaShape<D>,
+    pub frag_a: &'a [Variable<D>],
+    pub frag_b: &'a [Variable<D>],
+    pub frag_c: &'a [Variable<D>],
+    pub frag_d: &'a Variable<D>,
+}
+
 pub trait DialectWmmaCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
@@ -692,5 +702,25 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         f: &mut std::fmt::Formatter<'_>,
         instruction: &WmmaInstruction<D>,
     ) -> std::fmt::Result;
+    fn compile_manual_mma(f: &mut std::fmt::Formatter<'_>, mma: ManualMma<D>) -> std::fmt::Result;
+    fn compile_scaled_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        mma: ManualMma<D>,
+        scales_a: Variable<D>,
+        scales_b: Variable<D>,
+        scales_factor: u32,
+    ) -> std::fmt::Result;
     fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
+    fn supported_mma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;
+    fn supported_scaled_mma_combinations(
+        _arch: &D::Architecture,
+    ) -> SupportedScaledMmaCombinations {
+        Vec::new()
+    }
+}
+
+/// IR Processors to be applied to the scopes during processing. [`CheckedIO`] is always applied
+/// by default, so these are only for target specific processors like MMA index processors.
+pub trait DialectProcessors<D: Dialect> {
+    fn processors() -> Vec<Box<dyn Processor>>;
 }

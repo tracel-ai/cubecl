@@ -2,7 +2,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::sync_partial_cyclic::SyncPartialCyclicLoading,
@@ -41,10 +41,11 @@ impl Algorithm for DoubleUnitAlgorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         _elems: MatmulElems,
         args: &Self::SelectionArgs,
-    ) -> MatmulSelection {
-        unit_matmul_selection::<R>(
+    ) -> Result<MatmulSelection, MatmulSetupError> {
+        Ok(unit_matmul_selection::<R>(
             client,
             problem,
             plane_dim,
@@ -53,7 +54,7 @@ impl Algorithm for DoubleUnitAlgorithm {
                 tile: args.tile_size,
                 ..Default::default()
             },
-        )
+        ))
     }
 
     fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {

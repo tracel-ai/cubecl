@@ -210,11 +210,11 @@ impl<'a> ArgsManager<'a> {
             )
             .unwrap();
 
-        let unit_pos_xy_corrected = block
+        let unit_pos_yz_corrected = block
             .addi(unit_pos_z_corrected, unit_pos_y_corrected, location)
             .unwrap();
         let unit_pos = block
-            .addi(unit_pos_xy_corrected, self.get(Builtin::UnitPosX), location)
+            .addi(unit_pos_yz_corrected, self.get(Builtin::UnitPosX), location)
             .unwrap();
         self.set(Builtin::UnitPos, unit_pos);
     }

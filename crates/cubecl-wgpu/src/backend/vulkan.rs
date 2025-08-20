@@ -26,13 +26,14 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
-    let mut bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+pub fn bindings(repr: &SpirvKernel) -> (Vec<Visibility>, Vec<Visibility>) {
+    let bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+    let mut meta = vec![];
     if repr.has_metadata {
-        bindings.push(Visibility::Read);
+        meta.push(Visibility::Read);
     }
-    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
-    bindings.into_iter().enumerate().collect()
+    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    (bindings, meta)
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

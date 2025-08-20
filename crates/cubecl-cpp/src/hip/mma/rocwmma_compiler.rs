@@ -1,8 +1,13 @@
 use crate::{
-    hip::{HipDialect, arch::AMDArchitecture},
+    hip::{
+        HipDialect,
+        arch::AMDArchitecture,
+        mma::{compile_manual_mma, supported_mma_combinations},
+    },
     shared::{
-        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
-        SupportedWmmaCombinations, WmmaInstruction, wmma_api_base,
+        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, ManualMma,
+        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WmmaInstruction,
+        wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -18,10 +23,19 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
     }
 
     fn compile_wmma_type_definitions(
-        _f: &mut std::fmt::Formatter<'_>,
-        _flags: &Flags,
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags,
     ) -> std::fmt::Result {
-        Ok(())
+        // For manual MMA, maybe add a flag for this at some point
+        if flags.elem_bf16 {
+            f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
+            f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
+        }
+        if flags.elem_f16 {
+            f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
+            f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+        }
+        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
     fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,6 +75,23 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         instruction: &WmmaInstruction<HipDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_instruction(f, ROCWMMA_NAMESPACE, instruction)
+    }
+
+    fn compile_manual_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        mma: ManualMma<HipDialect<Self>>,
+    ) -> std::fmt::Result {
+        compile_manual_mma(f, mma.shape, mma.frag_a, mma.frag_b, mma.frag_c, mma.frag_d)
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: ManualMma<HipDialect<Self>>,
+        _scales_a: Variable<HipDialect<Self>>,
+        _scales_b: Variable<HipDialect<Self>>,
+        _scales_factor: u32,
+    ) -> std::fmt::Result {
+        unimplemented!("Scaled MMA not supported in HIP")
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
@@ -303,5 +334,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
             }
             AMDArchitecture::Other => vec![],
         }
+    }
+
+    fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
+        supported_mma_combinations(arch)
     }
 }

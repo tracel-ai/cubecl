@@ -8,10 +8,11 @@ use crate::components::batch::{
 use crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
-    MatmulElems, MatmulSelection, MultiRowStrategy, PartitionSize, StageSize, TileSize,
-    TilingScheme,
+    MatmulAvailabilityError, MatmulElems, MatmulSelection, MatmulSetupError, MultiRowStrategy,
+    PartitionSize, StageSize, TileSize, TilingScheme,
 };
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
+use crate::kernels::layered::selector::is_tiny;
 
 pub const NUM_SM_APPROX: u32 = 50;
 pub const NUM_TENSOR_CORES_APPROX: u32 = 4;
@@ -24,6 +25,8 @@ pub struct PlaneMatmulSelectionOptions {
     pub row_count: Option<u32>,
     pub multi_row_strategy: MultiRowStrategy,
     pub partition_buffering: Option<PartitionBuffering>,
+    /// Enables the tiny selector when the [matmul problem](MatmulProblem) is flagged as tiny.
+    pub tiny_selection_enabled: bool,
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
@@ -32,7 +35,13 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     plane_dim: u32,
     elems: MatmulElems,
     options: PlaneMatmulSelectionOptions,
-) -> MatmulSelection {
+) -> Result<MatmulSelection, MatmulSetupError> {
+    if plane_dim == 1 {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim: 1 },
+        ));
+    }
+
     let tile_size = find_instruction_size(
         if TMM::requires_accelerator() {
             Some((
@@ -45,6 +54,10 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         problem.m,
         problem.n,
     );
+
+    if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
+        return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
+    }
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
@@ -115,7 +128,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         });
     }
 
-    builder.build()
+    Ok(builder.build())
 }
 
 fn select_size(
@@ -167,4 +180,43 @@ pub fn find_instruction_size(
     } else {
         (16, 16, 8).into()
     }
+}
+
+fn selection_tiny<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    problem: &MatmulProblem,
+    tile_size: TileSize,
+    plane_dim: u32,
+) -> MatmulSelection {
+    // If the K axis is big, we can leverage that.
+    let pk = u32::min(problem.k as u32 / tile_size.k(), 8);
+    let pk = u32::max(pk, 1);
+
+    let tiling_scheme = TilingScheme::builder()
+        .with_tile_size(tile_size)
+        .with_partition_size(PartitionSize::new(1, 1, pk))
+        .with_stage_size((1, 1, 1).into())
+        .build()
+        .unwrap();
+    let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
+        Some(num_sms) => CubeCountPlanSelection::Sm {
+            num_sms,
+            sm_usage: SmAllocation::Exact,
+            cubes_first: true,
+        },
+        None => CubeCountPlanSelection::FromProblem,
+    };
+
+    let hypercube = HypercubeSelection::builder(&tiling_scheme)
+        .global_order(GlobalOrderSelection::SwizzleRow {
+            m: problem.m as u32,
+            w: 2,
+        })
+        .cube_count_plan(cube_count_plan)
+        .build();
+
+    MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(PartitionBuffering::Single)
+        .hypercube_config(hypercube)
+        .build()
 }

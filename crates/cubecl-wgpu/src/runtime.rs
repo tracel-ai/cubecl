@@ -9,7 +9,7 @@ use cubecl_core::{
     AtomicFeature, Feature,
     ir::{Elem, FloatKind},
 };
-use cubecl_core::{CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -20,7 +20,7 @@ use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
-use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags, RequestAdapterOptions};
+use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
@@ -112,15 +112,31 @@ impl Runtime for WgpuRuntime {
     }
 
     fn device_count() -> usize {
-        let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::all(),
-            ..Default::default()
-        });
-        let adapters: Vec<_> = instance
-            .enumerate_adapters(Backends::all())
-            .into_iter()
-            .collect();
-        adapters.len()
+        #[cfg(target_family = "wasm")]
+        {
+            // WebGPU only supports a single device currently.
+            1
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let adapters: Vec<_> = instance
+                .enumerate_adapters(wgpu::Backends::all())
+                .into_iter()
+                .collect();
+            adapters.len()
+        }
+    }
+
+    fn target_properties() -> TargetProperties {
+        TargetProperties {
+            // Values are irrelevant, since no wgsl backends currently support manual mma
+            mma: Default::default(),
+        }
     }
 }
 
@@ -322,6 +338,9 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
     }
+
+    #[cfg(not(all(target_os = "macos", feature = "msl")))]
+    device_props.register_feature(Feature::PlaneOps);
 
     ComputeClient::new(channel, device_props, setup.backend)
 }

@@ -14,6 +14,8 @@ use cubecl_core::{
 };
 use cubecl_runtime::DeviceProperties;
 
+use crate::shared::MmaShape;
+
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect,
     Elem, FP6Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
@@ -72,6 +74,7 @@ pub struct Flags {
     pub elem_fp8: bool,
     pub elem_bf16: bool,
     pub elem_f16: bool,
+    pub elem_tf32: bool,
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
@@ -82,6 +85,7 @@ pub struct Flags {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
 }
 
@@ -163,6 +167,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_fp8: self.flags.elem_fp8,
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
+            elem_tf32: self.flags.elem_tf32,
             inst_fast_math: value
                 .options
                 .fp_math_mode
@@ -174,6 +179,7 @@ impl<D: Dialect> CppCompiler<D> {
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
+            cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
         };
 
@@ -254,7 +260,11 @@ impl<D: Dialect> CppCompiler<D> {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let processing = scope.process([&*checked_io]);
+        let dialect_processors = D::processors();
+        let mut processors: Vec<&dyn Processor> = vec![&*checked_io];
+        processors.extend(dialect_processors.iter().map(|it| &**it));
+
+        let processing = scope.process(processors);
 
         for var in processing.variables {
             instructions.push(Instruction::DeclareVariable {
@@ -595,6 +605,8 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
+        self.flags.inst_wmma = true;
+
         let out = self.compile_variable(out.unwrap());
 
         let inst = match cmma {
@@ -625,6 +637,55 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_d: out,
                 warp_size: self.compilation_options.warp_size,
             },
+            gpu::CoopMma::ExecuteManual {
+                matrix,
+                registers_a,
+                registers_b,
+                registers_c,
+            } => WmmaInstruction::ExecuteManual {
+                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                frag_a: registers_a
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_b: registers_b
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_c: registers_c
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_d: out,
+            },
+            gpu::CoopMma::ExecuteScaled {
+                matrix,
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => WmmaInstruction::ExecuteScaled {
+                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                frag_a: registers_a
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_b: registers_b
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_c: registers_c
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_d: out,
+
+                scales_a: self.compile_variable(scales_a),
+                scales_b: self.compile_variable(scales_b),
+                scales_factor,
+            },
             gpu::CoopMma::Store {
                 mat,
                 stride,
@@ -647,6 +708,9 @@ impl<D: Dialect> CppCompiler<D> {
                 input: self.compile_variable(input),
                 output: out,
             },
+            gpu::CoopMma::RowIndex { .. } | gpu::CoopMma::ColIndex { .. } => {
+                panic!("Row/Col index should be handled by processors")
+            }
         };
 
         D::register_wmma_instruction_extension(&mut self.extensions, &inst);
@@ -1090,7 +1154,13 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::SpecialCast(inst));
             }
             gpu::Operator::Cast(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+
+                if op.input.elem() == Elem::TF32 || op.out.elem() == Elem::TF32 {
+                    self.flags.elem_tf32 = true;
+                }
+
+                instructions.push(Instruction::Assign(op))
             }
             gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
@@ -1439,6 +1509,10 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.elem_fp4 = true;
                     Elem::FP4(FP4Kind::E2M1)
                 }
+                gpu::FloatKind::E2M1x2 => {
+                    self.flags.elem_fp4 = true;
+                    Elem::FP4x2(FP4Kind::E2M1)
+                }
                 gpu::FloatKind::E2M3 => {
                     self.flags.elem_fp6 = true;
                     Elem::FP6(FP6Kind::E2M3)
@@ -1511,6 +1585,7 @@ fn is_fp4_fp6_fp8(elem: gpu::Elem) -> bool {
         gpu::Elem::Float(kind) => matches!(
             kind,
             FloatKind::E2M1
+                | FloatKind::E2M1x2
                 | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3

@@ -27,8 +27,11 @@ mod tests {
     cubecl_std::testgen!();
 
     cubecl_matmul::testgen_matmul_plane_accelerated!();
+    cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_matmul::testgen_matmul_tma!();
+    cubecl_quant::testgen_quant!();
+
     // TODO: re-instate matmul quantized tests
     cubecl_matmul::testgen_matmul_simple!([f16, bf16, f32]);
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);

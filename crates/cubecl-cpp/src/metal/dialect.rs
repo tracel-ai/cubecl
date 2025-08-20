@@ -5,9 +5,10 @@ use crate::{
     Dialect,
     shared::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
-        FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
-        SupportedWmmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
+        Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
+        ManualMma, SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
+        WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -1010,7 +1011,49 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     }
                 }
             }
+            WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => {
+                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
+            }
+            WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => Self::compile_scaled_mma(
+                f,
+                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
+                *scales_a,
+                *scales_b,
+                *scales_factor,
+            ),
         }
+    }
+
+    fn compile_manual_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: shared::ManualMma<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("Not supported")
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: shared::ManualMma<Self>,
+        _scales_a: Variable<Self>,
+        _scales_b: Variable<Self>,
+        _scales_factor: u32,
+    ) -> std::fmt::Result {
+        unimplemented!("Not supported")
     }
 
     fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
@@ -1041,6 +1084,16 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             ),
         ]
     }
+
+    fn supported_mma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {
+        Vec::new()
+    }
 }
 
 // Coop Matrices dialect
+
+impl DialectProcessors<Self> for MslDialect {
+    fn processors() -> Vec<Box<dyn gpu::Processor>> {
+        Vec::new()
+    }
+}

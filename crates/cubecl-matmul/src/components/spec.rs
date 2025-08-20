@@ -3,7 +3,7 @@ use half::{bf16, f16};
 
 use super::global::args::{MatmulArgs, TensorArgs};
 
-/// Matrix multiplication spec definiting each element types used in the computation as well as
+/// Matrix multiplication spec defining each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait MatmulSpec: Send + Sync + Clone + 'static {
     type Precision: MatmulPrecision;
@@ -91,6 +91,62 @@ impl MatmulPrecision for f64 {
     type EO = f64;
 }
 
+impl MatmulPrecision for u8 {
+    type Lhs = (u8, u8);
+    type Rhs = (u8, u8);
+    type EA = i32;
+    type EO = i32;
+}
+
+impl MatmulPrecision for u16 {
+    type Lhs = (u16, u16);
+    type Rhs = (u16, u16);
+    type EA = i32;
+    type EO = i32;
+}
+
+impl MatmulPrecision for u32 {
+    type Lhs = (u32, u32);
+    type Rhs = (u32, u32);
+    type EA = u32;
+    type EO = u32;
+}
+
+impl MatmulPrecision for u64 {
+    type Lhs = (u64, u64);
+    type Rhs = (u64, u64);
+    type EA = u64;
+    type EO = u64;
+}
+
+impl MatmulPrecision for i8 {
+    type Lhs = (i8, i8);
+    type Rhs = (i8, i8);
+    type EA = i32;
+    type EO = i32;
+}
+
+impl MatmulPrecision for i16 {
+    type Lhs = (i16, i16);
+    type Rhs = (i16, i16);
+    type EA = i32;
+    type EO = i32;
+}
+
+impl MatmulPrecision for i32 {
+    type Lhs = (i32, i32);
+    type Rhs = (i32, i32);
+    type EA = i32;
+    type EO = i32;
+}
+
+impl MatmulPrecision for i64 {
+    type Lhs = (i64, i64);
+    type Rhs = (i64, i64);
+    type EA = i64;
+    type EO = i64;
+}
+
 impl<LhsG: Numeric, RhsG: Numeric, LhsS: Numeric, RhsS: Numeric, EA: Numeric, EO: Numeric>
     MatmulPrecision for (LhsG, RhsG, LhsS, RhsS, EA, EO)
 {
@@ -101,7 +157,7 @@ impl<LhsG: Numeric, RhsG: Numeric, LhsS: Numeric, RhsS: Numeric, EA: Numeric, EO
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<LhsG<MS>, RhsG<MS>>;
+pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<LhsG<MS>, RhsG<MS>, EO<MS>>;
 
 /// Output argument
 pub type OutputArg<MS> = <Args<MS> as MatmulArgs>::Output<EO<MS>>;

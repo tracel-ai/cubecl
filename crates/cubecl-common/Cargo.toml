@@ -14,10 +14,12 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common
 version.workspace = true
 
 [features]
+cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 default = ["std"]
 serde = []
 std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
-cache = ["std", "serde_json", "dirs", "sanitize-filename"]
+fp4 = ["float4"]
+fp8 = ["float8", "float4"]
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -31,6 +33,8 @@ derive_more = { workspace = true, features = [
     "mul_assign",
     "display",
 ] }
+float4 = { workspace = true, optional = true }
+float8 = { workspace = true, optional = true }
 half = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
@@ -41,10 +45,10 @@ spin = { workspace = true } # using in place of use std::sync::Mutex;
 cfg-if = { workspace = true }
 
 # Cache
-hashbrown = { workspace = true }
-serde_json = { workspace = true, features = ["alloc"], optional = true }
 dirs = { workspace = true, optional = true }
+hashbrown = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
+serde_json = { workspace = true, features = ["alloc"], optional = true }
 
 # Only activate futures for std env
 embassy-futures = { version = "0.1.1" }

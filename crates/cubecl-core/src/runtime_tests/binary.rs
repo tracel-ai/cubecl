@@ -58,7 +58,7 @@ macro_rules! test_binary_impl {
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
-            #[cube(launch_unchecked, fast_math = FastMath::all())]
+            #[cube(launch_unchecked, fast_math = FastMath::AllowTransform | FastMath::UnsignedZero)]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
                     output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -125,6 +125,28 @@ test_binary_impl!(
             expected: as_type![F: 7.76, 7.76]
         }
 
+    ]
+);
+
+test_binary_impl!(
+    test_powf,
+    F,
+    F::powf,
+    [
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 2., -3., 2., 81.],
+            rhs: as_type![F: 3., 2., -1., 0.5],
+            expected: as_type![F: 8., 9., 0.5, 9.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 2., -3., 2., 81.],
+            rhs: as_type![F: 3., 2., -1., 0.5],
+            expected: as_type![F: 8., 9., 0.5, 9.]
+        }
     ]
 );
 
@@ -227,6 +249,7 @@ macro_rules! testgen_binary {
             }
 
             add_test!(test_dot);
+            add_test!(test_powf);
         }
     };
 }

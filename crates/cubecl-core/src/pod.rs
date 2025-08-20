@@ -1,6 +1,9 @@
-use cubecl_common::flex32;
+use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, flex32, tf32, ue8m0};
 
-use crate::ir::{Elem, FloatKind, IntKind, UIntKind};
+use crate::{
+    ir::{Elem, FloatKind, IntKind, UIntKind},
+    prelude::Numeric,
+};
 
 /// The base element trait for the jit backend.
 pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemuck::Pod {
@@ -296,5 +299,137 @@ impl CubeElement for flex32 {
     }
     fn minimum_value() -> Self {
         <flex32 as num_traits::Float>::min_value()
+    }
+}
+
+impl CubeElement for tf32 {
+    fn type_name() -> &'static str {
+        "tf32"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::TF32)
+    }
+
+    fn maximum_value() -> Self {
+        tf32::max_value()
+    }
+
+    fn minimum_value() -> Self {
+        tf32::min_value()
+    }
+}
+
+impl CubeElement for e4m3 {
+    fn type_name() -> &'static str {
+        "e4m3"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::E4M3)
+    }
+
+    fn maximum_value() -> Self {
+        e4m3::max_value()
+    }
+
+    fn minimum_value() -> Self {
+        e4m3::min_value()
+    }
+}
+
+impl CubeElement for e5m2 {
+    fn type_name() -> &'static str {
+        "e5m2"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::E5M2)
+    }
+
+    fn maximum_value() -> Self {
+        e5m2::max_value()
+    }
+
+    fn minimum_value() -> Self {
+        e5m2::min_value()
+    }
+}
+
+impl CubeElement for ue8m0 {
+    fn type_name() -> &'static str {
+        "ue8m0"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::UE8M0)
+    }
+
+    fn maximum_value() -> Self {
+        ue8m0::max_value()
+    }
+
+    fn minimum_value() -> Self {
+        ue8m0::min_value()
+    }
+}
+
+impl CubeElement for e2m1x2 {
+    fn type_name() -> &'static str {
+        "e2m1x2"
+    }
+
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::E2M1x2)
+    }
+
+    fn maximum_value() -> Self {
+        let max = e2m1::MAX.to_bits() as u8;
+        e2m1x2::from_bits(max << 4 | max)
+    }
+
+    fn minimum_value() -> Self {
+        let min = e2m1::MIN.to_bits() as u8;
+        e2m1x2::from_bits(min << 4 | min)
     }
 }

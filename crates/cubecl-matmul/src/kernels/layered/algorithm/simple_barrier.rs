@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection,
+        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
@@ -38,9 +38,10 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         _args: &Self::SelectionArgs,
-    ) -> MatmulSelection {
+    ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(client, problem, plane_dim, elems, Default::default())
     }
 }

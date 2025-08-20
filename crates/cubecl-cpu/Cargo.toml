@@ -21,6 +21,7 @@ default = [
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
+matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 matmul_tests_tma = ["cubecl-matmul/matmul_tests_tma"]
 matmul_tests_double = ["cubecl-matmul/matmul_tests_double"]
 matmul_tests_simple = ["cubecl-matmul/matmul_tests_simple"]
@@ -41,6 +42,7 @@ matmul_tests_partition_buffering = [
 matmul_tests_hypercube = ["cubecl-matmul/matmul_tests_hypercube"]
 matmul_tests_base = [
     "matmul_tests_plane",
+    "matmul_tests_vecmat",
     "matmul_tests_double",
     "matmul_tests_simple",
     "matmul_tests_ordered",
@@ -50,6 +52,7 @@ matmul_tests_base = [
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",
+    "matmul_tests_vecmat",
     "matmul_tests_tma",
     "matmul_tests_double",
     "matmul_tests_simple",
@@ -92,10 +95,9 @@ half = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
-libc = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "a5800d4c2886949ad38332e0f14f004df8f9f645" }
+tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "75780fbe097cce2ce11e3520e902d1784bfbd1d3" }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [
