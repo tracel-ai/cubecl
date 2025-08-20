@@ -65,9 +65,9 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
         prob: &mut Self::ScoreProb,
         #[comptime] config: Self::Config,
     );
-    fn tmp_write_score_prob<E: Numeric>(
-        out: &Self::ScoreProb,
-        slice: &mut SliceMut<Line<E>>,
+    fn tmp_write_score_prob(
+        score_prob: &Self::ScoreProb,
+        slice: &mut SliceMut<Line<FP::SP>>,
         #[comptime] config: Self::Config,
     );
 }

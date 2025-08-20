@@ -87,7 +87,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         let size = config.tile_size();
         unsafe {
             cmma::Matrix::<FP::SP>::uninitialized(
-                cmma::MatrixIdent::Accumulator, // TODO and A
+                cmma::MatrixIdent::Accumulator,
                 size.m(),
                 size.n(),
                 size.k(),
@@ -147,15 +147,14 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         let (slice, stride) = tile.as_unlined(1u32);
         cmma::load_with_layout(prob, &slice, stride, cmma::MatrixLayout::RowMajor);
     }
-    fn tmp_write_score_prob<E: Numeric>(
-        out: &Self::ScoreProb,
-        slice: &mut SliceMut<Line<E>>,
+    fn tmp_write_score_prob(
+        score_prob: &Self::ScoreProb,
+        slice: &mut SliceMut<Line<FP::SP>>,
         #[comptime] config: Self::Config,
     ) {
-        let to_store = cmma::cast::<FP::SP, E>(out);
         cmma::store(
             slice,
-            &to_store,
+            &score_prob,
             config.tile_size().n(),
             cmma::MatrixLayout::RowMajor,
         );

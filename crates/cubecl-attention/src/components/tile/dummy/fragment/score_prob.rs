@@ -30,7 +30,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         let index_0 = 2 * UNIT_POS_X;
         let index_1 = index_0 + 1;
 
-        FM::tmp_write_score_prob::<FP::SP>(
+        FM::tmp_write_score_prob(
             &self.fragment,
             &mut self.tmp_smem.to_slice_mut().try_cast_unchecked(),
             self.config,
