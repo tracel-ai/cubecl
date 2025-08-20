@@ -145,15 +145,18 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // entry(2048, 2048, 2048),
                 // entry(1024, 1024, 1024),
                 // entry(512, 512, 512),
-                entry(64, 1024, 64),
-                entry(32, 1024, 32),
-                entry(10, 1024, 10),
-                entry(64, 64, 1024),
-                entry(32, 32, 1024),
-                entry(10, 10, 1024),
-                entry(1024, 64, 64),
-                entry(1024, 32, 32),
-                entry(1024, 10, 10),
+                // entry(64, 1024, 64),
+                // entry(32, 1024, 32),
+                // entry(10, 1024, 10),
+                // entry(64, 64, 1024),
+                // entry(32, 32, 1024),
+                // entry(10, 10, 1024),
+                // entry(1024, 64, 64),
+                // entry(1024, 32, 32),
+                // entry(1024, 10, 10),
+                (16, 1, 2048, 8192),
+                (16, 1, 4096, 4096),
+                (16, 1, 512, 4096),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
@@ -277,6 +280,22 @@ fn run_algos_vecmat<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleVecMat(Selection::Inferred(())),
+    );
+
+    println!("Simple Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
+
+    println!("Simple Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
     );
 }
 
