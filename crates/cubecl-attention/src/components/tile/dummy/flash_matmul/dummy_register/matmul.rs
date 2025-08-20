@@ -13,7 +13,6 @@ pub struct DummyRegisterFlashMatmul;
 impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     type Config = DummyRegisterFlashMatmulConfig;
 
-    // Simple array types - full tile size allocated per lane
     type Query = Array<FP::Q>;
     type KeyValue = Array<FP::KV>;
     type ScoreProb = Array<FP::SP>;
