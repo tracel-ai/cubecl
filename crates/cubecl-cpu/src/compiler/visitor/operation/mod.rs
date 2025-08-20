@@ -74,7 +74,7 @@ impl<'a> Visitor<'a> {
                 self.visit_arithmetic(arithmetic, out);
             }
             Operation::Barrier(_barrier) => {
-                todo!("Barrier operation are not yet supported");
+                panic!("Barrier operation are not supported on CPU.");
             }
             Operation::Bitwise(bitwise) => {
                 self.visit_bitwise(bitwise, out);

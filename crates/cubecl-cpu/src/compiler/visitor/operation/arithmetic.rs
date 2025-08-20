@@ -271,14 +271,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, result);
             }
             Arithmetic::Neg(neg) => {
-                let value = self.get_variable(neg.input);
-                let result = if neg.input.elem().is_int() {
-                    let zero = self.create_int_constant_from_item(neg.input.item, 0);
-                    self.append_operation_with_result(arith::subi(zero, value, self.location))
-                } else {
-                    self.append_operation_with_result(arith::negf(value, self.location))
-                };
-                self.insert_variable(out, result);
+                self.insert_variable(out, self.get_neg_val(neg.input));
             }
             Arithmetic::Normalize(normalize) => {
                 let value = self.get_variable(normalize.input);
@@ -412,6 +405,16 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+        }
+    }
+
+    pub fn get_neg_val(&self, variable: Variable) -> Value<'a, 'a> {
+        let value = self.get_variable(variable);
+        if variable.elem().is_int() {
+            let zero = self.create_int_constant_from_item(variable.item, 0);
+            self.append_operation_with_result(arith::subi(zero, value, self.location))
+        } else {
+            self.append_operation_with_result(arith::negf(value, self.location))
         }
     }
 
