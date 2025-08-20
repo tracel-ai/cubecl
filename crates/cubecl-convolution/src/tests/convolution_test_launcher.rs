@@ -1,22 +1,25 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
-use cubecl_matmul::components::AvailableLineSizes;
 use cubecl_matmul::components::MatmulIdent;
 use cubecl_matmul::components::MatmulSelection;
 use cubecl_matmul::components::global::GlobalConfig;
+use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
 
-use crate::ConvGemmConfig;
-use crate::algorithm::Algorithm;
-use crate::args::ConvInputsLaunch;
-use crate::base::ConvolutionLaunch;
-use crate::base::ConvolutionProblem;
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
 use cubecl_matmul::tests::test_utils::Sample;
 
+use crate::{
+    components::{
+        ConvGemmConfig as _, ConvolutionProblem,
+        global::{args::ConcreteInputsFactory, entry_point::ConvolutionLaunch},
+    },
+    kernels::layered::algorithm::Algorithm,
+};
+
 use super::test_utils::TestPrecision;
 
-type Input<Args, Lhs, Rhs> = <Args as MatmulArgs>::Input<Lhs, Rhs>;
+type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 /// Test the correctness of the specified Matmul on the given device,
@@ -30,7 +33,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     Args: MatmulArgs,
     P: TestPrecision,
     R: Runtime,
-    Args::Input<P::EG, P::EG>: ConvInputsLaunch,
+    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
@@ -90,12 +93,13 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, MatmulIdent::Lhs);
     let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, MatmulIdent::Rhs);
 
-    let lhs_handle = lhs_handle.as_ref();
-    let rhs_handle = rhs_handle.as_ref();
+    let lhs_handle = MatmulInputHandleRef::new(lhs_handle.as_ref());
+    let rhs_handle = MatmulInputHandleRef::new(rhs_handle.as_ref());
 
-    let inputs = <Input<Args, P::EG, P::EG> as ConvInputsLaunch>::create(
+    let inputs = <Input<Args, P::EG, P::EG, P::EG> as ConcreteInputsFactory>::create(
         &lhs_handle,
         &rhs_handle,
+        None,
         &selection,
         &problem,
         &config.line_sizes(),
@@ -116,7 +120,6 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
             config.cube_dim(),
             A::cube_count(&selection, &problem),
             inputs,
-            None,
             output,
             &problem,
             config,
@@ -145,7 +148,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle.clone());
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -162,7 +165,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle.clone());
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 

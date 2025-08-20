@@ -10,7 +10,7 @@ use crate::components::global::multi_stage::double_buffering::DoubleBufferingMat
 use crate::components::stage::{
     ColMajorTilingOrder, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
-use crate::components::{MatmulElems, MatmulSelection, MatmulSetupError};
+use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError};
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
@@ -56,6 +56,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -96,6 +97,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -135,6 +137,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {

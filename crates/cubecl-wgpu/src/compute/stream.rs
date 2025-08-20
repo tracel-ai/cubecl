@@ -63,7 +63,11 @@ impl WgpuStream {
 
         // Allocate a small buffer to use for synchronization.
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(mem_manage.reserve(32));
+        let sync_buffer = Some(
+            mem_manage
+                .reserve(32)
+                .expect("Failed to reserve sync buffer memory"),
+        );
 
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;

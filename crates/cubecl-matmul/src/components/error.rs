@@ -45,6 +45,9 @@ pub enum MatmulAvailabilityError {
 
     /// Dynamic selection of line size is unsupported in the current runtime.
     DynamicLineSizeUnavailable,
+
+    /// Plane operations like plane_sum are unavailable
+    PlaneOpsUnavailable,
 }
 impl From<MatmulAvailabilityError> for MatmulSetupError {
     fn from(value: MatmulAvailabilityError) -> Self {
@@ -149,6 +152,9 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::DynamicLineSizeUnavailable => {
                 writeln!(f, "Dynamic line size is not available.")
+            }
+            MatmulAvailabilityError::PlaneOpsUnavailable => {
+                writeln!(f, "Plane-wide operations like plane_sum are not available.")
             }
         }
     }

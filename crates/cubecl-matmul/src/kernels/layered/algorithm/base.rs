@@ -29,6 +29,7 @@ pub trait Algorithm {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError>;

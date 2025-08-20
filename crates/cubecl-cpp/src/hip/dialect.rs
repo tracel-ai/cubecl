@@ -332,8 +332,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
             f,
             "
 
-extern \"C\" __global__ void {kernel_name}(
-"
+extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
+",
+            flags.cube_dim.num_elems()
         )?;
         shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
         shared::compile_scalars_dynamic::<Self>(f, scalars)?;

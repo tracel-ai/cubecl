@@ -27,7 +27,7 @@ mod features;
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
 pub fn bindings(repr: &SpirvKernel) -> (Vec<Visibility>, Vec<Visibility>) {
-    let mut bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+    let bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
     let mut meta = vec![];
     if repr.has_metadata {
         meta.push(Visibility::Read);

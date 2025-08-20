@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError, MultiRowStrategy,
-        TilingScheme,
+        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
+        MultiRowStrategy, TilingScheme,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -59,84 +59,12 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         if args.multi_rows {
-            let supported = |m: u8, n: u8, k: u8| {
-                client.properties().feature_enabled(Feature::Cmma {
-                    a: elems.lhs_register,
-                    b: elems.rhs_register,
-                    c: elems.acc,
-                    m,
-                    n,
-                    k,
-                })
-            };
-            let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
-                Some(num_sms) => CubeCountPlanSelection::Sm {
-                    num_sms,
-                    sm_usage: SmAllocation::Exact,
-                    cubes_first: true,
-                },
-                None => CubeCountPlanSelection::Flattened,
-            };
-
-            if supported(8, 32, 16) {
-                // A lot of multi-rows balanced with a
-                // tile size of (8, 32, 16)
-                let tiling_scheme = TilingScheme::builder()
-                    .with_tile_size((8, 32, 16).into())
-                    .with_partition_size((4, 4, 2).into())
-                    .with_stage_size((4, 1, 1).into())
-                    .build()
-                    .unwrap();
-
-                let hypercube = HypercubeSelection::builder(&tiling_scheme)
-                    .global_order(GlobalOrderSelection::SwizzleRow {
-                        m: problem.m as u32,
-                        w: 4,
-                    })
-                    .cube_count_plan(cube_count_plan)
-                    .build();
-
-                Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
-                    .partition_buffering(PartitionBuffering::Single)
-                    .hypercube_config(hypercube)
-                    .build())
-            } else if supported(8, 8, 8) {
-                let tiling_scheme = TilingScheme::builder()
-                    .with_tile_size((8, 8, 8).into())
-                    .with_partition_size((4, 8, 2).into())
-                    .with_stage_size((4, 1, 1).into())
-                    .build()
-                    .unwrap();
-                let hypercube = HypercubeSelection::builder(&tiling_scheme)
-                    .global_order(GlobalOrderSelection::SwizzleRow {
-                        m: problem.m as u32,
-                        w: 4,
-                    })
-                    .cube_count_plan(cube_count_plan)
-                    .build();
-
-                Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
-                    .partition_buffering(PartitionBuffering::Single)
-                    .hypercube_config(hypercube)
-                    .build())
-            } else {
-                plane_matmul_selection::<TMM, R>(
-                    client,
-                    problem,
-                    plane_dim,
-                    elems,
-                    PlaneMatmulSelectionOptions {
-                        partition_buffering: Some(PartitionBuffering::Single),
-                        multi_row_strategy: MultiRowStrategy::Always(2),
-                        partition_k: Some(2),
-                        ..Default::default()
-                    },
-                )
-            }
+            selection_multi_rows::<R, TMM>(client, problem, plane_dim, elems)
         } else {
             plane_matmul_selection::<TMM, R>(
                 client,
@@ -145,9 +73,92 @@ where
                 elems,
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
+                    tiny_selection_enabled: true,
                     ..Default::default()
                 },
             )
         }
+    }
+}
+
+fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    problem: &MatmulProblem,
+    plane_dim: u32,
+    elems: MatmulElems,
+) -> Result<MatmulSelection, MatmulSetupError> {
+    let supported = |m: u8, n: u8, k: u8| {
+        client.properties().feature_enabled(Feature::Cmma {
+            a: elems.lhs_register,
+            b: elems.rhs_register,
+            c: elems.acc,
+            m,
+            n,
+            k,
+        })
+    };
+    let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
+        Some(num_sms) => CubeCountPlanSelection::Sm {
+            num_sms,
+            sm_usage: SmAllocation::Exact,
+            cubes_first: true,
+        },
+        None => CubeCountPlanSelection::Flattened,
+    };
+
+    if supported(8, 32, 16) {
+        // A lot of multi-rows balanced with a
+        // tile size of (8, 32, 16)
+        let tiling_scheme = TilingScheme::builder()
+            .with_tile_size((8, 32, 16).into())
+            .with_partition_size((4, 4, 2).into())
+            .with_stage_size((4, 1, 1).into())
+            .build()
+            .unwrap();
+
+        let hypercube = HypercubeSelection::builder(&tiling_scheme)
+            .global_order(GlobalOrderSelection::SwizzleRow {
+                m: problem.m as u32,
+                w: 4,
+            })
+            .cube_count_plan(cube_count_plan)
+            .build();
+
+        Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
+            .partition_buffering(PartitionBuffering::Single)
+            .hypercube_config(hypercube)
+            .build())
+    } else if supported(8, 8, 8) {
+        let tiling_scheme = TilingScheme::builder()
+            .with_tile_size((8, 8, 8).into())
+            .with_partition_size((4, 8, 2).into())
+            .with_stage_size((4, 1, 1).into())
+            .build()
+            .unwrap();
+        let hypercube = HypercubeSelection::builder(&tiling_scheme)
+            .global_order(GlobalOrderSelection::SwizzleRow {
+                m: problem.m as u32,
+                w: 4,
+            })
+            .cube_count_plan(cube_count_plan)
+            .build();
+
+        Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
+            .partition_buffering(PartitionBuffering::Single)
+            .hypercube_config(hypercube)
+            .build())
+    } else {
+        plane_matmul_selection::<TMM, R>(
+            client,
+            problem,
+            plane_dim,
+            elems,
+            PlaneMatmulSelectionOptions {
+                partition_buffering: Some(PartitionBuffering::Single),
+                multi_row_strategy: MultiRowStrategy::Always(2),
+                partition_k: Some(2),
+                ..Default::default()
+            },
+        )
     }
 }
