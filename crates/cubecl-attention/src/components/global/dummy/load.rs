@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use crate::components::AttentionPrecision;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::ScoreMatmul;
+use crate::components::tile::dummy::{FlashMatmul, FlashPrecision};
 
 #[derive(CubeType)]
 pub struct DummyQueryLoader<AP: AttentionPrecision> {
@@ -42,7 +42,7 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
         DummyQueryLoader::<AP> { tensor_reader }
     }
 
-    pub fn reader(&self) -> QueryRegisterReader<AP> {
+    pub fn reader(&self) -> QueryRegisterReader<AP::EI> {
         comment!("Loading Query");
 
         let tile = Tile::<AP::EI> {
@@ -51,7 +51,7 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
             layout: MatrixLayout::RowMajor,
         };
 
-        QueryRegisterReader::<AP> { tile }
+        QueryRegisterReader::<AP::EI> { tile }
     }
 }
 
@@ -163,13 +163,16 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
 }
 
 #[derive(CubeType)]
-pub struct QueryRegisterReader<AP: AttentionPrecision> {
-    tile: Tile<AP::EI>,
+pub struct QueryRegisterReader<E: Numeric> {
+    tile: Tile<E>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision> QueryRegisterReader<AP> {
-    pub fn read_tile<TM: ScoreMatmul<AP>>(&self, #[comptime] tile_config: TM::Config) -> TM::Lhs {
-        TM::allocate_fill_cast_lhs(&self.tile, tile_config)
+impl<E: Numeric> QueryRegisterReader<E> {
+    pub fn read_tile<FP: FlashPrecision, FM: FlashMatmul<FP>>(
+        &self,
+        #[comptime] config: FM::Config,
+    ) -> FM::Query {
+        FM::allocate_fill_query(&self.tile, config)
     }
 }

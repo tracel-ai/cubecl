@@ -53,7 +53,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
     }
 
     fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
-        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Lhs));
         cmma::load(lhs, &slice, stride);
     }
 
@@ -61,7 +61,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
         tile: &Tile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Lhs {
-        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Lhs, config);
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Lhs));
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Lhs);
         let tmp = unsafe {
@@ -79,7 +79,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
     }
 
     fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Rhs, config);
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Rhs));
         cmma::load(rhs, &slice, stride);
     }
 
@@ -89,7 +89,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
         #[comptime] config: Self::Config,
     ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
-        let (slice, stride) = tile.as_unlined::<Self::Config>(StageIdent::Acc, config);
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Acc));
         cmma::load_with_layout(acc, &slice, stride, layout);
     }
 

@@ -84,7 +84,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     }
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP>,
+        query_reader: QueryRegisterReader<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
         TA::init_fragments(query_reader, config.tile_config())

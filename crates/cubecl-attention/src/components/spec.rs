@@ -1,10 +1,12 @@
 use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::MatmulPrecision;
 use half::{bf16, f16};
 
-use crate::components::args::{AttentionArgs, TensorArgs};
+use crate::components::{
+    args::{AttentionArgs, TensorArgs},
+    tile::dummy::FlashPrecision,
+};
 
 /// Attention spec definiting each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
@@ -39,12 +41,14 @@ pub trait AttentionPrecision: Send + Sync + Copy + 'static {
     /// Element type of the output tensor of the kernel.
     type EO: Float;
 
-    type MatmulPrecision: MatmulPrecision<
-            Lhs = (Self::EI, Self::ES),
-            Rhs = (Self::EI, Self::ES),
-            EA = Self::EA,
-            EO = Self::EO,
-        >;
+    type FlashPrecision: FlashPrecision<Q = Self::ES, KV = Self::ES, SP = Self::EA, A = Self::EA>;
+}
+
+impl<T: AttentionPrecision> FlashPrecision for T {
+    type Q = T::ES;
+    type KV = T::ES;
+    type SP = T::EA;
+    type A = T::EA;
 }
 
 impl AttentionPrecision for f16 {
@@ -57,7 +61,7 @@ impl AttentionPrecision for f16 {
     type EA = f32;
     type EO = f16;
 
-    type MatmulPrecision = Self;
+    type FlashPrecision = Self;
 }
 
 impl AttentionPrecision for flex32 {
@@ -66,7 +70,7 @@ impl AttentionPrecision for flex32 {
     type ES = f16;
     type EA = f32;
     type EO = f32;
-    type MatmulPrecision = Self;
+    type FlashPrecision = Self;
 }
 
 impl AttentionPrecision for bf16 {
@@ -78,7 +82,7 @@ impl AttentionPrecision for bf16 {
     #[cfg(not(target_os = "macos"))]
     type EA = f32;
     type EO = bf16;
-    type MatmulPrecision = Self;
+    type FlashPrecision = Self;
 }
 
 impl AttentionPrecision for f32 {
@@ -87,7 +91,7 @@ impl AttentionPrecision for f32 {
     type ES = f32;
     type EA = f32;
     type EO = f32;
-    type MatmulPrecision = Self;
+    type FlashPrecision = Self;
 }
 
 impl AttentionPrecision for f64 {
@@ -96,7 +100,7 @@ impl AttentionPrecision for f64 {
     type ES = f32;
     type EA = f32;
     type EO = f64;
-    type MatmulPrecision = Self;
+    type FlashPrecision = Self;
 }
 
 #[derive(Clone, Copy)]
@@ -110,7 +114,7 @@ impl<AP: AttentionPrecision, ES: Float> AttentionPrecision for ReplaceES<AP, ES>
     type ES = ES;
     type EA = AP::EA;
     type EO = AP::EO;
-    type MatmulPrecision = (Self::EI, Self::EI, ES, ES, Self::EA, Self::EO);
+    type FlashPrecision = Self;
 }
 
 impl<EI: Float, EM: Numeric, ES: Float, EA: Float, EO: Float> AttentionPrecision
@@ -121,7 +125,7 @@ impl<EI: Float, EM: Numeric, ES: Float, EA: Float, EO: Float> AttentionPrecision
     type ES = ES;
     type EA = EA;
     type EO = EO;
-    type MatmulPrecision = (EI, EI, ES, ES, EA, EO);
+    type FlashPrecision = Self;
 }
 
 /// Input argument

@@ -1,20 +1,20 @@
 use crate::components::{
     AttentionSetupError,
     stage::StageAttentionConfig,
-    tile::{TileAttentionConfig, dummy::AttentionStageMemoryConfig},
+    tile::dummy::{AttentionStageMemoryConfig, FlashMatmulConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyStageConfig<TC: TileAttentionConfig> {
-    tile_config: TC,
-    score_stage_memory_config: AttentionStageMemoryConfig<TC::ScoreConfig>,
-    value_stage_memory_config: AttentionStageMemoryConfig<TC::ValueConfig>,
+pub struct DummyStageConfig<FC: FlashMatmulConfig> {
+    tile_config: FC,
+    score_stage_memory_config: AttentionStageMemoryConfig<FC::ScoreConfig>,
+    value_stage_memory_config: AttentionStageMemoryConfig<FC::ValueConfig>,
 }
 
-impl<TC: TileAttentionConfig> StageAttentionConfig for DummyStageConfig<TC> {
-    type TileAttentionConfig = TC;
-    type ScoreStageMemoryConfig = AttentionStageMemoryConfig<TC::ScoreConfig>;
-    type ValueStageMemoryConfig = AttentionStageMemoryConfig<TC::ValueConfig>;
+impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
+    type FlashMatmulConfig = FC;
+    type ScoreStageMemoryConfig = AttentionStageMemoryConfig<FC::ScoreConfig>;
+    type ValueStageMemoryConfig = AttentionStageMemoryConfig<FC::ValueConfig>;
 
     fn plane_dim(&self) -> u32 {
         32
@@ -28,7 +28,7 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for DummyStageConfig<TC> {
         1
     }
 
-    fn tile_config(&self) -> Self::TileAttentionConfig {
+    fn tile_config(&self) -> Self::FlashMatmulConfig {
         self.tile_config
     }
 
@@ -41,11 +41,11 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for DummyStageConfig<TC> {
     }
 }
 
-impl<TC: TileAttentionConfig> DummyStageConfig<TC> {
+impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
     pub fn new(
-        tile_config: TC,
-        score_stage_memory_config: AttentionStageMemoryConfig<TC::ScoreConfig>,
-        value_stage_memory_config: AttentionStageMemoryConfig<TC::ValueConfig>,
+        tile_config: FC,
+        score_stage_memory_config: AttentionStageMemoryConfig<FC::ScoreConfig>,
+        value_stage_memory_config: AttentionStageMemoryConfig<FC::ValueConfig>,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             tile_config,

@@ -1,10 +1,9 @@
 mod accumulator;
 mod key_value;
-mod prob;
 mod query;
-mod score;
+mod score_prob;
 
 pub use accumulator::*;
 pub use key_value::*;
 pub use query::*;
-pub use score::*;
+pub use score_prob::*;

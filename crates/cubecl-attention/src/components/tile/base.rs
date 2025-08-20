@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
-    tile::{Tile, TileConfig, TileMatmul},
+    tile::Tile,
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
@@ -10,8 +10,8 @@ use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
+    tile::dummy::FlashMatmulConfig,
 };
-use std::{fmt::Debug, hash::Hash};
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
@@ -21,7 +21,7 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: TileAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this Attention family.
-    type Config: TileAttentionConfig;
+    type Config: FlashMatmulConfig;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -46,7 +46,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Writer: CubeType;
 
     /// The configuration type associated with this Attention.
-    type Config: TileAttentionConfig;
+    type Config: FlashMatmulConfig;
 
     type State: CubeType;
 
@@ -84,40 +84,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP>,
+        query_reader: QueryRegisterReader<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
-}
-
-/// Configuration for the Tile Attention level
-pub trait TileAttentionConfig:
-    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
-{
-    type ScoreConfig: TileConfig;
-    type ValueConfig: TileConfig;
-
-    fn plane_dim(&self) -> u32;
-    fn num_planes(&self) -> u32;
-    fn rows_per_plane(&self) -> u32;
-
-    fn score_config(&self) -> Self::ScoreConfig;
-    fn value_config(&self) -> Self::ValueConfig;
-
-    fn reuse_key_value(&self) -> bool;
-}
-
-pub trait ScoreMatmul<AP: AttentionPrecision>: TileMatmul<AP::ES, AP::ES, AP::EA> {}
-impl<AP, T> ScoreMatmul<AP> for T
-where
-    AP: AttentionPrecision,
-    T: TileMatmul<AP::ES, AP::ES, AP::EA>,
-{
-}
-
-pub trait ValueMatmul<AP: AttentionPrecision>: TileMatmul<AP::EA, AP::ES, AP::EA> {}
-impl<AP, T> ValueMatmul<AP> for T
-where
-    AP: AttentionPrecision,
-    T: TileMatmul<AP::EA, AP::ES, AP::EA>,
-{
 }

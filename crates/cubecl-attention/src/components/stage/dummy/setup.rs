@@ -11,8 +11,8 @@ use crate::components::{
         dummy::{DummyStageAttention, DummyStageConfig},
     },
     tile::{
-        AttentionTilingLayout, TileAttentionConfig, TileAttentionFamily,
-        dummy::AttentionStageMemoryConfig,
+        AttentionTilingLayout, TileAttentionFamily,
+        dummy::{AttentionStageMemoryConfig, FlashMatmulConfig as _},
     },
 };
 

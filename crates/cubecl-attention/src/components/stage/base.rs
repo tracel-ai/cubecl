@@ -8,7 +8,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
-    tile::{AttentionTilingLayout, TileAttentionConfig},
+    tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
 };
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
@@ -93,7 +93,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP>,
+        query_reader: QueryRegisterReader<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
 }
@@ -102,7 +102,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type TileAttentionConfig: TileAttentionConfig;
+    type FlashMatmulConfig: FlashMatmulConfig;
     type ScoreStageMemoryConfig: StageMemoryConfig;
     type ValueStageMemoryConfig: StageMemoryConfig;
 
@@ -110,7 +110,7 @@ pub trait StageAttentionConfig:
     fn num_planes(&self) -> u32;
     fn rows_per_plane(&self) -> u32;
 
-    fn tile_config(&self) -> Self::TileAttentionConfig;
+    fn tile_config(&self) -> Self::FlashMatmulConfig;
     fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
     fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
 }

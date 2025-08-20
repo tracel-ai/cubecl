@@ -5,48 +5,39 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
-use crate::components::tile::dummy::ScoreFragment;
-use crate::components::tile::{ScoreMatmul, TileAttention, TileAttentionConfig, ValueMatmul};
+use crate::components::tile::TileAttention;
+use crate::components::tile::dummy::{FlashMatmul, FlashPrecision, ScoreFragment};
 use crate::components::{
     AttentionPrecision,
     global::GlobalAttentionConfig,
     tile::dummy::{AccumulatorFragment, DummyWriter, KeyValueFragment, QueryFragment},
 };
 
-pub struct DummyTileAttention<
-    AP: AttentionPrecision,
-    SM: ScoreMatmul<AP>,
-    VM: ValueMatmul<AP>,
-    T: TileAttentionConfig<ScoreConfig = SM::Config, ValueConfig = VM::Config>,
-> {
-    _phantom: PhantomData<(AP, SM, VM, T)>,
+pub struct DummyTileAttention<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+    _phantom: PhantomData<(FP, FM)>,
 }
 
 #[cube]
-impl<
-    SM: ScoreMatmul<AP>,
-    VM: ValueMatmul<AP>,
-    AP: AttentionPrecision,
-    S: TileAttentionConfig<ScoreConfig = SM::Config, ValueConfig = VM::Config>,
-> TileAttention<AP> for DummyTileAttention<AP, SM, VM, S>
+impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<AP>
+    for DummyTileAttention<AP::FlashPrecision, FM>
 {
-    type Config = S;
+    type Config = FM::Config;
 
     type Writer = DummyWriter<AP::EO>;
 
     type State = RunningState<AP::EA>;
 
-    type Query = QueryFragment<AP, SM>;
-    type KeyValue = KeyValueFragment<AP, SM, VM>;
-    type Score = ScoreFragment<AP, SM>;
-    type Accumulator = AccumulatorFragment<AP, VM>;
+    type Query = QueryFragment<AP::FlashPrecision, FM>;
+    type KeyValue = KeyValueFragment<AP::FlashPrecision, FM>;
+    type Score = ScoreFragment<AP::FlashPrecision, FM>;
+    type Accumulator = AccumulatorFragment<AP::FlashPrecision, FM>;
 
     fn execute(
         key_tile: &Tile<AP::ES>,
         value_tile: &Tile<AP::ES>,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
-        score: &mut Self::Score,
+        score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
         #[comptime] config: Self::Config,
@@ -58,32 +49,26 @@ impl<
         let prev_m = state.m;
         let prev_l = state.l;
 
-        SM::fill_rhs(key_tile, key_value.key_mut(), config.score_config());
+        FM::fill_rhs(key_tile, key_value.key_mut(), config);
 
-        SM::execute(
-            &query.fragment,
-            key_value.key(),
-            &mut score.fragment,
-            config.score_config(),
-        );
+        FM::score_matmul(&query.fragment, key_value.key(), &mut score_prob.fragment);
 
-        score.multiply_score(inv_sqrt_dk);
-        let new_m = score.row_max(prev_m);
-        let prob = score.to_prob::<VM>(new_m, config.value_config());
-        let row_sum = prob.row_sum();
+        score_prob.multiply_score(inv_sqrt_dk);
+        let new_m = score_prob.row_max(prev_m);
+        score_prob.to_prob(new_m);
+        let row_sum = score_prob.row_sum();
 
         let exp_m_diff = Exp::exp(prev_m - new_m);
         let new_l = exp_m_diff * prev_l + row_sum;
 
-        VM::fill_rhs(value_tile, key_value.value_mut(), config.value_config());
+        FM::fill_rhs(value_tile, key_value.value_mut(), config);
 
         accumulator.scale(exp_m_diff);
 
-        VM::execute(
-            &prob.fragment,
+        FM::value_matmul(
+            &score_prob.fragment,
             key_value.value(),
             &mut accumulator.fragment,
-            config.value_config(),
         );
 
         state.m = new_m;
@@ -96,10 +81,10 @@ impl<
         let index_1 = index_0 + 1;
         let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
 
-        VM::write_results::<AP::EA>(
+        FM::write_results::<AP::EA>(
             &acc.fragment,
             &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
-            config.value_config(),
+            config,
         );
 
         tmp_smem[index_0] /= state.l;
@@ -109,7 +94,7 @@ impl<
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
-        VM::fill_accumulator(&tile, &mut acc.fragment, config.value_config());
+        FM::tmp_fill_accumulator(&tile, &mut acc.fragment, config);
     }
 
     fn init_state(#[comptime] _config: Self::Config) -> Self::State {
@@ -130,10 +115,10 @@ impl<
     ) {
         comment!("Tile: Write");
         let mut out_smem = SharedMemory::<AP::EA>::new(64);
-        VM::write_results::<AP::EA>(
+        FM::write_results::<AP::EA>(
             &acc.fragment,
             &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            stage_config.value_config(),
+            stage_config,
         );
 
         DummyWriter::<AP::EO>::write::<G>(
@@ -150,14 +135,14 @@ impl<
     }
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP>,
+        query_reader: QueryRegisterReader<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
         (
-            Self::Query::new(query_reader, config.score_config()),
-            Self::KeyValue::new::<Self::Config>(config),
-            Self::Score::new(config.score_config()),
-            Self::Accumulator::new(config.value_config()),
+            Self::Query::new(query_reader, config),
+            Self::KeyValue::new(config),
+            Self::Score::new(config),
+            Self::Accumulator::new(config),
         )
     }
 }
