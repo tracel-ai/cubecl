@@ -341,6 +341,14 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
         ctx.memory_management.mode(mode);
     }
+    
+    fn send_to_peer(&mut self, id: cubecl_runtime::transfer::ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+        todo!("Peer-to-peer data service unimplemented for HIP backend")
+    }
+    
+    fn recv_from_peer(&mut self, id: cubecl_runtime::transfer::ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError> {
+        todo!("Peer-to-peer data service unimplemented for HIP backend")
+    }
 }
 
 fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource {

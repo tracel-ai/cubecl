@@ -217,6 +217,22 @@ impl ComputeServer for WgpuServer {
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         self.stream.mem_manage.mode(mode);
     }
+
+    fn send_to_peer(
+        &mut self,
+        id: cubecl_runtime::transfer::ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        todo!("Peer-to-peer data service unimplemented for WGPU backend")
+    }
+
+    fn recv_from_peer(
+        &mut self,
+        id: cubecl_runtime::transfer::ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        todo!("Peer-to-peer data service unimplemented for WGPU backend")
+    }
 }
 
 fn compiler(backend: wgpu::Backend) -> AutoCompiler {
