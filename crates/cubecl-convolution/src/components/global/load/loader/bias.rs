@@ -50,25 +50,27 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                 <MP::Rhs as InputPrecision>::Register,
                 MP::EA,
             >,
+        S: StageConfig<TileConfig = TMM::Config>,
     >(
         this: &mut Self,
         acc: &mut TMM::Accumulator,
-        tile_n: u32,
-        #[comptime] config: TMM::Config,
+        nth_tile: u32,
+        #[comptime] config: S,
     ) {
         match this {
             BiasLoader::Some { stage, .. } => {
+                let tile_n = nth_tile % config.tiling_scheme().tiles_in_stage_partition_n();
                 let line_size = config.stage_line_size(StageIdent::Acc);
-                let tile_elems = config.tile_size().n() / line_size;
+                let tile_elems = config.tile_config().tile_size().n() / line_size;
                 let start = tile_n * tile_elems;
                 let slice = stage
                     .as_slice_mut(line_size)
                     .slice(start, start + tile_elems);
                 let tile = Tile::new_strided(slice, 0, config.matrix_layout(StageIdent::Acc));
-                TMM::fill_accumulator(&tile, acc, config);
+                TMM::fill_accumulator(&tile, acc, config.tile_config());
             }
             BiasLoader::None => {
-                TMM::zero_accumulator(acc, config);
+                TMM::zero_accumulator(acc, config.tile_config());
             }
         }
     }
