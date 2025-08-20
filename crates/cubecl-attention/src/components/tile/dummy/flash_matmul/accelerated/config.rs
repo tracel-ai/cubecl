@@ -44,8 +44,8 @@ impl TileConfig for ScoreConfig {
         }
     }
 
-    fn global_line_size(&self, ident: StageIdent) -> u32 {
-        todo!()
+    fn global_line_size(&self, _ident: StageIdent) -> u32 {
+        panic!()
     }
 
     fn tile_size(&self) -> &TileSize {
@@ -75,8 +75,8 @@ impl TileConfig for ValueConfig {
         }
     }
 
-    fn global_line_size(&self, ident: StageIdent) -> u32 {
-        todo!()
+    fn global_line_size(&self, _ident: StageIdent) -> u32 {
+        panic!()
     }
 
     fn tile_size(&self) -> &TileSize {
