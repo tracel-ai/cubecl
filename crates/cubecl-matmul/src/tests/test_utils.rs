@@ -106,7 +106,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
-        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        let allowed_error = (epsilon * e.to_f32().unwrap().abs()).max(epsilon);
 
         if f32::is_nan(a.to_f32().unwrap())
             || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error

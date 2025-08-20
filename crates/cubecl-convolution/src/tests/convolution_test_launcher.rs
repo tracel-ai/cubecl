@@ -79,6 +79,14 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         }
     };
 
+    let props = &client.properties().hardware;
+    if !props.max_cube_dim.can_contain(config.cube_dim())
+        || config.cube_dim().num_elems() > props.max_units_per_cube
+    {
+        println!("Skipping test, too many resources requested");
+        return;
+    }
+
     let elem_size = size_of::<P::EG>();
     let lhs_handle = unsafe {
         TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
