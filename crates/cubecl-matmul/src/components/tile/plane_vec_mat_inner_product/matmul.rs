@@ -45,6 +45,9 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
+            match config.sum_precision() {
+
+            }
             let lhs: Line<A> = Line::cast_from(lhs.line);
             let rhs: Line<A> = Line::cast_from(rhs.index(n).line);
 

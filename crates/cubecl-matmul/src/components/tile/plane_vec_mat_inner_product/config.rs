@@ -55,6 +55,16 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
     }
 }
 
+/// Specifies the precision used for the sum reduction.
+pub enum SumPrecision {
+    /// Performs the sum in the accumulator precision.
+    /// Registers are cast to the accumulator type if needed before summation.
+    Accumulator,
+    /// Performs the sum in half-precision (f16).
+    /// Registers are cast to `f16` if needed before summation.
+    F16,
+}
+
 impl PlaneVecMatInnerProductConfig {
     pub fn reduce_line_size(&self) -> u32 {
         self.lhs_stage_line_size
@@ -62,6 +72,10 @@ impl PlaneVecMatInnerProductConfig {
 
     pub fn n(&self) -> u32 {
         self.tile_size().n()
+    }
+
+    pub fn sum_precision(&self) -> SumPrecision {
+        self.sum_precision
     }
 }
 
