@@ -39,24 +39,49 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Clamp(clamp) => {
                 let value = self.get_variable(clamp.input);
-                let min = self.get_variable(clamp.input);
-                let max = self.get_variable(clamp.input);
+                let mut min = self.get_variable(clamp.min_value);
+                let mut max = self.get_variable(clamp.max_value);
+                let vector_type = Type::vector(
+                    &[clamp.input.vectorization_factor() as u64],
+                    clamp.input.elem().to_type(self.context),
+                );
+                if clamp.input.item.is_vectorized() && !clamp.min_value.item.is_vectorized() {
+                    min = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector_type,
+                        min,
+                        self.location,
+                    ));
+                }
+
+                if clamp.input.item.is_vectorized() && !clamp.max_value.item.is_vectorized() {
+                    max = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector_type,
+                        max,
+                        self.location,
+                    ));
+                }
 
                 let value = if clamp.input.elem().is_signed_int() {
-                    let min =
+                    let clamp_down =
                         self.append_operation_with_result(arith::maxsi(value, min, self.location));
-                    self.append_operation_with_result(arith::minsi(min, max, self.location))
+                    self.append_operation_with_result(arith::minsi(clamp_down, max, self.location))
                 } else if clamp.input.elem().is_unsigned_int() {
-                    let min =
+                    let clamp_down =
                         self.append_operation_with_result(arith::maxui(value, min, self.location));
-                    self.append_operation_with_result(arith::minui(min, max, self.location))
+                    self.append_operation_with_result(arith::minui(clamp_down, max, self.location))
                 } else {
-                    let min = self.append_operation_with_result(arith::maxnumf(
+                    let clamp_down = self.append_operation_with_result(arith::maxnumf(
                         value,
                         min,
                         self.location,
                     ));
-                    self.append_operation_with_result(arith::minimumf(min, max, self.location))
+                    self.append_operation_with_result(arith::minimumf(
+                        clamp_down,
+                        max,
+                        self.location,
+                    ))
                 };
                 self.insert_variable(out, value);
             }
@@ -246,14 +271,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, result);
             }
             Arithmetic::Neg(neg) => {
-                let value = self.get_variable(neg.input);
-                let result = if neg.input.elem().is_int() {
-                    let zero = self.create_int_constant_from_item(neg.input.item, 0);
-                    self.append_operation_with_result(arith::subi(zero, value, self.location))
-                } else {
-                    self.append_operation_with_result(arith::negf(value, self.location))
-                };
-                self.insert_variable(out, result);
+                self.insert_variable(out, self.get_neg_val(neg.input));
             }
             Arithmetic::Normalize(normalize) => {
                 let value = self.get_variable(normalize.input);
@@ -343,7 +361,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Round(round) => {
                 let input = self.get_variable(round.input);
-                let output = self.append_operation_with_result(llvm_ods::intr_round(
+                let output = self.append_operation_with_result(llvm_ods::intr_roundeven(
                     self.context,
                     input,
                     self.location,
@@ -387,6 +405,16 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+        }
+    }
+
+    pub fn get_neg_val(&self, variable: Variable) -> Value<'a, 'a> {
+        let value = self.get_variable(variable);
+        if variable.elem().is_int() {
+            let zero = self.create_int_constant_from_item(variable.item, 0);
+            self.append_operation_with_result(arith::subi(zero, value, self.location))
+        } else {
+            self.append_operation_with_result(arith::negf(value, self.location))
         }
     }
 
