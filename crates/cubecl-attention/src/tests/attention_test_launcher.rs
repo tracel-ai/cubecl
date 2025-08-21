@@ -201,13 +201,13 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
         ],
         FlashIdent::Key => [
             problem.batch,
-            problem.seq_k,
+            problem.seq_kv,
             problem.num_heads,
             problem.head_dim,
         ],
         FlashIdent::Value => [
             problem.batch,
-            problem.seq_k,
+            problem.seq_kv,
             problem.num_heads,
             problem.head_dim,
         ],
@@ -215,7 +215,7 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
             problem.batch,
             problem.seq_q,
             problem.num_heads,
-            problem.seq_k,
+            problem.seq_kv,
         ],
         FlashIdent::Out => [
             problem.batch,

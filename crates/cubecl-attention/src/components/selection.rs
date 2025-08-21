@@ -1,12 +1,9 @@
-use cubecl_matmul::components::TileSize;
-
-use crate::components::batch::HypercubeSelection;
+use crate::components::{batch::HypercubeSelection, tile::dummy::AttentionTileSize};
 
 #[derive(Debug, Clone)]
 pub struct AttentionSelection {
     pub hypercube_selection: HypercubeSelection,
 
-    pub value_tile_size: TileSize,
-    pub score_tile_size: TileSize,
+    pub attention_tile_size: AttentionTileSize,
     pub plane_dim: u32,
 }

@@ -329,7 +329,7 @@ where
 {
     let batch = problem.batch;
     let seq_q = problem.seq_q;
-    let seq_k = problem.seq_k;
+    let seq_k = problem.seq_kv;
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
     let masked = mask.is_some();

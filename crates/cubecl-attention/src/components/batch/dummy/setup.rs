@@ -34,7 +34,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
             selection
                 .hypercube_selection
                 .to_hypercube_config(problem, client.properties().hardware.max_cube_count.clone()),
-            problem.seq_k as u32,
+            problem.seq_kv as u32,
         )
         .validate(problem)
     }

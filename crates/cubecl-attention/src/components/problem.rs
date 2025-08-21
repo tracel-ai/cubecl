@@ -6,7 +6,7 @@ pub struct AttentionProblem {
     /// Query sequence length
     pub seq_q: usize,
     /// Key/Value sequence length
-    pub seq_k: usize,
+    pub seq_kv: usize,
     /// Number of attention heads
     pub num_heads: usize,
     /// Dimension of each head (d)

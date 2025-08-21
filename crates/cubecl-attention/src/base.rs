@@ -1,12 +1,12 @@
 use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
-use cubecl_matmul::components::TileSize;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
         AttentionPrecision, AttentionProblem, AttentionSelection, AttentionSetupError,
         AvailableLineSizes, FlashIdent, args::TensorInputsLaunch, batch::HypercubeSelection,
+        tile::dummy::AttentionTileSize,
     },
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
@@ -76,7 +76,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     let problem = AttentionProblem {
         batch: query.shape[0],
         seq_q: query.shape[1],
-        seq_k: key.shape[1],
+        seq_kv: key.shape[1],
         num_heads: query.shape[2],
         head_dim: query.shape[3],
         masked: false,
@@ -84,8 +84,12 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection {},
-        score_tile_size: TileSize { m: 8, n: 8, k: 8 },
-        value_tile_size: TileSize { m: 8, n: 8, k: 8 },
+        attention_tile_size: AttentionTileSize {
+            seq_q: 8,
+            head_dim: 8,
+            seq_kv: 8,
+            val_dim: 8,
+        },
         plane_dim: 32,
     };
 
