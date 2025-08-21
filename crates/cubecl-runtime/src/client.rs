@@ -131,7 +131,6 @@ where
             .zip(shapes.iter())
             .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
             .collect();
-        println!("{descriptors:?}");
 
         self.do_read(descriptors).await.unwrap()
     }
