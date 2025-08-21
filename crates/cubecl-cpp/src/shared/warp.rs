@@ -63,7 +63,7 @@ pub enum WarpInstruction<D: Dialect> {
 impl<D: Dialect> Display for WarpInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
+            WarpInstruction::ReduceSum { input, out } => D::reduce_sum(f, input, out),
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
             WarpInstruction::ReduceMax { input, out } => {
                 reduce_comparison(f, input, out, D::compile_instruction_max_function_name)

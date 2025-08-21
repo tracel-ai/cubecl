@@ -40,7 +40,7 @@ impl DialectWarpReduceCompiler<Self> for MslDialect {
         out: &Variable<Self>,
     ) -> core::fmt::Result {
         let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_sum({input})"))
+        f.write_fmt(format_args!("{out} = simd_sum({input});\n"))
     }
 }
 
