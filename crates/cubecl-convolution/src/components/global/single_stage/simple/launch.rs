@@ -1,6 +1,7 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
     EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
+    layout::Coords2d,
     stage::{FullReaderFamily, StageMatmulFamily},
 };
 use cubecl_std::FastDivmodArgs;
@@ -17,8 +18,13 @@ use crate::{
     kernels::layered::selector::RuntimeArgsLaunch,
 };
 
-impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>>
-    ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
+impl<
+    SMM: StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords2d,
+        >,
+> ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,

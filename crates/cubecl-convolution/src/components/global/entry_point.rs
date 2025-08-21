@@ -104,7 +104,13 @@ pub(crate) fn implicit_conv<
         GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_bias_loader(
             bias, y_offset, config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_writer(out, x_offset, y_offset),
+        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_writer(
+            out,
+            x_offset,
+            y_offset,
+            &runtime_args,
+            config,
+        ),
         &mut GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_accumulator(config),
         k_range,
         config,

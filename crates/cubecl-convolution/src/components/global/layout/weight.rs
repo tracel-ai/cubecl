@@ -6,17 +6,16 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
-use crate::components::{ConvGemmConfig, global::layout::unwrap};
+use crate::components::{
+    ConvGemmConfig,
+    global::layout::{unwrap, virtual_layout},
+};
 
 #[derive(CubeType, Clone)]
 pub struct WeightGlobalLayout<C: ConvGemmConfig> {
     pub stride_out_c: u32,
     pub strides_spatial: Sequence<u32>,
     pub stride_in_c: u32,
-
-    pub shape_out_c: u32,
-    pub shapes_spatial: Sequence<u32>,
-    pub shape_in_c: u32,
 
     pub channels: FastDivmod,
 
@@ -38,27 +37,19 @@ impl<C: ConvGemmConfig> WeightGlobalLayout<C> {
     ) -> WeightGlobalLayout<C> {
         let spatial_dims = comptime![config.dimensionality().num_dims()];
         let mut strides_spatial = Sequence::new();
-        let mut shapes_spatial = Sequence::new();
 
         #[unroll]
         for i in 0..spatial_dims {
             strides_spatial.push(tensor.stride(i + 1));
-            shapes_spatial.push(tensor.shape(i + 1));
         }
 
         let stride_out_c = tensor.stride(0);
         let stride_in_c = tensor.stride(spatial_dims + 1);
 
-        let shape_out_c = tensor.shape(0);
-        let shape_in_c = tensor.shape(spatial_dims + 1);
-
         WeightGlobalLayout::<C> {
             stride_out_c,
             strides_spatial,
             stride_in_c,
-            shape_out_c,
-            shapes_spatial,
-            shape_in_c,
             shape_k,
             shape_n,
             channels,
@@ -76,7 +67,7 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
 
         let (mut rem, in_c) = this.channels.div_mod(k);
 
-        let spatial_dims = comptime![this.shapes_spatial.len()];
+        let spatial_dims = comptime![this.strides_spatial.len()];
         let mut kernel_pos = Sequence::<u32>::new();
 
         #[unroll]
@@ -118,3 +109,5 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
         (this.shape_k, this.shape_n)
     }
 }
+
+virtual_layout!(WeightGlobalLayout, WeightGlobalLayoutExpand);

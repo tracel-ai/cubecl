@@ -87,6 +87,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer;
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;

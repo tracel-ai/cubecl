@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 
 #[cube]
-pub trait Coordinates: CubeType {
+pub trait Coordinates: CubeType + Clone {
     fn rank(this: Self) -> comptime_type!(u32);
     fn dim(this: Self, #[comptime] dim: u32) -> u32;
 }

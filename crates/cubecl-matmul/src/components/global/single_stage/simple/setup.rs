@@ -3,9 +3,9 @@ use crate::components::{
     error::MatmulSetupError,
     global::{
         load::SyncFullLoadingStrategy,
-        memory::SimpleGlobalLayout,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
+    layout::Coords2d,
     stage::StageConfig,
 };
 use cubecl_core::prelude::*;
@@ -30,9 +30,13 @@ pub struct SimpleMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
-    LL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
-    RL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    SMM: stage::StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords2d,
+        >,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;

@@ -6,6 +6,7 @@ use crate::components::{
         memory::SimpleGlobalLayout,
         single_stage::simple::SimpleConfig,
     },
+    layout::{Coords2d, VirtualTensorView},
     stage::{FullStageToTileReader, StageMatmul},
 };
 use cubecl_core as cubecl;
@@ -35,9 +36,10 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            WriteCoords = Coords2d,
         >,
-    LL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
-    RL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Config = SimpleConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP::Lhs, Self::Config, LL>;
@@ -97,9 +99,9 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
+        let lhs = VirtualTensorView::new(lhs, layout.into_virtual());
         Self::LhsLoader::new(
             lhs,
-            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -117,9 +119,9 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
+        let rhs = VirtualTensorView::new(rhs, layout.into_virtual());
         Self::RhsLoader::new(
             rhs,
-            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -134,7 +136,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        let out = VirtualTensorView::new(out, layout.into_virtual());
         SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 

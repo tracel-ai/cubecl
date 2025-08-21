@@ -1,19 +1,18 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{CopyMechanism, GlobalConfig};
-use crate::components::global::{
-    load::{AsyncLoadingJob, LoadingValidation},
-    memory::SimpleGlobalLayout,
-};
+use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
+use crate::components::global::memory::TensorReader;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
 use crate::components::{InputPrecision, MatmulIdent};
-use crate::components::{global::memory::TensorReader, layout::Layout};
+use crate::components::{
+    global::{CopyMechanism, GlobalConfig},
+    layout::{Coords2d, VirtualTensorView},
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -23,7 +22,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, SimpleGlobalLayout, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: InputPrecision, G: GlobalConfig>(
@@ -47,7 +46,7 @@ pub struct AsyncFullLoader<
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
 > {
-    tensor_reader: TensorReader<IP::Global, SimpleGlobalLayout>,
+    tensor_reader: TensorReader<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
@@ -67,7 +66,7 @@ impl<
 {
     /// Create a new AsyncFullLoader
     pub fn new(
-        tensor: VirtualTensor<IP::Global>,
+        tensor: VirtualTensorView<IP::Global, Coords2d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -79,10 +78,8 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let global_layout = SimpleGlobalLayout::new(&tensor, config.global_memory_config(ident));
-        let (shape_x, shape_y) = SimpleGlobalLayout::shape(&global_layout);
-        let tensor_reader =
-            TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
+        let (shape_x, shape_y) = tensor.shape();
+        let tensor_reader = TensorReader::new(tensor, (x_offset, y_offset), batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),

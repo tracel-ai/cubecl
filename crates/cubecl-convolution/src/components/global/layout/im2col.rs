@@ -6,7 +6,10 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
-use crate::components::{ConvGemmConfig, global::load::im2col_tma::div_mod_seq};
+use crate::components::{
+    ConvGemmConfig,
+    global::{layout::virtual_layout, load::im2col_tma::div_mod_seq},
+};
 
 #[derive(CubeType, Clone)]
 pub struct Im2colGlobalLayout<C: ConvGemmConfig> {
@@ -142,6 +145,8 @@ impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
         (read_pos, in_bounds)
     }
 }
+
+virtual_layout!(Im2colGlobalLayout, Im2colGlobalLayoutExpand);
 
 #[allow(unused_variables)]
 #[cube]

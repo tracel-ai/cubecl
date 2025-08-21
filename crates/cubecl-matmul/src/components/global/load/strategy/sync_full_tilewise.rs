@@ -1,13 +1,10 @@
 use std::marker::PhantomData;
 
+use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
-};
-use crate::components::{
-    global::load::SyncFullLoadingStrategy,
-    layout::{Coords2d, Layout},
 };
 use crate::components::{
     global::{GlobalConfig, memory::TensorReader},
@@ -78,10 +75,7 @@ impl<T: TilingOrder, LayoutG> LoadingValidation for SyncFullTilewiseLoading<T, L
 }
 
 #[cube]
-impl<TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>> SyncFullLoadingStrategy
-    for SyncFullTilewiseLoading<TO, LayoutG>
-{
-    type GlobalLayout = LayoutG;
+impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<IP: InputPrecision> = SyncFullTilewiseJob;
 
@@ -135,13 +129,13 @@ pub struct SyncFullTilewiseJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>>
-    LoadingJob<IP, LayoutG, ContiguousTilingLayout<TO>> for SyncFullTilewiseJob
+impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+    for SyncFullTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, LayoutG>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -156,7 +150,7 @@ impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d
             config.stage_memory_config(),
         );
 
-        SyncFullTilewiseJob::load_and_store_line::<IP, TO, G, LayoutG>(
+        SyncFullTilewiseJob::load_and_store_line::<IP, TO, G>(
             this,
             tile,
             line_index_within_tile,
@@ -175,17 +169,12 @@ impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d
 #[cube]
 impl SyncFullTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<
-        IP: InputPrecision,
-        TO: TilingOrder,
-        G: GlobalConfig,
-        LayoutG: Layout<Coordinates = Coords2d>,
-    >(
+    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
-        tensor_reader: &TensorReader<IP::Global, LayoutG>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

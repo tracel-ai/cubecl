@@ -1,25 +1,23 @@
-use crate::components::global::memory::GlobalMemoryConfig;
-use crate::components::{MatmulIdent, layout::Layout};
+use crate::components::MatmulIdent;
 use crate::components::{MatrixLayout, layout::Coords2d};
+use crate::components::{global::memory::GlobalMemoryConfig, layout::VirtualTensorView};
 use cubecl_core as cubecl;
 use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorReader<EI: Numeric, L: Layout<Coordinates = Coords2d>> {
-    pub tensor: VirtualTensor<EI>,
+pub struct TensorReader<EI: Numeric> {
+    pub view: VirtualTensorView<EI, Coords2d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
     pub batch_offset: u32,
-    pub layout: L,
 }
 
-unsafe impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> Sync for TensorReader<EG, L> {}
-unsafe impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> Send for TensorReader<EG, L> {}
+unsafe impl<EG: Numeric> Sync for TensorReader<EG> {}
+unsafe impl<EG: Numeric> Send for TensorReader<EG> {}
 
 #[derive(CubeType)]
 /// Contiguous slice wrapper for memcpy_async loading
@@ -31,20 +29,18 @@ pub struct Window<EG: Numeric> {
 }
 
 #[cube]
-impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
+impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
-        tensor: VirtualTensor<EG>,
-        layout: L,
+        view: VirtualTensorView<EG, Coords2d>,
         offset_global: Coords2d,
         batch_offset: u32,
     ) -> Self {
-        TensorReader::<EG, L> {
-            tensor,
+        TensorReader::<EG> {
+            view,
             row_offset: RuntimeCell::new(offset_global.0),
             col_offset: RuntimeCell::new(offset_global.1),
             batch_offset,
-            layout,
         }
     }
 
@@ -149,9 +145,9 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         let view_row = view_tile_row + load_row;
         let view_col = view_tile_col + load_col;
 
-        let offset = L::to_linear_pos(&self.layout, (view_row, view_col));
+        let offset = self.view.to_linear_pos((view_row, view_col));
         let read_pos = (offset + self.batch_offset) / line_size;
-        let (rows, columns) = L::shape(&self.layout);
+        let (rows, columns) = self.view.shape();
 
         let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
             match config.matrix_layout {
@@ -188,7 +184,7 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         };
 
         Window::<EG> {
-            slice: self.tensor.as_slice(read_pos, read_pos + size),
+            slice: self.view.tensor.as_slice(read_pos, read_pos + size),
             size,
         }
     }
@@ -259,15 +255,15 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         let view_x = load_offsets.0 + self.row_offset.read();
         let view_y = load_offsets.1 + self.col_offset.read();
 
-        let (offset, in_bounds) = L::to_linear_pos_checked(&self.layout, (view_x, view_y));
+        let (offset, in_bounds) = self.view.to_linear_pos_checked((view_x, view_y));
 
         let read_pos = (offset + self.batch_offset) / line_size;
 
         match comptime!((config.check_row_bounds, config.check_col_bounds)) {
-            (false, false) => self.tensor.read(read_pos),
+            (false, false) => self.view.tensor.read(read_pos),
             _ => read_masked::<Line<EG>>(
                 in_bounds,
-                self.tensor.as_slice(0, self.tensor.len()),
+                self.view.tensor.as_slice(0, self.view.tensor.len()),
                 read_pos,
                 Line::cast_from(0),
             ),

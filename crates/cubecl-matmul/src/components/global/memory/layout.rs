@@ -20,8 +20,8 @@ pub struct SimpleGlobalLayout {
 
 #[cube]
 impl SimpleGlobalLayout {
-    pub fn new<T: Numeric>(
-        tensor: &VirtualTensor<T>,
+    pub fn new<T: Numeric, IO: Clone>(
+        tensor: &VirtualTensor<T, IO>,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self {
         let rank = tensor.rank();
@@ -61,5 +61,40 @@ impl Layout for SimpleGlobalLayout {
 
     fn shape(this: &Self) -> Self::Coordinates {
         (this.rows, this.columns)
+    }
+}
+
+mod r#virtual {
+    use crate::components::layout::{VirtualLayout, VirtualLayoutOperationsExpand};
+
+    use super::*;
+
+    impl VirtualLayoutOperationsExpand<Coords2d> for SimpleGlobalLayoutExpand {
+        fn __expand_to_linear_pos_method(
+            &self,
+            scope: &mut Scope,
+            pos: <Coords2d as CubeType>::ExpandType,
+        ) -> <u32 as CubeType>::ExpandType {
+            SimpleGlobalLayout::__expand_to_linear_pos(scope, self.clone(), pos)
+        }
+
+        fn __expand_to_linear_pos_checked_method(
+            &self,
+            scope: &mut Scope,
+            pos: <Coords2d as CubeType>::ExpandType,
+        ) -> <(u32, bool) as CubeType>::ExpandType {
+            SimpleGlobalLayout::__expand_to_linear_pos_checked(scope, self.clone(), pos)
+        }
+
+        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords2d as CubeType>::ExpandType {
+            SimpleGlobalLayout::__expand_shape(scope, self.clone())
+        }
+    }
+
+    #[cube]
+    impl SimpleGlobalLayout {
+        pub fn into_virtual(self) -> VirtualLayout<Coords2d> {
+            VirtualLayout::new::<SimpleGlobalLayout>(self)
+        }
     }
 }

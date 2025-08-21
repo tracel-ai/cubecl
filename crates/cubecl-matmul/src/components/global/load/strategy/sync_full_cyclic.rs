@@ -1,15 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{load::SyncFullLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{
-    global::memory::TensorReader,
-    layout::{Coords2d, Layout},
-};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -58,10 +55,7 @@ impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<
 }
 
 #[cube]
-impl<TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>> SyncFullLoadingStrategy
-    for SyncFullCyclicLoading<TO, LayoutG>
-{
-    type GlobalLayout = LayoutG;
+impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<IP: InputPrecision> = SyncFullCyclicJob;
 
@@ -122,13 +116,13 @@ pub struct SyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>>
-    LoadingJob<IP, LayoutG, ContiguousTilingLayout<TO>> for SyncFullCyclicJob
+impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+    for SyncFullCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, LayoutG>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -136,22 +130,10 @@ impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G, LayoutG>(
-                this,
-                unit_position,
-                tensor_reader,
-                stage,
-                config,
-            );
+            load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G, LayoutG>(
-                    this,
-                    unit_position,
-                    tensor_reader,
-                    stage,
-                    config,
-                );
+                load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
             }
         }
     }
@@ -162,15 +144,10 @@ impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<
-    IP: InputPrecision,
-    TO: TilingOrder,
-    G: GlobalConfig,
-    LayoutG: Layout<Coordinates = Coords2d>,
->(
+pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
-    tensor_reader: &TensorReader<IP::Global, LayoutG>,
+    tensor_reader: &TensorReader<IP::Global>,
     stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {

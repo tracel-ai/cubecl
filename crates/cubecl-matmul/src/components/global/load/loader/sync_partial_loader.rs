@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use super::StageBuffer;
 use super::TaskCounter;
-use crate::components::InputPrecision;
+use crate::components::global::GlobalConfig;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::memory::TensorReader;
@@ -12,11 +12,10 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
+use crate::components::{InputPrecision, layout::VirtualTensorView};
 use crate::components::{MatmulIdent, layout::Coords2d};
-use crate::components::{global::GlobalConfig, layout::Layout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
@@ -24,13 +23,11 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 pub trait SyncPartialLoadingStrategy:
     'static + Send + Sync + Clone + LoadingValidation + LoadMaxRoundPlaneCount
 {
-    /// The layout describing how data is tiled across the global tensor.
-    type GlobalLayout: Layout<Coordinates = Coords2d>;
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: LoadingJob<IP, Self::GlobalLayout, Self::TilingLayout>;
+    type Job<IP: InputPrecision>: LoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: InputPrecision, G: GlobalConfig>(
@@ -46,7 +43,7 @@ pub trait SyncPartialLoadingStrategy:
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct SyncPartialLoader<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> {
-    tensor_reader: TensorReader<IP::Global, L::GlobalLayout>,
+    tensor_reader: TensorReader<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
@@ -61,8 +58,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 {
     /// Create a new SyncPartialLoader
     pub fn new(
-        tensor: VirtualTensor<IP::Global>,
-        global_layout: L::GlobalLayout,
+        tensor: VirtualTensorView<IP::Global, Coords2d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -74,8 +70,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader =
-            TensorReader::new(tensor, global_layout, (x_offset, y_offset), batch_offset);
+        let tensor_reader = TensorReader::new(tensor, (x_offset, y_offset), batch_offset);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((

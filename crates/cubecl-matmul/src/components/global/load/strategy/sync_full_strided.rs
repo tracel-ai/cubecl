@@ -1,15 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{load::SyncFullLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{
-    global::memory::TensorReader,
-    layout::{Coords2d, Layout},
-};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -54,10 +51,7 @@ impl<LayoutG> LoadMaxRoundPlaneCount for SyncFullStridedLoading<LayoutG> {
 }
 
 #[cube]
-impl<LayoutG: Layout<Coordinates = Coords2d>> SyncFullLoadingStrategy
-    for SyncFullStridedLoading<LayoutG>
-{
-    type GlobalLayout = LayoutG;
+impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
     type Job<IP: InputPrecision> = SyncFullStridedJob;
 
@@ -100,13 +94,11 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, LayoutG: Layout<Coordinates = Coords2d>>
-    LoadingJob<IP, LayoutG, StridedTilingLayout> for SyncFullStridedJob
-{
+impl<IP: InputPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStridedJob {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, LayoutG>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {

@@ -1,5 +1,3 @@
-use crate::components::LhsG;
-use crate::components::LhsS;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::RhsG;
@@ -11,6 +9,8 @@ use crate::components::global::load::TmaReader;
 use crate::components::global::load::arrive_tma;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::stage::StageMatmul;
+use crate::components::{LhsG, global::memory::SimpleGlobalLayout, layout::VirtualTensorView};
+use crate::components::{LhsS, layout::Coords2d};
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
@@ -29,7 +29,12 @@ pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
 #[cube]
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<MP, LhsReader = TmaReader<MP::Lhs>, RhsReader = TmaReader<MP::Rhs>>,
+    SMM: StageMatmul<
+            MP,
+            LhsReader = TmaReader<MP::Lhs>,
+            RhsReader = TmaReader<MP::Rhs>,
+            WriteCoords = Coords2d,
+        >,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
     type LhsLoader = TmaLoader<MP::Lhs, Self::Config>;
@@ -132,7 +137,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        let out = VirtualTensorView::new(out, layout.into_virtual());
         SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 

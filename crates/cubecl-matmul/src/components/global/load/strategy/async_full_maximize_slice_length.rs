@@ -3,9 +3,8 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
-        memory::{SimpleGlobalLayout, TensorReader, Window},
+        memory::{TensorReader, Window},
     },
-    layout::{Coords2d, Layout},
     stage::{StageMemory, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
@@ -70,13 +69,13 @@ pub struct AsynFullMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> AsyncLoadingJob<IP, SimpleGlobalLayout, StridedTilingLayout>
+impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsynFullMaximizeSliceLengthJob
 {
     fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -85,7 +84,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, SimpleGlobalLayout, StridedTilingLa
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices % this.unit_count == 0) {
-            load_nth_slice::<IP::Global, IP::Stage, SimpleGlobalLayout, CM, G>(
+            load_nth_slice::<IP::Global, IP::Stage, CM, G>(
                 nth_slice,
                 tensor_reader,
                 stage,
@@ -95,7 +94,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, SimpleGlobalLayout, StridedTilingLa
             );
         } else {
             if nth_slice < this.num_slices {
-                load_nth_slice::<IP::Global, IP::Stage, SimpleGlobalLayout, CM, G>(
+                load_nth_slice::<IP::Global, IP::Stage, CM, G>(
                     nth_slice,
                     tensor_reader,
                     stage,
@@ -113,15 +112,9 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, SimpleGlobalLayout, StridedTilingLa
 }
 
 #[cube]
-fn load_nth_slice<
-    EG: Numeric,
-    ES: Numeric,
-    LayoutG: Layout<Coordinates = Coords2d>,
-    CM: CopyMechanism<ES>,
-    G: GlobalConfig,
->(
+fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConfig>(
     nth_slice: u32,
-    tensor_reader: &TensorReader<EG, LayoutG>,
+    tensor_reader: &TensorReader<EG>,
     stage: &mut StageMemory<ES, StridedTilingLayout>,
     mechanism: &CM,
     #[comptime] ident: MatmulIdent,

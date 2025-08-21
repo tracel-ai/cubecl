@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
-        memory::{SimpleGlobalLayout, TensorReader, Window},
+        memory::{TensorReader, Window},
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -58,13 +58,11 @@ pub struct AsyncFullCooperativeJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> AsyncLoadingJob<IP, SimpleGlobalLayout, StridedTilingLayout>
-    for AsyncFullCooperativeJob
-{
+impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullCooperativeJob {
     fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,

@@ -4,6 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{load::NoLoadingValidation, single_stage::simple::SimpleConfig},
+    layout::Coords2d,
     stage::{
         ContiguousTilingLayout, FullReaderFamily, RowMajorTilingOrder, StageConfig as _,
         StageMatmulFamily,
@@ -23,7 +24,11 @@ pub struct SimpleConvolutionFamily<SMM: StageMatmulFamily> {
 
 impl<SMM> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
+    SMM: StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords2d,
+        >,
 {
     type Convolution<MP: MatmulPrecision> =
         SimpleConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;

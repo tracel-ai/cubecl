@@ -1,4 +1,3 @@
-use crate::components::ComputeResources;
 use crate::components::InputPrecision;
 use crate::components::LhsR;
 use crate::components::LhsS;
@@ -18,6 +17,7 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
+use crate::components::{ComputeResources, layout::Coords2d};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -43,6 +43,7 @@ impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFami
         RRF::Reader<RhsS<MP>, TR>,
     >;
     type Config = PlanePartitionedStageConfig<TM::Config>;
+    type WriteCoords = Coords2d;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

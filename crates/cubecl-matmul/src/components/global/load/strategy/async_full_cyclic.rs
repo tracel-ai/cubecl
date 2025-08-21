@@ -3,9 +3,7 @@ use std::marker::PhantomData;
 use crate::components::{
     InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, RoleRule,
-        load::AsyncFullLoadingStrategy,
-        memory::{SimpleGlobalLayout, TensorReader},
+        CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy, memory::TensorReader,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -108,13 +106,13 @@ pub struct AsyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder>
-    AsyncLoadingJob<IP, SimpleGlobalLayout, ContiguousTilingLayout<TO>> for AsyncFullCyclicJob
+impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
+    for AsyncFullCyclicJob
 {
     fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, SimpleGlobalLayout>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         mechanism: &CM,
         #[comptime] config: G,

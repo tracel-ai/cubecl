@@ -8,7 +8,6 @@ use crate::{
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
-            memory::SimpleGlobalLayout,
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
@@ -40,8 +39,8 @@ pub struct SimpleUnitSelectionArgs {
 
 impl<LL, RL> Algorithm for SimpleUnitAlgorithm<LL, RL>
 where
-    LL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
-    RL: SyncFullLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul;

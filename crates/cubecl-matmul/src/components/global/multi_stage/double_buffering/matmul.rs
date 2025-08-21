@@ -1,13 +1,19 @@
-use crate::components::global::load::{StageBuffer, SyncPartialLoader, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::{LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
+use crate::components::{
+    global::load::{StageBuffer, SyncPartialLoader, SyncPartialLoadingStrategy},
+    layout::VirtualTensorView,
+};
+use crate::components::{
+    global::{GlobalConfig, GlobalWriter, ZeroAccumulatorLoader},
+    layout::Coords2d,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::div_ceil;
@@ -20,9 +26,11 @@ use std::marker::PhantomData;
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
-    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
-> {
+    LL: SyncPartialLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
+> where
+    SMM::Writer: GlobalWriter<MP::EO, Coordinates = Coords2d>,
+{
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -37,9 +45,10 @@ where
             MP,
             LhsReader = PartialStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            WriteCoords = Coords2d,
         >,
-    LL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
-    RL: SyncPartialLoadingStrategy<GlobalLayout = SimpleGlobalLayout>,
+    LL: SyncPartialLoadingStrategy,
+    RL: SyncPartialLoadingStrategy,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncPartialLoader<MP::Lhs, Self::Config, LL>;
@@ -158,9 +167,9 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
+        let lhs = VirtualTensorView::new(lhs, layout.into_virtual());
         SyncPartialLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs,
-            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -178,9 +187,9 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
+        let rhs = VirtualTensorView::new(rhs, layout.into_virtual());
         SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs,
-            layout,
             x_offset,
             y_offset,
             batch_offset,
@@ -195,7 +204,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        let out = VirtualTensorView::new(out, layout.into_virtual());
         SMM::init_writer(out, x_offset, y_offset, batch_offset)
     }
 

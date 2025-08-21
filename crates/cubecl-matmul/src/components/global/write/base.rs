@@ -1,4 +1,4 @@
-use crate::components::global::GlobalConfig;
+use crate::components::{global::GlobalConfig, layout::Coordinates};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -6,6 +6,8 @@ use cubecl_core::prelude::*;
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
 pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
+    type Coordinates: Coordinates;
+
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
     fn write<G: GlobalConfig>(

@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::components::global::load::SyncPartialLoadingStrategy;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
-use crate::components::{global::load::SyncPartialLoadingStrategy, layout::Coords2d};
-use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, layout::Layout};
 use crate::components::{
     global::{GlobalConfig, memory::TensorReader},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
@@ -91,10 +91,7 @@ impl<T: TilingOrder, LayoutG> LoadingValidation for SyncPartialTilewiseLoading<T
 }
 
 #[cube]
-impl<TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>> SyncPartialLoadingStrategy
-    for SyncPartialTilewiseLoading<TO, LayoutG>
-{
-    type GlobalLayout = LayoutG;
+impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<IP: InputPrecision> = SyncPartialTilewiseJob;
 
@@ -164,13 +161,13 @@ pub struct SyncPartialTilewiseJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d>>
-    LoadingJob<IP, LayoutG, ContiguousTilingLayout<TO>> for SyncPartialTilewiseJob
+impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+    for SyncPartialTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global, LayoutG>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -209,7 +206,7 @@ impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
 
-        SyncPartialTilewiseJob::load_and_store_line::<IP, TO, G, LayoutG>(
+        SyncPartialTilewiseJob::load_and_store_line::<IP, TO, G>(
             this,
             tile,
             line_index_within_tile,
@@ -228,17 +225,12 @@ impl<IP: InputPrecision, TO: TilingOrder, LayoutG: Layout<Coordinates = Coords2d
 #[cube]
 impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<
-        IP: InputPrecision,
-        TO: TilingOrder,
-        G: GlobalConfig,
-        LayoutG: Layout<Coordinates = Coords2d>,
-    >(
+    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
-        tensor_reader: &TensorReader<IP::Global, LayoutG>,
+        tensor_reader: &TensorReader<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

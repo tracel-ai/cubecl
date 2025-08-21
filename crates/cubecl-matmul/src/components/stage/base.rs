@@ -1,9 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::ReadWrite;
 
-use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
 use crate::components::{
@@ -14,6 +12,8 @@ use crate::components::{
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
+use crate::components::{error::MatmulSetupError, layout::VirtualTensorView};
+use crate::components::{global::MaxLoaderPlanes, layout::Coordinates};
 use std::{fmt::Debug, hash::Hash};
 
 use super::{StageEventListener, TilingLayout};
@@ -26,12 +26,15 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
             Config = Self::Config,
             LhsReader = <Self::LhsReader as ReaderFamily>::Reader<LhsS<MP>, TL>,
             RhsReader = <Self::RhsReader as ReaderFamily>::Reader<RhsS<MP>, TR>,
+            WriteCoords = Self::WriteCoords,
         >;
 
     /// Reader family for Lhs
     type LhsReader: ReaderFamily;
     /// Reader family for Rhs
     type RhsReader: ReaderFamily;
+    /// Writer coordinate type
+    type WriteCoords: Coordinates;
 
     /// The configuration type associated with this matmul family.
     type Config: StageConfig;
@@ -92,7 +95,9 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type RhsTile: CubeType;
 
     /// How to write to global memory after computation
-    type Writer: GlobalWriter<MP::EO>;
+    type Writer: GlobalWriter<MP::EO, Coordinates = Self::WriteCoords>;
+    /// Coordinates used by the writer
+    type WriteCoords: Coordinates;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     ///
@@ -136,7 +141,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Inits the writer at the given offsets
     fn init_writer(
-        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        tensor: VirtualTensorView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

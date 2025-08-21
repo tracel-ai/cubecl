@@ -1,8 +1,8 @@
-use crate::components::global::memory::TensorWriter;
-use crate::components::{MatmulIdent, global::GlobalConfig};
+use crate::components::{MatmulIdent, global::GlobalConfig, layout::Coords2d};
+use crate::components::{global::memory::TensorWriter, layout::VirtualTensorView};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::ReadWrite;
 
 use super::GlobalWriter;
 
@@ -16,19 +16,21 @@ pub struct UnitWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> UnitWriter<EG> {
     pub fn new(
-        tensor: VirtualTensor<EG, ReadWrite>,
+        view: VirtualTensorView<EG, Coords2d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self {
         UnitWriter::<EG> {
-            tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
+            tensor_view: TensorWriter::new(view, x_offset, y_offset, batch_offset),
         }
     }
 }
 
 #[cube]
 impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
+    type Coordinates = Coords2d;
+
     fn write<G: GlobalConfig>(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,

@@ -6,10 +6,11 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
+    LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
         AccumulatorLoader, GlobalConfig as _, load::arrive_tma, single_stage::tma::SimpleTmaConfig,
     },
+    layout::{Coords2d, VirtualTensorView},
     stage::{FullStageToTileReader, StageMatmul},
 };
 use cubecl_std::{
@@ -22,6 +23,7 @@ use crate::{
         ConvolutionConfig,
         global::{
             GlobalConvolution,
+            layout::NhwcOutGlobalLayout,
             load::{
                 bias::BiasLoader,
                 im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
@@ -47,6 +49,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
             RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
+            WriteCoords = Coords2d,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
@@ -161,7 +164,17 @@ where
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
+        let layout = NhwcOutGlobalLayout::new(
+            &out,
+            runtime_args.size_m,
+            runtime_args.size_n,
+            runtime_args.out_shape.clone(),
+            config.global_memory_config(MatmulIdent::Out),
+        );
+        let out = VirtualTensorView::new(out, layout.into_virtual());
         SMM::init_writer(out, x_offset, y_offset, 0)
     }
 

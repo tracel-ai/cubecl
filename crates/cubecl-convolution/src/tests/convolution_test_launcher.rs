@@ -230,7 +230,9 @@ pub(crate) fn shape(problem: &ConvolutionProblem, ident: MatmulIdent) -> Vec<usi
             problem.channels,
         ],
         MatmulIdent::Out => vec![
-            problem.batches * problem.out_shape.iter().product::<usize>(),
+            problem.batches,
+            problem.out_shape[0],
+            problem.out_shape[1],
             problem.n,
         ],
     }
