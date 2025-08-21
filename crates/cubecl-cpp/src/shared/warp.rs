@@ -113,7 +113,7 @@ unsigned int leader = __ffs(mask) - 1;
     }
 }
 
-fn reduce_operator<D: Dialect>(
+pub(crate) fn reduce_operator<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
