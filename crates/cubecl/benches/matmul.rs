@@ -137,7 +137,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [false] {
-        for tr in [true] {
+        for tr in [false, true] {
             for (b, m, n, k) in [
                 // entry(8192, 8192, 8192),
                 // entry(6144, 6144, 6144),
@@ -155,7 +155,8 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // entry(1024, 32, 32),
                 // entry(1024, 10, 10),
                 (4, 1, 8192, 8192),
-                // (16, 1, 2048, 8192),
+                (16, 1, 2048, 8192),
+                (16, 1, 8192, 2048),
                 // (16, 1, 4096, 4096),
                 // (16, 1, 512, 4096),
             ] {
