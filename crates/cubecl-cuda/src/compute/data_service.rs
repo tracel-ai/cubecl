@@ -5,7 +5,7 @@ use std::{
 
 use cubecl_common::stub::Mutex;
 use cubecl_core::server::IoError;
-use cubecl_runtime::transfer::ComputeDataTransferId;
+use cubecl_runtime::data_service::ComputeDataTransferId;
 use cudarc::driver::sys;
 
 use crate::compute::{CudaResource, sync::CrossFence};

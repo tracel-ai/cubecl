@@ -3,6 +3,7 @@ use cubecl_core::server::{
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
+use cubecl_runtime::data_service::ComputeDataTransferId;
 
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
@@ -342,11 +343,11 @@ impl ComputeServer for HipServer {
         ctx.memory_management.mode(mode);
     }
     
-    fn send_to_peer(&mut self, id: cubecl_runtime::transfer::ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn send_to_peer(&mut self, _id: ComputeDataTransferId, _src: CopyDescriptor<'_>) -> Result<(), IoError> {
         todo!("Peer-to-peer data service unimplemented for HIP backend")
     }
     
-    fn recv_from_peer(&mut self, id: cubecl_runtime::transfer::ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn recv_from_peer(&mut self, _id: ComputeDataTransferId, _dst: CopyDescriptor<'_>) -> Result<(), IoError> {
         todo!("Peer-to-peer data service unimplemented for HIP backend")
     }
 }

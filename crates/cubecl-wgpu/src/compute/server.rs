@@ -14,6 +14,7 @@ use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::{Allocation, AllocationDescriptor, IoError},
 };
+use cubecl_runtime::data_service::ComputeDataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::{
@@ -220,16 +221,16 @@ impl ComputeServer for WgpuServer {
 
     fn send_to_peer(
         &mut self,
-        id: cubecl_runtime::transfer::ComputeDataTransferId,
-        src: CopyDescriptor<'_>,
+        _id: ComputeDataTransferId,
+        _src: CopyDescriptor<'_>,
     ) -> Result<(), IoError> {
         todo!("Peer-to-peer data service unimplemented for WGPU backend")
     }
 
     fn recv_from_peer(
         &mut self,
-        id: cubecl_runtime::transfer::ComputeDataTransferId,
-        dst: CopyDescriptor<'_>,
+        _id: ComputeDataTransferId,
+        _dst: CopyDescriptor<'_>,
     ) -> Result<(), IoError> {
         todo!("Peer-to-peer data service unimplemented for WGPU backend")
     }

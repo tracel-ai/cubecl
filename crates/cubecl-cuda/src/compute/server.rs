@@ -11,7 +11,7 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::transfer::ComputeDataTransferId;
+use cubecl_runtime::data_service::ComputeDataTransferId;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
