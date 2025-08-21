@@ -107,7 +107,32 @@ impl<'a> Visitor<'a> {
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
                 let condition = self.cast_to_bool(condition, select.cond.item);
-                let (then, or_else) = self.get_binary_op_variable(select.then, select.or_else);
+                let mut then = self.get_variable(select.then);
+                let mut or_else = self.get_variable(select.or_else);
+                if out.item.is_vectorized() && !select.then.item.is_vectorized() {
+                    let vector = Type::vector(
+                        &[out.vectorization_factor() as u64],
+                        select.then.elem().to_type(self.context),
+                    );
+                    then = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector,
+                        then,
+                        self.location,
+                    ));
+                }
+                if out.item.is_vectorized() && !select.or_else.item.is_vectorized() {
+                    let vector = Type::vector(
+                        &[out.vectorization_factor() as u64],
+                        select.or_else.elem().to_type(self.context),
+                    );
+                    or_else = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector,
+                        or_else,
+                        self.location,
+                    ));
+                }
                 let value = self.append_operation_with_result(arith::select(
                     condition,
                     then,
