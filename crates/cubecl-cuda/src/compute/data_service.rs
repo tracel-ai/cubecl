@@ -180,13 +180,15 @@ impl CudaDataTransfer {
         let transfer_fence = unsafe {
             cudarc::driver::result::ctx::set_current(dst_context).unwrap();
 
-            cudarc::driver::result::memcpy_dtod_async(
+            cudarc::driver::sys::cuMemcpyPeerAsync(
                 dst_resource.ptr,
+                dst_context,
                 src_resource.ptr,
+                src_context,
                 num_bytes,
                 dst_stream,
             )
-            .unwrap();
+            .result().unwrap();
 
             // Signal the transfer finished for the sending thread
             CrossFence::new(dst_stream, src_stream)

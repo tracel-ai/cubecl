@@ -304,7 +304,7 @@ where
     }
 
     /// Transfer data from one client to another
-    pub fn to_client(&self, src: Handle, dst_server: Self) -> Allocation {
+    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
         let strides = [1];
         let size = src.size() as usize;
         let shape = [size];
@@ -312,7 +312,7 @@ where
 
         // Allocate destination
         let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, elem_size);
-        let alloc = self.channel.create(vec![alloc_desc]).unwrap().remove(0);
+        let alloc = dst_server.channel.create(vec![alloc_desc]).unwrap().remove(0);
         
         // Unique id for this transaction
         let id = ComputeDataTransferId::new();
