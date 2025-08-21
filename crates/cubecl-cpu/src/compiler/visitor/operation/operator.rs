@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator};
+use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator, VariableKind};
 use tracel_llvm::melior::{
     dialect::{
         arith, index, memref,
@@ -60,14 +60,11 @@ impl<'a> Visitor<'a> {
                 todo!("copy_memory_bulk is not implemented {}", operator)
             }
             Operator::Index(index) | Operator::UncheckedIndex(index) => {
-                let index_value = self.get_index(index.index, out.item);
-                let load_ssa = self.visit_index(index, index_value, out);
+                let load_ssa = self.visit_index(index, out);
                 self.insert_variable(out, load_ssa);
             }
             Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
-                let index_assign_value =
-                    self.get_index(index_assign.index, index_assign.value.item);
-                self.visit_index_assign(index_assign, index_assign_value, out)
+                self.visit_index_assign(index_assign, out)
             }
             Operator::InitLine(init_line) => {
                 let inputs: Vec<_> = init_line
@@ -110,7 +107,32 @@ impl<'a> Visitor<'a> {
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
                 let condition = self.cast_to_bool(condition, select.cond.item);
-                let (then, or_else) = self.get_binary_op_variable(select.then, select.or_else);
+                let mut then = self.get_variable(select.then);
+                let mut or_else = self.get_variable(select.or_else);
+                if out.item.is_vectorized() && !select.then.item.is_vectorized() {
+                    let vector = Type::vector(
+                        &[out.vectorization_factor() as u64],
+                        select.then.elem().to_type(self.context),
+                    );
+                    then = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector,
+                        then,
+                        self.location,
+                    ));
+                }
+                if out.item.is_vectorized() && !select.or_else.item.is_vectorized() {
+                    let vector = Type::vector(
+                        &[out.vectorization_factor() as u64],
+                        select.or_else.elem().to_type(self.context),
+                    );
+                    or_else = self.append_operation_with_result(vector::splat(
+                        self.context,
+                        vector,
+                        or_else,
+                        self.location,
+                    ));
+                }
                 let value = self.append_operation_with_result(arith::select(
                     condition,
                     then,
@@ -122,12 +144,9 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_index(
-        &mut self,
-        index: &IndexOperator,
-        mut index_value: Value<'a, 'a>,
-        out: Variable,
-    ) -> Value<'a, 'a> {
+    fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
+        assert!(index.line_size == 0);
+        let mut index_value = self.get_index(index.index, out.item);
         let vector_type = index.list.item.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
@@ -162,25 +181,39 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_index_assign(
-        &mut self,
-        index_assign: &IndexAssignOperator,
-        index_assign_value: Value<'a, 'a>,
-        out: Variable,
-    ) {
+    fn visit_index_assign(&mut self, index_assign: &IndexAssignOperator, out: Variable) {
+        assert!(index_assign.line_size == 0);
         let value = self.get_variable(index_assign.value);
         let memref = self.get_memory(out);
+        if matches!(
+            out.kind,
+            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. }
+        ) {
+            let indices = self.get_index(index_assign.index, index_assign.value.item);
+            let operation = if index_assign.value.item.is_vectorized() {
+                vector::store(self.context, value, memref, &[indices], self.location).into()
+            } else {
+                memref::store(value, memref, &[indices], self.location)
+            };
+            self.block.append_operation(operation);
+            return;
+        }
         let operation = if index_assign.value.item.is_vectorized() {
-            vector::store(
-                self.context,
-                value,
-                memref,
-                &[index_assign_value],
-                self.location,
-            )
-            .into()
+            let indices = self.get_index(index_assign.index, index_assign.value.item);
+            vector::store(self.context, value, memref, &[indices], self.location)
         } else {
-            memref::store(value, memref, &[index_assign_value], self.location)
+            let vector_type = Type::vector(
+                &[out.vectorization_factor() as u64],
+                index_assign.value.elem().to_type(self.context),
+            );
+            let indices = self.get_index(index_assign.index, out.item);
+            let splat = self.append_operation_with_result(vector::splat(
+                self.context,
+                vector_type,
+                value,
+                self.location,
+            ));
+            vector::store(self.context, splat, memref, &[indices], self.location)
         };
         self.block.append_operation(operation);
     }
