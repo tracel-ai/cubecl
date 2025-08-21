@@ -509,7 +509,7 @@ impl ComputeServer for CudaServer {
                         pixel_box_upper_corner_width: _,
                         channels_per_pixel: _,
                         pixels_per_column: _,
-                    } => unimplemented!("Im2colWide not available for this cuda version"),
+                    } => panic!("CUDA version 12.8 required for tensor map format Im2colWide"),
                 };
                 unsafe { map_ptr.assume_init() }
             })
@@ -875,7 +875,7 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
             #[cfg(feature = "cuda-12080")]
             FloatKind::E2M1x2 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
             #[cfg(not(feature = "cuda-12080"))]
-            FloatKind::E2M1x2 => unimplemented!("Float kind E2M1x2 not supported with this cuda version"),
+            FloatKind::E2M1x2 => panic!("CUDA version 12.8 required for float kind E2M1x2"),
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
             FloatKind::E2M1 // single fp4s are padded to a full byte
             | FloatKind::E4M3
