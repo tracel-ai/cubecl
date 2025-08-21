@@ -154,9 +154,10 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // entry(1024, 64, 64),
                 // entry(1024, 32, 32),
                 // entry(1024, 10, 10),
-                (16, 1, 2048, 8192),
-                (16, 1, 4096, 4096),
-                (16, 1, 512, 4096),
+                (4, 1, 8192, 8192),
+                // (16, 1, 2048, 8192),
+                // (16, 1, 4096, 4096),
+                // (16, 1, 512, 4096),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }

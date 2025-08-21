@@ -52,6 +52,8 @@ impl Algorithm for SimpleVecMatAlgorithm {
             problem,
             (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
             plane_dim,
+            PartitionBuffering::Single,
+            1,
         ))
     }
 }
@@ -84,6 +86,8 @@ impl Algorithm for DoubleVecMatAlgorithm {
             problem,
             (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
             plane_dim,
+            PartitionBuffering::Double,
+            2,
         ))
     }
 }
@@ -93,10 +97,12 @@ fn selection_vecmat<R: Runtime>(
     problem: &MatmulProblem,
     tile_size: TileSize,
     plane_dim: u32,
+    partition_buf: PartitionBuffering,
+    partition_size_n: u32,
 ) -> MatmulSelection {
     let tiling_scheme = TilingScheme::builder()
         .with_tile_size(tile_size)
-        .with_partition_size(PartitionSize::new(1, 1, 1))
+        .with_partition_size(PartitionSize::new(1, partition_size_n, 1))
         .with_stage_size((1, 1, 1).into())
         .build()
         .unwrap();
@@ -118,7 +124,7 @@ fn selection_vecmat<R: Runtime>(
         .build();
 
     MatmulSelection::builder(tiling_scheme, plane_dim)
-        .partition_buffering(PartitionBuffering::Single)
+        .partition_buffering(partition_buf)
         .hypercube_config(hypercube)
         .build()
 }

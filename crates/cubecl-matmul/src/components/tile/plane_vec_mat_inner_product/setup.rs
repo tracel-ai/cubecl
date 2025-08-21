@@ -3,7 +3,9 @@ use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
-use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
+use crate::components::{
+    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection,
+};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for PlaneVecMatInnerProduct {
@@ -36,5 +38,9 @@ impl TileMatmulFamily for PlaneVecMatInnerProduct {
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
         )
+    }
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes.filter_out(|s| *s <= 2)
     }
 }
