@@ -68,15 +68,15 @@ impl<C: ConvGemmConfig> Im2colGlobalLayout<C> {
 impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
     type Coordinates = Coords2d;
 
-    fn to_linear(this: &Self, coords: Self::Coordinates) -> u32 {
-        Self::to_linear_checked(this, coords).0
+    fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
+        Self::to_linear_pos_checked(this, coords).0
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
         (this.shape_m, this.shape_k)
     }
 
-    fn to_linear_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
+    fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
         let (view_m, view_k) = coords;
 
         let (batch, out_offs) = div_mod_seq(view_m, &this.shape_out);

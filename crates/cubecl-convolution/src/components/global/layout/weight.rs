@@ -71,7 +71,7 @@ impl<C: ConvGemmConfig> WeightGlobalLayout<C> {
 impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
     type Coordinates = Coords2d;
 
-    fn to_linear(this: &Self, coords: Self::Coordinates) -> u32 {
+    fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
         let (k, n) = coords;
 
         let (mut rem, in_c) = this.channels.div_mod(k);
@@ -103,8 +103,8 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
         read_pos
     }
 
-    fn to_linear_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
-        let linear_pos = Self::to_linear(this, coords);
+    fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
+        let linear_pos = Self::to_linear_pos(this, coords);
 
         let (k, n) = coords;
         let check_k = comptime![this.config.check_row_bounds(MatmulIdent::Rhs)];

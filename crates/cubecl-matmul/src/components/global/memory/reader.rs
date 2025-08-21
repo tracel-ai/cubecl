@@ -149,7 +149,7 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         let view_row = view_tile_row + load_row;
         let view_col = view_tile_col + load_col;
 
-        let offset = L::to_linear(&self.layout, (view_row, view_col));
+        let offset = L::to_linear_pos(&self.layout, (view_row, view_col));
         let read_pos = (offset + self.batch_offset) / line_size;
         let (rows, columns) = L::shape(&self.layout);
 
@@ -259,7 +259,7 @@ impl<EG: Numeric, L: Layout<Coordinates = Coords2d>> TensorReader<EG, L> {
         let view_x = load_offsets.0 + self.row_offset.read();
         let view_y = load_offsets.1 + self.col_offset.read();
 
-        let (offset, in_bounds) = L::to_linear_checked(&self.layout, (view_x, view_y));
+        let (offset, in_bounds) = L::to_linear_pos_checked(&self.layout, (view_x, view_y));
 
         let read_pos = (offset + self.batch_offset) / line_size;
 

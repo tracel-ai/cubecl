@@ -40,11 +40,11 @@ impl SimpleGlobalLayout {
 impl Layout for SimpleGlobalLayout {
     type Coordinates = Coords2d;
 
-    fn to_linear(this: &Self, coords: Self::Coordinates) -> u32 {
+    fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
         coords.0 * this.stride_row + coords.1 * this.stride_col
     }
 
-    fn to_linear_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
+    fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
         let (row, col) = coords;
         let idx = row * this.stride_row + col * this.stride_col;
 

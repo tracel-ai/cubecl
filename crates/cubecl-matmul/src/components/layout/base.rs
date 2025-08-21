@@ -7,8 +7,8 @@ use super::Coordinates;
 pub trait Layout: CubeType + Clone + Send + Sync + 'static {
     type Coordinates: Coordinates;
 
-    fn to_linear(this: &Self, coords: Self::Coordinates) -> u32;
-    fn to_linear_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool);
+    fn to_linear_pos(this: &Self, pos: Self::Coordinates) -> u32;
+    fn to_linear_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool);
     fn shape(this: &Self) -> Self::Coordinates;
 }
 
