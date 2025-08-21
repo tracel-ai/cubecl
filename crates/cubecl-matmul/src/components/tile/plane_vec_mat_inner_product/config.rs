@@ -19,6 +19,7 @@ pub struct PlaneVecMatInnerProductConfig {
     out_global_line_size: u32,
     lhs_stage_line_size: u32,
     rhs_stage_line_size: u32,
+    sum_precision: SumPrecision,
 }
 
 impl TileConfig for PlaneVecMatInnerProductConfig {
@@ -55,6 +56,7 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Specifies the precision used for the sum reduction.
 pub enum SumPrecision {
     /// Performs the sum in the accumulator precision.
@@ -97,6 +99,7 @@ impl PlaneVecMatInnerProductConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
+        sum_precision: SumPrecision,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             tiling_scheme,
@@ -108,6 +111,7 @@ impl PlaneVecMatInnerProductConfig {
             out_global_line_size,
             lhs_stage_line_size,
             rhs_stage_line_size,
+            sum_precision,
         }
         .validate()?
         .check_availability::<Lhs, Rhs, Acc, R>(client)
@@ -197,6 +201,19 @@ impl PlaneVecMatInnerProductConfig {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));
+        }
+
+        if let SumPrecision::F16 = self.sum_precision {
+            if !client
+                .properties()
+                .feature_enabled(Feature::Type(Elem::Float(FloatKind::F16)))
+            {
+                return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                    "
+                    Sum Precision is f16 but f16 is not available.
+                "
+                ))));
+            }
         }
 
         Ok(self)

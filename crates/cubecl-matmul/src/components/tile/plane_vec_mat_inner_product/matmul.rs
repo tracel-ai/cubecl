@@ -1,4 +1,6 @@
-use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
+use crate::components::tile::plane_vec_mat_inner_product::config::{
+    PlaneVecMatInnerProductConfig, SumPrecision,
+};
 use crate::components::tile::tile_data::Tile;
 use crate::components::tile::{TileConfig, TileMatmul};
 use crate::components::{MatrixLayout, StageIdent};
@@ -45,14 +47,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
-            match config.sum_precision() {
-
-            }
-            let lhs: Line<A> = Line::cast_from(lhs.line);
-            let rhs: Line<A> = Line::cast_from(rhs.index(n).line);
-
-            plane_sum_lined(lhs * rhs, acc.index_mut(n), config.reduce_line_size());
-
+            plane_sum_lined(lhs.line, rhs.index(n).line, acc.index_mut(n), config);
             comptime![n += 1];
         }
     }
@@ -174,18 +169,42 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
 }
 
 #[cube]
-fn plane_sum_lined<E: Numeric>(
-    line_to_sum: Line<E>,
-    line_accumulator: &mut LineContainer<E>,
-    #[comptime] line_size: u32,
+fn plane_sum_lined<L: Numeric, R: Numeric, A: Numeric>(
+    lhs_line: Line<L>,
+    rhs_line: Line<R>,
+    line_accumulator: &mut LineContainer<A>,
+    #[comptime] config: PlaneVecMatInnerProductConfig,
 ) {
+    let line_size = config.reduce_line_size();
     let mut line_iterator = comptime![0];
 
-    #[unroll]
-    #[allow(clippy::explicit_counter_loop)]
-    for _ in 0..line_size {
-        line_accumulator.line[line_iterator] += plane_sum(line_to_sum[line_iterator]);
+    match config.sum_precision() {
+        SumPrecision::Accumulator => {
+            let lhs: Line<A> = Line::cast_from(lhs_line);
+            let rhs: Line<A> = Line::cast_from(rhs_line);
+            let line_to_sum = lhs * rhs;
 
-        comptime![line_iterator += 1];
-    }
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..line_size {
+                line_accumulator.line[line_iterator] += plane_sum(line_to_sum[line_iterator]);
+
+                comptime![line_iterator += 1];
+            }
+        }
+        SumPrecision::F16 => {
+            let lhs: Line<half::f16> = Line::cast_from(lhs_line);
+            let rhs: Line<half::f16> = Line::cast_from(rhs_line);
+            let line_to_sum = lhs * rhs;
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..line_size {
+                line_accumulator.line[line_iterator] +=
+                    A::cast_from(plane_sum(line_to_sum[line_iterator]));
+
+                comptime![line_iterator += 1];
+            }
+        }
+    };
 }
