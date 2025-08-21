@@ -203,17 +203,14 @@ impl PlaneVecMatInnerProductConfig {
             ));
         }
 
-        if let SumPrecision::F16 = self.sum_precision {
-            if !client
+        if let SumPrecision::F16 = self.sum_precision
+            && !client
                 .properties()
                 .feature_enabled(Feature::Type(Elem::Float(FloatKind::F16)))
-            {
-                return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                    "
-                    Sum Precision is f16 but f16 is not available.
-                "
-                ))));
-            }
+        {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                " Sum Precision is f16 but f16 is not available.  ",
+            )));
         }
 
         Ok(self)
