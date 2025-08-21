@@ -63,19 +63,24 @@ pub enum WarpInstruction<D: Dialect> {
 impl<D: Dialect> Display for WarpInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WarpInstruction::ReduceSum { input, out } => D::reduce_sum(f, input, out),
-            WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
-            WarpInstruction::ReduceMax { input, out } => {
-                reduce_comparison(f, input, out, D::compile_instruction_max_function_name)
+            WarpInstruction::ReduceSum { input, out } => D::warp_reduce_sum(f, input, out),
+            WarpInstruction::ReduceProd { input, out } => D::warp_reduce_prod(f, input, out),
+            WarpInstruction::ReduceMax { input, out } => D::warp_reduce_max(f, input, out),
+            WarpInstruction::ReduceMin { input, out } => D::warp_reduce_min(f, input, out),
+            WarpInstruction::All { input, out } => D::warp_reduce_all(f, input, out),
+            WarpInstruction::Any { input, out } => D::warp_reduce_any(f, input, out),
+
+            WarpInstruction::InclusiveSum { input, out } => {
+                D::warp_reduce_sum_inclusive(f, input, out)
             }
-            WarpInstruction::ReduceMin { input, out } => {
-                reduce_comparison(f, input, out, D::compile_instruction_min_function_name)
+            WarpInstruction::InclusiveProd { input, out } => {
+                D::warp_reduce_prod_inclusive(f, input, out)
             }
-            WarpInstruction::All { input, out } => {
-                reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedVariable<D>>)
+            WarpInstruction::ExclusiveSum { input, out } => {
+                D::warp_reduce_sum_exclusive(f, input, out)
             }
-            WarpInstruction::Any { input, out } => {
-                reduce_quantifier(f, input, out, D::compile_warp_any::<IndexedVariable<D>>)
+            WarpInstruction::ExclusiveProd { input, out } => {
+                D::warp_reduce_prod_exclusive(f, input, out)
             }
             WarpInstruction::Ballot { input, out } => {
                 assert_eq!(
@@ -101,14 +106,6 @@ unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
             ),
-            WarpInstruction::InclusiveSum { input, out } => reduce_inclusive(f, input, out, "+="),
-            WarpInstruction::InclusiveProd { input, out } => reduce_inclusive(f, input, out, "*="),
-            WarpInstruction::ExclusiveSum { input, out } => {
-                reduce_exclusive(f, input, out, "+=", "0")
-            }
-            WarpInstruction::ExclusiveProd { input, out } => {
-                reduce_exclusive(f, input, out, "*=", "1")
-            }
         }
     }
 }
@@ -130,7 +127,7 @@ pub(crate) fn reduce_operator<D: Dialect>(
     })
 }
 
-fn reduce_comparison<
+pub(crate) fn reduce_comparison<
     D: Dialect,
     I: Fn(&mut core::fmt::Formatter<'_>, Item<D>) -> std::fmt::Result,
 >(
@@ -152,7 +149,7 @@ fn reduce_comparison<
     })
 }
 
-fn reduce_inclusive<D: Dialect>(
+pub(crate) fn reduce_inclusive<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
@@ -183,7 +180,7 @@ if({lane_id} >= offset) {{
     })
 }
 
-fn reduce_exclusive<D: Dialect>(
+pub(crate) fn reduce_exclusive<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
@@ -218,7 +215,7 @@ fn reduce_exclusive<D: Dialect>(
     writeln!(f, "}} : {};", cast(&shfl, out.item()))
 }
 
-fn reduce_broadcast<D: Dialect>(
+pub(crate) fn reduce_broadcast<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
@@ -264,7 +261,7 @@ fn reduce_with_loop<
     writeln!(f, "{} = plane_{}();", out.fmt_left(), out)
 }
 
-fn reduce_quantifier<
+pub(crate) fn reduce_quantifier<
     D: Dialect,
     Q: Fn(&mut core::fmt::Formatter<'_>, &IndexedVariable<D>) -> std::fmt::Result,
 >(

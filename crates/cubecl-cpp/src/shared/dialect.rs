@@ -4,7 +4,8 @@ use std::{collections::HashSet, fmt::Debug};
 use cubecl_core::ir::{Id, Processor};
 
 use crate::shared::{
-    FmtLeft, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations, reduce_operator,
+    FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
+    reduce_comparison, reduce_exclusive, reduce_inclusive, reduce_operator, reduce_quantifier,
 };
 
 use super::{
@@ -659,12 +660,75 @@ pub struct ManualMma<'a, D: Dialect> {
 pub trait DialectWarpReduceCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
-    fn reduce_sum(
+    fn warp_reduce_sum(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
         reduce_operator(f, input, out, "+=")
+    }
+    fn warp_reduce_prod(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_operator(f, input, out, "*=")
+    }
+    fn warp_reduce_max(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_comparison(f, input, out, D::compile_instruction_max_function_name)
+    }
+    fn warp_reduce_min(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_comparison(f, input, out, D::compile_instruction_min_function_name)
+    }
+    fn warp_reduce_all(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedVariable<D>>)
+    }
+    fn warp_reduce_any(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_quantifier(f, input, out, D::compile_warp_any::<IndexedVariable<D>>)
+    }
+    fn warp_reduce_sum_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_inclusive(f, input, out, "+=")
+    }
+    fn warp_reduce_prod_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_inclusive(f, input, out, "*=")
+    }
+    fn warp_reduce_sum_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_exclusive(f, input, out, "+=", "0")
+    }
+    fn warp_reduce_prod_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_exclusive(f, input, out, "*=", "1")
     }
 }
 
