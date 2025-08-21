@@ -137,28 +137,37 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS_X == 0 {
+            // 1
             let out_line_size = config.stage_line_size(StageIdent::Acc);
+            // 4
             let total_out_lines = config.n() / out_line_size;
             let mut out_line_iter = comptime![0];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
+            // 0..4
             for _ in 0..total_out_lines {
                 let mut out_line = Line::<E>::empty(out_line_size);
                 let mut within_line = comptime![0];
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
+                // 0..1
                 for _ in 0..out_line_size {
+                    // 0..4 * 1 + 0 = 0..4
                     let n = comptime!(out_line_iter * out_line_size + within_line);
 
                     // At this point, line_container is an unfinished sum, here we finish the job
+                    // line at 0,1,2,3
                     let line_container = acc.index(n);
                     let mut sum = A::from_int(0);
+                    // 0..4
+                    // sum the line itself
                     for i in 0..config.reduce_line_size() {
                         sum += line_container.line[i];
                     }
 
+                    // 0
                     out_line[within_line] = E::cast_from(sum);
                     comptime![within_line += 1];
                 }
