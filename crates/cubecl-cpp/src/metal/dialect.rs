@@ -5,10 +5,11 @@ use crate::{
     Dialect,
     shared::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
-        Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-        ManualMma, SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, wmma_api_base,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
+        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WarpInstruction,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -30,6 +31,97 @@ pub struct MslDialect {}
 
 impl Dialect for MslDialect {
     type Architecture = MetalArchitecture;
+}
+
+impl DialectWarpReduceCompiler<Self> for MslDialect {
+    fn warp_reduce_sum(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_sum({input});\n"))
+    }
+    fn warp_reduce_prod(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_product({input});\n"))
+    }
+    fn warp_reduce_max(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_max({input});\n"))
+    }
+    fn warp_reduce_min(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_min({input});\n"))
+    }
+    fn warp_reduce_all(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_and({input});\n"))
+    }
+    fn warp_reduce_any(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_or({input});\n"))
+    }
+    fn warp_reduce_sum_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_inclusive_sum({input});\n"
+        ))
+    }
+    fn warp_reduce_prod_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_inclusive_product({input});\n"
+        ))
+    }
+    fn warp_reduce_sum_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_exclusive_sum({input});\n"
+        ))
+    }
+    fn warp_reduce_prod_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_exclusive_product({input});\n"
+        ))
+    }
 }
 
 // Includes

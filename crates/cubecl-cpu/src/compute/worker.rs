@@ -3,7 +3,7 @@ use std::thread;
 
 use super::compute_task::{ComputeTask, Message};
 
-pub const MAX_STACK_SIZE: usize = 4 * 1024 * 1024;
+pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct Worker {

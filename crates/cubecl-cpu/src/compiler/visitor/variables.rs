@@ -305,7 +305,26 @@ impl<'a> Visitor<'a> {
                         Type::index(self.context),
                     )
                     .unwrap();
-                self.append_operation_with_result(memref::load(memref, &[index], self.location))
+                let value = self.append_operation_with_result(memref::load(
+                    memref,
+                    &[index],
+                    self.location,
+                ));
+                match variable.item.is_vectorized() {
+                    true => {
+                        let vector = Type::vector(
+                            &[variable.vectorization_factor() as u64],
+                            variable.elem().to_type(self.context),
+                        );
+                        self.append_operation_with_result(vector::splat(
+                            self.context,
+                            vector,
+                            value,
+                            self.location,
+                        ))
+                    }
+                    false => value,
+                }
             }
             _ => todo!("{:?} is not yet implemented", variable.kind),
         }

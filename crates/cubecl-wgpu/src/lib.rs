@@ -34,6 +34,7 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_matmul::testgen_matmul_simple!([flex32, f32]);
+    cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
@@ -54,6 +55,7 @@ mod tests_spirv {
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16]);
     cubecl_matmul::testgen_matmul_simple!([f32]);
     cubecl_matmul::testgen_matmul_plane_accelerated!();
+    cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
@@ -73,6 +75,7 @@ mod tests_msl {
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16]);
     cubecl_matmul::testgen_matmul_simple!([f16, f32]);
     cubecl_matmul::testgen_matmul_plane_accelerated!();
+    cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();

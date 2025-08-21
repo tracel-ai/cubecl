@@ -4,6 +4,7 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::{Id, Processor};
 
+use crate::shared::DialectWarpReduceCompiler;
 use crate::{
     Dialect,
     shared::{
@@ -34,6 +35,8 @@ pub struct HipDialect<M> {
 impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {
     type Architecture = AMDArchitecture;
 }
+
+impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for HipDialect<M> {}
 
 // Includes
 

@@ -1,4 +1,6 @@
-use crate::components::MatmulIdent;
+use crate::components::{
+    MatmulIdent, StageIdent, global::memory::GlobalMemoryConfig, stage::StageConfig,
+};
 use crate::components::{global::GlobalConfig, layout::Coords2d};
 use crate::components::{global::memory::TensorWriter, layout::VirtualTensorView};
 use cubecl_core as cubecl;
@@ -44,7 +46,7 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
         let output_line_size = config.global_line_size(MatmulIdent::Out);
         let out_config = config.global_memory_config(MatmulIdent::Out);
 
-        let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
+        let out_smem_line_size = config.stage_config().stage_line_size(StageIdent::Acc);
 
         let unit_step = config.plane_dim() * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
@@ -56,16 +58,62 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
-                let value = out_smem_slice[unit_write / output_line_size];
-                this.tensor_writer
-                    .write_coalesced(tile_row, tile_col, unit_write, value, out_config);
+                write_line(
+                    &mut this.tensor_writer,
+                    &out_smem_slice,
+                    unit_write,
+                    tile_row,
+                    tile_col,
+                    output_line_size,
+                    out_smem_line_size,
+                    out_config,
+                );
             } else {
                 if unit_write < tile_size {
-                    let value = out_smem_slice[unit_write / output_line_size];
-                    this.tensor_writer
-                        .write_coalesced(tile_row, tile_col, unit_write, value, out_config);
+                    write_line(
+                        &mut this.tensor_writer,
+                        &out_smem_slice,
+                        unit_write,
+                        tile_row,
+                        tile_col,
+                        output_line_size,
+                        out_smem_line_size,
+                        out_config,
+                    );
                 }
             }
         }
     }
+}
+
+#[cube]
+fn write_line<EG: Numeric>(
+    tensor_writer: &mut TensorWriter<EG>,
+    out_smem_slice: &Slice<Line<EG>>,
+    unit_write: u32,
+    tile_row: u32,
+    tile_col: u32,
+    #[comptime] output_line_size: u32,
+    #[comptime] out_smem_line_size: u32,
+    #[comptime] out_config: GlobalMemoryConfig,
+) {
+    let value = if comptime!(output_line_size == out_smem_line_size) {
+        out_smem_slice[unit_write / output_line_size]
+    } else if comptime!(
+        out_smem_line_size < output_line_size && output_line_size % out_smem_line_size == 0
+    ) {
+        let mut value = Line::empty(output_line_size);
+        #[unroll]
+        for i in 0..comptime!(output_line_size / out_smem_line_size) {
+            #[unroll]
+            for j in 0..out_smem_line_size {
+                value[i * out_smem_line_size + j] = out_smem_slice[unit_write + i][j];
+            }
+        }
+        value
+    } else {
+        unimplemented!()
+    };
+
+    tensor_writer.write_coalesced(tile_row, tile_col, unit_write, value, out_config);
 }

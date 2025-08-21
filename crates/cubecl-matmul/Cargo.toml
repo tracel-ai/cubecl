@@ -17,6 +17,7 @@ std = ["cubecl-runtime/std", "cubecl-core/std"]
 
 matmul_tests_unit = []
 matmul_tests_plane = []
+matmul_tests_vecmat = []
 matmul_tests_tma = []
 
 matmul_tests_double = []
@@ -42,6 +43,7 @@ matmul_tests_alt_shapes = []
 
 matmul_tests_base = [
     "matmul_tests_plane",
+    "matmul_tests_vecmat",
     "matmul_tests_double",
     "matmul_tests_simple",
     "matmul_tests_ordered",
@@ -52,6 +54,7 @@ matmul_tests_base = [
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",
+    "matmul_tests_vecmat",
     "matmul_tests_double",
     "matmul_tests_simple",
     "matmul_tests_ordered",

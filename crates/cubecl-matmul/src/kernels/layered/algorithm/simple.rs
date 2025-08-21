@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 
 use crate::{
     components::{
-        MatmulElems, MatmulProblem, MatmulSelection, MatmulSetupError, MultiRowStrategy,
-        TilingScheme,
+        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
+        MultiRowStrategy, TilingScheme,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -59,6 +59,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         plane_dim: u32,
+        _line_sizes: &MatmulLineSizes,
         elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
