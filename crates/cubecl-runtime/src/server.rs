@@ -2,10 +2,12 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        memory_pool::{SliceBinding, SliceHandle}, MemoryAllocationMode, MemoryHandle, MemoryUsage
+        MemoryAllocationMode, MemoryHandle, MemoryUsage,
+        memory_pool::{SliceBinding, SliceHandle},
     },
     storage::{BindingResource, ComputeStorage},
-    tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle}, transfer::ComputeDataTransferId,
+    tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
+    data_service::ComputeDataTransferId,
 };
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -82,9 +84,26 @@ where
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> DynFut<()>;
 
-    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError>;
-    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError>;
-    
+    /// Send data to another server. Should be called with [recv_from_peer](Self::recv_from_peer)
+    /// 
+    /// * `id` - A unique id for the transaction
+    /// * `src` - The source for the read operation.
+    fn send_to_peer(
+        &mut self,
+        id: ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> Result<(), IoError>;
+
+    /// Receive data from another server. Should be called with [send_to_peer](Self::send_to_peer)
+    /// 
+    /// * `id` - A unique id for the transaction
+    /// * `dst` - The destination for the write operation.
+    fn recv_from_peer(
+        &mut self,
+        id: ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError>;
+
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,

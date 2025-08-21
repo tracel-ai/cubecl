@@ -2,7 +2,7 @@ use crate::{
     channel::ComputeChannel, config::{type_name_format, TypeNameFormatLevel}, kernel::KernelMetadata, logging::{ProfileLevel, ServerLogger}, memory_management::{MemoryAllocationMode, MemoryUsage}, server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, Handle, IoError, ProfileError,
-    }, storage::{BindingResource, ComputeStorage}, transfer::ComputeDataTransferId, DeviceProperties
+    }, storage::{BindingResource, ComputeStorage}, data_service::ComputeDataTransferId, DeviceProperties
 };
 use alloc::format;
 use alloc::sync::Arc;
@@ -303,26 +303,27 @@ where
         self.do_empty(descriptors).unwrap()
     }
 
+    /// Transfer data from one client to another
     pub fn to_client(&self, src: Handle, dst_server: Self) -> Allocation {
         let strides = [1];
         let size = src.size() as usize;
         let shape = [size];
-        let descriptor = src.copy_descriptor(&shape, &strides, 1);
+        let elem_size = 1;
 
+        // Allocate destination
+        let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, elem_size);
+        let alloc = self.channel.create(vec![alloc_desc]).unwrap().remove(0);
+        
+        // Unique id for this transaction
         let id = ComputeDataTransferId::new();
         
-        self.channel.send_to_peer(id, descriptor).unwrap();
+        // Send with source server
+        let desc = src.copy_descriptor(&shape, &strides, elem_size);
+        self.channel.send_to_peer(id, desc).unwrap();
 
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
-        let alloc = self.channel.create(vec![alloc_desc]).unwrap().remove(0);
-        let cpy_desc = CopyDescriptor::new(
-            alloc.handle.clone().binding(),
-            alloc_desc.shape,
-            &alloc.strides,
-            alloc_desc.elem_size,
-        );
-
-        dst_server.channel.recv_from_peer(id, cpy_desc).unwrap();
+        // Recv with destination server
+        let desc = alloc.handle.copy_descriptor(&shape, &strides, elem_size);
+        dst_server.channel.recv_from_peer(id, desc).unwrap();
 
         alloc
     }

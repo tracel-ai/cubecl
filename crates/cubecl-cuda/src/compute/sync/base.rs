@@ -1,4 +1,4 @@
-use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
+use cudarc::driver::sys::CUstream_st;
 
 /// A stream synchronization point that blocks until all previously enqueued work in the stream
 /// has completed.

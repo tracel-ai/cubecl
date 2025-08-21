@@ -1,13 +1,14 @@
 use std::{
-    collections::HashMap, num, sync::mpsc::{Receiver, SyncSender}
+    collections::HashMap,
+    sync::mpsc::{Receiver, SyncSender},
 };
 
 use cubecl_common::stub::Mutex;
 use cubecl_core::server::IoError;
 use cubecl_runtime::transfer::ComputeDataTransferId;
-use cudarc::driver::sys::{self, CUevent_flags, CUevent_wait_flags};
+use cudarc::driver::sys;
 
-use crate::compute::{sync::Fence, CudaResource};
+use crate::compute::{CudaResource, sync::CrossFence};
 
 static SERVICE: Mutex<Option<CudaDataServiceClient>> = Mutex::new(None);
 
@@ -25,7 +26,6 @@ pub struct CudaDataHandle {
 
 unsafe impl Send for CudaDataHandle {}
 
-
 #[derive(Clone)]
 pub struct CudaDataServiceClient {
     sender: SyncSender<CudaDataTransferMsg>,
@@ -38,15 +38,17 @@ enum CudaDataTransferMsg {
 
 impl CudaDataServiceClient {
     pub fn send(&self, id: ComputeDataTransferId, handle: CudaDataHandle, num_bytes: usize) {
-        self.sender.send(CudaDataTransferMsg::Send(id, handle, num_bytes)).unwrap();
+        self.sender
+            .send(CudaDataTransferMsg::Send(id, handle, num_bytes))
+            .unwrap();
     }
 
     pub fn recv(&self, id: ComputeDataTransferId, handle: CudaDataHandle, num_bytes: usize) {
-        self.sender.send(CudaDataTransferMsg::Recv(id, handle, num_bytes)).unwrap();
+        self.sender
+            .send(CudaDataTransferMsg::Recv(id, handle, num_bytes))
+            .unwrap();
     }
 }
-
-
 
 impl CudaDataService {
     /// Get a client for the Cuda data service
@@ -175,7 +177,7 @@ impl CudaDataTransfer {
         };
 
         // Copy from receiving device, then create an event
-        let transfer_finished_event = unsafe {
+        let transfer_fence = unsafe {
             cudarc::driver::result::ctx::set_current(dst_context).unwrap();
 
             cudarc::driver::result::memcpy_dtod_async(
@@ -187,23 +189,13 @@ impl CudaDataTransfer {
             .unwrap();
 
             // Signal the transfer finished for the sending thread
-            let event =
-                cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
-            cudarc::driver::result::event::record(event, dst_stream).unwrap();
-
-            event
+            CrossFence::new(dst_stream, src_stream)
         };
 
         unsafe {
             cudarc::driver::result::ctx::set_current(src_context).unwrap();
 
-            cudarc::driver::result::stream::wait_event(
-                src_stream,
-                transfer_finished_event,
-                CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
-            )
-            .unwrap();
-            cudarc::driver::result::event::destroy(transfer_finished_event).unwrap();
+            transfer_fence.wait();
         }
 
         Ok(())

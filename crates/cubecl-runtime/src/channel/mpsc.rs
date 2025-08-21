@@ -14,7 +14,7 @@ use crate::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, IoError, ProfileError, ProfilingToken,
     },
-    storage::{BindingResource, ComputeStorage}, transfer::ComputeDataTransferId,
+    storage::{BindingResource, ComputeStorage}, data_service::ComputeDataTransferId,
 };
 
 /// Create a channel using a [multi-producer, single-consumer channel to communicate with

@@ -37,10 +37,10 @@ use cubecl_runtime::{
     server::{self, ComputeServer},
 };
 use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUctx_st, CUevent_flags, CUevent_wait_flags, CUfunction_attribute,
-    CUmemorytype, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill,
-    CUtensorMapIm2ColWideMode, CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2,
-    cuTensorMapEncodeIm2col, cuTensorMapEncodeIm2colWide, cuTensorMapEncodeTiled,
+    CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
+    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapIm2ColWideMode,
+    CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col,
+    cuTensorMapEncodeIm2colWide, cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -181,70 +181,6 @@ impl CudaServer {
         async move {
             sync.wait();
         }
-    }
-
-    fn to_device(
-        &mut self,
-        src: CopyDescriptor<'_>,
-        dst: CopyDescriptor<'_>,
-        dst_server: &mut Self,
-    ) -> Result<(), IoError> {
-        if !valid_strides(src.shape, src.strides) || !valid_strides(dst.shape, dst.strides) {
-            return Err(IoError::UnsupportedStrides);
-        }
-        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
-
-        let src_ctx = self.get_context();
-
-        let src_resource = src_ctx
-            .memory_management
-            .get_resource(
-                src.binding.memory,
-                src.binding.offset_start,
-                src.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)?;
-
-        let dst_ctx = dst_server.get_context();
-
-        let dst_resource = dst_ctx
-            .memory_management
-            .get_resource(
-                dst.binding.memory,
-                dst.binding.offset_start,
-                dst.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)?;
-
-        // Copy from receiving device, then create an event
-        let event = unsafe {
-            cudarc::driver::result::memcpy_dtod_async(
-                dst_resource.ptr,
-                src_resource.ptr,
-                num_bytes,
-                dst_ctx.stream,
-            )
-            .unwrap();
-            let event =
-                cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
-            cudarc::driver::result::event::record(event, dst_ctx.stream).unwrap();
-
-            event
-        };
-
-        let src_ctx = self.get_context();
-
-        unsafe {
-            cudarc::driver::result::stream::wait_event(
-                src_ctx.stream,
-                event,
-                CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
-            )
-            .unwrap();
-            cudarc::driver::result::event::destroy(event).unwrap();
-        }
-
-        Ok(())
     }
 }
 
@@ -740,6 +676,7 @@ impl CudaContext {
         Fence::new(self.stream)
     }
 
+    #[allow(unused)]
     fn cross_fence(&mut self, consumer: Self) -> CrossFence {
         CrossFence::new(self.stream, consumer.stream)
     }

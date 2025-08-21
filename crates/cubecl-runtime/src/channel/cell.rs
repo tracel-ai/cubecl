@@ -3,7 +3,7 @@ use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
 };
 use crate::storage::{BindingResource, ComputeStorage};
-use crate::transfer::ComputeDataTransferId;
+use crate::data_service::ComputeDataTransferId;
 use crate::{
     logging::ServerLogger,
     server::{Allocation, AllocationDescriptor, IoError},

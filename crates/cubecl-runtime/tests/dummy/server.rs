@@ -4,7 +4,7 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
-use cubecl_runtime::transfer::ComputeDataTransferId;
+use cubecl_runtime::data_service::ComputeDataTransferId;
 use cubecl_runtime::{id::KernelId, server::IoError};
 use cubecl_runtime::{
     kernel::KernelMetadata,
@@ -108,11 +108,19 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn send_to_peer(
+        &mut self,
+        _id: ComputeDataTransferId,
+        _src: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
         unimplemented!()
     }
 
-    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn recv_from_peer(
+        &mut self,
+        _id: ComputeDataTransferId,
+        _dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
         unimplemented!()
     }
 

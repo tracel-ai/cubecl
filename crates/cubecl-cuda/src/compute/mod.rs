@@ -2,7 +2,7 @@ mod server;
 mod storage;
 mod data_service;
 
-pub(crate) mod sync;
+pub mod sync;
 
 pub use server::*;
 pub use storage::*;
