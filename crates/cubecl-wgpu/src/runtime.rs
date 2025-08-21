@@ -4,7 +4,6 @@ use crate::{
 };
 use cubecl_common::{future, profile::TimingMethod};
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
     AtomicFeature, Feature,
     ir::{Elem, FloatKind},
@@ -339,7 +338,6 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "msl")))]
     device_props.register_feature(Feature::PlaneOps);
 
     ComputeClient::new(channel, device_props, setup.backend)

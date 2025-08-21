@@ -150,7 +150,6 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
                 for _ in 0..out_line_size {
                     let n = comptime!(out_line_iter * out_line_size + within_line);
 
-                    // At this point, line_container is an unfinished sum, here we finish the job
                     let line_container = acc.index(n);
                     let mut sum = A::from_int(0);
                     for i in 0..config.reduce_line_size() {
