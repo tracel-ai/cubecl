@@ -27,11 +27,11 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Write bytes to each binding
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
 
-    /// Send data to another server
-    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError>;
+    /// Send data to another server. Returns when recv_from_peer has been called and the transfer has been registered.
+    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>>;
 
-    /// Receive data from another server
-    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError>;
+    /// Receive data from another server. Returns when send_to_peer has been called and the transfer has been registered.
+    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>>;
 
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> DynFut<()>;

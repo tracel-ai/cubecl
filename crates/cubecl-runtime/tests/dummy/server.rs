@@ -112,7 +112,7 @@ impl ComputeServer for DummyServer {
         &mut self,
         _id: ComputeDataTransferId,
         _src: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
+    ) -> DynFut<Result<(), IoError>> {
         unimplemented!()
     }
 
@@ -120,7 +120,7 @@ impl ComputeServer for DummyServer {
         &mut self,
         _id: ComputeDataTransferId,
         _dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
+    ) -> DynFut<Result<(), IoError>> {
         unimplemented!()
     }
 

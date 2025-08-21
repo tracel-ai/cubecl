@@ -1,8 +1,16 @@
 use crate::{
-    channel::ComputeChannel, config::{type_name_format, TypeNameFormatLevel}, kernel::KernelMetadata, logging::{ProfileLevel, ServerLogger}, memory_management::{MemoryAllocationMode, MemoryUsage}, server::{
+    DeviceProperties,
+    channel::ComputeChannel,
+    config::{TypeNameFormatLevel, type_name_format},
+    data_service::ComputeDataTransferId,
+    kernel::KernelMetadata,
+    logging::{ProfileLevel, ServerLogger},
+    memory_management::{MemoryAllocationMode, MemoryUsage},
+    server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, Handle, IoError, ProfileError,
-    }, storage::{BindingResource, ComputeStorage}, data_service::ComputeDataTransferId, DeviceProperties
+    },
+    storage::{BindingResource, ComputeStorage},
 };
 use alloc::format;
 use alloc::sync::Arc;
@@ -304,28 +312,59 @@ where
     }
 
     /// Transfer data from one client to another
-    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
-        let strides = [1];
-        let size = src.size() as usize;
-        let shape = [size];
-        let elem_size = 1;
+    fn do_to_client(
+        &self,
+        src_descriptor: CopyDescriptor<'_>,
+        alloc_descriptor: AllocationDescriptor<'_>,
+        dst_server: &Self,
+    ) -> Allocation {
+        let strides = src_descriptor.strides;
+        let shape = src_descriptor.shape;
+        let elem_size = src_descriptor.elem_size;
 
         // Allocate destination
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, elem_size);
-        let alloc = dst_server.channel.create(vec![alloc_desc]).unwrap().remove(0);
-        
+        let alloc = dst_server
+            .channel
+            .create(vec![alloc_descriptor])
+            .unwrap()
+            .remove(0);
+
         // Unique id for this transaction
         let id = ComputeDataTransferId::new();
-        
+
         // Send with source server
-        let desc = src.copy_descriptor(&shape, &strides, elem_size);
-        self.channel.send_to_peer(id, desc).unwrap();
+        let send_fut = self.channel.send_to_peer(id, src_descriptor);
 
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(&shape, &strides, elem_size);
-        dst_server.channel.recv_from_peer(id, desc).unwrap();
+        let recv_fut: core::pin::Pin<Box<dyn Future<Output = Result<(), IoError>> + Send>> =
+            dst_server.channel.recv_from_peer(id, desc);
+
+        // wait for send and recv to both be registered
+        cubecl_common::reader::read_sync(async { futures::try_join!(send_fut, recv_fut).unwrap() });
 
         alloc
+    }
+
+    /// Transfer data from one client to another
+    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
+        let shape = [src.size() as usize];
+        let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
+        let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
+
+        self.do_to_client(src_descriptor, alloc_desc, dst_server)
+    }
+
+    /// Transfer data from one client to another
+    pub fn to_client_tensor(
+        &self,
+        src_descriptor: CopyDescriptor<'_>,
+        dst_server: &Self,
+    ) -> Allocation {
+        let shape = src_descriptor.shape;
+        let elem_size = src_descriptor.elem_size;
+        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        self.do_to_client(src_descriptor, alloc_desc, dst_server)
     }
 
     #[track_caller]

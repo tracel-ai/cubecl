@@ -8,13 +8,14 @@ use cubecl_common::{
 
 use super::ComputeChannel;
 use crate::{
+    data_service::ComputeDataTransferId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, IoError, ProfileError, ProfilingToken,
     },
-    storage::{BindingResource, ComputeStorage}, data_service::ComputeDataTransferId,
+    storage::{BindingResource, ComputeStorage},
 };
 
 /// Create a channel using a [multi-producer, single-consumer channel to communicate with
@@ -123,8 +124,16 @@ where
         Callback<Result<ProfileDuration, ProfileError>>,
         ProfilingToken,
     ),
-    PeerSend(ComputeDataTransferId, CopyDescriptorOwned, Callback<Result<(), IoError>>),
-    PeerRecv(ComputeDataTransferId, CopyDescriptorOwned, Callback<Result<(), IoError>>),
+    PeerSend(
+        ComputeDataTransferId,
+        CopyDescriptorOwned,
+        Callback<Result<(), IoError>>,
+    ),
+    PeerRecv(
+        ComputeDataTransferId,
+        CopyDescriptorOwned,
+        Callback<Result<(), IoError>>,
+    ),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -188,13 +197,13 @@ where
                     }
                     Message::PeerSend(id, src, callback) => {
                         callback
-                            .send(server.send_to_peer(id, src.as_ref()))
+                            .send(server.send_to_peer(id, src.as_ref()).await)
                             .await
                             .unwrap();
                     }
                     Message::PeerRecv(id, dst, callback) => {
                         callback
-                            .send(server.recv_from_peer(id, dst.as_ref()))
+                            .send(server.recv_from_peer(id, dst.as_ref()).await)
                             .await
                             .unwrap();
                     }
@@ -266,26 +275,42 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
-        let (callback, response) = async_channel::unbounded();
+    fn send_to_peer(
+        &self,
+        id: ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> DynFut<Result<(), IoError>> {
+        let sender = self.state.sender.clone();
+        let src = src.into();
 
-        self.state
-            .sender
-            .send_blocking(Message::PeerSend(id, src.into(), callback))
-            .unwrap();
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
 
-        handle_response(response.recv_blocking())
+            sender
+                .send_blocking(Message::PeerSend(id, src, callback))
+                .unwrap();
+
+            handle_response(response.recv().await)
+        })
     }
 
-    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError> {
-        let (callback, response) = async_channel::unbounded();
+    fn recv_from_peer(
+        &self,
+        id: ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> DynFut<Result<(), IoError>> {
+        let sender = self.state.sender.clone();
+        let dst = dst.into();
 
-        self.state
-            .sender
-            .send_blocking(Message::PeerRecv(id, dst.into(), callback))
-            .unwrap();
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
 
-        handle_response(response.recv_blocking())
+            sender
+                .send_blocking(Message::PeerRecv(id, dst, callback))
+                .unwrap();
+
+            handle_response(response.recv().await)
+        })
     }
 
     fn get_resource(

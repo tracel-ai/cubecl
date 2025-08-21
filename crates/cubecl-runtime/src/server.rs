@@ -92,7 +92,7 @@ where
         &mut self,
         id: ComputeDataTransferId,
         src: CopyDescriptor<'_>,
-    ) -> Result<(), IoError>;
+    ) -> DynFut<Result<(), IoError>>;
 
     /// Receive data from another server. Should be called with [send_to_peer](Self::send_to_peer)
     /// 
@@ -102,7 +102,7 @@ where
         &mut self,
         id: ComputeDataTransferId,
         dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError>;
+    ) -> DynFut<Result<(), IoError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(

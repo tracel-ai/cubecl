@@ -10,8 +10,8 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
-use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::data_service::ComputeDataTransferId;
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
@@ -181,6 +181,73 @@ impl CudaServer {
         let sync = ctx.lazy_sync_stream();
         async move {
             sync.wait();
+        }
+    }
+
+    fn send_to_peer_async(
+        &mut self,
+        id: ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> impl Future<Output = Result<(), IoError>> + Send + use<> {
+        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
+
+        let src_ctx = self.get_context();
+
+        let src_resource = src_ctx
+            .memory_management
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = CudaDataService::get_client();
+
+        let handle = CudaDataHandle {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: src_resource,
+        };
+
+        async move {
+            client.send(id, handle, num_bytes);
+
+            Ok(())
+        }
+    }
+
+    fn recv_from_peer_async(
+        &mut self,
+        id: ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> impl Future<Output = Result<(), IoError>> + Send + use<> {
+        let num_bytes = dst.shape.iter().product::<usize>() * dst.elem_size;
+
+        let dst_ctx = self.get_context();
+        let dst_resource = dst_ctx
+            .memory_management
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = CudaDataService::get_client();
+
+        let handle = CudaDataHandle {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: dst_resource,
+        };
+
+        async move {
+            client.recv(id, handle, num_bytes);
+
+            Ok(())
         }
     }
 }
@@ -579,67 +646,12 @@ impl ComputeServer for CudaServer {
         self.ctx.memory_management.mode(mode);
     }
 
-    fn send_to_peer(
-        &mut self,
-        id: ComputeDataTransferId,
-        src: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
-
-        let src_ctx = self.get_context();
-
-        let src_resource = src_ctx
-            .memory_management
-            .get_resource(
-                src.binding.memory,
-                src.binding.offset_start,
-                src.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)?;
-
-        let client = CudaDataService::get_client();
-        client.send(
-            id,
-            CudaDataHandle {
-                context: self.ctx.context,
-                stream: self.ctx.stream,
-                resource: src_resource,
-            },
-            num_bytes,
-        );
-
-        Ok(())
+    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>> {
+        Box::pin(self.send_to_peer_async(id, src))
     }
 
-    fn recv_from_peer(
-        &mut self,
-        id: ComputeDataTransferId,
-        dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        let num_bytes = dst.shape.iter().product::<usize>() * dst.elem_size;
-
-        let dst_ctx = self.get_context();
-        let dst_resource = dst_ctx
-            .memory_management
-            .get_resource(
-                dst.binding.memory,
-                dst.binding.offset_start,
-                dst.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)?;
-
-        let client = CudaDataService::get_client();
-        client.recv(
-            id,
-            CudaDataHandle {
-                context: self.ctx.context,
-                stream: self.ctx.stream,
-                resource: dst_resource,
-            },
-            num_bytes,
-        );
-
-        Ok(())
+    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>> {
+        Box::pin(self.recv_from_peer_async(id, dst))
     }
 }
 

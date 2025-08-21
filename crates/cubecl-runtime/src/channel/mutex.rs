@@ -64,12 +64,12 @@ where
         server.write(descriptors)
     }
 
-    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> Result<(), IoError> {
+    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>> {
         let mut server = self.server.lock();
         server.send_to_peer(id, src)
     }
 
-    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> Result<(), IoError>{
+    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>>{
         let mut server = self.server.lock();
         server.recv_from_peer(id, dst)
     }
