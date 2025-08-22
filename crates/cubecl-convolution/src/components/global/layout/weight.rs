@@ -63,7 +63,7 @@ impl WeightGlobalLayout {
             shape_n: args.shape_n,
             channels: args.padded_channels,
             kernel_size: config.kernel_size,
-            config: config.global_memory_config(MatmulIdent::Lhs),
+            config: config.global_memory_config(MatmulIdent::Rhs),
         }
     }
 }
