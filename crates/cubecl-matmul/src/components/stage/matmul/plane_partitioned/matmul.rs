@@ -47,8 +47,13 @@ impl StagePartitioner for PlanePartitioner {
         PlaneWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
     }
 
-    fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
-        RoleRule::new(config.role_rule_config()).compute_index()
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
+        let absolute_index = RoleRule::new(config.role_rule_config()).compute_index();
+        let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
+        (
+            absolute_index / num_partitions_n,
+            absolute_index % num_partitions_n,
+        )
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {

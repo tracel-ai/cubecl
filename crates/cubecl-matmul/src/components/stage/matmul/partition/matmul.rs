@@ -6,6 +6,7 @@ use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
+use crate::components::stage::matmul::partitioned_matmul::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile::TileMatmul;
 use crate::components::{LhsS, MatmulPrecision, RhsS};
@@ -45,8 +46,7 @@ where
     /// Execute all Tile Matmuls inside the partition
     /// Can be with single or double buffering
     pub fn execute_with_listener<SEL: StageEventListener<S>>(
-        start_m: u32,
-        start_n: u32,
+        partition_iterator: PartitionScheduler,
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TM::Lhs>,
@@ -57,8 +57,7 @@ where
     ) {
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
-                start_m,
-                start_n,
+                partition_iterator,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
@@ -68,8 +67,7 @@ where
                 listener,
             ),
             RhsTile::Double(rhs_fragments) => Self::execute_double_buffer::<SEL>(
-                start_m,
-                start_n,
+                partition_iterator,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
@@ -135,8 +133,7 @@ where
     /// This function can call functions at various events through the listener.
     #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener<S>>(
-        start_m: u32,
-        start_n: u32,
+        partition_scheduler: PartitionScheduler,
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TM::Lhs>,
@@ -163,14 +160,17 @@ where
         #[unroll]
         for _ in 0..k_iterations {
             let mut m_iter = comptime![0u32];
+            let k_load_iter = partition_scheduler.map_k(k_iter);
 
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
+                let m_load_iter = partition_scheduler.map_m(m_iter);
+
                 let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
                     lhs_reader,
-                    start_m + m_iter,
-                    k_iter,
+                    m_load_iter,
+                    k_load_iter,
                     config.stage_memory_config(),
                 );
                 TM::fill_lhs(
@@ -196,10 +196,12 @@ where
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..n_iterations {
+                let n_load_iter = partition_scheduler.map_n(n_iter);
+
                 let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
                     rhs_reader,
-                    k_iter,
-                    start_n + n_iter,
+                    k_load_iter,
+                    n_load_iter,
                     config.stage_memory_config(),
                 );
                 TM::fill_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
@@ -256,8 +258,7 @@ where
     ///
     /// This function can call functions at various events through the listener.
     fn execute_double_buffer<SEL: StageEventListener<S>>(
-        start_m: u32,
-        start_n: u32,
+        partition_scheduler: PartitionScheduler,
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TM::Lhs>,
@@ -285,14 +286,17 @@ where
         #[unroll]
         for _ in 0..k_iterations {
             let mut m_iter = comptime![0u32];
+            let k_load_iter = partition_scheduler.map_k(k_iter);
 
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for _ in 0..m_iterations {
+                let m_load_iter = partition_scheduler.map_m(m_iter);
+
                 let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
                     lhs_reader,
-                    start_m + m_iter,
-                    k_iter,
+                    m_load_iter,
+                    k_load_iter,
                     config.stage_memory_config(),
                 );
                 TM::fill_lhs(
@@ -314,11 +318,12 @@ where
             }
 
             let mut n_iter = comptime![0u32];
+            let n_load_iter = partition_scheduler.map_n(n_iter);
 
             let rhs_tile_first = RR::read_tile::<S::StageMemoryConfig>(
                 rhs_reader,
-                k_iter,
-                start_n + n_iter,
+                k_load_iter,
+                n_load_iter,
                 config.stage_memory_config(),
             );
             TM::fill_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
@@ -341,10 +346,11 @@ where
                     (&mut rhs_fragments.1, &mut rhs_fragments.0)
                 };
 
+                let n_load_iter = partition_scheduler.map_n(comptime![n_iter + 1]);
                 let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
                     rhs_reader,
-                    k_iter,
-                    start_n + comptime![n_iter + 1],
+                    k_load_iter,
+                    n_load_iter,
                     config.stage_memory_config(),
                 );
                 TM::fill_rhs(&rhs_tile_next, next, config.tile_config());
