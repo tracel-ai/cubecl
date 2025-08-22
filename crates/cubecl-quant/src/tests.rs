@@ -217,7 +217,6 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         let block = i / block_size;
         let scale = scales[block];
         let diff = f32::abs(actual - expected);
-        // println!("[{block}] {expected} ~== {actual} tol {scale}");
         assert!(diff <= scale);
     }
 }

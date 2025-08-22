@@ -17,7 +17,6 @@ fn quantize_symmetric<F: Float, FS: Float>(
     range_min: F,
     range_max: F,
 ) -> Line<F> {
-    // x_q = clamp(round(x / scale), a, b)
     Line::clamp(
         Line::round(value / Line::cast_from(scale)),
         Line::new(range_min),
@@ -297,7 +296,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
                 )
             };
         }
-        _ => panic!("Invalid quantization for scheme {scheme:?}"),
+        _ => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
 
@@ -344,6 +343,6 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
                 )
             };
         }
-        QuantScheme { .. } => panic!("Invalid quantization for scheme {scheme:?}"),
+        QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
