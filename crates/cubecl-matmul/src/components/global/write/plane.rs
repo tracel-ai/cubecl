@@ -8,7 +8,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::{
     div_ceil,
-    tensor::layout::{Coords3d, ListView},
+    tensor::layout::{Coords3d, TensorView},
 };
 
 use super::GlobalWriter;
@@ -23,7 +23,7 @@ pub struct PlaneWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
     pub fn new(
-        view: ListView<EG, Coords3d, ReadWrite>,
+        view: TensorView<EG, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

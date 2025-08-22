@@ -10,7 +10,7 @@ use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::{
-    layout::{Coords3d, ListView},
+    layout::{Coords3d, TensorView},
     r#virtual::ReadWrite,
 };
 
@@ -36,7 +36,7 @@ impl StagePartitioner for UnitPartitioner {
     type WriteCoords = Coords3d;
 
     fn init_writer<EO: Numeric>(
-        tensor: ListView<EO, Self::WriteCoords, ReadWrite>,
+        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

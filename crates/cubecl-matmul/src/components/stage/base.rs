@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::{
-    layout::{Coordinates, ListView},
+    layout::{Coordinates, TensorView},
     r#virtual::ReadWrite,
 };
 
@@ -144,7 +144,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Inits the writer at the given offsets
     fn init_writer(
-        tensor: ListView<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: TensorView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -3,7 +3,7 @@ use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::{
-    layout::{Coords3d, ListView},
+    layout::{Coords3d, TensorView},
     r#virtual::ReadWrite,
 };
 
@@ -19,7 +19,7 @@ pub struct UnitWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> UnitWriter<EG> {
     pub fn new(
-        view: ListView<EG, Coords3d, ReadWrite>,
+        view: TensorView<EG, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

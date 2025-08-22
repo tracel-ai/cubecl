@@ -2,7 +2,7 @@ use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::{
-    layout::{Coords3d, ListView},
+    layout::{Coords3d, TensorView},
     r#virtual::ReadWrite,
 };
 
@@ -11,7 +11,7 @@ use cubecl_std::tensor::{
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorWriter<EO: Numeric> {
-    pub view: ListView<EO, Coords3d, ReadWrite>,
+    pub view: TensorView<EO, Coords3d, ReadWrite>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub batch_offset: u32,
@@ -24,7 +24,7 @@ unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 impl<EG: Numeric> TensorWriter<EG> {
     /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
-        view: ListView<EG, Coords3d, ReadWrite>,
+        view: TensorView<EG, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -70,12 +70,12 @@ impl<C: Coordinates> IntoMut for VirtualLayoutExpand<C> {
 impl<C: Coordinates> CubeDebug for VirtualLayoutExpand<C> {}
 
 #[derive(Clone)]
-pub struct ListView<E: Numeric, C: Coordinates, IO: Clone = Read> {
+pub struct TensorView<E: Numeric, C: Coordinates, IO: Clone = Read> {
     pub layout: VirtualLayout<C>,
     _list: PhantomData<(E, IO)>,
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> Copy for ListView<E, C, IO> {}
+impl<E: Numeric, C: Coordinates, IO: Clone> Copy for TensorView<E, C, IO> {}
 
 #[derive(Clone)]
 enum ListType<E: Numeric> {
@@ -100,32 +100,32 @@ impl<E: Numeric> ListType<E> {
 }
 
 #[derive(Clone)]
-pub struct ListViewExpand<E: Numeric, C: Coordinates, IO: Clone = Read> {
+pub struct TensorViewExpand<E: Numeric, C: Coordinates, IO: Clone = Read> {
     tensor: ListType<E>,
     layout: VirtualLayoutExpand<C>,
     _io: PhantomData<IO>,
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> CubeType for ListView<E, C, IO> {
-    type ExpandType = ListViewExpand<E, C, IO>;
+impl<E: Numeric, C: Coordinates, IO: Clone> CubeType for TensorView<E, C, IO> {
+    type ExpandType = TensorViewExpand<E, C, IO>;
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> IntoMut for ListViewExpand<E, C, IO> {
+impl<E: Numeric, C: Coordinates, IO: Clone> IntoMut for TensorViewExpand<E, C, IO> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> CubeDebug for ListViewExpand<E, C, IO> {}
+impl<E: Numeric, C: Coordinates, IO: Clone> CubeDebug for TensorViewExpand<E, C, IO> {}
 
-impl<E: Numeric, C: Coordinates> ListView<E, C, Read> {
+impl<E: Numeric, C: Coordinates> TensorView<E, C, Read> {
     #[allow(unused_variables)]
     pub fn new<T>(tensor: T, layout: VirtualLayout<C>) -> Self
     where
         T: List<Line<E>> + CubeType,
         T::ExpandType: ListExpand<Line<E>> + 'static,
     {
-        ListView {
+        TensorView {
             layout,
             _list: PhantomData,
         }
@@ -135,12 +135,12 @@ impl<E: Numeric, C: Coordinates> ListView<E, C, Read> {
         _scope: &mut Scope,
         tensor: T::ExpandType,
         layout: VirtualLayoutExpand<C>,
-    ) -> ListViewExpand<E, C, Read>
+    ) -> TensorViewExpand<E, C, Read>
     where
         T: List<Line<E>> + CubeType,
         T::ExpandType: ListExpand<Line<E>> + 'static,
     {
-        ListViewExpand::<E, C, Read> {
+        TensorViewExpand::<E, C, Read> {
             tensor: ListType::Read(Arc::new(tensor)),
             layout,
             _io: PhantomData,
@@ -148,8 +148,8 @@ impl<E: Numeric, C: Coordinates> ListView<E, C, Read> {
     }
 }
 
-impl<E: Numeric, C: Coordinates> ListView<E, C, ReadWrite> {
-    pub fn new_mut<T>(_tensor: T, _layout: VirtualLayout<C>) -> ListView<E, C, ReadWrite>
+impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
+    pub fn new_mut<T>(_tensor: T, _layout: VirtualLayout<C>) -> TensorView<E, C, ReadWrite>
     where
         T: ListMut<Line<E>> + CubeType,
         T::ExpandType: ListMutExpand<Line<E>> + 'static,
@@ -161,12 +161,12 @@ impl<E: Numeric, C: Coordinates> ListView<E, C, ReadWrite> {
         _scope: &mut Scope,
         tensor: T::ExpandType,
         layout: VirtualLayoutExpand<C>,
-    ) -> ListViewExpand<E, C, ReadWrite>
+    ) -> TensorViewExpand<E, C, ReadWrite>
     where
         T: ListMut<Line<E>> + CubeType,
         T::ExpandType: ListMutExpand<Line<E>> + 'static,
     {
-        ListViewExpand::<E, C, ReadWrite> {
+        TensorViewExpand::<E, C, ReadWrite> {
             tensor: ListType::ReadWrite(Arc::new(tensor)),
             layout,
             _io: PhantomData,
@@ -175,7 +175,7 @@ impl<E: Numeric, C: Coordinates> ListView<E, C, ReadWrite> {
 }
 
 #[cube]
-impl<E: Numeric, C: Coordinates, IO: Clone> ListView<E, C, IO> {
+impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
     #[allow(unused)]
     pub fn to_linear_pos(&self, pos: C) -> u32 {
         self.layout.to_linear_pos(pos)
@@ -192,7 +192,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> ListView<E, C, IO> {
 }
 
 #[allow(unused_variables)]
-impl<E: Numeric, C: Coordinates, IO: Clone> ListView<E, C, IO> {
+impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
     pub fn read(&self, pos: C) -> Line<E> {
         unexpanded!()
     }
@@ -206,7 +206,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> ListView<E, C, IO> {
     }
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> ListViewExpand<E, C, IO> {
+impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
     pub fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -240,7 +240,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> ListViewExpand<E, C, IO> {
 }
 
 #[allow(unused_variables)]
-impl<E: Numeric, C: Coordinates> ListView<E, C, ReadWrite> {
+impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
     pub fn write(&self, pos: C, value: Line<E>) {
         unexpanded!()
     }
@@ -250,7 +250,7 @@ impl<E: Numeric, C: Coordinates> ListView<E, C, ReadWrite> {
     }
 }
 
-impl<E: Numeric, C: Coordinates> ListViewExpand<E, C, ReadWrite> {
+impl<E: Numeric, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
     pub fn __expand_write_method(
         self,
         scope: &mut Scope,

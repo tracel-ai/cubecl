@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
 
-use crate::tensor::layout::{Coordinates, ListView, VirtualLayout};
+use crate::tensor::layout::{Coordinates, TensorView, VirtualLayout};
 
 /// The read tag for [virtual tensor](VirtualTensor).
 #[derive(Clone)]
@@ -231,15 +231,18 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 
 #[cube]
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
-    pub fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> ListView<E, C, Read> {
-        ListView::new::<VirtualTensor<E, IO>>(*self, layout)
+    pub fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> TensorView<E, C, Read> {
+        TensorView::new::<VirtualTensor<E, IO>>(*self, layout)
     }
 }
 
 #[cube]
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
-    pub fn view_mut<C: Coordinates>(&self, layout: VirtualLayout<C>) -> ListView<E, C, ReadWrite> {
-        ListView::new_mut::<VirtualTensor<E, ReadWrite>>(*self, layout)
+    pub fn view_mut<C: Coordinates>(
+        &self,
+        layout: VirtualLayout<C>,
+    ) -> TensorView<E, C, ReadWrite> {
+        TensorView::new_mut::<VirtualTensor<E, ReadWrite>>(*self, layout)
     }
 }
 

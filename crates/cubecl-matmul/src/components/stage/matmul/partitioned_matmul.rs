@@ -16,7 +16,7 @@ use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::{
-    layout::{Coordinates, ListView},
+    layout::{Coordinates, TensorView},
     r#virtual::ReadWrite,
 };
 
@@ -31,7 +31,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: ListView<EO, Self::WriteCoords, ReadWrite>,
+        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -218,7 +218,7 @@ where
     }
 
     fn init_writer(
-        tensor: ListView<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: TensorView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
