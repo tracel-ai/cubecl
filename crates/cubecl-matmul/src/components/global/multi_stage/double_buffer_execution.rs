@@ -172,7 +172,13 @@ pub fn execute_last_and_write_results<
                     partition_scheduler,
                 );
 
-                SMM::write_results::<G>(acc, out_writer, config.stage_config(), config);
+                SMM::write_results::<G>(
+                    acc,
+                    out_writer,
+                    &partition_scheduler,
+                    config.stage_config(),
+                    config,
+                );
             }
         }
         SpecializerKind::NotSpecialized => {
@@ -186,7 +192,13 @@ pub fn execute_last_and_write_results<
                 partition_scheduler,
             );
 
-            SMM::write_results::<G>(acc, out_writer, config.stage_config(), config);
+            SMM::write_results::<G>(
+                acc,
+                out_writer,
+                &partition_scheduler,
+                config.stage_config(),
+                config,
+            );
         }
     }
 }

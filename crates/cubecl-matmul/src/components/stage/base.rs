@@ -150,6 +150,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Self::Writer,
+        partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );

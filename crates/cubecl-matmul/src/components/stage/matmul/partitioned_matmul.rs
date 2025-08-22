@@ -147,6 +147,7 @@ where
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TM, S>,
         out: &mut Self::Writer,
+        partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
     ) {
@@ -168,20 +169,20 @@ where
         let slice_start = num_tile_lines * absolute_partition_position;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
 
-        let m_offset = m_iterations * partition_row;
-        let n_offset = n_iterations * partition_col;
-
         let mut m_iter = comptime![0u32];
 
         // Iterate over each tile in the partition
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime![m_iterations] {
+            let m_load_iter = partition_scheduler.map_m(m_iter);
             let mut n_iter = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
+                let n_load_iter = partition_scheduler.map_n(n_iter);
+
                 let tile_accumulator =
                     Accumulators::<MP, TM, S>::get_at(acc, m_iter, n_iter, stage_config);
 
@@ -197,8 +198,8 @@ where
                 Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),
-                    m_offset + m_iter,
-                    n_offset + n_iter,
+                    m_load_iter,
+                    n_load_iter,
                     global_config,
                 );
 

@@ -112,7 +112,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
-                &partition_scheduler
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
@@ -121,7 +121,13 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(

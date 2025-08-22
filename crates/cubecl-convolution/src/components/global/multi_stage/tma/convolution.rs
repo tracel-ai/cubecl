@@ -192,7 +192,13 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
