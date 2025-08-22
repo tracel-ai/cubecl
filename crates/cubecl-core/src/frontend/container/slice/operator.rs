@@ -315,25 +315,25 @@ pub trait SliceMutOperatorExpand<E: CubePrimitive> {
     fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadWrite>;
 }
 
-// Automatic implementation for references to List.
+// Automatic implementation for references to SliceOperator.
 impl<'a, T: CubePrimitive, L: SliceOperator<T>> SliceOperator<T> for &'a L where
     &'a L: CubeType<ExpandType = L::ExpandType>
 {
 }
 
-// Automatic implementation for mutable references to List.
+// Automatic implementation for mutable references to SliceOperator.
 impl<'a, T: CubePrimitive, L: SliceOperator<T>> SliceOperator<T> for &'a mut L where
     &'a mut L: CubeType<ExpandType = L::ExpandType>
 {
 }
 
-// Automatic implementation for references to ListMut.
+// Automatic implementation for references to SliceMutOperator.
 impl<'a, T: CubePrimitive, L: SliceMutOperator<T>> SliceMutOperator<T> for &'a L where
     &'a L: CubeType<ExpandType = L::ExpandType>
 {
 }
 
-// Automatic implementation for references to ListMut.
+// Automatic implementation for mutable references to SliceMutOperator.
 impl<'a, T: CubePrimitive, L: SliceMutOperator<T>> SliceMutOperator<T> for &'a mut L where
     &'a mut L: CubeType<ExpandType = L::ExpandType>
 {

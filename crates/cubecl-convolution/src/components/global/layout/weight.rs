@@ -20,19 +20,29 @@ use crate::{
     kernels::layered::selector::RuntimeArgs,
 };
 
+/// Maps a 4D weight tensor of shape `(out_c, (k_h, k_w, in_c))` to a col-major 2D matmul tile with
+/// shape `(n, k)`
 #[derive(CubeType, Clone)]
 pub struct WeightGlobalLayout {
+    /// Stride of `out_c`
     pub stride_out_c: u32,
+    /// Stride of `k_h`, `k_w`
     pub strides_spatial: Sequence<u32>,
+    /// Stride of `in_c`
     pub stride_in_c: u32,
 
+    /// Number of channels, including padding, used for decomposing `k`
     pub channels: FastDivmod,
 
+    /// Shape of the conceptual `k` size, including padding
     pub shape_k: u32,
+    /// Shape of the conceptual `n` size, or `out_c`
     pub shape_n: u32,
 
+    /// Size of the convolution kernel
     #[cube(comptime)]
     pub kernel_size: [u32; 3],
+    /// Global memory config for the backing tensor
     #[cube(comptime)]
     pub config: GlobalMemoryConfig,
 }

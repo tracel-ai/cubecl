@@ -149,7 +149,7 @@ where
     }
 }
 
-// Automatic implementation for references to ListMut.
+// Automatic implementation for mutable references to ListMut.
 impl<'a, T: CubePrimitive, L: ListMut<T>> ListMut<T> for &'a mut L
 where
     &'a mut L: CubeType<ExpandType = L::ExpandType>,

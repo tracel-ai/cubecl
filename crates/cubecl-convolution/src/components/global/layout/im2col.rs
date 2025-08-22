@@ -20,28 +20,45 @@ use crate::{
     kernels::layered::selector::RuntimeArgs,
 };
 
+/// Maps a 4D NHWC tensor to a 2D column matrix using the im2col transformation
+/// It first decomposes the `(m, k)` matrix into `((n, out_h, out_w), (k_h, k_w, c))`, then applies
+/// the convolution parameters to calculate the position in the input tensor for that kernel element.
 #[derive(CubeType, Clone)]
 pub struct Im2colGlobalLayout {
+    /// Stride for N
     pub stride_batch: u32,
+    /// Strides for DHW
     pub strides_spatial: Sequence<u32>,
+    /// Stride for C
     pub stride_channel: u32,
 
+    /// Shape of DHW
     pub shapes_spatial: Sequence<u32>,
+    /// Shape of C
     pub shape_channel: u32,
 
+    /// Shape of output DHW
     pub shape_out: Sequence<FastDivmod>,
 
+    /// Shape of the combined `m` dimension, including padding
     pub shape_m: u32,
+    /// Shape of the combined `k` dimension, including padding
     pub shape_k: u32,
 
+    /// Size of the convolution kernel in DHW
     #[cube(comptime)]
     pub kernel_size: [u32; 3],
+    /// Stride of the convolution in DHW
     #[cube(comptime)]
     pub stride: [u32; 3],
+    /// Dilation applied to the kernel positions in DHW
     #[cube(comptime)]
     pub dilation: [u32; 3],
+    /// Padding applied to the convolution in DHW
+    /// The input position will be offset from the output by `-padding`
     #[cube(comptime)]
     pub padding: [i32; 3],
+    /// Global memory config for the backing tensor
     #[cube(comptime)]
     pub config: GlobalMemoryConfig,
 }
@@ -141,6 +158,8 @@ impl Layout for Im2colGlobalLayout {
         let k_in_bounds = comptime!(!this.config.check_col_bounds) || view_k < this.shape_k;
         let mut spatial_in_bounds = true;
 
+        // If padding != 0, needs to check bounds on each spatial dim to see if we're in padding
+        // Without padding, checking `m` and `k` is enough.
         if has_padding {
             #[unroll]
             for i in 0..spatial_dims {

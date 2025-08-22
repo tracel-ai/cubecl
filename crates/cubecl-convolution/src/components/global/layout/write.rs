@@ -14,17 +14,26 @@ use crate::components::global::{
     load::im2col_tma::div_mod_seq,
 };
 
+/// Maps a 4D NHWC out tensor of shape `((n, h, w), c)` to a col-major 2D matmul tile with
+/// shape `(m, n)`
 #[derive(CubeType, Clone)]
 pub struct NhwcOutGlobalLayout {
+    /// Stride of N
     pub stride_n: u32,
+    /// Strides of DHW
     pub strides_spatial: Sequence<u32>,
+    /// Stride of C
     pub stride_c: u32,
 
+    /// Shape of DHW
     pub shape_out: Sequence<FastDivmod>,
 
+    /// Shape of the conceptual `m` size
     pub shape_m: u32,
+    /// Shape of the conceptual `n`size, or channels
     pub shape_n: u32,
 
+    /// Global memory config for the backing tensor
     #[cube(comptime)]
     pub config: GlobalMemoryConfig,
 }
