@@ -9,7 +9,10 @@ use cubecl_std::{
     },
 };
 
-use crate::components::global::{layout::unwrap, load::im2col_tma::div_mod_seq};
+use crate::components::global::{
+    layout::{unwrap, virtual_layout},
+    load::im2col_tma::div_mod_seq,
+};
 
 #[derive(CubeType, Clone)]
 pub struct NhwcOutGlobalLayout {
@@ -78,7 +81,7 @@ impl Layout for NhwcOutGlobalLayout {
             write_pos += *out_pos.index(i) as u32 * *this.strides_spatial.index(i);
         }
 
-        write_pos
+        write_pos / this.config.global_line_size
     }
 
     fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
@@ -97,37 +100,4 @@ impl Layout for NhwcOutGlobalLayout {
     }
 }
 
-mod r#virtual {
-    use cubecl_std::tensor::layout::{VirtualLayout, VirtualLayoutOperationsExpand};
-
-    use super::*;
-
-    impl VirtualLayoutOperationsExpand<Coords3d> for NhwcOutGlobalLayoutExpand {
-        fn __expand_to_linear_pos_method(
-            &self,
-            scope: &mut Scope,
-            pos: <Coords3d as CubeType>::ExpandType,
-        ) -> <u32 as CubeType>::ExpandType {
-            NhwcOutGlobalLayout::__expand_to_linear_pos(scope, self.clone(), pos)
-        }
-
-        fn __expand_to_linear_pos_checked_method(
-            &self,
-            scope: &mut Scope,
-            pos: <Coords3d as CubeType>::ExpandType,
-        ) -> <(u32, bool) as CubeType>::ExpandType {
-            NhwcOutGlobalLayout::__expand_to_linear_pos_checked(scope, self.clone(), pos)
-        }
-
-        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords3d as CubeType>::ExpandType {
-            NhwcOutGlobalLayout::__expand_shape(scope, self.clone())
-        }
-    }
-
-    #[cube]
-    impl NhwcOutGlobalLayout {
-        pub fn virt(self) -> VirtualLayout<Coords3d> {
-            VirtualLayout::new::<NhwcOutGlobalLayout>(self)
-        }
-    }
-}
+virtual_layout!(NhwcOutGlobalLayout, NhwcOutGlobalLayoutExpand);

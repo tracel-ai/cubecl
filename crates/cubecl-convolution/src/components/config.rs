@@ -31,10 +31,10 @@ pub trait ConvGemmConfig: GlobalConfig {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionConfig<M: GlobalConfig> {
     matmul: M,
-    kernel_size: [u32; 3],
-    stride: [u32; 3],
-    dilation: [u32; 3],
-    padding: [i32; 3],
+    pub kernel_size: [u32; 3],
+    pub stride: [u32; 3],
+    pub dilation: [u32; 3],
+    pub padding: [i32; 3],
     dimensionality: Dimensionality,
     num_stages: u32,
 }

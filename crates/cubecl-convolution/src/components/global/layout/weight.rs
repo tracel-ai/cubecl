@@ -1,6 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::MatmulIdent;
+use cubecl_matmul::components::{
+    MatmulIdent,
+    global::{GlobalConfig, memory::GlobalMemoryConfig},
+};
 use cubecl_std::{
     FastDivmod,
     tensor::{
@@ -9,13 +12,16 @@ use cubecl_std::{
     },
 };
 
-use crate::components::{
-    ConvGemmConfig,
-    global::layout::{unwrap, virtual_layout},
+use crate::{
+    components::{
+        ConvGemmConfig, ConvolutionConfig,
+        global::layout::{unwrap, virtual_layout},
+    },
+    kernels::layered::selector::RuntimeArgs,
 };
 
 #[derive(CubeType, Clone)]
-pub struct WeightGlobalLayout<C: ConvGemmConfig> {
+pub struct WeightGlobalLayout {
     pub stride_out_c: u32,
     pub strides_spatial: Sequence<u32>,
     pub stride_in_c: u32,
@@ -26,18 +32,18 @@ pub struct WeightGlobalLayout<C: ConvGemmConfig> {
     pub shape_n: u32,
 
     #[cube(comptime)]
-    pub config: C,
+    pub kernel_size: [u32; 3],
+    #[cube(comptime)]
+    pub config: GlobalMemoryConfig,
 }
 
 #[cube]
-impl<C: ConvGemmConfig> WeightGlobalLayout<C> {
-    pub fn new<E: Numeric>(
+impl WeightGlobalLayout {
+    pub fn new<E: Numeric, G: GlobalConfig>(
         tensor: &VirtualTensor<E>,
-        shape_k: u32,
-        shape_n: u32,
-        channels: FastDivmod,
-        #[comptime] config: C,
-    ) -> WeightGlobalLayout<C> {
+        args: &RuntimeArgs,
+        #[comptime] config: ConvolutionConfig<G>,
+    ) -> WeightGlobalLayout {
         let spatial_dims = comptime![config.dimensionality().num_dims()];
         let mut strides_spatial = Sequence::new();
 
@@ -49,20 +55,21 @@ impl<C: ConvGemmConfig> WeightGlobalLayout<C> {
         let stride_out_c = tensor.stride(0);
         let stride_in_c = tensor.stride(spatial_dims + 1);
 
-        WeightGlobalLayout::<C> {
+        WeightGlobalLayout {
             stride_out_c,
             strides_spatial,
             stride_in_c,
-            shape_k,
-            shape_n,
-            channels,
-            config,
+            shape_k: args.shape_k,
+            shape_n: args.shape_n,
+            channels: args.padded_channels,
+            kernel_size: config.kernel_size,
+            config: config.global_memory_config(MatmulIdent::Lhs),
         }
     }
 }
 
 #[cube]
-impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
+impl Layout for WeightGlobalLayout {
     type Coordinates = Coords3d;
 
     fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
@@ -77,7 +84,7 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
         for i in 0..spatial_dims {
             let i = unwrap(i);
             let dim = comptime![spatial_dims - i - 1];
-            let ksize = comptime![this.config.kernel_size(dim)];
+            let ksize = comptime![this.kernel_size[dim as usize]];
             let k_pos = rem % ksize;
             rem /= ksize;
 
@@ -94,15 +101,16 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
             read_pos += *kernel_pos.index(i) * *this.strides_spatial.index(i);
         }
 
-        read_pos
+        let line_size = comptime![this.config.global_line_size];
+        read_pos / line_size
     }
 
     fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
         let linear_pos = Self::to_linear_pos(this, coords);
 
         let (_, k, n) = coords;
-        let check_k = comptime![this.config.check_row_bounds(MatmulIdent::Rhs)];
-        let check_n = comptime![this.config.check_col_bounds(MatmulIdent::Rhs)];
+        let check_k = comptime![this.config.check_row_bounds];
+        let check_n = comptime![this.config.check_col_bounds];
         let in_bounds = (!check_k || k < this.shape_k) && (!check_n || n < this.shape_n);
 
         (linear_pos, in_bounds)

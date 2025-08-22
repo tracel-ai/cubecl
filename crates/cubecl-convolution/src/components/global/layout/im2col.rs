@@ -1,6 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
-use cubecl_matmul::components::MatmulIdent;
+use cubecl_matmul::components::{
+    MatmulIdent,
+    global::{GlobalConfig, memory::GlobalMemoryConfig},
+};
 use cubecl_std::{
     FastDivmod,
     tensor::{
@@ -9,13 +12,16 @@ use cubecl_std::{
     },
 };
 
-use crate::components::{
-    ConvGemmConfig,
-    global::{layout::virtual_layout, load::im2col_tma::div_mod_seq},
+use crate::{
+    components::{
+        ConvolutionConfig,
+        global::{layout::virtual_layout, load::im2col_tma::div_mod_seq},
+    },
+    kernels::layered::selector::RuntimeArgs,
 };
 
 #[derive(CubeType, Clone)]
-pub struct Im2colGlobalLayout<C: ConvGemmConfig> {
+pub struct Im2colGlobalLayout {
     pub stride_batch: u32,
     pub strides_spatial: Sequence<u32>,
     pub stride_channel: u32,
@@ -29,18 +35,25 @@ pub struct Im2colGlobalLayout<C: ConvGemmConfig> {
     pub shape_k: u32,
 
     #[cube(comptime)]
-    pub config: C,
+    pub kernel_size: [u32; 3],
+    #[cube(comptime)]
+    pub stride: [u32; 3],
+    #[cube(comptime)]
+    pub dilation: [u32; 3],
+    #[cube(comptime)]
+    pub padding: [i32; 3],
+    #[cube(comptime)]
+    pub config: GlobalMemoryConfig,
 }
 
 #[cube]
-impl<C: ConvGemmConfig> Im2colGlobalLayout<C> {
-    pub fn new<E: Numeric>(
+impl Im2colGlobalLayout {
+    pub fn new<E: Numeric, G: GlobalConfig>(
         tensor: &VirtualTensor<E>,
-        shape_out: Sequence<FastDivmod>,
-        shape_m: u32,
-        shape_k: u32,
-        #[comptime] config: C,
-    ) -> Im2colGlobalLayout<C> {
+        args: &RuntimeArgs,
+        #[comptime] config: ConvolutionConfig<G>,
+    ) -> Im2colGlobalLayout {
+        let shape_out = args.shape_out.clone();
         let spatial_dims = comptime![shape_out.len()];
         let mut strides_spatial = Sequence::new();
         let mut shapes_spatial = Sequence::new();
@@ -56,22 +69,26 @@ impl<C: ConvGemmConfig> Im2colGlobalLayout<C> {
 
         let shape_channel = tensor.shape(spatial_dims + 1);
 
-        Im2colGlobalLayout::<C> {
+        Im2colGlobalLayout {
             stride_batch,
             strides_spatial,
             stride_channel,
             shapes_spatial,
             shape_channel,
             shape_out,
-            shape_m,
-            shape_k,
-            config,
+            shape_m: args.shape_m,
+            shape_k: args.shape_k,
+            kernel_size: config.kernel_size,
+            stride: config.stride,
+            dilation: config.dilation,
+            padding: config.padding,
+            config: config.global_memory_config(MatmulIdent::Lhs),
         }
     }
 }
 
 #[cube]
-impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
+impl Layout for Im2colGlobalLayout {
     type Coordinates = Coords3d;
 
     fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
@@ -97,14 +114,14 @@ impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
         for i in 0..spatial_dims {
             let i = unwrap(i);
             let dim = comptime![spatial_dims - i - 1];
-            let ksize = comptime![this.config.kernel_size(dim)];
+            let ksize = comptime![this.kernel_size[dim as usize]];
             let k_pos = rem % ksize;
             rem /= ksize;
 
             let out_pos = *out_offs.index(dim);
-            let stride = comptime![this.config.stride(dim)];
-            let dilate = comptime![this.config.dilation(dim)];
-            let pad = comptime![this.config.padding(dim)];
+            let stride = comptime![this.stride[dim as usize]];
+            let dilate = comptime![this.dilation[dim as usize]];
+            let pad = comptime![this.padding[dim as usize]];
 
             let pos = (out_pos * stride + k_pos * dilate) as i32 - pad;
             in_pos.push(pos);
@@ -115,15 +132,13 @@ impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
         let has_padding = comptime! {
             let mut has_padding = false;
             for i in 0..spatial_dims {
-                has_padding |= this.config.padding(i) != 0;
+                has_padding |= this.padding[i as usize] != 0;
             }
             has_padding
         };
 
-        let m_in_bounds =
-            comptime!(!this.config.check_row_bounds(MatmulIdent::Lhs)) || view_m < this.shape_m;
-        let k_in_bounds =
-            comptime!(!this.config.check_col_bounds(MatmulIdent::Lhs)) || view_k < this.shape_k;
+        let m_in_bounds = comptime!(!this.config.check_row_bounds) || view_m < this.shape_m;
+        let k_in_bounds = comptime!(!this.config.check_col_bounds) || view_k < this.shape_k;
         let mut spatial_in_bounds = true;
 
         if has_padding {
@@ -145,7 +160,9 @@ impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
             read_pos += *in_pos.index(i) as u32 * *this.strides_spatial.index(i);
         }
 
-        (read_pos, in_bounds)
+        let line_size = this.config.global_line_size;
+
+        (read_pos / line_size, in_bounds)
     }
 }
 

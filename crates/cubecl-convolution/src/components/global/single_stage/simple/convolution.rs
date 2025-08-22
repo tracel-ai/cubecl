@@ -127,13 +127,7 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let layout = Im2colGlobalLayout::<Self::Config>::new(
-            &lhs,
-            runtime_args.out_shape.clone(),
-            runtime_args.size_m,
-            runtime_args.size_k,
-            config,
-        );
+        let layout = Im2colGlobalLayout::new(&lhs, runtime_args, config);
         Self::LhsLoader::new(
             lhs.view(layout.virt()),
             x_offset,
@@ -151,13 +145,7 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let layout = WeightGlobalLayout::<Self::Config>::new(
-            &rhs,
-            runtime_args.size_k,
-            runtime_args.size_n,
-            runtime_args.padded_channels,
-            config,
-        );
+        let layout = WeightGlobalLayout::new(&rhs, runtime_args, config);
         Self::RhsLoader::new(
             rhs.view(layout.virt()),
             x_offset,
@@ -185,9 +173,9 @@ where
     ) -> Self::Writer {
         let layout = NhwcOutGlobalLayout::new(
             &out,
-            runtime_args.size_m,
-            runtime_args.size_n,
-            runtime_args.out_shape.clone(),
+            runtime_args.shape_m,
+            runtime_args.shape_n,
+            runtime_args.shape_out.clone(),
             config.global_memory_config(MatmulIdent::Out),
         );
         SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)

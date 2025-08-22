@@ -171,9 +171,9 @@ where
     ) -> Self::Writer {
         let layout = NhwcOutGlobalLayout::new(
             &out,
-            runtime_args.size_m,
-            runtime_args.size_n,
-            runtime_args.out_shape.clone(),
+            runtime_args.shape_m,
+            runtime_args.shape_n,
+            runtime_args.shape_out.clone(),
             config.global_memory_config(MatmulIdent::Out),
         );
         SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)

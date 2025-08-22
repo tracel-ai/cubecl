@@ -3,34 +3,34 @@ macro_rules! virtual_layout {
         mod r#virtual {
             use super::*;
             use cubecl_std::tensor::layout::*;
-            type L<C> = $ty<C>;
-            type Coords<C> = <L<C> as Layout>::Coordinates;
-            type CoordsExpand<C> = <Coords<C> as CubeType>::ExpandType;
+            type L = $ty;
+            type Coords = <L as Layout>::Coordinates;
+            type CoordsExpand = <Coords as CubeType>::ExpandType;
 
-            impl<C: ConvGemmConfig> VirtualLayoutOperationsExpand<Coords<C>> for $expand<C> {
+            impl VirtualLayoutOperationsExpand<Coords> for $expand {
                 fn __expand_to_linear_pos_method(
                     &self,
                     scope: &mut Scope,
-                    pos: CoordsExpand<C>,
+                    pos: CoordsExpand,
                 ) -> <u32 as CubeType>::ExpandType {
-                    L::<C>::__expand_to_linear_pos(scope, self.clone(), pos)
+                    L::__expand_to_linear_pos(scope, self.clone(), pos)
                 }
                 fn __expand_to_linear_pos_checked_method(
                     &self,
                     scope: &mut Scope,
-                    pos: CoordsExpand<C>,
+                    pos: CoordsExpand,
                 ) -> <(u32, bool) as CubeType>::ExpandType {
-                    L::<C>::__expand_to_linear_pos_checked(scope, self.clone(), pos)
+                    L::__expand_to_linear_pos_checked(scope, self.clone(), pos)
                 }
-                fn __expand_shape_method(&self, scope: &mut Scope) -> CoordsExpand<C> {
-                    L::<C>::__expand_shape(scope, self.clone())
+                fn __expand_shape_method(&self, scope: &mut Scope) -> CoordsExpand {
+                    L::__expand_shape(scope, self.clone())
                 }
             }
 
             #[cube]
-            impl<C: ConvGemmConfig> $ty<C> {
-                pub fn virt(self) -> VirtualLayout<Coords<C>> {
-                    VirtualLayout::new::<L<C>>(self)
+            impl $ty {
+                pub fn virt(self) -> VirtualLayout<Coords> {
+                    VirtualLayout::new::<L>(self)
                 }
             }
         }

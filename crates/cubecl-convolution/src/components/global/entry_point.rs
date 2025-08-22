@@ -84,7 +84,7 @@ pub(crate) fn implicit_conv<
 
     let x_offset = CUBE_POS_X * config.tiling_scheme().elements_in_stage_m();
     let y_offset = CUBE_POS_Y * config.tiling_scheme().elements_in_stage_n();
-    let k_range = (0, runtime_args.size_k);
+    let k_range = (0, runtime_args.shape_k);
 
     GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::execute(
         GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_lhs_loader(
