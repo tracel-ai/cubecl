@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
+use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::global::{load::SyncFullLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -15,14 +15,12 @@ use super::{LoaderMode, LoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct SyncFullCyclicLoading<T: TilingOrder, LayoutG = SimpleGlobalLayout> {
+pub struct SyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     _t: PhantomData<T>,
-    #[cube(comptime)]
-    _layout: PhantomData<LayoutG>,
 }
 
-impl<TO: TilingOrder, LayoutG> LoadingValidation for SyncFullCyclicLoading<TO, LayoutG> {
+impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         if let LoaderMode::Strict = config.loader_mode() {
             let line_size = config.global_line_size(ident);
@@ -42,7 +40,7 @@ impl<TO: TilingOrder, LayoutG> LoadingValidation for SyncFullCyclicLoading<TO, L
     }
 }
 
-impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO, LayoutG> {
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
