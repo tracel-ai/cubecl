@@ -2,6 +2,7 @@ mod partition;
 mod partitioned_matmul;
 mod plane_partitioned;
 mod unit_partitioned;
+mod scheduler;
 
 pub use plane_partitioned::PlaneMatmulFamily;
 pub use unit_partitioned::UnitMatmulFamily;

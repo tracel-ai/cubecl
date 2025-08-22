@@ -1,7 +1,6 @@
 use crate::components::InputPrecision;
 use crate::components::LhsS;
 use crate::components::MatmulPrecision;
-use crate::components::PartitionSize;
 use crate::components::RhsS;
 use crate::components::StageIdent;
 use crate::components::global;
@@ -11,6 +10,8 @@ use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
+use crate::components::stage::matmul::scheduler::PartitionScheduleScheme;
+use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
@@ -220,168 +221,5 @@ where
         batch_offset: u32,
     ) -> Self::Writer {
         SP::init_writer(tensor, x_offset, y_offset, batch_offset)
-    }
-}
-
-/// Different ways to schedule partition indices.
-pub enum PartitionScheduleScheme {
-    /// Apply offsets per plane to reduce shared memory conflicts (current scheme).
-    Offset,
-    /// Simple row-major mapping; no offsets, just global tiles in order.
-    Naive,
-}
-
-/// Schedules global indices for M, N, and K axes in a partitioned matmul.
-/// Each axis has its own `AxisScheduler`.
-#[derive(CubeType)]
-pub struct PartitionScheduler {
-    pub m: AxisScheduler,
-    pub n: AxisScheduler,
-    pub k: AxisScheduler,
-}
-
-#[cube]
-impl PartitionScheduler {
-    /// Creates a scheduler for a partition at (partition_index_m, partition_index_n).
-    /// Computes offsets so multiple partitions iterate over different tiles and reduce shared memory conflicts.
-    pub fn new(
-        partition_index_m: u32,
-        partition_index_n: u32,
-        #[comptime] partition_size: PartitionSize,
-        #[comptime] partition_schedule_scheme: PartitionScheduleScheme,
-    ) -> PartitionScheduler {
-        match partition_schedule_scheme {
-            PartitionScheduleScheme::Offset => {
-                // M-axis rotation: ensures partitions in the same row start at different M tiles.
-                let m_offset = (partition_index_n / partition_size.k()) % partition_size.m();
-
-                // N-axis rotation: ensures partitions in the same column start at different N tiles.
-                let n_offset = (partition_index_m / partition_size.k()) % partition_size.n();
-
-                // K-axis rotation: simple offset; same diagonal can share K safely.
-                let k_offset = (partition_index_m + partition_index_n) % partition_size.k();
-
-                PartitionScheduler {
-                    m: AxisScheduler::new_Offset(OffsetAxisScheduler::new(
-                        m_offset,
-                        partition_index_m,
-                        partition_size.m(),
-                    )),
-                    n: AxisScheduler::new_Offset(OffsetAxisScheduler::new(
-                        n_offset,
-                        partition_index_n,
-                        partition_size.n(),
-                    )),
-                    k: AxisScheduler::new_Offset(OffsetAxisScheduler::new(
-                        k_offset,
-                        0u32,
-                        partition_size.k(),
-                    )),
-                }
-            }
-            PartitionScheduleScheme::Naive => PartitionScheduler {
-                m: AxisScheduler::new_Naive(NaiveAxisScheduler::new(
-                    partition_index_m,
-                    partition_size.m(),
-                )),
-                n: AxisScheduler::new_Naive(NaiveAxisScheduler::new(
-                    partition_index_n,
-                    partition_size.n(),
-                )),
-                k: AxisScheduler::new_Naive(NaiveAxisScheduler::new(0u32, partition_size.k())),
-            },
-        }
-    }
-
-    /// Maps a local M index to a global index.
-    pub fn map_m(&self, i: u32) -> u32 {
-        self.m.map(i)
-    }
-
-    /// Maps a local N index to a global index.
-    pub fn map_n(&self, i: u32) -> u32 {
-        self.n.map(i)
-    }
-
-    /// Maps a local K index to a global index.
-    pub fn map_k(&self, i: u32) -> u32 {
-        self.k.map(i)
-    }
-}
-
-#[derive(CubeType)]
-#[allow(unused)]
-pub enum AxisScheduler {
-    Offset(OffsetAxisScheduler),
-    Naive(NaiveAxisScheduler),
-}
-
-#[cube]
-impl AxisScheduler {
-    pub fn map(&self, i: u32) -> u32 {
-        match self {
-            AxisScheduler::Offset(offset_axis_scheduler) => offset_axis_scheduler.map(i),
-            AxisScheduler::Naive(naive_axis_scheduler) => naive_axis_scheduler.map(i),
-        }
-    }
-}
-
-/// Schedules index mapping for one axis in a partitioned loop.
-/// Computes a global index combining an intra-partition rotation (`inner_offset`)
-/// and a partition-level shift (`outer_offset`), wrapping around within the partition.
-#[derive(CubeType)]
-pub struct OffsetAxisScheduler {
-    /// Rotation inside this partition.
-    inner_offset: u32,
-    /// Starting index in the global axis, skipping previous partitions.
-    outer_offset: u32,
-    /// Number of tiles in this partition (compile-time constant).
-    #[cube(comptime)]
-    len: u32,
-}
-
-#[cube]
-impl OffsetAxisScheduler {
-    /// Creates a new `AxisScheduler`.
-    ///
-    /// # Arguments
-    /// - `inner_offset`: rotation inside this partition.
-    /// - `partition_index`: index of this partition along the axis.
-    /// - `len`: number of tiles in this partition.
-    pub fn new(
-        inner_offset: u32,
-        partition_index: u32,
-        #[comptime] len: u32,
-    ) -> OffsetAxisScheduler {
-        let outer_offset = partition_index * len;
-        OffsetAxisScheduler {
-            inner_offset,
-            outer_offset,
-            len,
-        }
-    }
-
-    /// Maps a local index `i` to the global index.
-    /// Combines rotation (`inner_offset`) and global shift (`outer_offset`).
-    pub fn map(&self, i: u32) -> u32 {
-        let relative = (i + self.inner_offset) % self.len;
-        relative + self.outer_offset
-    }
-}
-
-#[derive(CubeType)]
-pub struct NaiveAxisScheduler {
-    outer_offset: u32,
-}
-
-#[cube]
-impl NaiveAxisScheduler {
-    pub fn new(partition_index: u32, #[comptime] len: u32) -> NaiveAxisScheduler {
-        let outer_offset = partition_index * len;
-        NaiveAxisScheduler { outer_offset }
-    }
-
-    pub fn map(&self, i: u32) -> u32 {
-        i + self.outer_offset
     }
 }

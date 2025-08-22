@@ -6,7 +6,7 @@ use crate::components::global::AccumulatorLoader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageEvent;
 use crate::components::stage::StageToTileReader;
-use crate::components::stage::matmul::partitioned_matmul::PartitionScheduler;
+use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile::TileMatmul;
 use crate::components::{LhsS, MatmulPrecision, RhsS};
