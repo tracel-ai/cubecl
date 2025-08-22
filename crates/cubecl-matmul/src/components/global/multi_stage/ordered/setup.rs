@@ -1,4 +1,5 @@
 use crate::components::error::MatmulSetupError;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::load::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
 use crate::components::stage::FullReaderFamily;
@@ -6,8 +7,8 @@ use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
-use crate::components::{global::MaxLoaderPlanes, layout::Coords2d};
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -26,7 +27,7 @@ where
     SMM: stage::StageMatmulFamily<
             LhsReader = FullReaderFamily,
             RhsReader = PartialReaderFamily,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
     RL: SyncPartialLoadingStrategy,
 {

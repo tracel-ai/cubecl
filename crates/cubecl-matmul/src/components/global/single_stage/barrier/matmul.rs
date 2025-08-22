@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::LhsG;
 use crate::components::LhsS;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
@@ -13,15 +14,12 @@ use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
-use crate::components::{
-    InputPrecision, global::memory::SimpleGlobalLayout, layout::VirtualTensorView,
-};
-use crate::components::{LhsG, layout::Coords2d};
+use crate::components::{InputPrecision, global::memory::SimpleGlobalLayout};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::tensor::{layout::Coords3d, r#virtual::ReadWrite};
 
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using asynchronous loading
@@ -44,7 +42,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
@@ -134,9 +132,8 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
-        let lhs = VirtualTensorView::new(lhs, layout.into_virtual());
         Self::LhsLoader::new(
-            lhs,
+            lhs.view(layout.into_virtual()),
             x_offset,
             y_offset,
             batch_offset,
@@ -154,9 +151,8 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
-        let rhs = VirtualTensorView::new(rhs, layout.into_virtual());
         Self::RhsLoader::new(
-            rhs,
+            rhs.view(layout.into_virtual()),
             x_offset,
             y_offset,
             batch_offset,
@@ -174,8 +170,12 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        let out = VirtualTensorView::new(out, layout.into_virtual());
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        SMM::init_writer(
+            out.view_mut(layout.into_virtual()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

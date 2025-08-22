@@ -1,12 +1,15 @@
+use crate::components::global::GlobalConfig;
+use crate::components::global::memory::TensorWriter;
 use crate::components::{
     MatmulIdent, StageIdent, global::memory::GlobalMemoryConfig, stage::StageConfig,
 };
-use crate::components::{global::GlobalConfig, layout::Coords2d};
-use crate::components::{global::memory::TensorWriter, layout::VirtualTensorView};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::{
+    div_ceil,
+    tensor::layout::{Coords3d, ListView},
+};
 
 use super::GlobalWriter;
 
@@ -20,7 +23,7 @@ pub struct PlaneWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
     pub fn new(
-        view: VirtualTensorView<EG, Coords2d, ReadWrite>,
+        view: ListView<EG, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -33,7 +36,7 @@ impl<EG: Numeric> PlaneWriter<EG> {
 
 #[cube]
 impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
-    type Coordinates = Coords2d;
+    type Coordinates = Coords3d;
 
     fn write<G: GlobalConfig>(
         this: &mut Self,

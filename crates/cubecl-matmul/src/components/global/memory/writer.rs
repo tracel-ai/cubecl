@@ -1,17 +1,17 @@
-use crate::components::{
-    global::memory::GlobalMemoryConfig,
-    layout::{Coords2d, VirtualTensorView},
-};
+use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::{
+    layout::{Coords3d, ListView},
+    r#virtual::ReadWrite,
+};
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorWriter<EO: Numeric> {
-    pub view: VirtualTensorView<EO, Coords2d, ReadWrite>,
+    pub view: ListView<EO, Coords3d, ReadWrite>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub batch_offset: u32,
@@ -24,7 +24,7 @@ unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 impl<EG: Numeric> TensorWriter<EG> {
     /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
-        view: VirtualTensorView<EG, Coords2d, ReadWrite>,
+        view: ListView<EG, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -54,16 +54,7 @@ impl<EG: Numeric> TensorWriter<EG> {
         let view_x = tile_x * tile_size_m + unit_id / tile_size_n + self.x_offset;
         let view_y = tile_y * tile_size_n + unit_id % tile_size_n + self.y_offset;
 
-        let (tile_position, in_bounds) = self.view.to_linear_pos_checked((view_x, view_y));
-
-        let write_position = (tile_position + self.batch_offset) / out_config.global_line_size;
-
-        if in_bounds {
-            self.write(write_position, Line::cast_from(value));
-        }
-    }
-
-    fn write(&mut self, position: u32, value: Line<EG>) {
-        self.view.tensor.write(position, value)
+        self.view
+            .write_checked((self.batch_offset, view_x, view_y), Line::cast_from(value));
     }
 }

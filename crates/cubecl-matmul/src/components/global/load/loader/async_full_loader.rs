@@ -2,18 +2,18 @@ use std::marker::PhantomData;
 
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::TensorReader;
+use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
 use crate::components::{InputPrecision, MatmulIdent};
-use crate::components::{
-    global::{CopyMechanism, GlobalConfig},
-    layout::{Coords2d, VirtualTensorView},
-};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::layout::{Coords3d, ListView},
+};
 
 #[cube]
 /// A strategy for fully and asynchronously loading a stage.
@@ -66,7 +66,7 @@ impl<
 {
     /// Create a new AsyncFullLoader
     pub fn new(
-        tensor: VirtualTensorView<IP::Global, Coords2d>,
+        view: ListView<IP::Global, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -78,8 +78,8 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let (shape_x, shape_y) = tensor.shape();
-        let tensor_reader = TensorReader::new(tensor, (x_offset, y_offset), batch_offset);
+        let (_, shape_x, shape_y) = view.shape();
+        let tensor_reader = TensorReader::new(view, (batch_offset, x_offset, y_offset));
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),

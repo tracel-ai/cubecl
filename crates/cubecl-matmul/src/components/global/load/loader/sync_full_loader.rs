@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use crate::components::InputPrecision;
+use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
 use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
@@ -12,11 +14,12 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
-use crate::components::{InputPrecision, layout::VirtualTensorView};
-use crate::components::{MatmulIdent, layout::Coords2d};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::layout::{Coords3d, ListView},
+};
 
 #[cube]
 /// A strategy for synchronously loading a full stage memory.
@@ -55,7 +58,7 @@ pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadin
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<IP, G, L> {
     /// Create a new SyncFullLoader
     pub fn new(
-        tensor: VirtualTensorView<IP::Global, Coords2d>,
+        tensor: ListView<IP::Global, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -67,7 +70,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, (x_offset, y_offset), batch_offset);
+        let tensor_reader = TensorReader::new(tensor, (batch_offset, x_offset, y_offset));
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),

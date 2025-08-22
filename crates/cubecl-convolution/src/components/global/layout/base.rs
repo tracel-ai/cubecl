@@ -2,7 +2,7 @@ macro_rules! virtual_layout {
     ($ty: ident, $expand: ident) => {
         mod r#virtual {
             use super::*;
-            use cubecl_matmul::components::layout::*;
+            use cubecl_std::tensor::layout::*;
             type L<C> = $ty<C>;
             type Coords<C> = <L<C> as Layout>::Coordinates;
             type CoordsExpand<C> = <Coords<C> as CubeType>::ExpandType;
@@ -29,7 +29,7 @@ macro_rules! virtual_layout {
 
             #[cube]
             impl<C: ConvGemmConfig> $ty<C> {
-                pub fn into_virtual(self) -> VirtualLayout<Coords<C>> {
+                pub fn virt(self) -> VirtualLayout<Coords<C>> {
                     VirtualLayout::new::<L<C>>(self)
                 }
             }

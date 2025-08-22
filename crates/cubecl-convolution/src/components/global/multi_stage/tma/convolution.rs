@@ -10,12 +10,14 @@ use cubecl_matmul::components::{
     global::{
         AccumulatorLoader, GlobalConfig as _, load::arrive_tma, single_stage::tma::SimpleTmaConfig,
     },
-    layout::{Coords2d, VirtualTensorView},
     stage::{FullStageToTileReader, StageMatmul},
 };
 use cubecl_std::{
     CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{
+        layout::Coords3d,
+        r#virtual::{ReadWrite, VirtualTensor},
+    },
 };
 
 use crate::{
@@ -62,7 +64,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
             RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
@@ -252,8 +254,7 @@ where
             runtime_args.out_shape.clone(),
             config.global_memory_config(MatmulIdent::Out),
         );
-        let out = VirtualTensorView::new(out, layout.into_virtual());
-        SMM::init_writer(out, x_offset, y_offset, 0)
+        SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

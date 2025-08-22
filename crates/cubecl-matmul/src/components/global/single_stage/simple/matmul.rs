@@ -6,12 +6,14 @@ use crate::components::{
         memory::SimpleGlobalLayout,
         single_stage::simple::SimpleConfig,
     },
-    layout::{Coords2d, VirtualTensorView},
     stage::{FullStageToTileReader, StageMatmul},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{
+    layout::Coords3d,
+    r#virtual::{ReadWrite, VirtualTensor},
+};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
@@ -36,7 +38,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
@@ -99,9 +101,8 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
-        let lhs = VirtualTensorView::new(lhs, layout.into_virtual());
         Self::LhsLoader::new(
-            lhs,
+            lhs.view(layout.into_virtual()),
             x_offset,
             y_offset,
             batch_offset,
@@ -119,9 +120,8 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
-        let rhs = VirtualTensorView::new(rhs, layout.into_virtual());
         Self::RhsLoader::new(
-            rhs,
+            rhs.view(layout.into_virtual()),
             x_offset,
             y_offset,
             batch_offset,
@@ -139,8 +139,12 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        let out = VirtualTensorView::new(out, layout.into_virtual());
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        SMM::init_writer(
+            out.view_mut(layout.into_virtual()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

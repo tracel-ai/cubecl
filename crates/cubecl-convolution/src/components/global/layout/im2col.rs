@@ -1,10 +1,13 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    layout::{Coords2d, Layout},
+use cubecl_matmul::components::MatmulIdent;
+use cubecl_std::{
+    FastDivmod,
+    tensor::{
+        layout::{Coords3d, Layout},
+        r#virtual::VirtualTensor,
+    },
 };
-use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     ConvGemmConfig,
@@ -69,18 +72,18 @@ impl<C: ConvGemmConfig> Im2colGlobalLayout<C> {
 
 #[cube]
 impl<C: ConvGemmConfig> Layout for Im2colGlobalLayout<C> {
-    type Coordinates = Coords2d;
+    type Coordinates = Coords3d;
 
     fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
         Self::to_linear_pos_checked(this, coords).0
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
-        (this.shape_m, this.shape_k)
+        (1, this.shape_m, this.shape_k)
     }
 
     fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
-        let (view_m, view_k) = coords;
+        let (_, view_m, view_k) = coords;
 
         let (batch, out_offs) = div_mod_seq(view_m, &this.shape_out);
 

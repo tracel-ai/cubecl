@@ -1,16 +1,16 @@
 use crate::components::MatmulIdent;
-use crate::components::{MatrixLayout, layout::Coords2d};
-use crate::components::{global::memory::GlobalMemoryConfig, layout::VirtualTensorView};
+use crate::components::MatrixLayout;
+use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
-use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::{Coords3d, ListView};
 
 #[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorReader<EI: Numeric> {
-    pub view: VirtualTensorView<EI, Coords2d>,
+    pub view: ListView<EI, Coords3d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
     pub batch_offset: u32,
@@ -31,16 +31,13 @@ pub struct Window<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(
-        view: VirtualTensorView<EG, Coords2d>,
-        offset_global: Coords2d,
-        batch_offset: u32,
-    ) -> Self {
+    pub fn new(view: ListView<EG, Coords3d>, offset_global: Coords3d) -> Self {
+        let (b, row, col) = offset_global;
         TensorReader::<EG> {
             view,
-            row_offset: RuntimeCell::new(offset_global.0),
-            col_offset: RuntimeCell::new(offset_global.1),
-            batch_offset,
+            row_offset: RuntimeCell::new(row),
+            col_offset: RuntimeCell::new(col),
+            batch_offset: b,
         }
     }
 
@@ -145,9 +142,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_row = view_tile_row + load_row;
         let view_col = view_tile_col + load_col;
 
-        let offset = self.view.to_linear_pos((view_row, view_col));
-        let read_pos = (offset + self.batch_offset) / line_size;
-        let (rows, columns) = self.view.shape();
+        let (_, rows, columns) = self.view.shape();
 
         let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
             match config.matrix_layout {
@@ -184,7 +179,9 @@ impl<EG: Numeric> TensorReader<EG> {
         };
 
         Window::<EG> {
-            slice: self.view.tensor.as_slice(read_pos, read_pos + size),
+            slice: self
+                .view
+                .slice((self.batch_offset, view_row, view_col), size),
             size,
         }
     }
@@ -216,7 +213,7 @@ impl<EG: Numeric> TensorReader<EG> {
             MatrixLayout::ColMajor => (position % tile_size_x, position / tile_size_x),
         };
 
-        self.load_coalesced((load_x + view_tile_x, load_y + view_tile_y), config)
+        self.load_coalesced((load_x + view_tile_x, load_y + view_tile_y))
     }
 
     /// Reads data from the tensor view at the specified index within the whole view,
@@ -242,32 +239,14 @@ impl<EG: Numeric> TensorReader<EG> {
             MatrixLayout::ColMajor => (position % stage_shape_x, position / stage_shape_x),
         };
 
-        self.load_coalesced(load_offsets, config)
+        self.load_coalesced(load_offsets)
     }
 
-    fn load_coalesced(
-        &self,
-        load_offsets: (u32, u32),
-        #[comptime] config: GlobalMemoryConfig,
-    ) -> Line<EG> {
-        let line_size = config.global_line_size;
-
+    fn load_coalesced(&self, load_offsets: (u32, u32)) -> Line<EG> {
         let view_x = load_offsets.0 + self.row_offset.read();
         let view_y = load_offsets.1 + self.col_offset.read();
 
-        let (offset, in_bounds) = self.view.to_linear_pos_checked((view_x, view_y));
-
-        let read_pos = (offset + self.batch_offset) / line_size;
-
-        match comptime!((config.check_row_bounds, config.check_col_bounds)) {
-            (false, false) => self.view.tensor.read(read_pos),
-            _ => read_masked::<Line<EG>>(
-                in_bounds,
-                self.view.tensor.as_slice(0, self.view.tensor.len()),
-                read_pos,
-                Line::cast_from(0),
-            ),
-        }
+        self.view.read_checked((self.batch_offset, view_x, view_y))
     }
 }
 

@@ -1,13 +1,14 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-
-use crate::components::{
-    global::memory::GlobalMemoryConfig,
-    layout::{Coords2d, Layout},
+use cubecl_std::tensor::{
+    layout::{Coords3d, Layout},
+    r#virtual::VirtualTensor,
 };
 
-/// Global layout that uses the last two dimensions and ignores all others
+use crate::components::global::memory::GlobalMemoryConfig;
+
+/// Global layout that uses the last two dimensions and ignores all others.
+/// Batch dim is treated as unit stride, and batch shape is always `1`
 #[derive(CubeType, Clone, Copy)]
 pub struct SimpleGlobalLayout {
     rows: u32,
@@ -38,15 +39,17 @@ impl SimpleGlobalLayout {
 
 #[cube]
 impl Layout for SimpleGlobalLayout {
-    type Coordinates = Coords2d;
+    type Coordinates = Coords3d;
 
     fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
-        coords.0 * this.stride_row + coords.1 * this.stride_col
+        let (b, row, col) = coords;
+        let idx = b + row * this.stride_row + col * this.stride_col;
+        idx / comptime![this.config.global_line_size]
     }
 
     fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
-        let (row, col) = coords;
-        let idx = row * this.stride_row + col * this.stride_col;
+        let idx = Self::to_linear_pos(this, coords);
+        let (_, row, col) = coords;
 
         let in_bounds =
             match comptime!((this.config.check_row_bounds, this.config.check_col_bounds)) {
@@ -60,20 +63,20 @@ impl Layout for SimpleGlobalLayout {
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
-        (this.rows, this.columns)
+        (1, this.rows, this.columns)
     }
 }
 
 mod r#virtual {
-    use crate::components::layout::{VirtualLayout, VirtualLayoutOperationsExpand};
+    use cubecl_std::tensor::layout::*;
 
     use super::*;
 
-    impl VirtualLayoutOperationsExpand<Coords2d> for SimpleGlobalLayoutExpand {
+    impl VirtualLayoutOperationsExpand<Coords3d> for SimpleGlobalLayoutExpand {
         fn __expand_to_linear_pos_method(
             &self,
             scope: &mut Scope,
-            pos: <Coords2d as CubeType>::ExpandType,
+            pos: <Coords3d as CubeType>::ExpandType,
         ) -> <u32 as CubeType>::ExpandType {
             SimpleGlobalLayout::__expand_to_linear_pos(scope, self.clone(), pos)
         }
@@ -81,19 +84,19 @@ mod r#virtual {
         fn __expand_to_linear_pos_checked_method(
             &self,
             scope: &mut Scope,
-            pos: <Coords2d as CubeType>::ExpandType,
+            pos: <Coords3d as CubeType>::ExpandType,
         ) -> <(u32, bool) as CubeType>::ExpandType {
             SimpleGlobalLayout::__expand_to_linear_pos_checked(scope, self.clone(), pos)
         }
 
-        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords2d as CubeType>::ExpandType {
+        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords3d as CubeType>::ExpandType {
             SimpleGlobalLayout::__expand_shape(scope, self.clone())
         }
     }
 
     #[cube]
     impl SimpleGlobalLayout {
-        pub fn into_virtual(self) -> VirtualLayout<Coords2d> {
+        pub fn into_virtual(self) -> VirtualLayout<Coords3d> {
             VirtualLayout::new::<SimpleGlobalLayout>(self)
         }
     }

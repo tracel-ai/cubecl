@@ -9,12 +9,14 @@ use cubecl_matmul::components::{
         load::{SyncFullLoader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
-    layout::{Coords2d, VirtualTensorView},
     stage::{FullStageToTileReader, RowMajorTilingOrder, StageMatmul},
 };
 use cubecl_std::{
     CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{
+        layout::Coords3d,
+        r#virtual::{ReadWrite, VirtualTensor},
+    },
 };
 
 use crate::{
@@ -44,7 +46,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, ConvTilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, ConvTilingLayout>,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
 {
     type LhsLoader = SyncFullLoader<
@@ -132,8 +134,14 @@ where
             runtime_args.size_k,
             config,
         );
-        let lhs = VirtualTensorView::new(lhs, layout.into_virtual());
-        Self::LhsLoader::new(lhs, x_offset, y_offset, 0, MatmulIdent::Lhs, config)
+        Self::LhsLoader::new(
+            lhs.view(layout.virt()),
+            x_offset,
+            y_offset,
+            0,
+            MatmulIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -150,8 +158,14 @@ where
             runtime_args.padded_channels,
             config,
         );
-        let rhs = VirtualTensorView::new(rhs, layout.into_virtual());
-        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
+        Self::RhsLoader::new(
+            rhs.view(layout.virt()),
+            x_offset,
+            y_offset,
+            0,
+            MatmulIdent::Rhs,
+            config,
+        )
     }
 
     fn init_bias_loader(
@@ -176,8 +190,7 @@ where
             runtime_args.out_shape.clone(),
             config.global_memory_config(MatmulIdent::Out),
         );
-        let out = VirtualTensorView::new(out, layout.into_virtual());
-        SMM::init_writer(out, x_offset, y_offset, 0)
+        SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

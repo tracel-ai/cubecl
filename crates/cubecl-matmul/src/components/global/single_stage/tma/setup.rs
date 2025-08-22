@@ -1,3 +1,4 @@
+use crate::components::AvailableLineSizes;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulSelection;
@@ -7,11 +8,11 @@ use crate::components::global::load::TmaTiling;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
-use crate::components::{AvailableLineSizes, layout::Coords2d};
 use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
+use cubecl_std::tensor::layout::Coords3d;
 
 use crate::components::{
     MatmulProblem,
@@ -29,7 +30,7 @@ where
     SMM: stage::StageMatmulFamily<
             LhsReader = FullReaderFamily,
             RhsReader = FullReaderFamily,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;

@@ -1,10 +1,13 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    layout::{Coords2d, Layout},
+use cubecl_matmul::components::MatmulIdent;
+use cubecl_std::{
+    FastDivmod,
+    tensor::{
+        layout::{Coords3d, Layout},
+        r#virtual::VirtualTensor,
+    },
 };
-use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     ConvGemmConfig,
@@ -60,10 +63,10 @@ impl<C: ConvGemmConfig> WeightGlobalLayout<C> {
 
 #[cube]
 impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
-    type Coordinates = Coords2d;
+    type Coordinates = Coords3d;
 
     fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
-        let (k, n) = coords;
+        let (_, k, n) = coords;
 
         let (mut rem, in_c) = this.channels.div_mod(k);
 
@@ -97,7 +100,7 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
     fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
         let linear_pos = Self::to_linear_pos(this, coords);
 
-        let (k, n) = coords;
+        let (_, k, n) = coords;
         let check_k = comptime![this.config.check_row_bounds(MatmulIdent::Rhs)];
         let check_n = comptime![this.config.check_col_bounds(MatmulIdent::Rhs)];
         let in_bounds = (!check_k || k < this.shape_k) && (!check_n || n < this.shape_n);
@@ -106,7 +109,7 @@ impl<C: ConvGemmConfig> Layout for WeightGlobalLayout<C> {
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
-        (this.shape_k, this.shape_n)
+        (1, this.shape_k, this.shape_n)
     }
 }
 

@@ -1,6 +1,7 @@
-use crate::components::{global::GlobalConfig, layout::Coordinates};
+use crate::components::global::GlobalConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coordinates;
 
 #[cube]
 /// Responsible of writing the accumulated stage matmul output

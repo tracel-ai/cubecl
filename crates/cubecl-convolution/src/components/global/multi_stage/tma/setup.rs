@@ -4,9 +4,9 @@ use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{load::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
-    layout::Coords2d,
     stage::{FullReaderFamily, StageConfig as _, StageMatmulFamily},
 };
+use cubecl_std::tensor::layout::Coords3d;
 
 use crate::{
     components::{
@@ -29,7 +29,7 @@ where
     SMM: StageMatmulFamily<
             LhsReader = FullReaderFamily,
             RhsReader = FullReaderFamily,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
 {
     type Convolution<MP: MatmulPrecision> =

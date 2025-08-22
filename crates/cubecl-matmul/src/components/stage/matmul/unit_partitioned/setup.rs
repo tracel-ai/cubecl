@@ -1,3 +1,4 @@
+use crate::components::ComputeResources;
 use crate::components::InputPrecision;
 use crate::components::LhsR;
 use crate::components::LhsS;
@@ -17,10 +18,10 @@ use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConf
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{ComputeResources, layout::Coords2d};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::tensor::layout::Coords3d;
 
 /// Unit Matmul family for any precision
 pub struct UnitMatmulFamily<TM: TileMatmulFamily, RF: ReaderFamily> {
@@ -40,7 +41,7 @@ impl<TM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for UnitMatmulFam
         RF::Reader<LhsS<MP>, TL>,
         RF::Reader<RhsS<MP>, TR>,
     >;
-    type WriteCoords = Coords2d;
+    type WriteCoords = Coords3d;
     type Config = UnitPartitionedStageConfig<TM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(

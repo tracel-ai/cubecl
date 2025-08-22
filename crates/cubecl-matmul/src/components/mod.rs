@@ -1,6 +1,5 @@
 pub mod batch;
 pub mod global;
-pub mod layout;
 pub mod stage;
 pub mod tile;
 

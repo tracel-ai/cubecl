@@ -1,7 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::{
+    layout::{Coordinates, ListView},
+    r#virtual::ReadWrite,
+};
 
+use crate::components::error::MatmulSetupError;
+use crate::components::global::MaxLoaderPlanes;
 use crate::components::stage::{NumStages, StageMemoryConfig};
 use crate::components::tile::Tile;
 use crate::components::{
@@ -12,8 +17,6 @@ use crate::components::{
     global::{self, AccumulatorLoader, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
-use crate::components::{error::MatmulSetupError, layout::VirtualTensorView};
-use crate::components::{global::MaxLoaderPlanes, layout::Coordinates};
 use std::{fmt::Debug, hash::Hash};
 
 use super::{StageEventListener, TilingLayout};
@@ -141,7 +144,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Inits the writer at the given offsets
     fn init_writer(
-        tensor: VirtualTensorView<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: ListView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

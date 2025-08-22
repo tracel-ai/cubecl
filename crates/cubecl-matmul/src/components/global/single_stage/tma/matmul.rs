@@ -1,3 +1,4 @@
+use crate::components::LhsS;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::RhsG;
@@ -9,13 +10,12 @@ use crate::components::global::load::TmaReader;
 use crate::components::global::load::arrive_tma;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::stage::StageMatmul;
-use crate::components::{LhsG, global::memory::SimpleGlobalLayout, layout::VirtualTensorView};
-use crate::components::{LhsS, layout::Coords2d};
+use crate::components::{LhsG, global::memory::SimpleGlobalLayout};
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::tensor::{layout::Coords3d, r#virtual::ReadWrite};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
@@ -33,7 +33,7 @@ where
             MP,
             LhsReader = TmaReader<MP::Lhs>,
             RhsReader = TmaReader<MP::Rhs>,
-            WriteCoords = Coords2d,
+            WriteCoords = Coords3d,
         >,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
@@ -140,8 +140,12 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        let out = VirtualTensorView::new(out, layout.into_virtual());
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        SMM::init_writer(
+            out.view_mut(layout.into_virtual()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

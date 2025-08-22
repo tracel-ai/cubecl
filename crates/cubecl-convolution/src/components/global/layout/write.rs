@@ -1,12 +1,12 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    global::memory::GlobalMemoryConfig,
-    layout::{Coords2d, Layout},
-};
+use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
 use cubecl_std::{
     FastDivmod,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{
+        layout::{Coords3d, Layout},
+        r#virtual::{ReadWrite, VirtualTensor},
+    },
 };
 
 use crate::components::global::{layout::unwrap, load::im2col_tma::div_mod_seq};
@@ -60,10 +60,10 @@ impl NhwcOutGlobalLayout {
 
 #[cube]
 impl Layout for NhwcOutGlobalLayout {
-    type Coordinates = Coords2d;
+    type Coordinates = Coords3d;
 
     fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
-        let (view_m, view_n) = coords;
+        let (_, view_m, view_n) = coords;
 
         let (n, out_pos) = div_mod_seq(view_m, &this.shape_out);
 
@@ -84,7 +84,7 @@ impl Layout for NhwcOutGlobalLayout {
     fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
         let linear_pos = Self::to_linear_pos(this, coords);
 
-        let (m, n) = coords;
+        let (_, m, n) = coords;
         let check_m = comptime![this.config.check_row_bounds];
         let check_n = comptime![this.config.check_col_bounds];
         let in_bounds = (!check_m || m < this.shape_m) && (!check_n || n < this.shape_n);
@@ -93,20 +93,20 @@ impl Layout for NhwcOutGlobalLayout {
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
-        (this.shape_m, this.shape_n)
+        (1, this.shape_m, this.shape_n)
     }
 }
 
 mod r#virtual {
-    use cubecl_matmul::components::layout::{VirtualLayout, VirtualLayoutOperationsExpand};
+    use cubecl_std::tensor::layout::{VirtualLayout, VirtualLayoutOperationsExpand};
 
     use super::*;
 
-    impl VirtualLayoutOperationsExpand<Coords2d> for NhwcOutGlobalLayoutExpand {
+    impl VirtualLayoutOperationsExpand<Coords3d> for NhwcOutGlobalLayoutExpand {
         fn __expand_to_linear_pos_method(
             &self,
             scope: &mut Scope,
-            pos: <Coords2d as CubeType>::ExpandType,
+            pos: <Coords3d as CubeType>::ExpandType,
         ) -> <u32 as CubeType>::ExpandType {
             NhwcOutGlobalLayout::__expand_to_linear_pos(scope, self.clone(), pos)
         }
@@ -114,19 +114,19 @@ mod r#virtual {
         fn __expand_to_linear_pos_checked_method(
             &self,
             scope: &mut Scope,
-            pos: <Coords2d as CubeType>::ExpandType,
+            pos: <Coords3d as CubeType>::ExpandType,
         ) -> <(u32, bool) as CubeType>::ExpandType {
             NhwcOutGlobalLayout::__expand_to_linear_pos_checked(scope, self.clone(), pos)
         }
 
-        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords2d as CubeType>::ExpandType {
+        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords3d as CubeType>::ExpandType {
             NhwcOutGlobalLayout::__expand_shape(scope, self.clone())
         }
     }
 
     #[cube]
     impl NhwcOutGlobalLayout {
-        pub fn into_virtual(self) -> VirtualLayout<Coords2d> {
+        pub fn virt(self) -> VirtualLayout<Coords3d> {
             VirtualLayout::new::<NhwcOutGlobalLayout>(self)
         }
     }

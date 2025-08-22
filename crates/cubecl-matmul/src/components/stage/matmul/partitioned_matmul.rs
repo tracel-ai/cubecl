@@ -1,5 +1,7 @@
 use crate::components::InputPrecision;
 use crate::components::LhsS;
+use crate::components::MatmulPrecision;
+use crate::components::RhsS;
 use crate::components::StageIdent;
 use crate::components::global;
 use crate::components::global::AccumulatorLoader;
@@ -10,12 +12,13 @@ use crate::components::stage::StageToTileReader;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
-use crate::components::{MatmulPrecision, layout::VirtualTensorView};
-use crate::components::{RhsS, layout::Coordinates};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::{
+    layout::{Coordinates, ListView},
+    r#virtual::ReadWrite,
+};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
@@ -28,7 +31,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: VirtualTensorView<EO, Self::WriteCoords, ReadWrite>,
+        tensor: ListView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -215,7 +218,7 @@ where
     }
 
     fn init_writer(
-        tensor: VirtualTensorView<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: ListView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
