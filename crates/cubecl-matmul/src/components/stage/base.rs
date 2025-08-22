@@ -4,7 +4,9 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
-use crate::components::stage::{NumStages, StageMemoryConfig};
+use crate::components::stage::{
+    NumStages, PartitionScheduler, PartitionSchedulerScheme, StageMemoryConfig,
+};
 use crate::components::tile::Tile;
 use crate::components::{
     AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
@@ -104,6 +106,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
+        partition_scheduler: &PartitionScheduler,
     );
 
     /// Executes the matrix multiplication of Lhs and Rhs, with the addition of injected
@@ -116,6 +119,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
         listener: SEL,
+        partition_scheduler: &PartitionScheduler,
     );
 
     /// Inits inputs of the underlying Tile Matmul
@@ -149,6 +153,8 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
+
+    fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler;
 }
 
 /// Configuration for the Stage matmul (SMM) level
@@ -198,6 +204,8 @@ pub trait StageConfig:
     /// Whether we must sync planes after execution because the execution
     /// is not sync by itself (depends on the runtime/compiler)
     fn must_sync_plane_after_execution(&self) -> bool;
+
+    fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme;
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]

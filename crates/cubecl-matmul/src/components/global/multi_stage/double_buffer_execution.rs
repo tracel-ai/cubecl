@@ -6,6 +6,7 @@ use crate::components::global::SpecializerKind;
 use crate::components::global::load::StageBuffer;
 use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::JobExecutor;
+use crate::components::stage::PartitionScheduler;
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -76,6 +77,7 @@ pub fn execute_current_and_load_next<
     lhs_loader: &mut LJ,
     rhs_loader: &mut RJ,
     specializer: &Specializer,
+    partition_scheduler: &PartitionScheduler,
     #[comptime] stage_to_load: StageBuffer,
     #[comptime] config: G,
 ) {
@@ -101,6 +103,7 @@ pub fn execute_current_and_load_next<
                         config,
                         main_flow_loading_side,
                     ),
+                    partition_scheduler,
                 );
             } else {
                 if load_only_loading_side.includes_lhs() {
@@ -126,6 +129,7 @@ pub fn execute_current_and_load_next<
                     config,
                     LoadingSides::Both,
                 ),
+                partition_scheduler,
             );
         }
     };
@@ -147,6 +151,7 @@ pub fn execute_last_and_write_results<
     acc: &mut SMM::Accumulator,
     out_writer: &mut SMM::Writer,
     specializer: &Specializer,
+    partition_scheduler: &PartitionScheduler,
     #[comptime] config: G,
 ) {
     match comptime!(specializer.kind) {
@@ -164,6 +169,7 @@ pub fn execute_last_and_write_results<
                     rhs_tile,
                     acc,
                     config.stage_config(),
+                    partition_scheduler,
                 );
 
                 SMM::write_results::<G>(acc, out_writer, config.stage_config(), config);
@@ -177,6 +183,7 @@ pub fn execute_last_and_write_results<
                 rhs_tile,
                 acc,
                 config.stage_config(),
+                partition_scheduler,
             );
 
             SMM::write_results::<G>(acc, out_writer, config.stage_config(), config);

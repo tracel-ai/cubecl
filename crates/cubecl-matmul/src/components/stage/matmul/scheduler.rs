@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 /// Defines how partition indices are scheduled across axes.
-pub enum PartitionScheduleScheme {
+pub enum PartitionSchedulerScheme {
     /// Rotates indices per axis to stagger partitions and reduce shared memory conflicts.
     Offset,
     /// Maps partitions in simple row-major order without rotations.
@@ -30,10 +30,10 @@ impl PartitionScheduler {
         partition_index_m: u32,
         partition_index_n: u32,
         #[comptime] partition_size: PartitionSize,
-        #[comptime] partition_schedule_scheme: PartitionScheduleScheme,
+        #[comptime] partition_schedule_scheme: PartitionSchedulerScheme,
     ) -> PartitionScheduler {
         match partition_schedule_scheme {
-            PartitionScheduleScheme::Offset => {
+            PartitionSchedulerScheme::Offset => {
                 // M-axis rotation: ensures partitions in the same row start at different M tiles.
                 let m_offset = (partition_index_n / partition_size.k()) % partition_size.m();
 
@@ -61,7 +61,7 @@ impl PartitionScheduler {
                     )),
                 }
             }
-            PartitionScheduleScheme::Naive => PartitionScheduler {
+            PartitionSchedulerScheme::Naive => PartitionScheduler {
                 m: AxisScheduler::new_Naive(NaiveAxisScheduler::new(
                     partition_index_m,
                     partition_size.m(),

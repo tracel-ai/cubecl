@@ -10,7 +10,6 @@ use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
-use crate::components::stage::matmul::scheduler::PartitionScheduleScheme;
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
@@ -89,6 +88,7 @@ where
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
+        partition_scheduler: &PartitionScheduler,
     ) {
         Self::execute_with_listener::<NoEvent>(
             lhs_reader,
@@ -98,6 +98,7 @@ where
             acc,
             config,
             NoEvent::new(),
+            partition_scheduler,
         )
     }
 
@@ -109,17 +110,9 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
         listener: SEL,
+        partition_scheduler: &PartitionScheduler,
     ) {
-        let (partition_row, partition_col) = SP::coordinates::<Self::Config>(config);
-        let partition_scheduler = PartitionScheduler::new(
-            partition_row,
-            partition_col,
-            config.tiling_scheme().partition_size,
-            PartitionScheduleScheme::Naive,
-        );
-
         PartitionMatmul::<MP, TM, RL, RR, S>::execute_with_listener::<SEL>(
-            partition_scheduler,
             lhs_reader,
             rhs_reader,
             lhs_fragment,
@@ -127,6 +120,7 @@ where
             acc,
             config,
             listener,
+            partition_scheduler,
         );
     }
 
@@ -221,5 +215,16 @@ where
         batch_offset: u32,
     ) -> Self::Writer {
         SP::init_writer(tensor, x_offset, y_offset, batch_offset)
+    }
+
+    fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {
+        let (partition_row, partition_col) = SP::coordinates::<Self::Config>(config);
+
+        PartitionScheduler::new(
+            partition_row,
+            partition_col,
+            config.tiling_scheme().partition_size,
+            config.partition_schedule_scheme(),
+        )
     }
 }

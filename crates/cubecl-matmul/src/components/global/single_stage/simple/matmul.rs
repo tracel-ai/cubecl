@@ -58,6 +58,7 @@ where
         let num_loops = (range + k_step - 1) / k_step;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
         let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
@@ -78,6 +79,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);

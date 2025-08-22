@@ -103,6 +103,7 @@ where
         let mut lhs_barriers = Sequence::<Barrier<LhsS<MP>>>::new();
         let mut rhs_barriers = Sequence::<Barrier<RhsS<MP>>>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let mut stage = comptime![0u32];
 
@@ -158,6 +159,7 @@ where
                         &mut tile_rhs,
                         acc,
                         config.stage_config(),
+                        &partition_scheduler,
                     );
                     lhs_barrier.arrive();
                     rhs_barrier.arrive();

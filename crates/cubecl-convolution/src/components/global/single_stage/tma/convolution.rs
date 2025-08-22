@@ -77,6 +77,7 @@ where
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         sync_cube();
 
@@ -111,6 +112,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);

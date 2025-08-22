@@ -76,6 +76,7 @@ where
         SMM::zero_accumulator(acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let lhs_reader = Self::LhsLoader::reader(&lhs_loader);
         let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader, StageBuffer::A);
@@ -105,6 +106,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
+                &partition_scheduler,
                 StageBuffer::B,
                 config,
             );
@@ -123,6 +125,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
+                &partition_scheduler,
                 StageBuffer::A,
                 config,
             );
@@ -141,6 +144,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
+            &partition_scheduler,
             StageBuffer::B,
             config,
         );
@@ -155,6 +159,7 @@ where
             acc,
             &mut out_writer,
             &specializer,
+            &partition_scheduler,
             config,
         );
     }

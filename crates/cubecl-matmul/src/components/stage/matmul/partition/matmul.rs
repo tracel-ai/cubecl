@@ -46,7 +46,6 @@ where
     /// Execute all Tile Matmuls inside the partition
     /// Can be with single or double buffering
     pub fn execute_with_listener<SEL: StageEventListener<S>>(
-        partition_iterator: PartitionScheduler,
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TM::Lhs>,
@@ -54,10 +53,10 @@ where
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         listener: SEL,
+        partition_iterator: &PartitionScheduler,
     ) {
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
-                partition_iterator,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
@@ -65,9 +64,9 @@ where
                 acc,
                 config,
                 listener,
+                partition_iterator,
             ),
             RhsTile::Double(rhs_fragments) => Self::execute_double_buffer::<SEL>(
-                partition_iterator,
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
@@ -75,6 +74,7 @@ where
                 acc,
                 config,
                 listener,
+                partition_iterator,
             ),
         }
     }
@@ -133,7 +133,6 @@ where
     /// This function can call functions at various events through the listener.
     #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener<S>>(
-        partition_scheduler: PartitionScheduler,
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TM::Lhs>,
@@ -141,6 +140,7 @@ where
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         mut listener: SEL,
+        partition_scheduler: &PartitionScheduler,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin, config);
 
@@ -258,7 +258,6 @@ where
     ///
     /// This function can call functions at various events through the listener.
     fn execute_double_buffer<SEL: StageEventListener<S>>(
-        partition_scheduler: PartitionScheduler,
         lhs_reader: &RL,
         rhs_reader: &RR,
         lhs_fragment: &mut Sequence<TM::Lhs>,
@@ -266,6 +265,7 @@ where
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         mut listener: SEL,
+        partition_scheduler: &PartitionScheduler,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin, config);
 
