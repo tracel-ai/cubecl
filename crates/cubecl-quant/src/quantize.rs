@@ -161,7 +161,7 @@ fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
         terminate!();
     }
 
-    let num_quants = comptime!((scheme.size_bits_stored() / scheme.size_bits_value()) as u32);
+    let num_quants = comptime!(scheme.num_quants() as u32);
     let packed_pos = ABSOLUTE_POS * num_quants;
 
     let scale = match comptime!(scheme) {
@@ -273,7 +273,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::Q8F,
+            value: QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
@@ -318,6 +318,7 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(line_size as usize), cube_dim);
+    let (range_min, range_max) = scheme.value.range();
 
     match scheme {
         QuantScheme {
@@ -335,8 +336,8 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
                     input.as_ref().as_tensor_arg(line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scale.as_tensor_arg(1),
-                    ScalarArg::new(F::from_int(-i8::MAX as i64)),
-                    ScalarArg::new(F::from_int(i8::MAX as i64)),
+                    ScalarArg::new(F::from_int(range_min as i64)),
+                    ScalarArg::new(F::from_int(range_max as i64)),
                     output.as_tensor_arg(1),
                     out_scale.as_tensor_arg(1),
                     *scheme,

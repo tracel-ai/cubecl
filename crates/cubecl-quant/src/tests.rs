@@ -96,10 +96,8 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
     assert_eq!(data_restored.len(), data.len());
     for (actual, expected) in data_restored.iter().zip(data.into_iter()) {
         let diff = f32::abs(actual - expected);
-        // println!("{actual} == {expected} tol {scale_f32}");
         assert!(diff <= scale_f32);
     }
-    // panic!("L")
 }
 
 pub fn test_quantization_block_symmetric<R: Runtime>(
@@ -114,7 +112,9 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
 
     let num_elems: usize = m * n;
     let half = num_elems as f32 / 2.0;
-    let data: Vec<_> = (0..num_elems).map(|v| v as f32 - half).collect();
+    let data: Vec<_> = (0..num_elems)
+        .map(|v| (v as f32 - half) / num_elems as f32)
+        .collect();
     let input_alloc = client.create_tensor(f32::as_bytes(&data), &shape, f32::elem_size() as usize);
 
     let (q_min, q_max) = value.range();
@@ -137,7 +137,6 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
 
         // The bias is assumed to be zero.
         let range = 2.0 * c_min.abs().max(c_max.abs());
-        println!("{range:?}");
         let scale = range / (q_max - q_min);
         scales.push(scale);
     }
@@ -213,22 +212,60 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
     ));
     let data_restored = f32::from_bytes(&computed);
 
-    println!("{scales:?}");
-    println!("{data_restored:?}");
     assert_eq!(data_restored.len(), data.len());
     for (i, (actual, expected)) in data_restored.iter().zip(data.into_iter()).enumerate() {
         let block = i / block_size;
         let scale = scales[block];
         let diff = f32::abs(actual - expected);
-        println!("[{block}] {expected} ~== {actual} tol {scale}");
+        // println!("[{block}] {expected} ~== {actual} tol {scale}");
         assert!(diff <= scale);
     }
-    panic!("BLOCK");
 }
 
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_quant {
+    ($value: expr, $shape_x: expr, $shape_y: expr) => {
+        #[test]
+        fn test_quantization_symmetric_tensor() {
+            $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
+                $shape_x, $shape_y, $value,
+            );
+        }
+
+        #[test]
+        fn test_quantization_symmetric_block() {
+            $crate::tests::test_quantization_block_symmetric::<TestRuntime>(
+                $shape_x, $shape_y, $value, $shape_x, // Shape x as block_size
+            );
+        }
+    };
+    ($shape_x: expr, $shape_y: expr) => {
+        mod q8f {
+            use super::*;
+            cubecl_quant::testgen_quant!(QuantValue::Q8F, $shape_x, $shape_y);
+        }
+        mod q8s {
+            use super::*;
+            cubecl_quant::testgen_quant!(QuantValue::Q8S, $shape_x, $shape_y);
+        }
+        mod q4f {
+            use super::*;
+            cubecl_quant::testgen_quant!(QuantValue::Q4F, $shape_x, $shape_y);
+        }
+        mod q4s {
+            use super::*;
+            cubecl_quant::testgen_quant!(QuantValue::Q4S, $shape_x, $shape_y);
+        }
+        mod q2f {
+            use super::*;
+            cubecl_quant::testgen_quant!(QuantValue::Q2F, $shape_x, $shape_y);
+        }
+        mod q2s {
+            use super::*;
+            cubecl_quant::testgen_quant!(QuantValue::Q2S, $shape_x, $shape_y);
+        }
+    };
     () => {
         mod quant {
             use super::*;
@@ -237,88 +274,13 @@ macro_rules! testgen_quant {
             use cubecl_core as cubecl;
             use cubecl_quant::scheme::{QuantMode, QuantValue};
 
-            #[test]
-            fn test_quantization_tensor_f32_32x32_symmetric_q8f() {
-                $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q8F,
-                );
+            mod size32x32 {
+                use super::*;
+                cubecl_quant::testgen_quant!(32, 32);
             }
-
-            #[test]
-            fn test_quantization_tensor_f32_32x32_symmetric_q4f() {
-                $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q4F,
-                );
-            }
-
-            #[test]
-            fn test_quantization_tensor_f32_32x32_symmetric_q2f() {
-                $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q2F,
-                );
-            }
-
-            #[test]
-            fn test_quantization_tensor_f32_32x32_symmetric_q8s() {
-                $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q8S,
-                );
-            }
-
-            #[test]
-            fn test_quantization_tensor_f32_32x32_symmetric_q4s() {
-                $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q4S,
-                );
-            }
-
-            #[test]
-            fn test_quantization_tensor_f32_32x32_symmetric_q2s() {
-                $crate::tests::test_quantization_tensor_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q2S,
-                );
-            }
-
-            #[test]
-            fn test_quantization_block_f32_32x32_symmetric_q8f() {
-                $crate::tests::test_quantization_block_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q8F,
-                    32,
-                );
-            }
-
-            #[test]
-            fn test_quantization_block_f32_32x32_symmetric_q4f() {
-                $crate::tests::test_quantization_block_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q4F,
-                    32,
-                );
-            }
-
-            #[test]
-            fn test_quantization_block_f32_32x32_symmetric_q4s() {
-                $crate::tests::test_quantization_block_symmetric::<TestRuntime>(
-                    32,
-                    32,
-                    QuantValue::Q4S,
-                    32,
-                );
+            mod size16x64 {
+                use super::*;
+                cubecl_quant::testgen_quant!(16, 64);
             }
         }
     };
