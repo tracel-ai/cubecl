@@ -102,7 +102,7 @@ where
     ) -> Self::LhsLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         Self::LhsLoader::new(
-            lhs.view(layout.into_virtual()),
+            lhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -121,7 +121,7 @@ where
     ) -> Self::RhsLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         Self::RhsLoader::new(
-            rhs.view(layout.into_virtual()),
+            rhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -140,7 +140,7 @@ where
     ) -> Self::Writer {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
         SMM::init_writer(
-            out.view_mut(layout.into_virtual()),
+            out.view_mut(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,

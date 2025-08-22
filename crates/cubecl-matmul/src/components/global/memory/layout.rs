@@ -96,7 +96,7 @@ mod r#virtual {
 
     #[cube]
     impl SimpleGlobalLayout {
-        pub fn into_virtual(self) -> VirtualLayout<Coords3d> {
+        pub fn virt(self) -> VirtualLayout<Coords3d> {
             VirtualLayout::new::<SimpleGlobalLayout>(self)
         }
     }

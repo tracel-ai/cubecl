@@ -7,6 +7,7 @@ use cubecl_std::tensor::layout::Coordinates;
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
 pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
+    /// Coordinates used to index the tensor
     type Coordinates: Coordinates;
 
     /// Writes the given slice to global memory, at a position that depends on

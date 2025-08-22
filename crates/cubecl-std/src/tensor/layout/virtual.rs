@@ -8,6 +8,8 @@ use crate::tensor::{
     r#virtual::{Read, ReadWrite},
 };
 
+/// A virtual layout, to carry a layout without the need for generic parameters everywhere.
+/// `C` represents the coordinate space of the underlying layout.
 #[derive(Clone)]
 pub struct VirtualLayout<C: Coordinates> {
     _coords: PhantomData<C>,
@@ -22,22 +24,26 @@ pub struct VirtualLayoutExpand<C: Coordinates> {
 
 #[cube]
 impl<C: Coordinates> VirtualLayout<C> {
+    /// Virtual version of [Layout::to_linear_pos]
     #[allow(unused)]
     pub fn to_linear_pos(&self, pos: C) -> u32 {
         intrinsic!(|scope| { self.state.__expand_to_linear_pos_method(scope, pos) })
     }
 
+    /// Virtual version of [Layout::to_linear_pos_checked]
     #[allow(unused)]
     pub fn to_linear_pos_checked(&self, pos: C) -> (u32, bool) {
         intrinsic!(|scope| { self.state.__expand_to_linear_pos_checked_method(scope, pos) })
     }
 
+    /// Virtual version of [Layout::shape]
     pub fn shape(&self) -> C {
         intrinsic!(|scope| { self.state.__expand_shape_method(scope) })
     }
 }
 
 impl<C: Coordinates> VirtualLayout<C> {
+    /// Create a new virtual layout from a concrete one
     pub fn new<L>(_layout: L) -> VirtualLayout<C>
     where
         L: VirtualLayoutOperations<C> + CubeType,
@@ -46,6 +52,7 @@ impl<C: Coordinates> VirtualLayout<C> {
         unexpanded!()
     }
 
+    /// Expand function of [VirtualLayout::__expand_new]
     pub fn __expand_new<L>(_scope: &mut Scope, layout: L::ExpandType) -> VirtualLayoutExpand<C>
     where
         L: VirtualLayoutOperations<C> + CubeType,
@@ -84,6 +91,7 @@ enum ListType<E: Numeric> {
 }
 
 impl<E: Numeric> ListType<E> {
+    /// Dereference in read mode
     pub fn read(&self) -> &dyn ListExpand<Line<E>> {
         match self {
             ListType::Read(list) => &**list,
@@ -91,6 +99,7 @@ impl<E: Numeric> ListType<E> {
         }
     }
 
+    /// Dereference in write mode
     pub fn write(&self) -> &dyn ListMutExpand<Line<E>> {
         match self {
             ListType::Read(_) => panic!("Can't write to readonly list"),
@@ -99,6 +108,9 @@ impl<E: Numeric> ListType<E> {
     }
 }
 
+/// A conceptual view of an underlying linear storage.
+/// Allows abstract indexing in multiple dimensions, without having to know the data layout or
+/// location.
 #[derive(Clone)]
 pub struct TensorViewExpand<E: Numeric, C: Coordinates, IO: Clone = Read> {
     tensor: ListType<E>,
@@ -119,6 +131,8 @@ impl<E: Numeric, C: Coordinates, IO: Clone> IntoMut for TensorViewExpand<E, C, I
 impl<E: Numeric, C: Coordinates, IO: Clone> CubeDebug for TensorViewExpand<E, C, IO> {}
 
 impl<E: Numeric, C: Coordinates> TensorView<E, C, Read> {
+    /// Create a new tensor view from an underlying concrete storage and a layout to map it into
+    /// the target coordinate space
     #[allow(unused_variables)]
     pub fn new<T>(tensor: T, layout: VirtualLayout<C>) -> Self
     where
@@ -131,6 +145,7 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, Read> {
         }
     }
 
+    /// Expand function for [TensorView::new]
     pub fn __expand_new<T>(
         _scope: &mut Scope,
         tensor: T::ExpandType,
@@ -149,6 +164,8 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, Read> {
 }
 
 impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
+    /// Create a new mutable tensor view from an underlying concrete storage and a layout to map it
+    /// into the target coordinate space
     pub fn new_mut<T>(_tensor: T, _layout: VirtualLayout<C>) -> TensorView<E, C, ReadWrite>
     where
         T: ListMut<Line<E>> + CubeType,
@@ -157,6 +174,7 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
         unexpanded!()
     }
 
+    /// Expand function for [TensorView::new_mut]
     pub fn __expand_new_mut<T>(
         _scope: &mut Scope,
         tensor: T::ExpandType,
@@ -176,16 +194,19 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
 
 #[cube]
 impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
+    /// Calls [Layout::to_linear_pos] on the view's layout
     #[allow(unused)]
     pub fn to_linear_pos(&self, pos: C) -> u32 {
         self.layout.to_linear_pos(pos)
     }
 
+    /// Calls [Layout::to_linear_pos_checked] on the view's layout
     #[allow(unused)]
     pub fn to_linear_pos_checked(&self, pos: C) -> (u32, bool) {
         self.layout.to_linear_pos_checked(pos)
     }
 
+    /// Calls [Layout::shape] on the view's layout
     pub fn shape(&self) -> C {
         self.layout.shape()
     }
@@ -193,20 +214,25 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
 
 #[allow(unused_variables)]
 impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
+    /// Read a line at `pos`. The layout handles translation into a concrete index.
     pub fn read(&self, pos: C) -> Line<E> {
         unexpanded!()
     }
 
+    /// Read a line at `pos` if it's in bounds. The layout handles translation into a concrete index.
     pub fn read_checked(&self, pos: C) -> Line<E> {
         unexpanded!()
     }
 
+    /// Create a slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
     pub fn slice(&self, pos: C, size: u32) -> Slice<Line<E>, ReadOnly> {
         unexpanded!()
     }
 }
 
 impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
+    /// Expand method for [TensorView::read]
     pub fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -216,6 +242,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
         self.tensor.read().__expand_read_method(scope, read_pos)
     }
 
+    /// Expand method for [TensorView::read_checked]
     pub fn __expand_read_checked_method(
         self,
         scope: &mut Scope,
@@ -227,6 +254,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
         read_masked::expand::<Line<E>>(scope, in_bounds, slice, read_pos, zero)
     }
 
+    /// Expand method for [TensorView::slice]
     pub fn __expand_slice_method(
         self,
         scope: &mut Scope,
@@ -241,16 +269,19 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
 
 #[allow(unused_variables)]
 impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
+    /// Write a line to `pos`. The layout handles translation into a concrete index.
     pub fn write(&self, pos: C, value: Line<E>) {
         unexpanded!()
     }
 
+    /// Write a line to `pos` if it's in bounds. The layout handles translation into a concrete index.
     pub fn write_checked(&self, pos: C, value: Line<E>) {
         unexpanded!()
     }
 }
 
 impl<E: Numeric, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
+    /// Expand method for [TensorView::write]
     pub fn __expand_write_method(
         self,
         scope: &mut Scope,
@@ -263,6 +294,7 @@ impl<E: Numeric, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
             .__expand_write_method(scope, write_pos, value)
     }
 
+    /// Expand method for [TensorView::write_checked]
     pub fn __expand_write_checked_method(
         &self,
         scope: &mut Scope,
@@ -280,12 +312,15 @@ impl<E: Numeric, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
     }
 }
 
+/// Virtualized layout
 pub trait VirtualLayoutOperations<C: Coordinates> {
     fn to_linear_pos(&self, pos: C) -> u32;
     fn to_linear_pos_checked(&self, pos: C) -> (u32, bool);
     fn shape(&self) -> C;
 }
 
+/// Expand for virtualized layouts. Should be implemented for layouts to make them compatible with
+/// [VirtualLayout] and [TensorView].
 pub trait VirtualLayoutOperationsExpand<C: Coordinates> {
     fn __expand_to_linear_pos_method(
         &self,

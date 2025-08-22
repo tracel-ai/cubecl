@@ -231,6 +231,8 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 
 #[cube]
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
+    /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
+    /// layouts
     pub fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> TensorView<E, C, Read> {
         TensorView::new::<VirtualTensor<E, IO>>(*self, layout)
     }
@@ -238,6 +240,8 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
 
 #[cube]
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
+    /// Create a mutable conceptual view over this tensor, allowing for multi-dimensional indexing
+    /// with custom layouts
     pub fn view_mut<C: Coordinates>(
         &self,
         layout: VirtualLayout<C>,

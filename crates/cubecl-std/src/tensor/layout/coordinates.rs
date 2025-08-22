@@ -1,12 +1,14 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 
+/// A set of coordinates used in layouts. Contains some utilities for comptime inspection.
 #[cube]
 pub trait Coordinates: CubeType + Clone {
     fn rank(this: Self) -> comptime_type!(u32);
     fn dim(this: Self, #[comptime] dim: u32) -> u32;
 }
 
+// Aliases for convenience and semantic clarity
 pub type Coords1d = u32;
 pub type Coords2d = (u32, u32);
 pub type Coords3d = (u32, u32, u32);
