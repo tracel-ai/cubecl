@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
+use crate::components::global::RoleRule;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
@@ -24,14 +24,12 @@ use super::{LoadingJob, LoadingValidation};
 /// each plane loads its own row and a sync can be saved.
 /// In multi-row, number of planes must divide number of rows,
 /// and each plane loads a contiguous chunk of rows (e.g. plane 0 loads rows 0–1, plane 1 loads 2–3, etc.).
-pub struct SyncFullTilewiseLoading<T: TilingOrder, LayoutG = SimpleGlobalLayout> {
+pub struct SyncFullTilewiseLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
-    #[cube(comptime)]
-    _layout: PhantomData<LayoutG>,
 }
 
-impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO, LayoutG> {
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
@@ -42,7 +40,7 @@ impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncFullTilewiseLoadin
     }
 }
 
-impl<T: TilingOrder, LayoutG> LoadingValidation for SyncFullTilewiseLoading<T, LayoutG> {
+impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);

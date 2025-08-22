@@ -1,9 +1,7 @@
-use std::marker::PhantomData;
-
+use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::global::{load::SyncFullLoadingStrategy, memory::SimpleGlobalLayout};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -15,12 +13,9 @@ use super::{LoadingJob, LoadingValidation};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the stage using all planes,
 /// keeping the original layout, making each tile strided
-pub struct SyncFullStridedLoading<LayoutG = SimpleGlobalLayout> {
-    #[cube(comptime)]
-    _layout: PhantomData<LayoutG>,
-}
+pub struct SyncFullStridedLoading {}
 
-impl<LayoutG> LoadingValidation for SyncFullStridedLoading<LayoutG> {
+impl LoadingValidation for SyncFullStridedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
 
@@ -38,7 +33,7 @@ impl<LayoutG> LoadingValidation for SyncFullStridedLoading<LayoutG> {
     }
 }
 
-impl<LayoutG> LoadMaxRoundPlaneCount for SyncFullStridedLoading<LayoutG> {
+impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,

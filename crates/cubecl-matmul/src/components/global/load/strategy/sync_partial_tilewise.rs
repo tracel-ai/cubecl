@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
+use crate::components::global::RoleRule;
 use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{RoleRule, memory::SimpleGlobalLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
@@ -24,14 +24,12 @@ use super::{LoadingJob, LoadingValidation};
 /// row or column of the same stage, skipping over the memory region of the other stage.
 ///
 /// Only supports RowMajorTilingOrder for Lhs and ColMajorTilingOrder for Rhs
-pub struct SyncPartialTilewiseLoading<T: TilingOrder, LayoutG = SimpleGlobalLayout> {
+pub struct SyncPartialTilewiseLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
-    #[cube(comptime)]
-    _layout: PhantomData<LayoutG>,
 }
 
-impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO, LayoutG> {
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> {
     fn max_round_plane_count(
         tiling_scheme: &TilingScheme,
         ident: MatmulIdent,
@@ -42,7 +40,7 @@ impl<TO: TilingOrder, LayoutG> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoa
     }
 }
 
-impl<T: TilingOrder, LayoutG> LoadingValidation for SyncPartialTilewiseLoading<T, LayoutG> {
+impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
