@@ -206,7 +206,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Lhs));
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
         SMM::init_writer(
             out.view_mut(layout.into_virtual()),
             x_offset,
