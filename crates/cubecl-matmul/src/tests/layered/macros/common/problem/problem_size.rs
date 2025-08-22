@@ -46,6 +46,54 @@ macro_rules! testgen_matmul_problem_size {
             );
         }
 
+        // line_size_lhs != line_size_rhs
+        #[cfg(all(
+            feature = "matmul_tests_alt_shapes",
+            not(feature = "matmul_tests_vecmat")
+        ))]
+        mod g100x99x100 {
+            use super::*;
+            $crate::testgen_matmul_launch!(
+                $kind,
+                $algorithm,
+                $precision,
+                $selection,
+                MatmulProblem {
+                    m: 100,
+                    n: 100,
+                    k: 100,
+                    lhs_batches: vec![2],
+                    rhs_batches: vec![2],
+                    lhs_layout: $layouts.0,
+                    rhs_layout: $layouts.1,
+                }
+            );
+        }
+
+        // line_size_lhs != line_size_out
+        #[cfg(all(
+            feature = "matmul_tests_alt_shapes",
+            not(feature = "matmul_tests_vecmat")
+        ))]
+        mod g100x100x99 {
+            use super::*;
+            $crate::testgen_matmul_launch!(
+                $kind,
+                $algorithm,
+                $precision,
+                $selection,
+                MatmulProblem {
+                    m: 100,
+                    n: 100,
+                    k: 100,
+                    lhs_batches: vec![2],
+                    rhs_batches: vec![2],
+                    lhs_layout: $layouts.0,
+                    rhs_layout: $layouts.1,
+                }
+            );
+        }
+
         #[cfg(all(
             feature = "matmul_tests_alt_shapes",
             not(feature = "matmul_tests_vecmat")

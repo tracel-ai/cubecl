@@ -17,7 +17,7 @@ use super::{LoaderMode, LoadingJob, LoadingValidation};
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
 pub struct SyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
-    _phantom: PhantomData<T>,
+    _t: PhantomData<T>,
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {

@@ -43,3 +43,13 @@ pub enum Dimensionality {
     Dim2,
     Dim3,
 }
+
+impl Dimensionality {
+    pub fn num_dims(&self) -> u32 {
+        match self {
+            Dimensionality::Dim1 => 1,
+            Dimensionality::Dim2 => 2,
+            Dimensionality::Dim3 => 3,
+        }
+    }
+}

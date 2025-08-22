@@ -4,6 +4,7 @@ use cubecl_matmul::components::{
     AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     RhsG,
     global::{AccumulatorLoader, GlobalWriter},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{
     CubeOption,
@@ -14,6 +15,8 @@ use crate::{
     components::{ConvGemmConfig, ConvolutionProblem, global::entry_point::ConvolutionLaunch},
     kernels::layered::selector::RuntimeArgs,
 };
+
+pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 pub type GlobalConfig<F> = <F as GlobalConvolutionFamily>::Config;
 
@@ -84,6 +87,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer;
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;

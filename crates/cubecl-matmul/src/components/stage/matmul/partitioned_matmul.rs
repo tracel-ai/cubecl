@@ -15,18 +15,23 @@ use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{
+    layout::{Coordinates, TensorView},
+    r#virtual::ReadWrite,
+};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: GlobalWriter<EO>;
+    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
+    /// Coordinates used by the writer
+    type WriteCoords: Coordinates;
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: VirtualTensor<EO, ReadWrite>,
+        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -79,6 +84,7 @@ where
     type LhsTile = Sequence<TM::Lhs>;
     type RhsTile = RhsTile<TM::Rhs>;
     type Writer = SP::Writer<MP::EO>;
+    type WriteCoords = SP::WriteCoords;
 
     fn execute(
         lhs_reader: &RL,
@@ -212,7 +218,7 @@ where
     }
 
     fn init_writer(
-        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        tensor: TensorView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

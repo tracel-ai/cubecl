@@ -14,7 +14,10 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{
+        layout::Coords3d,
+        r#virtual::{ReadWrite, VirtualTensor},
+    },
 };
 
 use crate::{
@@ -22,6 +25,7 @@ use crate::{
         ConvolutionConfig,
         global::{
             GlobalConvolution,
+            layout::NhwcOutGlobalLayout,
             load::{
                 bias::BiasLoader,
                 im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
@@ -60,6 +64,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
             RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
+            WriteCoords = Coords3d,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
@@ -239,8 +244,17 @@ where
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, 0)
+        let layout = NhwcOutGlobalLayout::new(
+            &out,
+            runtime_args.shape_m,
+            runtime_args.shape_n,
+            runtime_args.shape_out.clone(),
+            config.global_memory_config(MatmulIdent::Out),
+        );
+        SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

@@ -301,6 +301,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     ) -> ExpandElementTyped<T> {
         index_unchecked::expand(scope, self.clone(), idx)
     }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        Self::__expand_len(scope, self.clone())
+    }
 }
 
 impl<T: CubePrimitive> ListMut<T> for Tensor<T> {

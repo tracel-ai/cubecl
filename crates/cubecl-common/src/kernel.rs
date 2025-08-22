@@ -38,6 +38,11 @@ impl CubeDim {
     pub const fn num_elems(&self) -> u32 {
         self.x * self.y * self.z
     }
+
+    /// Whether this `CubeDim` can fully contain `other`
+    pub const fn can_contain(&self, other: CubeDim) -> bool {
+        self.x >= other.x && self.y >= other.y && self.z >= other.z
+    }
 }
 
 impl Default for CubeDim {

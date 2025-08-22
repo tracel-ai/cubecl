@@ -176,7 +176,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     GMM::execute(
         GMM::init_lhs_loader(lhs, m_offset, k_range.0, nth_batch, batch_lhs, config),
         GMM::init_rhs_loader(rhs, k_range.0, n_offset, nth_batch, batch_rhs, config),
-        GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out),
+        GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
         acc,
         k_range,
         config,

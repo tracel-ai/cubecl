@@ -48,7 +48,7 @@ impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colLoader<IP, G> {
             ))
         }
 
-        let (n_offs, spatial_offsets) = div_mod_seq(x_offset, &runtime_args.out_shape);
+        let (n_offs, spatial_offsets) = div_mod_seq(x_offset, &runtime_args.shape_out);
 
         let map = Im2colTmaReader::<IP::Global>::new(tensor, n_offs, spatial_offsets, y_offset);
 
