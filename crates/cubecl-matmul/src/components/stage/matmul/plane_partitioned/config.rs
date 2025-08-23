@@ -2,7 +2,9 @@ use crate::components::{
     MatrixLayout, StageIdent, TilingScheme,
     error::MatmulSetupError,
     global::{PlaneRoleConfig, RoleRuleConfig},
-    stage::{NumStages, PartitionBuffering, StageConfig, StageMemoryConfig},
+    stage::{
+        NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig, StageMemoryConfig,
+    },
     tile::TileConfig,
 };
 
@@ -82,6 +84,10 @@ impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
             }
         };
         !execution_is_sync && self.ordered
+    }
+
+    fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme {
+        PartitionSchedulerScheme::Offset
     }
 }
 
