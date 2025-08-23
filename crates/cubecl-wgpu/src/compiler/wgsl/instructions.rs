@@ -551,12 +551,13 @@ impl Display for Instruction {
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
             Instruction::Powf { lhs, rhs, out } => {
+                let vec_factor = out.item().vectorization_factor();
                 if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     let out = out.fmt_left();
-                    writeln!(f, "{out} = powf_scalar({lhs}, {rhs});")
+                    writeln!(f, "{out} = powf_scalar_{vec_factor}({lhs}, {rhs});")
                 } else {
                     let out = out.fmt_left();
-                    writeln!(f, "{out} = powf({lhs}, {rhs});")
+                    writeln!(f, "{out} = powf_{vec_factor}({lhs}, {rhs});")
                 }
             }
             Instruction::Sqrt { input, out } => {
@@ -578,7 +579,10 @@ impl Display for Instruction {
             Instruction::Tanh { input, out } => {
                 let out = out.fmt_left();
                 #[cfg(target_os = "macos")]
-                let result = writeln!(f, "{out} = safe_tanh({input});");
+                let result = {
+                    let vec_factor = input.item().vectorization_factor();
+                    writeln!(f, "{out} = safe_tanh_{vec_factor}({input});")
+                };
                 #[cfg(not(target_os = "macos"))]
                 let result = writeln!(f, "{out} = tanh({input});");
 

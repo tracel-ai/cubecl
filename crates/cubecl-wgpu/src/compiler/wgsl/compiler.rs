@@ -1074,7 +1074,7 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
     for instruction in instructions {
         match instruction {
             wgsl::Instruction::Powf { lhs: _, rhs, out } => {
-                register_extension(wgsl::Extension::PowfPrimitive(out.item()));
+                register_extension(wgsl::Extension::PowfPrimitive(out.elem()));
 
                 if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     register_extension(wgsl::Extension::PowfScalar(out.item()));
@@ -1084,7 +1084,8 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
             }
             #[cfg(target_os = "macos")]
             wgsl::Instruction::Tanh { input, out: _ } => {
-                register_extension(wgsl::Extension::SafeTanh(input.item()))
+                register_extension(wgsl::Extension::SafeTanhPrimitive(input.elem()));
+                register_extension(wgsl::Extension::SafeTanh(input.item()));
             }
             wgsl::Instruction::If { instructions, .. } => {
                 for extension in register_extensions(instructions) {
