@@ -2,6 +2,10 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use cubecl_common::{rand::get_seeded_rng, stub::Mutex};
+use cubecl_std::tensor::{
+    AsViewMut, AsViewMutExpand, StridedLayout, StridedLayoutLaunch, TensorView, layout::Coords1d,
+    r#virtual::ReadWrite,
+};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 pub(crate) const N_VALUES_PER_THREAD: usize = 128;
@@ -36,6 +40,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     //     output.strides.len() - 1,
     // );
 
+    let out_layout = StridedLayoutLaunch::from_handle(client, &output, &output_line_size);
     let output = output.as_tensor_arg(output_line_size);
 
     prng_kernel::launch::<F, E, R>(
@@ -43,6 +48,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
         cube_count,
         cube_dim,
         output,
+        out_layout,
         ScalarArg::new(seeds[0]),
         ScalarArg::new(seeds[1]),
         ScalarArg::new(seeds[2]),
@@ -100,7 +106,7 @@ pub(crate) trait PrngRuntime<E: Numeric>: Send + Sync + 'static + PrngArgs<E> {
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut Tensor<Line<E>>,
+        output: &mut TensorView<E, Coords1d, ReadWrite>,
     );
 }
 
@@ -109,6 +115,7 @@ type Args<F, E> = <<F as RandomFamily>::Runtime<E> as PrngArgs<E>>::Args;
 #[cube(launch)]
 fn prng_kernel<F: RandomFamily, E: Numeric>(
     output: &mut Tensor<Line<E>>,
+    output_layout: StridedLayout,
     seed_0: u32,
     seed_1: u32,
     seed_2: u32,
@@ -118,6 +125,7 @@ fn prng_kernel<F: RandomFamily, E: Numeric>(
     #[comptime] line_size: u32,
 ) {
     let cube_offset = CUBE_POS * CUBE_DIM;
+    let mut output = output.view_mut(output_layout.virt());
 
     let write_index_base = cube_offset * n_values_per_thread / line_size + UNIT_POS;
 
@@ -140,7 +148,7 @@ fn prng_kernel<F: RandomFamily, E: Numeric>(
         &mut state_1,
         &mut state_2,
         &mut state_3,
-        output,
+        &mut output,
     );
 }
 

@@ -1,10 +1,7 @@
 use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{
-    layout::{Coords3d, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{TensorView, layout::Coords3d, r#virtual::ReadWrite};
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.

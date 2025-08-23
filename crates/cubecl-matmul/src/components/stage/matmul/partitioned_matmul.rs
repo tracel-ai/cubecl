@@ -15,10 +15,7 @@ use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{
-    layout::{Coordinates, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{TensorView, layout::Coordinates, r#virtual::ReadWrite};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).

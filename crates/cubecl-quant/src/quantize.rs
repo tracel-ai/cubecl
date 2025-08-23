@@ -2,8 +2,8 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_std::tensor::into_contiguous;
-use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
+use cubecl_std::tensor::index_offset_contiguous;
+use cubecl_std::tensor::{AsViewMut, AsViewMutExpand, StridedLayout, into_contiguous};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
 use crate::utils::check_block_size_compat;
@@ -126,7 +126,7 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     }
 
     let in_pos = index_offset_contiguous(input, ABSOLUTE_POS, rank);
-    let out_pos = out_layout.index(output, ABSOLUTE_POS);
+    let mut output = output.view_mut(out_layout.virt());
 
     let scale = match comptime!(scheme) {
         QuantScheme {
@@ -144,7 +144,8 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
         } => write_scale_per_tensor(ABSOLUTE_POS, scale, out_scale),
     };
 
-    output[out_pos] = quantize_symmetric_i::<F, FS, i8>(input[in_pos], scale, range_min, range_max);
+    output[ABSOLUTE_POS] =
+        quantize_symmetric_i::<F, FS, i8>(input[in_pos], scale, range_min, range_max);
 }
 
 #[cube(launch_unchecked)]
@@ -259,7 +260,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
         input.strides,
         input.shape.len() - 1,
     );
-    let out_layout = strided_layout(client, output);
+    let out_layout = strided_layout(client, output, &line_size);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
 

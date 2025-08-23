@@ -1,9 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{
-    layout::{Coordinates, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{TensorView, layout::Coordinates, r#virtual::ReadWrite};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;

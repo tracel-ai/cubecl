@@ -8,7 +8,7 @@ use crate::{
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
     utils::strided_layout,
 };
-use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
+use cubecl_std::tensor::{AsViewMut, AsViewMutExpand, StridedLayout, index_offset_contiguous};
 use half::{bf16, f16};
 
 /// Dequantize a line of values into floating-point values using the provided scale.
@@ -161,13 +161,13 @@ fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     }
 
     let in_pos = index_offset_contiguous(input, ABSOLUTE_POS, rank);
-    let out_pos = out_layout.index(output, ABSOLUTE_POS);
+    let mut output = output.view_mut(out_layout.virt());
 
     let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
     let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * input.line_size());
 
-    output[out_pos] = dequantize_symmetric::<F, FS>(Line::cast_from(input[in_pos]), scale);
+    output[ABSOLUTE_POS] = dequantize_symmetric::<F, FS>(Line::cast_from(input[in_pos]), scale);
 }
 
 #[allow(clippy::result_large_err)]
@@ -287,7 +287,7 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         input.strides,
         input.shape.len() - 1,
     );
-    let out_layout = strided_layout(client, output);
+    let out_layout = strided_layout(client, output, &line_size);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
 

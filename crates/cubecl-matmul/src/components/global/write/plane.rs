@@ -5,11 +5,8 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::ReadWrite;
-use cubecl_std::{
-    div_ceil,
-    tensor::layout::{Coords3d, TensorView},
-};
+use cubecl_std::tensor::{TensorView, r#virtual::ReadWrite};
+use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 
 use super::GlobalWriter;
 
