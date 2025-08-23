@@ -1,4 +1,4 @@
-use super::base::{Elem, Item};
+use super::base::{Elem, Item, Variable};
 use std::fmt::Display;
 
 /// Not all functions are native to WGSL, so this struct allows to support more functions.
@@ -16,65 +16,165 @@ pub enum Extension {
 impl Display for Extension {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Extension::PowfScalar(item) => format_powf_scalar(f, item),
             Extension::PowfPrimitive(elem) => format_powf_primitive(f, elem),
-            Extension::Powf(item) => format_powf(f, item),
-            #[cfg(target_os = "macos")]
-            Extension::SafeTanh(item) => format_safe_tanh(f, item),
+            Extension::PowfScalar(item) => construct_vector(
+                f,
+                POWF_SCALAR,
+                POWF_PRIMITIVE,
+                &[
+                    VectorIdent {
+                        name: "lhs",
+                        item: *item,
+                    },
+                    VectorIdent {
+                        name: "rhs",
+                        item: Item::Scalar(*item.elem()),
+                    },
+                ],
+                *item,
+            ),
+            Extension::Powf(item) => construct_vector(
+                f,
+                POWF,
+                POWF_PRIMITIVE,
+                &[
+                    VectorIdent {
+                        name: "lhs",
+                        item: item.clone(),
+                    },
+                    VectorIdent {
+                        name: "rhs",
+                        item: item.clone(),
+                    },
+                ],
+                *item,
+            ),
             #[cfg(target_os = "macos")]
             Extension::SafeTanhPrimitive(elem) => format_safe_tanh_primitive(f, elem),
+            #[cfg(target_os = "macos")]
+            Extension::SafeTanh(item) => construct_vector(
+                f,
+                SAFE_TANH,
+                SAFE_TANH_PRIMITIVE,
+                &[VectorIdent {
+                    name: "x",
+                    item: item.clone(),
+                }],
+                *item,
+            ),
         }
     }
 }
 
-fn format_powf_scalar(f: &mut core::fmt::Formatter<'_>, item: &Item) -> core::fmt::Result {
-    let vec_factor = item.vectorization_factor();
-    match item {
-        Item::Vec4(elem) => write!(
-            f,
-            "
-fn powf_scalar_{vec_factor}(lhs: {item}, rhs: {elem}) -> {item} {{
-    return vec4(
-        powf_primitive(lhs[0], rhs),
-        powf_primitive(lhs[1], rhs),
-        powf_primitive(lhs[2], rhs),
-        powf_primitive(lhs[3], rhs),
-    );
-}}
-"
-        ),
-        Item::Vec3(elem) => write!(
-            f,
-            "
-fn powf_scalar_{vec_factor}(lhs: {item}, rhs: {elem}) -> {item} {{
-    return vec3(
-        powf_primitive(lhs[0], rhs),
-        powf_primitive(lhs[1], rhs),
-        powf_primitive(lhs[2], rhs),
-    );
-}}
-"
-        ),
-        Item::Vec2(elem) => write!(
-            f,
-            "
-fn powf_scalar_{vec_factor}(lhs: {item}, rhs: {elem}) -> {item} {{
-    return vec2(
-        powf_primitive(lhs[0], rhs),
-        powf_primitive(lhs[1], rhs),
-    );
-}}
-"
-        ),
-        Item::Scalar(elem) => write!(
-            f,
-            "
-fn powf_scalar_{vec_factor}(lhs: {elem}, rhs: {elem}) -> {elem} {{
-    return powf_primitive(lhs, rhs);
-}}
-"
-        ),
+const POWF_PRIMITIVE: &str = "powf_primitive";
+const POWF: &str = "powf";
+const POWF_SCALAR: &str = "powf_scalar";
+
+#[cfg(target_os = "macos")]
+const SAFE_TANH_PRIMITIVE: &str = "safe_tanh_primitive";
+#[cfg(target_os = "macos")]
+const SAFE_TANH: &str = "safe_tanh";
+
+pub fn powf_extension(rhs: &Variable, out: &Variable) -> Extension {
+    if should_use_scalar_powf(rhs) {
+        Extension::PowfScalar(out.item())
+    } else {
+        Extension::Powf(out.item())
     }
+}
+
+pub fn call_powf(
+    f: &mut core::fmt::Formatter,
+    lhs: &Variable,
+    rhs: &Variable,
+    out: &Variable,
+) -> core::fmt::Result {
+    let base_name = if should_use_scalar_powf(rhs) {
+        POWF_SCALAR
+    } else {
+        POWF
+    };
+    let function_name = construct_vectorized_name(base_name, out.item());
+
+    let out = out.fmt_left();
+    write!(f, "{out} = {function_name}({lhs}, {rhs});")
+}
+
+#[cfg(target_os = "macos")]
+pub fn call_safe_tanh(
+    f: &mut core::fmt::Formatter,
+    input: &Variable,
+    out: &Variable,
+) -> core::fmt::Result {
+    let function_name = construct_vectorized_name(SAFE_TANH, out.item());
+    let out = out.fmt_left();
+    write!(f, "{out} = {function_name}({input});")
+}
+
+fn should_use_scalar_powf(rhs: &Variable) -> bool {
+    rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1
+}
+
+fn construct_vectorized_name(base_name: &str, item: Item) -> String {
+    let vec_factor = item.vectorization_factor();
+    let elem = item.elem();
+    format!("{base_name}_{vec_factor}_{elem}")
+}
+
+struct VectorIdent {
+    name: &'static str,
+    item: Item,
+}
+
+fn construct_vector(
+    f: &mut core::fmt::Formatter<'_>,
+    base_name: &str,
+    primitive_name: &str,
+    inputs: &[VectorIdent],
+    output: Item,
+) -> core::fmt::Result {
+    let vec_factor = output.vectorization_factor();
+    let function_name = construct_vectorized_name(base_name, output);
+    write!(f, "fn {function_name}(")?;
+    for VectorIdent { name, item } in inputs {
+        write!(f, "{name}: {item}, ")?;
+    }
+    write!(f, ") -> {output}{{\n")?;
+
+    let indent = "    ";
+
+    match output {
+        Item::Scalar(_) => {
+            write!(f, "{indent}return {primitive_name}(")?;
+            for VectorIdent { name, item: _ } in inputs {
+                write!(f, "{name}, ")?;
+            }
+            write!(f, ");\n}}\n")?;
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    write!(f, "{indent}return vec{vec_factor}(\n")?;
+
+    for i in 0..vec_factor {
+        write!(f, "{indent}{indent}{primitive_name}(")?;
+        for VectorIdent { name, item } in inputs {
+            match item {
+                Item::Scalar(_) => {
+                    write!(f, "{name}, ")?;
+                }
+                _ => {
+                    write!(f, "{name}[{i}], ")?;
+                }
+            }
+        }
+        write!(f, "),\n")?;
+    }
+
+    write!(f, "{indent});\n}}\n")?;
+
+    Ok(())
 }
 
 fn format_powf_primitive(
@@ -105,56 +205,6 @@ fn powf_primitive(lhs: {elem}, rhs: {elem}) -> {elem} {{
     Ok(())
 }
 
-fn format_powf(f: &mut core::fmt::Formatter<'_>, item: &Item) -> core::fmt::Result {
-    let vec_factor = item.vectorization_factor();
-    match item {
-        Item::Vec4(_) => write!(
-            f,
-            "
-fn powf_{vec_factor}(lhs: {item}, rhs: {item}) -> {item} {{
-    return vec4(
-        powf_primitive(lhs[0], rhs[0]),
-        powf_primitive(lhs[1], rhs[1]),
-        powf_primitive(lhs[2], rhs[2]),
-        powf_primitive(lhs[3], rhs[3]),
-    );
-}}
-"
-        ),
-        Item::Vec3(_) => write!(
-            f,
-            "
-fn powf_{vec_factor}(lhs: {item}, rhs: {item}) -> {item} {{
-    return vec3(
-        powf_primitive(lhs[0], rhs[0]),
-        powf_primitive(lhs[1], rhs[1]),
-        powf_primitive(lhs[2], rhs[2]),
-    );
-}}
-"
-        ),
-        Item::Vec2(_) => write!(
-            f,
-            "
-fn powf_{vec_factor}(lhs: {item}, rhs: {item}) -> {item} {{
-    return vec2(
-        powf_primitive(lhs[0], rhs[0]),
-        powf_primitive(lhs[1], rhs[1]),
-    );
-}}
-"
-        ),
-        Item::Scalar(elem) => write!(
-            f,
-            "
-fn powf_{vec_factor}(lhs: {elem}, rhs: {elem}) -> {elem} {{
-    return powf_primitive(lhs, rhs);
-}}
-"
-        ),
-    }
-}
-
 #[cfg(target_os = "macos")]
 fn format_safe_tanh_primitive(
     f: &mut std::fmt::Formatter<'_>,
@@ -174,55 +224,4 @@ fn safe_tanh_primitive(x: {elem}) -> {elem} {{
 "
     )?;
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn format_safe_tanh(f: &mut core::fmt::Formatter<'_>, item: &Item) -> core::fmt::Result {
-    let vec_factor = item.vectorization_factor();
-    match item {
-        Item::Vec4(_) => write!(
-            f,
-            "
-fn safe_tanh_{vec_factor}(x: {item}) -> {item} {{
-    return vec4(
-        safe_tanh_primitive(x[0]),
-        safe_tanh_primitive(x[1]),
-        safe_tanh_primitive(x[2]),
-        safe_tanh_primitive(x[3]),
-    );
-}}
-"
-        ),
-        Item::Vec3(_) => write!(
-            f,
-            "
-fn safe_tanh_{vec_factor}(x: {item}) -> {item} {{
-    return vec3(
-        safe_tanh_primitive(x[0]),
-        safe_tanh_primitive(x[1]),
-        safe_tanh_primitive(x[2]),
-    );
-}}
-"
-        ),
-        Item::Vec2(_) => write!(
-            f,
-            "
-fn safe_tanh_{vec_factor}(x: {item}) -> {item} {{
-    return vec2(
-        safe_tanh_primitive(x[0]),
-        safe_tanh_primitive(x[1]),
-    );
-}}
-"
-        ),
-        Item::Scalar(_) => write!(
-            f,
-            "
-fn safe_tanh_{vec_factor}(x: {item}) -> {item} {{
-    return safe_tanh_primitive(x);
-}}
-"
-        ),
-    }
 }

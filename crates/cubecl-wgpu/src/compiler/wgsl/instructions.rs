@@ -550,16 +550,7 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
-            Instruction::Powf { lhs, rhs, out } => {
-                let vec_factor = out.item().vectorization_factor();
-                if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = powf_scalar_{vec_factor}({lhs}, {rhs});")
-                } else {
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = powf_{vec_factor}({lhs}, {rhs});")
-                }
-            }
+            Instruction::Powf { lhs, rhs, out } => super::call_powf(f, lhs, rhs, out),
             Instruction::Sqrt { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")
@@ -577,14 +568,13 @@ impl Display for Instruction {
                 writeln!(f, "{out} = sin({input});")
             }
             Instruction::Tanh { input, out } => {
-                let out = out.fmt_left();
                 #[cfg(target_os = "macos")]
-                let result = {
-                    let vec_factor = input.item().vectorization_factor();
-                    writeln!(f, "{out} = safe_tanh_{vec_factor}({input});")
-                };
+                let result = super::call_safe_tanh(f, input, out);
                 #[cfg(not(target_os = "macos"))]
-                let result = writeln!(f, "{out} = tanh({input});");
+                let result = {
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = tanh({input});")
+                };
 
                 result
             }
