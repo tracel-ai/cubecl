@@ -3,16 +3,16 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout, TileSize,
+    AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources, tile::tile_data::Tile,
 };
-use crate::components::{LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent};
+use crate::components::{MatmulLineSizes, MatmulSelection, StageIdent};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait TileMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric>: TileMatmul<L, R, A, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
     type Config: TileConfig;
@@ -26,7 +26,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
@@ -52,7 +52,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 #[cube]
-pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
+pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync {
     /// The configuration type associated with this Matmul.
     type Config: TileConfig;
     /// Contains Lhs data for computation
@@ -79,7 +79,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
     /// Fill the container of Lhs with tile data
-    fn fill_lhs(tile: &Tile<LhsS<MP>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     /// Create the container for Rhs
     ///
@@ -90,7 +90,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of Rhs with tile data
-    fn fill_rhs(tile: &Tile<RhsS<MP>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Allocate the container to receive the execution output.
     ///
@@ -104,7 +104,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Fill the accumulator with data
     fn fill_accumulator(
-        tile: &Tile<MP::EA>,
+        tile: &Tile<A>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
@@ -113,9 +113,9 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Write the content of the output container to the given slice
-    fn write_results(
+    fn write_results<E: Numeric>(
         out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<MP::EO>>,
+        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     );
 }

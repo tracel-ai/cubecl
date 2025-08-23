@@ -1,5 +1,5 @@
 use core::{
-    fmt::Display,
+    fmt::{Debug, Display},
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
@@ -179,6 +179,42 @@ impl NumCast for e2m1 {
 
 impl Display for e2m1 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", e2m1::to_f32(*self))
+    }
+}
+
+impl Debug for e2m1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl e2m1x2 {
+    /// Create a new e2m1x2 from bits
+    pub fn from_bits(bits: u8) -> Self {
+        Self(bits)
+    }
+
+    /// Create a slice of packed fp4 values from a slice of f32s
+    pub fn from_f32_slice(f32s: &[f32]) -> alloc::vec::Vec<e2m1x2> {
+        let mut out = alloc::vec![e2m1x2(0); f32s.len().div_ceil(2)];
+        for (i, chunk) in f32s.chunks(2).enumerate() {
+            let mut chunk = chunk.iter().copied();
+            let a = chunk.next().unwrap_or_default();
+            let b = chunk.next().unwrap_or_default();
+
+            let a = e2m1::from_f32(a).0 & 0x0F;
+            let b = (e2m1::from_f32(b).0 << 4) & 0xF0;
+            out[i] = e2m1x2(a | b);
+        }
+        out
+    }
+}
+
+impl Debug for e2m1x2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let a = e2m1::from_bits(self.0 & 0xF).to_f32();
+        let b = e2m1::from_bits((self.0 >> 4) & 0xF).to_f32();
+        f.debug_tuple("e2m1x2").field(&a).field(&b).finish()
     }
 }

@@ -1,3 +1,5 @@
+use crate::components::InputPrecision;
+use crate::components::MatmulPrecision;
 use crate::components::global::RoleRule;
 use crate::components::global::UnitWriter;
 use crate::components::stage::StageConfig;
@@ -7,18 +9,23 @@ use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConf
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{
+    layout::{Coords3d, TensorView},
+    r#virtual::ReadWrite,
+};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
-pub type UnitMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
-    MP,
-    TMM,
+pub type UnitMatmul<
+    MP: MatmulPrecision,
+    TM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            <MP as MatmulPrecision>::EA,
+        >,
     RL,
     RR,
-    UnitPartitioner,
-    UnitPartitionedStageConfig<TMM::Config>,
->;
+> = PartitionedStageMatmul<MP, TM, RL, RR, UnitPartitioner, UnitPartitionedStageConfig<TM::Config>>;
 
 /// Defines how to partition across units
 pub struct UnitPartitioner {}
@@ -26,9 +33,10 @@ pub struct UnitPartitioner {}
 #[cube]
 impl StagePartitioner for UnitPartitioner {
     type Writer<EO: Numeric> = UnitWriter<EO>;
+    type WriteCoords = Coords3d;
 
     fn init_writer<EO: Numeric>(
-        tensor: VirtualTensor<EO, ReadWrite>,
+        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

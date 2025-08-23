@@ -69,12 +69,37 @@ pub enum Feature {
         k: u8,
         n: u8,
     },
+    /// The manual MMA feature enables cooperative matrix-multiply with manually managed data
+    /// movement
     ManualMma {
-        ab_elem: Elem,
+        /// Element of the A matrix
+        a_elem: Elem,
+        /// Element of the B matrix
+        b_elem: Elem,
+        /// Element of the C/D matrices
         cd_elem: Elem,
         m: u32,
         n: u32,
         k: u32,
+    },
+    /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
+    /// instruction. Scales must fit a specific layout and block size.
+    ScaledMma {
+        /// Element of the quantized A matrix
+        a_elem: Elem,
+        /// Element of the quantized B matrix
+        b_elem: Elem,
+        /// Element of the unquantized C/D matrices
+        cd_elem: Elem,
+        /// Element of the blocks scales
+        scales_elem: Elem,
+        m: u32,
+        n: u32,
+        k: u32,
+        /// Number of scales per tile row/col.
+        /// A scale factor of 2 means `m x 2` scales for A and `2 x n` for B (in CUDA)
+        /// Scales blocks must be organized along the natural `line_layout` of the operation
+        scales_factor: u32,
     },
     CmmaWarpSize(i32),
     Type(Elem),
@@ -96,6 +121,8 @@ pub enum Feature {
     DynamicLineSize,
     /// Enables synchronization within a plane only
     SyncPlane,
+    /// Enables using plane-wide operations like plane_sum, etc.
+    PlaneOps,
 }
 
 /// Atomic features that may be supported by a [cube runtime](Runtime).

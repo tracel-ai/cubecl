@@ -85,6 +85,7 @@ pub struct Flags {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
 }
 
@@ -178,6 +179,7 @@ impl<D: Dialect> CppCompiler<D> {
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
+            cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
         };
 
@@ -637,26 +639,53 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::CoopMma::ExecuteManual {
                 matrix,
-                a_registers,
-                b_registers,
-                c_registers,
+                registers_a,
+                registers_b,
+                registers_c,
             } => WmmaInstruction::ExecuteManual {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: a_registers
+                frag_a: registers_a
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
-                frag_b: b_registers
+                frag_b: registers_b
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
-                frag_c: c_registers
+                frag_c: registers_c
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
                 frag_d: out,
             },
+            gpu::CoopMma::ExecuteScaled {
+                matrix,
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => WmmaInstruction::ExecuteScaled {
+                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                frag_a: registers_a
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_b: registers_b
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_c: registers_c
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                frag_d: out,
 
+                scales_a: self.compile_variable(scales_a),
+                scales_b: self.compile_variable(scales_b),
+                scales_factor,
+            },
             gpu::CoopMma::Store {
                 mat,
                 stride,
@@ -1126,6 +1155,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Cast(op) => {
                 let op = self.compile_unary(op, out);
+
                 if op.input.elem() == Elem::TF32 || op.out.elem() == Elem::TF32 {
                     self.flags.elem_tf32 = true;
                 }
@@ -1479,6 +1509,10 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.elem_fp4 = true;
                     Elem::FP4(FP4Kind::E2M1)
                 }
+                gpu::FloatKind::E2M1x2 => {
+                    self.flags.elem_fp4 = true;
+                    Elem::FP4x2(FP4Kind::E2M1)
+                }
                 gpu::FloatKind::E2M3 => {
                     self.flags.elem_fp6 = true;
                     Elem::FP6(FP6Kind::E2M3)
@@ -1551,6 +1585,7 @@ fn is_fp4_fp6_fp8(elem: gpu::Elem) -> bool {
         gpu::Elem::Float(kind) => matches!(
             kind,
             FloatKind::E2M1
+                | FloatKind::E2M1x2
                 | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3

@@ -113,13 +113,39 @@ impl Display for Instruction {
                 op.len
             ),
             Operation::Operator(Operator::IndexAssign(op)) => {
-                write!(f, "{}[{}] = {}", self.out(), op.index, op.value)
+                write!(
+                    f,
+                    "{}[{}] = {}  : ({}, {}) -> ({})",
+                    self.out(),
+                    op.index,
+                    op.value,
+                    op.index.item,
+                    op.value.item,
+                    self.out().item,
+                )
             }
             Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
-                write!(f, "unchecked {}[{}] = {}", self.out(), op.index, op.value)
+                write!(
+                    f,
+                    "unchecked {}[{}] = {} : ({}, {}) -> ({})",
+                    self.out(),
+                    op.index,
+                    op.value,
+                    op.index.item,
+                    op.value.item,
+                    self.out().item,
+                )
             }
             Operation::Operator(Operator::Cast(op)) => {
-                write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
+                write!(
+                    f,
+                    "{} = cast<{}>({}) : ({}) -> ({})",
+                    self.out(),
+                    self.item(),
+                    op.input,
+                    op.input.item,
+                    self.out().item,
+                )
             }
             Operation::Operator(Operator::Reinterpret(op)) => {
                 write!(f, "{} = bitcast<{}>({})", self.out(), self.item(), op.input)

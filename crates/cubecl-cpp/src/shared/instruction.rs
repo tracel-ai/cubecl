@@ -6,7 +6,7 @@ use super::{
 };
 use std::{
     borrow::Cow,
-    fmt::{Display, Write},
+    fmt::{Display, Formatter, Write},
     marker::PhantomData,
 };
 
@@ -713,37 +713,81 @@ impl<D: Dialect> Clamp<D> {
         max_value: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let input = input.optimized();
-        let min_value = min_value.optimized();
-        let max_value = max_value.optimized();
-        let out = out.optimized();
         let out_item = out.item();
-        let num = out_item.vectorization;
-
-        let out_fmt = out.fmt_left();
-        if num == 1 {
-            writeln!(f, "{out_fmt} = ")?;
-            D::compile_instruction_max_function_name(f, out.item())?;
-            writeln!(f, "({min_value}, ")?;
-            D::compile_instruction_min_function_name(f, out.item())?;
-            writeln!(f, "({max_value}, {input}));")
+        if out.item().vectorization == 1 {
+            let out = out.fmt_left();
+            write!(f, "{out} = ")?;
+            Self::format_scalar(f, *input, *min_value, *max_value, out_item)?;
+            f.write_str(";\n")
         } else {
-            writeln!(f, "{out_fmt} = {out_item}{{")?;
-            let mut item = out.item();
-            item.vectorization = 1;
+            Self::unroll_vec(f, input, min_value, max_value, out)
+        }
+    }
 
-            for i in 0..num {
+    fn format_scalar(
+        f: &mut Formatter<'_>,
+        input: impl Component<D>,
+        min_value: impl Component<D>,
+        max_value: impl Component<D>,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_max_function_name(f, item)?;
+        write!(f, "({min_value}, ")?;
+        D::compile_instruction_min_function_name(f, item)?;
+        write!(f, "({max_value}, {input}))")
+    }
+
+    fn unroll_vec(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        min_value: &Variable<D>,
+        max_value: &Variable<D>,
+        out: &Variable<D>,
+    ) -> std::fmt::Result {
+        let optimized = Variable::optimized_args([*input, *min_value, *max_value, *out]);
+        let [input, min_value, max_value, out_optimized] = optimized.args;
+
+        let item_out_original = out.item();
+        let item_out_optimized = out_optimized.item();
+
+        let index = match optimized.optimization_factor {
+            Some(factor) => item_out_original.vectorization / factor,
+            None => item_out_optimized.vectorization,
+        };
+
+        let mut write_op = |input: &Variable<D>,
+                            min_value: &Variable<D>,
+                            max_value: &Variable<D>,
+                            out: &Variable<D>,
+                            item_out: Item<D>| {
+            let out = out.fmt_left();
+            writeln!(f, "{out} = {item_out}{{")?;
+            for i in 0..index {
                 let inputi = input.index(i);
-                let mini = min_value.index(i);
-                let maxi = max_value.index(i);
+                let min_valuei = min_value.index(i);
+                let max_valuei = max_value.index(i);
 
-                D::compile_instruction_max_function_name(f, item)?;
-                writeln!(f, "({mini}, ")?;
-                D::compile_instruction_min_function_name(f, item)?;
-                writeln!(f, "({maxi}, {inputi})),")?;
+                Self::format_scalar(f, inputi, min_valuei, max_valuei, item_out)?;
+                f.write_str(", ")?;
             }
 
             f.write_str("};\n")
+        };
+
+        if item_out_original == item_out_optimized {
+            write_op(&input, &min_value, &max_value, out, item_out_optimized)
+        } else {
+            let out_tmp = Variable::tmp(item_out_optimized);
+            write_op(&input, &min_value, &max_value, &out_tmp, item_out_optimized)?;
+            let addr_space = D::address_space_for_variable(out);
+            let out = out.fmt_left();
+
+            writeln!(
+                f,
+                "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
+            )?;
+
+            Ok(())
         }
     }
 }

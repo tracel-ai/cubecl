@@ -5,14 +5,15 @@ use cubecl_core::ir::{Id, Processor};
 use crate::{
     Dialect,
     cuda::{
-        extension::{Fragment, MmaExecute, MmaExtension},
+        extension::{Fragment, MmaExecute, MmaExecuteScaled, MmaExtension},
         processors::CudaMmaProcessor,
         ptx::TMA_LOAD_IM2COL,
     },
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind,
-        FP6Kind, FP8Kind, Flags, Instruction, Item, SharedMemory, Variable, WarpInstruction, unary,
+        DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
+        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, ManualMma,
+        SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
@@ -101,24 +102,49 @@ alignas(64) unsigned long long int opaque[16];
         extensions: &mut Vec<Self::Extension>,
         instruction: &shared::WmmaInstruction<Self>,
     ) {
-        if let shared::WmmaInstruction::ExecuteManual {
-            shape,
-            frag_a,
-            frag_b,
-            frag_c,
-            frag_d,
-        } = instruction
-        {
-            let ext = Extension::Mma(MmaExtension::Execute(MmaExecute::new(
-                *shape,
-                vars_to_frag(frag_a),
-                vars_to_frag(frag_b),
-                vars_to_frag(frag_c),
-                Fragment(frag_d.elem()),
-            )));
-            if !extensions.contains(&ext) {
-                extensions.push(ext);
+        match instruction {
+            shared::WmmaInstruction::ExecuteManual {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+            } => {
+                let ext = Extension::Mma(MmaExtension::Execute(MmaExecute::new(
+                    *shape,
+                    vars_to_frag(frag_a),
+                    vars_to_frag(frag_b),
+                    vars_to_frag(frag_c),
+                    Fragment(frag_d.elem()),
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
             }
+            shared::WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                scales_a,
+                scales_factor,
+                ..
+            } => {
+                let ext = Extension::Mma(MmaExtension::ExecuteScaled(MmaExecuteScaled::new(
+                    *shape,
+                    vars_to_frag(frag_a),
+                    vars_to_frag(frag_b),
+                    vars_to_frag(frag_c),
+                    Fragment(frag_d.elem()),
+                    scales_a.elem(),
+                    *scales_factor,
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -291,7 +317,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
             f,
             "
 
-extern \"C\" __global__ void "
+extern \"C\" __global__ void __launch_bounds__({})",
+            flags.cube_dim.num_elems()
         )?;
         if let Some(cluster_dim) = flags.cluster_dim {
             write!(
@@ -335,6 +362,8 @@ extern \"C\" __global__ void "
         Ok(())
     }
 }
+
+impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for CudaDialect<M> {}
 
 // Cube builtins dialect
 
@@ -542,13 +571,19 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
     fn compile_manual_mma(
         f: &mut std::fmt::Formatter<'_>,
-        shape: shared::MmaShape<Self>,
-        frag_a: &[Variable<Self>],
-        frag_b: &[Variable<Self>],
-        frag_c: &[Variable<Self>],
-        frag_d: &Variable<Self>,
+        mma: ManualMma<Self>,
     ) -> std::fmt::Result {
-        M::compile_manual_mma(f, shape, frag_a, frag_b, frag_c, frag_d)
+        M::compile_manual_mma(f, mma)
+    }
+
+    fn compile_scaled_mma(
+        f: &mut std::fmt::Formatter<'_>,
+        mma: ManualMma<Self>,
+        scales_a: Variable<Self>,
+        scales_b: Variable<Self>,
+        scales_factor: u32,
+    ) -> std::fmt::Result {
+        M::compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)
     }
 
     fn supported_wmma_combinations(
@@ -559,6 +594,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
     fn supported_mma_combinations(arch: &CudaArchitecture) -> shared::SupportedMmaCombinations {
         M::supported_mma_combinations(arch)
+    }
+
+    fn supported_scaled_mma_combinations(
+        arch: &CudaArchitecture,
+    ) -> shared::SupportedScaledMmaCombinations {
+        M::supported_scaled_mma_combinations(arch)
     }
 }
 

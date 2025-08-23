@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::{CubeType, prelude::*};
 
-use crate::components::MatmulPrecision;
-use crate::components::tile;
+use crate::components::{InputPrecision, MatmulPrecision};
+use crate::components::{stage::StageConfig, tile::TileMatmul};
 
 use super::GlobalConfig;
 
@@ -13,11 +13,18 @@ pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sy
 
     /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
-    fn load<Tile: tile::TileMatmul<MP>>(
+    fn load<
+        TM: TileMatmul<
+                <MP::Lhs as InputPrecision>::Register,
+                <MP::Rhs as InputPrecision>::Register,
+                MP::EA,
+            >,
+        S: StageConfig<TileConfig = TM::Config>,
+    >(
         this: &mut Self,
-        acc: &mut Tile::Accumulator,
+        acc: &mut TM::Accumulator,
         nth_tile: u32,
-        #[comptime] config: Tile::Config,
+        #[comptime] config: S,
     );
 }
 
@@ -29,12 +36,19 @@ pub struct ZeroAccumulatorLoader;
 impl<MP: MatmulPrecision> AccumulatorLoader<MP> for ZeroAccumulatorLoader {
     fn fill_stage<G: GlobalConfig>(_this: &mut Self, #[comptime] _config: G) {}
 
-    fn load<Tile: tile::TileMatmul<MP>>(
+    fn load<
+        Tile: TileMatmul<
+                <MP::Lhs as InputPrecision>::Register,
+                <MP::Rhs as InputPrecision>::Register,
+                MP::EA,
+            >,
+        S: StageConfig<TileConfig = Tile::Config>,
+    >(
         _this: &mut Self,
         acc: &mut Tile::Accumulator,
         _n_tile: u32,
-        #[comptime] config: Tile::Config,
+        #[comptime] config: S,
     ) {
-        Tile::zero_accumulator(acc, config);
+        Tile::zero_accumulator(acc, config.tile_config());
     }
 }

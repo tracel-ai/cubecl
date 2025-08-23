@@ -1,4 +1,3 @@
-use crate::components::LhsG;
 use crate::components::LhsS;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
@@ -11,11 +10,12 @@ use crate::components::global::load::TmaReader;
 use crate::components::global::load::arrive_tma;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::stage::StageMatmul;
+use crate::components::{LhsG, global::memory::SimpleGlobalLayout};
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::tensor::{layout::Coords3d, r#virtual::ReadWrite};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
@@ -29,7 +29,12 @@ pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
 #[cube]
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<MP, LhsReader = TmaReader<MP::Lhs>, RhsReader = TmaReader<MP::Rhs>>,
+    SMM: StageMatmul<
+            MP,
+            LhsReader = TmaReader<MP::Lhs>,
+            RhsReader = TmaReader<MP::Rhs>,
+            WriteCoords = Coords3d,
+        >,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
     type LhsLoader = TmaLoader<MP::Lhs, Self::Config>;
@@ -49,8 +54,8 @@ where
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
-        let num_elems_stages = config.tiling_scheme().elements_in_stage_nk()
-            + config.tiling_scheme().elements_in_stage_mk();
+        let num_elems_lhs = config.tiling_scheme().elements_in_stage_mk();
+        let num_elems_rhs = config.tiling_scheme().elements_in_stage_nk();
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
@@ -65,10 +70,11 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_lhs, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_rhs, config);
 
-            arrive_tma::<LhsS<MP>>(&barrier_lhs, num_elems_stages);
-            arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_stages);
+            arrive_tma::<LhsS<MP>>(&barrier_lhs, num_elems_lhs);
+            arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_rhs);
 
             barrier_lhs.wait();
+            barrier_rhs.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
@@ -131,8 +137,15 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        SMM::init_writer(
+            out.view_mut(layout.virt()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

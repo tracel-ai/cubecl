@@ -39,6 +39,8 @@ use cudarc::driver::sys::{
     cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
+#[cfg(feature = "cuda-12080")]
+use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
 use std::collections::HashMap;
 use std::ffi::c_char;
 use std::path::PathBuf;
@@ -473,9 +475,41 @@ impl ComputeServer for CudaServer {
                         .result()
                         .unwrap()
                     },
-                    TensorMapFormat::Im2colWide { .. } => {
-                        unimplemented!("Not yet implemented in cudarc")
-                    }
+                    #[cfg(feature = "cuda-12080")]
+                    TensorMapFormat::Im2colWide {
+                        pixel_box_lower_corner_width,
+                        pixel_box_upper_corner_width,
+                        channels_per_pixel,
+                        pixels_per_column,
+                    } => unsafe {
+                        cuTensorMapEncodeIm2colWide(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.elem),
+                            map.rank as u32,
+                            device_ptr,
+                            shape.as_ptr(),
+                            strides.as_ptr(),
+                            *pixel_box_lower_corner_width,
+                            *pixel_box_upper_corner_width,
+                            *channels_per_pixel,
+                            *pixels_per_column,
+                            elem_stride.as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        )
+                        .result()
+                        .unwrap()
+                    },
+                    #[cfg(not(feature = "cuda-12080"))]
+                    TensorMapFormat::Im2colWide {
+                        pixel_box_lower_corner_width: _,
+                        pixel_box_upper_corner_width: _,
+                        channels_per_pixel: _,
+                        pixels_per_column: _,
+                    } => panic!("CUDA version 12.8 required for tensor map format Im2colWide"),
                 };
                 unsafe { map_ptr.assume_init() }
             })
@@ -836,11 +870,19 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
     match elem {
         Elem::Float(kind) => match kind {
-            FloatKind::E2M1 | FloatKind::E2M3 | FloatKind::E3M2 => {
-                todo!("Needs more complex handling and CUDA 12.8")
-            }
+            // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
+            // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
+            #[cfg(feature = "cuda-12080")]
+            FloatKind::E2M1x2 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
+            #[cfg(not(feature = "cuda-12080"))]
+            FloatKind::E2M1x2 => panic!("CUDA version 12.8 required for float kind E2M1x2"),
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
-            FloatKind::E4M3 | FloatKind::E5M2 | FloatKind::UE8M0 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
+            FloatKind::E2M1 // single fp4s are padded to a full byte
+            | FloatKind::E4M3
+            | FloatKind::E5M2
+            | FloatKind::UE8M0
+            | FloatKind::E2M3
+            | FloatKind::E3M2 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             FloatKind::F16 => CU_TENSOR_MAP_DATA_TYPE_FLOAT16,
             FloatKind::BF16 => CU_TENSOR_MAP_DATA_TYPE_BFLOAT16,
             FloatKind::Flex32 | FloatKind::F32 => CU_TENSOR_MAP_DATA_TYPE_FLOAT32,

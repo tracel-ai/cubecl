@@ -129,6 +129,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 
     let b = usize::max(expected / num_ops, 1);
     let b = 2usize.pow((b as f64).log(2.0).floor() as u32);
+    let b = usize::min(4096, b);
 
     (b, m, n, k)
 }
@@ -136,14 +137,26 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [false] {
-        for tr in [false] {
+        for tr in [true] {
             for (b, m, n, k) in [
-                entry(8192, 8192, 8192),
-                entry(6144, 6144, 6144),
-                entry(4096, 4096, 4096),
-                entry(2048, 2048, 2048),
-                entry(1024, 1024, 1024),
-                entry(512, 512, 512),
+                // entry(8192, 8192, 8192),
+                // entry(6144, 6144, 6144),
+                // entry(4096, 4096, 4096),
+                // entry(2048, 2048, 2048),
+                // entry(1024, 1024, 1024),
+                // entry(512, 512, 512),
+                // entry(64, 1024, 64),
+                // entry(32, 1024, 32),
+                // entry(10, 1024, 10),
+                // entry(64, 64, 1024),
+                // entry(32, 32, 1024),
+                // entry(10, 10, 1024),
+                // entry(1024, 64, 64),
+                // entry(1024, 32, 32),
+                // entry(1024, 10, 10),
+                (16, 1, 2048, 8192),
+                (16, 1, 4096, 4096),
+                (16, 1, 512, 4096),
             ] {
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
@@ -201,9 +214,9 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
 
     let mut algos = BTreeMap::<u64, (BenchmarkDurations, MatmulSelection, f64)>::new();
 
-    for t in [(1, 4, 4), (4, 4, 4)] {
-        for p in [(1, 2, 8), (1, 2, 2), (8, 2, 2), (4, 4, 4)] {
-            for s in [(8, 8), (16, 16)] {
+    for t in [(16, 16, 16)] {
+        for p in [(1, 1, 1)] {
+            for s in [(1, 1, 1)] {
                 let plane_dim = client.properties().hardware.plane_size_min;
                 let tiling = TilingScheme::builder()
                     .with_tile_size(t.into())
@@ -211,7 +224,7 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .with_stage_size(StageSize {
                         m: s.0,
                         n: s.1,
-                        k: 1,
+                        k: s.2,
                     })
                     .build()
                     .unwrap();
@@ -223,15 +236,17 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .build();
                 let selection = MatmulSelection::builder(tiling, plane_dim)
                     .plane_dim(plane_dim)
-                    .partition_buffering(PartitionBuffering::Double)
+                    .partition_buffering(PartitionBuffering::Single)
                     .hypercube_config(hypercube)
                     .loading_precompute_strategy(LoadingPrecomputeStrategy::Always)
                     .build();
                 let result = run_one::<R, MP>(
                     Default::default(),
-                    matmul::Strategy::DoubleUnit(Selection::Forced(selection.clone())),
-                    // (8, 1024, 1024, 1024),
-                    (1, 4096, 4096, 4096),
+                    matmul::Strategy::Simple(
+                        SyncLoadingStrategy::Cyclic,
+                        Selection::Forced(selection.clone()),
+                    ),
+                    (4096, 10, 64, 10),
                     (false, false),
                 );
 
@@ -249,6 +264,39 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
         println!("Times: {duration}");
         println!("====================");
     }
+}
+
+#[allow(unused)]
+fn run_algos_vecmat<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
+
+    println!("Simple VecMat");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleVecMat(Selection::Inferred(())),
+    );
+
+    println!("Double VecMat");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::DoubleVecMat(Selection::Inferred(())),
+    );
+
+    println!("Simple Unit Min");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        })),
+    );
+
+    println!("Simple Unit Max");
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MaxTileSize,
+        })),
+    );
 }
 
 #[allow(unused)]
@@ -342,7 +390,8 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
     // run_algos_unit::<R, MP>();
-    run_algos_wmma::<R, MP>();
+    // run_algos_wmma::<R, MP>();
+    run_algos_vecmat::<R, MP>();
 }
 
 fn main() {

@@ -164,6 +164,7 @@ impl WgslCompiler {
         match value {
             cube::Elem::Float(f) => match f {
                 cube::FloatKind::E2M1
+                | cube::FloatKind::E2M1x2
                 | cube::FloatKind::E2M3
                 | cube::FloatKind::E3M2
                 | cube::FloatKind::E4M3
@@ -217,7 +218,7 @@ impl WgslCompiler {
                 wgsl::Variable::GlobalInputArray(id, self.compile_item(item))
             }
             cube::VariableKind::GlobalScalar(id) => {
-                wgsl::Variable::GlobalScalar(id, self.compile_elem(item.elem), item.elem)
+                wgsl::Variable::GlobalScalar(id, self.compile_elem(item.elem))
             }
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 wgsl::Variable::LocalMut {

@@ -5,10 +5,11 @@ use crate::{
     Dialect,
     shared::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
-        Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-        SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, wmma_api_base,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
+        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WarpInstruction,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -30,6 +31,97 @@ pub struct MslDialect {}
 
 impl Dialect for MslDialect {
     type Architecture = MetalArchitecture;
+}
+
+impl DialectWarpReduceCompiler<Self> for MslDialect {
+    fn warp_reduce_sum(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_sum({input});\n"))
+    }
+    fn warp_reduce_prod(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_product({input});\n"))
+    }
+    fn warp_reduce_max(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_max({input});\n"))
+    }
+    fn warp_reduce_min(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_min({input});\n"))
+    }
+    fn warp_reduce_all(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_and({input});\n"))
+    }
+    fn warp_reduce_any(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_or({input});\n"))
+    }
+    fn warp_reduce_sum_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_inclusive_sum({input});\n"
+        ))
+    }
+    fn warp_reduce_prod_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_inclusive_product({input});\n"
+        ))
+    }
+    fn warp_reduce_sum_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_exclusive_sum({input});\n"
+        ))
+    }
+    fn warp_reduce_prod_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_exclusive_product({input});\n"
+        ))
+    }
 }
 
 // Includes
@@ -1017,17 +1109,41 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 frag_b,
                 frag_c,
                 frag_d,
-            } => Self::compile_manual_mma(f, *shape, frag_a, frag_b, frag_c, frag_d),
+            } => {
+                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
+            }
+            WmmaInstruction::ExecuteScaled {
+                shape,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
+                scales_a,
+                scales_b,
+                scales_factor,
+            } => Self::compile_scaled_mma(
+                f,
+                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
+                *scales_a,
+                *scales_b,
+                *scales_factor,
+            ),
         }
     }
 
     fn compile_manual_mma(
         _f: &mut std::fmt::Formatter<'_>,
-        _shape: shared::MmaShape<Self>,
-        _frag_a: &[Variable<Self>],
-        _frag_b: &[Variable<Self>],
-        _frag_c: &[Variable<Self>],
-        _frag_d: &Variable<Self>,
+        _mma: shared::ManualMma<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("Not supported")
+    }
+
+    fn compile_scaled_mma(
+        _f: &mut std::fmt::Formatter<'_>,
+        _mma: shared::ManualMma<Self>,
+        _scales_a: Variable<Self>,
+        _scales_b: Variable<Self>,
+        _scales_factor: u32,
     ) -> std::fmt::Result {
         unimplemented!("Not supported")
     }

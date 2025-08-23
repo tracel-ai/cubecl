@@ -69,11 +69,19 @@ pub trait CubePrimitive:
         Self::as_elem_native_unchecked().size_bits() as u32
     }
 
+    fn packing_factor() -> u32 {
+        Self::as_elem_native_unchecked().packing_factor() as u32
+    }
+
     fn __expand_elem_size(scope: &Scope) -> u32 {
         Self::as_elem(scope).size() as u32
     }
 
     fn __expand_elem_size_bits(scope: &Scope) -> u32 {
         Self::as_elem(scope).size_bits() as u32
+    }
+
+    fn __expand_packing_factor(scope: &Scope) -> u32 {
+        Self::as_elem(scope).packing_factor() as u32
     }
 }

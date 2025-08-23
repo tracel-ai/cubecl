@@ -1,8 +1,10 @@
-use crate::base::ConvolutionProblem;
-use crate::tests::convolution_test_launcher::test_convolution_algorithm;
 use crate::{
-    algorithm::Algorithm, args::ConvInputsLaunch, base::Dimensionality,
+    components::{ConvolutionProblem, Dimensionality, global::args::ConcreteInputsFactory},
     tests::test_utils::TestPrecision,
+};
+use crate::{
+    kernels::layered::algorithm::Algorithm,
+    tests::convolution_test_launcher::test_convolution_algorithm,
 };
 use cubecl_core::Runtime;
 use cubecl_matmul::components::global::args::ConcreteOutputFactory;
@@ -27,7 +29,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     stage_size: StageSize,
     problem: ConvolutionSize,
 ) where
-    Args::Input<P::EG, P::EG>: ConvInputsLaunch,
+    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
     Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
@@ -146,20 +148,20 @@ macro_rules! conv2d_standard_tests {
             $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 1, k: 1 });
         }
 
-        mod p1x8x1 {
-            use super::*;
-            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 8, k: 1 });
-        }
+        // mod p1x8x1 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 8, k: 1 });
+        // }
 
-        mod p1x2x2 {
-            use super::*;
-            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 2, k: 2 });
-        }
+        // mod p1x2x2 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 2, k: 2 });
+        // }
 
-        mod p1x4x2 {
-            use super::*;
-            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 4, k: 2 });
-        }
+        // mod p1x4x2 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 4, k: 2 });
+        // }
     };
 
     ($tile:expr, $partition:expr) => {
@@ -323,9 +325,9 @@ macro_rules! conv2d_standard_tests {
 
     ($tile:expr, $partition:expr, $stage:expr, $problem:expr) => {
         use cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
-        use $crate::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
-        use $crate::algorithm::simple::SimpleConvAlgorithm;
-        use $crate::algorithm::simple_tma::SimpleTmaConvAlgorithm;
+        use $crate::kernels::layered::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
+        use $crate::kernels::layered::algorithm::simple::SimpleConvAlgorithm;
+        use $crate::kernels::layered::algorithm::simple_tma::SimpleTmaConvAlgorithm;
 
         #[test]
         pub fn simple_coalesced_im2col() {

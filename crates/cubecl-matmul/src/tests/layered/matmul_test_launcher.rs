@@ -78,6 +78,14 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
+    let props = &client.properties().hardware;
+    if !props.max_cube_dim.can_contain(config.cube_dim())
+        || config.cube_dim().num_elems() > props.max_units_per_cube
+    {
+        println!("Skipping test, too many resources requested");
+        return;
+    }
+
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
@@ -109,6 +117,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                     .as_ref()
                     .map(|it| TensorArg::<R>::from_raw_parts::<P::EG>(it, &[1], &[1], 1))
                     .into(),
+                None.into(),
             ),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,
@@ -143,7 +152,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 1234);
 
-            let data = client.read_one(handle.handle);
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -188,7 +197,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &tensor_shape, 5678);
 
-            let data = client.read_one(handle.handle);
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 

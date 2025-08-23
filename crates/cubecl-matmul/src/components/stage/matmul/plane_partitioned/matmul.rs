@@ -1,3 +1,5 @@
+use crate::components::InputPrecision;
+use crate::components::MatmulPrecision;
 use crate::components::global::PlaneWriter;
 use crate::components::global::RoleRule;
 use crate::components::stage::StageConfig;
@@ -7,11 +9,23 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{
+    layout::{Coords3d, TensorView},
+    r#virtual::ReadWrite,
+};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
-pub type PlaneMatmul<MP, TMM: TileMatmul<MP>, RL, RR> = PartitionedStageMatmul<
+pub type PlaneMatmul<
+    MP: MatmulPrecision,
+    TMM: TileMatmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            <MP as MatmulPrecision>::EA,
+        >,
+    RL,
+    RR,
+> = PartitionedStageMatmul<
     MP,
     TMM,
     RL,
@@ -26,9 +40,10 @@ pub struct PlanePartitioner {}
 #[cube]
 impl StagePartitioner for PlanePartitioner {
     type Writer<EO: Numeric> = PlaneWriter<EO>;
+    type WriteCoords = Coords3d;
 
     fn init_writer<EO: Numeric>(
-        tensor: VirtualTensor<EO, ReadWrite>,
+        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
