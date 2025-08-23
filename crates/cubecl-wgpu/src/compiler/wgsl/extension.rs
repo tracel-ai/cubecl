@@ -121,6 +121,10 @@ fn construct_vectorized_name(base_name: &str, item: Item) -> String {
     format!("{base_name}_{vec_factor}_{elem}")
 }
 
+fn construct_primitive_name(base_name: &str, elem: Elem) -> String {
+    format!("{base_name}_{elem}")
+}
+
 struct VectorIdent {
     name: &'static str,
     item: Item,
@@ -135,6 +139,7 @@ fn construct_vector(
 ) -> core::fmt::Result {
     let vec_factor = output.vectorization_factor();
     let function_name = construct_vectorized_name(base_name, output);
+    let primitive_name = construct_primitive_name(primitive_name, *output.elem());
     write!(f, "fn {function_name}(")?;
     for VectorIdent { name, item } in inputs {
         write!(f, "{name}: {item}, ")?;
@@ -181,10 +186,11 @@ fn format_powf_primitive(
     f: &mut std::fmt::Formatter<'_>,
     elem: &Elem,
 ) -> Result<(), std::fmt::Error> {
+    let function_name = construct_primitive_name(POWF_PRIMITIVE, *elem);
     write!(
         f,
         "
-fn powf_primitive(lhs: {elem}, rhs: {elem}) -> {elem} {{
+fn {function_name}(lhs: {elem}, rhs: {elem}) -> {elem} {{
     let modulo = rhs % 2.0;
     if rhs == 0.0 {{
         return 1.0;
@@ -210,11 +216,12 @@ fn format_safe_tanh_primitive(
     f: &mut std::fmt::Formatter<'_>,
     elem: &Elem,
 ) -> Result<(), std::fmt::Error> {
+    let function_name = construct_primitive_name(SAFE_TANH_PRIMITIVE, *elem);
     write!(
         f,
         "
 /// Metal has a weird numerical behaviour with tanh for inputs over 43.0
-fn safe_tanh_primitive(x: {elem}) -> {elem} {{
+fn {function_name}(x: {elem}) -> {elem} {{
     if x > 43.0 {{
         return 1.0;
     }} else {{
