@@ -1,4 +1,4 @@
-use super::base::{Item, Elem};
+use super::base::{Elem, Item};
 use std::fmt::Display;
 
 /// Not all functions are native to WGSL, so this struct allows to support more functions.
