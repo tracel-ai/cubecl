@@ -274,7 +274,7 @@ var<{}, {}> {}: {};
         len: Option<usize>,
         num_entry: usize,
     ) -> core::fmt::Result {
-        // Scalar bindings are seperately allocated and always on their own page, so we can mark them as read-only.
+        // Scalar bindings are separately allocated and always on their own page, so we can mark them as read-only.
         // Really, they SHOULD be marked as <uniform> but that requires an alignment of 16 bytes currently,
         // and that would complicate generating the shader code.
         let ty = match len {
