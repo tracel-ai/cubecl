@@ -6,9 +6,8 @@ use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_siz
 use crate::{
     qparams::QParams,
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
-    utils::strided_layout,
 };
-use cubecl_std::tensor::{AsViewMut, AsViewMutExpand, StridedLayout, index_offset_contiguous};
+use cubecl_std::tensor::layout::linear::{LinearTensorView, LinearTensorViewLaunch};
 use half::{bf16, f16};
 
 /// Dequantize a line of values into floating-point values using the provided scale.
@@ -149,25 +148,25 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
-    input: &Tensor<Line<i8>>,
+    input: &LinearTensorView<i8>,
     scale: &Tensor<FS>,
-    output: &mut Tensor<Line<F>>,
-    out_layout: StridedLayout,
+    output: &mut LinearTensorView<F>,
     #[comptime] scheme: QuantScheme,
-    #[comptime] rank: Option<u32>,
 ) {
     if ABSOLUTE_POS >= input.len() {
         terminate!();
     }
 
-    let in_pos = index_offset_contiguous(input, ABSOLUTE_POS, rank);
-    let mut output = output.view_mut(out_layout.virt());
+    let line_size = input.line_size();
+    let input = input.view();
+    let mut output = output.view_mut();
 
     let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * input.line_size());
+    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * line_size);
 
-    output[ABSOLUTE_POS] = dequantize_symmetric::<F, FS>(Line::cast_from(input[in_pos]), scale);
+    output[ABSOLUTE_POS] =
+        dequantize_symmetric::<F, FS>(Line::cast_from(input[ABSOLUTE_POS]), scale);
 }
 
 #[allow(clippy::result_large_err)]
@@ -287,9 +286,11 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         input.strides,
         input.shape.len() - 1,
     );
-    let out_layout = strided_layout(client, output, &line_size);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
+
+    let input = LinearTensorViewLaunch::from_handle(client, input, &line_size);
+    let output = LinearTensorViewLaunch::from_handle(client, output, &line_size);
 
     match scheme {
         QuantScheme {
@@ -304,12 +305,10 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    input.as_tensor_arg(line_size),
+                    input,
                     scale.as_tensor_arg(1),
-                    output.as_tensor_arg(line_size),
-                    out_layout,
+                    output,
                     *scheme,
-                    Some(input.shape.len() as u32),
                 )
             };
         }

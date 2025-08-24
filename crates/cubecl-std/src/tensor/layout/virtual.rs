@@ -16,7 +16,7 @@ impl<C: Coordinates> Copy for VirtualLayout<C> {}
 
 #[derive(Clone)]
 pub struct VirtualLayoutExpand<C: Coordinates> {
-    state: Arc<dyn VirtualLayoutOperationsExpand<C>>,
+    pub(crate) state: Arc<dyn VirtualLayoutOperationsExpand<C>>,
 }
 
 #[cube]

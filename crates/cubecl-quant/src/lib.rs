@@ -18,18 +18,7 @@ pub mod tests;
 
 #[cfg(feature = "kernels")]
 pub(crate) mod utils {
-    use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
-    use cubecl_std::tensor::StridedLayoutLaunch;
-
     use crate::scheme::{QuantLevel, QuantScheme};
-
-    pub(crate) fn strided_layout<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        tensor: &TensorHandleRef<R>,
-        line_size: &'a u8,
-    ) -> StridedLayoutLaunch<'a, R> {
-        StridedLayoutLaunch::from_handle(client, tensor, line_size)
-    }
 
     pub(crate) fn check_block_size_compat(scheme: &QuantScheme, div: usize) {
         // Validate block size compatibility

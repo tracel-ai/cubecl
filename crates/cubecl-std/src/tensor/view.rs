@@ -9,20 +9,20 @@ use crate::tensor::{
 };
 
 #[derive(Clone)]
-pub struct TensorView<E: Numeric, C: Coordinates, IO: Clone = Read> {
+pub struct TensorView<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
     pub layout: VirtualLayout<C>,
     _list: PhantomData<(E, IO)>,
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> Copy for TensorView<E, C, IO> {}
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for TensorView<E, C, IO> {}
 
 #[derive(Clone)]
-enum ListType<E: Numeric> {
+enum ListType<E: CubePrimitive> {
     Read(Arc<dyn ListExpand<Line<E>>>),
     ReadWrite(Arc<dyn ListMutExpand<Line<E>>>),
 }
 
-impl<E: Numeric> ListType<E> {
+impl<E: CubePrimitive> ListType<E> {
     /// Dereference in read mode
     pub fn read(&self) -> &dyn ListExpand<Line<E>> {
         match self {
@@ -44,25 +44,25 @@ impl<E: Numeric> ListType<E> {
 /// Allows abstract indexing in multiple dimensions, without having to know the data layout or
 /// location.
 #[derive(Clone)]
-pub struct TensorViewExpand<E: Numeric, C: Coordinates, IO: Clone = Read> {
+pub struct TensorViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
     tensor: ListType<E>,
     layout: VirtualLayoutExpand<C>,
     _io: PhantomData<IO>,
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> CubeType for TensorView<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for TensorView<E, C, IO> {
     type ExpandType = TensorViewExpand<E, C, IO>;
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> IntoMut for TensorViewExpand<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for TensorViewExpand<E, C, IO> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> CubeDebug for TensorViewExpand<E, C, IO> {}
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for TensorViewExpand<E, C, IO> {}
 
-impl<E: Numeric, C: Coordinates> TensorView<E, C, Read> {
+impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, Read> {
     /// Create a new tensor view from an underlying concrete storage and a layout to map it into
     /// the target coordinate space
     #[allow(unused_variables)]
@@ -95,7 +95,7 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, Read> {
     }
 }
 
-impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
+impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
     /// Create a new mutable tensor view from an underlying concrete storage and a layout to map it
     /// into the target coordinate space
     pub fn new_mut<T>(_tensor: T, _layout: VirtualLayout<C>) -> TensorView<E, C, ReadWrite>
@@ -125,7 +125,7 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
 }
 
 #[cube]
-impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
     /// Calls [Layout::to_linear_pos] on the view's layout
     #[allow(unused)]
     pub fn to_linear_pos(&self, pos: C) -> u32 {
@@ -145,7 +145,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
 }
 
 #[allow(unused_variables)]
-impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
     /// Read a line at `pos`. The layout handles translation into a concrete index.
     pub fn read(&self, pos: C) -> Line<E> {
         unexpanded!()
@@ -163,7 +163,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
     }
 }
 
-impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
     /// Expand method for [TensorView::read]
     pub fn __expand_read_method(
         self,
@@ -200,7 +200,7 @@ impl<E: Numeric, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
 }
 
 #[allow(unused_variables)]
-impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
+impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
     /// Write a line to `pos`. The layout handles translation into a concrete index.
     pub fn write(&self, pos: C, value: Line<E>) {
         unexpanded!()
@@ -212,7 +212,7 @@ impl<E: Numeric, C: Coordinates> TensorView<E, C, ReadWrite> {
     }
 }
 
-impl<E: Numeric, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
+impl<E: CubePrimitive, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
     /// Expand method for [TensorView::write]
     pub fn __expand_write_method(
         self,
@@ -244,14 +244,14 @@ impl<E: Numeric, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
     }
 }
 
-pub trait AsView<E: Numeric> {
+pub trait AsView<E: CubePrimitive> {
     #[allow(unused)]
     fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> TensorView<E, C, Read> {
         unexpanded!()
     }
 }
 
-pub trait AsViewExpand<E: Numeric> {
+pub trait AsViewExpand<E: CubePrimitive> {
     fn __expand_view_method<C: Coordinates>(
         self,
         scope: &mut Scope,
@@ -259,7 +259,7 @@ pub trait AsViewExpand<E: Numeric> {
     ) -> TensorViewExpand<E, C, Read>;
 }
 
-pub trait AsViewMut<E: Numeric> {
+pub trait AsViewMut<E: CubePrimitive> {
     #[allow(unused)]
     fn view_mut<C: Coordinates>(
         &mut self,
@@ -269,7 +269,7 @@ pub trait AsViewMut<E: Numeric> {
     }
 }
 
-pub trait AsViewMutExpand<E: Numeric> {
+pub trait AsViewMutExpand<E: CubePrimitive> {
     fn __expand_view_mut_method<C: Coordinates>(
         self,
         scope: &mut Scope,
@@ -280,13 +280,13 @@ pub trait AsViewMutExpand<E: Numeric> {
 mod as_view {
     use super::*;
 
-    impl<E: Numeric, L> AsView<E> for L
+    impl<E: CubePrimitive, L> AsView<E> for L
     where
         L: List<Line<E>> + CubeType<ExpandType = ExpandElementTyped<L>> + 'static,
         L::ExpandType: ListExpand<Line<E>>,
     {
     }
-    impl<E: Numeric, L> AsViewExpand<E> for ExpandElementTyped<L>
+    impl<E: CubePrimitive, L> AsViewExpand<E> for ExpandElementTyped<L>
     where
         L: List<Line<E>> + CubeType<ExpandType = ExpandElementTyped<L>> + 'static,
         L::ExpandType: ListExpand<Line<E>>,
@@ -300,13 +300,13 @@ mod as_view {
         }
     }
 
-    impl<E: Numeric, L> AsViewMut<E> for L
+    impl<E: CubePrimitive, L> AsViewMut<E> for L
     where
         L: ListMut<Line<E>> + CubeType<ExpandType = ExpandElementTyped<L>> + 'static,
         L::ExpandType: ListMutExpand<Line<E>>,
     {
     }
-    impl<E: Numeric, L> AsViewMutExpand<E> for ExpandElementTyped<L>
+    impl<E: CubePrimitive, L> AsViewMutExpand<E> for ExpandElementTyped<L>
     where
         L: ListMut<Line<E>> + CubeType<ExpandType = ExpandElementTyped<L>> + 'static,
         L::ExpandType: ListMutExpand<Line<E>>,
@@ -324,11 +324,13 @@ mod as_view {
 mod idx {
     use super::*;
 
-    impl<E: Numeric, C: Coordinates, IO: Clone> CubeIndex<C> for TensorView<E, C, IO> {
+    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndex<C> for TensorView<E, C, IO> {
         type Output = Line<E>;
     }
 
-    impl<E: Numeric, C: Coordinates, IO: Clone> CubeIndexExpand<C> for TensorViewExpand<E, C, IO> {
+    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand<C>
+        for TensorViewExpand<E, C, IO>
+    {
         type Output = <Line<E> as CubeType>::ExpandType;
 
         fn expand_index(self, scope: &mut Scope, index: C::ExpandType) -> Self::Output {
@@ -340,8 +342,8 @@ mod idx {
         }
     }
 
-    impl<E: Numeric, C: Coordinates> CubeIndexMut<C> for TensorView<E, C, ReadWrite> {}
-    impl<E: Numeric, C: Coordinates> CubeIndexMutExpand<C> for TensorViewExpand<E, C, ReadWrite> {
+    impl<E: CubePrimitive, C: Coordinates> CubeIndexMut<C> for TensorView<E, C, ReadWrite> {}
+    impl<E: CubePrimitive, C: Coordinates> CubeIndexMutExpand<C> for TensorViewExpand<E, C, ReadWrite> {
         type Output = <Line<E> as CubeType>::ExpandType;
 
         fn expand_index_mut(self, scope: &mut Scope, index: C::ExpandType, value: Self::Output) {

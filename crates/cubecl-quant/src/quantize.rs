@@ -2,12 +2,11 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_std::tensor::index_offset_contiguous;
-use cubecl_std::tensor::{AsViewMut, AsViewMutExpand, StridedLayout, into_contiguous};
+use cubecl_std::tensor::layout::linear::LinearTensorView;
+use cubecl_std::tensor::{into_contiguous, layout::linear::LinearTensorViewLaunch};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
 use crate::utils::check_block_size_compat;
-use crate::utils::strided_layout;
 use half::{bf16, f16};
 
 #[cube]
@@ -111,29 +110,28 @@ fn write_scale_per_block<F: Float, FS: Float>(
 
 #[cube(launch_unchecked)]
 fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
-    input: &Tensor<Line<F>>,
+    input: &LinearTensorView<F>,
     scale: &Tensor<F>,
     range_min: F,
     range_max: F,
-    output: &mut Tensor<Line<i8>>,
+    output: &mut LinearTensorView<i8>,
     out_scale: &mut Tensor<FS>,
-    out_layout: StridedLayout,
-    #[comptime] rank: Option<u32>,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= output.len() {
         terminate!();
     }
 
-    let in_pos = index_offset_contiguous(input, ABSOLUTE_POS, rank);
-    let mut output = output.view_mut(out_layout.virt());
+    let line_size = input.line_size();
+    let input = input.view();
+    let mut output = output.view_mut();
 
     let scale = match comptime!(scheme) {
         QuantScheme {
             level: QuantLevel::Block(block_size),
             ..
         } => write_scale_per_block(
-            in_pos * input.line_size(),
+            ABSOLUTE_POS * line_size,
             scale,
             out_scale,
             comptime!(block_size as u32),
@@ -145,7 +143,7 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     };
 
     output[ABSOLUTE_POS] =
-        quantize_symmetric_i::<F, FS, i8>(input[in_pos], scale, range_min, range_max);
+        quantize_symmetric_i::<F, FS, i8>(input[ABSOLUTE_POS], scale, range_min, range_max);
 }
 
 #[cube(launch_unchecked)]
@@ -260,9 +258,11 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
         input.strides,
         input.shape.len() - 1,
     );
-    let out_layout = strided_layout(client, output, &line_size);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
+
+    let input = LinearTensorViewLaunch::from_handle(client, input, &line_size);
+    let output = LinearTensorViewLaunch::from_handle(client, output, &line_size);
 
     match scheme {
         QuantScheme {
@@ -279,15 +279,13 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    input.as_tensor_arg(line_size),
+                    input,
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scale.as_tensor_arg(1),
                     ScalarArg::new(F::from_int(-i8::MAX as i64)),
                     ScalarArg::new(F::from_int(i8::MAX as i64)),
-                    output.as_tensor_arg(line_size),
+                    output,
                     out_scale.as_tensor_arg(1),
-                    out_layout,
-                    Some(input.shape.len() as u32),
                     *scheme,
                 )
             };
