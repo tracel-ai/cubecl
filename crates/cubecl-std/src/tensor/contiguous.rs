@@ -2,7 +2,7 @@ use crate::{
     FastDivmod,
     tensor::layout::{
         VirtualLayoutOperations, VirtualLayoutOperationsExpand,
-        linear::{LinearLayout, LinearLayoutArgs, LinearTensorView, LinearTensorViewLaunch},
+        linear::{LinearLayout, LinearLayoutArgs, LinearTensorView, linear_tensor},
     },
 };
 
@@ -98,7 +98,6 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 ) {
     let offset_output = ABSOLUTE_POS * elems_per_thread;
     let line_size = input.line_size();
-    let input = input.view();
 
     let mut registers = Array::<Line<N>>::vectorized(elems_per_thread, line_size);
 
@@ -122,7 +121,6 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
 ) {
-    let input = input.view();
     let line_size = output.line_size();
     let lines_per_thread = comptime![elems_per_thread / line_size];
 
@@ -234,7 +232,7 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
             .unwrap_or(&1)
     };
 
-    let input = LinearTensorViewLaunch::from_handle(client, input, &vectorization_factor);
+    let input = linear_tensor(client, input, &vectorization_factor);
     let out_layout = LinearLayoutArgs::from_handle(client, output, &out_vec);
 
     let cube_dim = CubeDim::default();

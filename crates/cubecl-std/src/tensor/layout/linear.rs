@@ -3,12 +3,14 @@ use cubecl_core as cubecl;
 
 use crate::tensor::{
     is_contiguous, is_contiguous_pitched,
+    launch::{TensorViewTyped, TensorViewTypedLaunch},
     layout::{
         Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutLaunch},
         strided::{StridedLayout, StridedLayoutLaunch},
         virtual_layout,
     },
+    r#virtual::Read,
 };
 
 /// Maps a linear index based on line count to a potentially strided tensor. Only applies the
@@ -95,72 +97,29 @@ impl Layout for LinearLayout {
 
 virtual_layout!(LinearLayout, LinearLayoutExpand);
 
-mod view {
-    use cubecl_core::unexpanded;
+pub type LinearTensorView<E, IO = Read> = TensorViewTyped<E, LinearLayout, IO>;
+pub type LinearTensorViewLaunch<'a, R> = TensorViewTypedLaunch<'a, LinearLayout, R>;
 
-    use crate::tensor::{
-        TensorView, TensorViewExpand,
-        r#virtual::{Read, ReadWrite},
+pub fn linear_tensor<'a, R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    handle: &'a TensorHandleRef<'a, R>,
+    line_size: &'a u8,
+) -> LinearTensorViewLaunch<'a, R> {
+    let len = handle.shape.iter().product::<usize>();
+    let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
+    let buffer = unsafe {
+        ArrayArg::from_raw_parts_and_size(handle.handle, len, *line_size, handle.elem_size)
     };
-
-    use super::*;
-
-    #[derive(CubeType, CubeLaunch)]
-    pub struct LinearTensorView<E: CubePrimitive> {
-        tensor: Tensor<Line<E>>,
-        layout: LinearLayout,
-    }
-
-    impl<'a, E: CubePrimitive, R: Runtime> LinearTensorViewLaunch<'a, E, R> {
-        pub fn from_handle(
-            client: &ComputeClient<R::Server, R::Channel>,
-            handle: &'a TensorHandleRef<'a, R>,
-            line_size: &'a u8,
-        ) -> Self {
-            let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
-            let tensor = handle.as_tensor_arg(*line_size);
-            Self::new(tensor, layout)
-        }
-    }
-
-    #[cube]
-    impl<E: CubePrimitive> LinearTensorView<E> {
-        pub fn line_size(&self) -> comptime_type!(u32) {
-            comptime![self.tensor.line_size()]
-        }
-
-        #[allow(clippy::len_without_is_empty)]
-        pub fn len(&self) -> u32 {
-            self.layout.shape()
-        }
-    }
-
-    impl<E: CubePrimitive> LinearTensorView<E> {
-        pub fn view(&self) -> TensorView<E, Coords1d, Read> {
-            unexpanded!()
-        }
-
-        pub fn view_mut(&mut self) -> TensorView<E, Coords1d, ReadWrite> {
-            unexpanded!()
-        }
-    }
-
-    impl<E: CubePrimitive> LinearTensorViewExpand<E> {
-        pub fn __expand_view_method(
-            self,
-            scope: &mut Scope,
-        ) -> TensorViewExpand<E, Coords1d, Read> {
-            let layout = self.layout.__expand_virt_method(scope);
-            TensorView::__expand_new::<Tensor<Line<E>>>(scope, self.tensor, layout)
-        }
-
-        pub fn __expand_view_mut_method(
-            self,
-            scope: &mut Scope,
-        ) -> TensorViewExpand<E, Coords1d, ReadWrite> {
-            let layout = self.layout.__expand_virt_method(scope);
-            TensorView::__expand_new_mut::<Tensor<Line<E>>>(scope, self.tensor, layout)
-        }
-    }
+    LinearTensorViewLaunch::new(buffer, layout)
 }
-pub use view::*;
+
+pub fn linear_tensor_alias<'a, R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    handle: &'a TensorHandleRef<'a, R>,
+    line_size: &'a u8,
+    pos: usize,
+) -> LinearTensorViewLaunch<'a, R> {
+    let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
+    let buffer = ArrayArg::Alias { input_pos: pos };
+    LinearTensorViewLaunch::new(buffer, layout)
+}

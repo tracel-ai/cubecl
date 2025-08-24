@@ -6,7 +6,7 @@ use cubecl_std::tensor::{
     TensorView,
     layout::{
         Coords1d,
-        linear::{LinearTensorView, LinearTensorViewLaunch},
+        linear::{LinearTensorView, linear_tensor},
     },
     r#virtual::ReadWrite,
 };
@@ -44,7 +44,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     //     output.strides.len() - 1,
     // );
 
-    let output = LinearTensorViewLaunch::from_handle(client, &output, &output_line_size);
+    let output = linear_tensor(client, &output, &output_line_size);
 
     prng_kernel::launch::<F, E, R>(
         client,
@@ -116,7 +116,7 @@ type Args<F, E> = <<F as RandomFamily>::Runtime<E> as PrngArgs<E>>::Args;
 
 #[cube(launch)]
 fn prng_kernel<F: RandomFamily, E: Numeric>(
-    output: &mut LinearTensorView<E>,
+    output: &mut LinearTensorView<E, ReadWrite>,
     seed_0: u32,
     seed_1: u32,
     seed_2: u32,
@@ -126,7 +126,6 @@ fn prng_kernel<F: RandomFamily, E: Numeric>(
     #[comptime] line_size: u32,
 ) {
     let cube_offset = CUBE_POS * CUBE_DIM;
-    let mut output = output.view_mut();
 
     let write_index_base = cube_offset * n_values_per_thread / line_size + UNIT_POS;
 
@@ -149,7 +148,7 @@ fn prng_kernel<F: RandomFamily, E: Numeric>(
         &mut state_1,
         &mut state_2,
         &mut state_3,
-        &mut output,
+        output,
     );
 }
 

@@ -63,6 +63,14 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         self.state.clone().__expand_len_method(scope)
     }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        self.state.clone().__expand_line_size_method(scope)
+    }
+
+    fn line_size(&self) -> u32 {
+        self.state.clone().line_size()
+    }
 }
 
 impl<E: Numeric, IO: Clone> SliceOperator<Line<E>> for VirtualTensor<E, IO> {}
@@ -415,6 +423,10 @@ pub trait VirtualTensorOperationsExpand<E: Numeric> {
     fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
     fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
+    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
+        self.line_size()
+    }
+    fn line_size(&self) -> u32;
 }
 
 /// Making [virtual tensors](VirtualTensor) a proper [cube type](CubeType).
@@ -498,6 +510,10 @@ mod __tensor {
         ) -> ExpandElementTyped<TensorMap<E>> {
             unimplemented!("Can't turn normal tensor into `TensorMap`");
         }
+
+        fn line_size(&self) -> u32 {
+            self.clone().line_size()
+        }
     }
 }
 
@@ -563,6 +579,10 @@ mod __tensor_map {
             _scope: &mut Scope,
         ) -> ExpandElementTyped<TensorMap<E>> {
             self.clone()
+        }
+
+        fn line_size(&self) -> u32 {
+            1
         }
     }
 }

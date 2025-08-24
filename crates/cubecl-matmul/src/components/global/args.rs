@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, server::TensorMapMeta};
+use cubecl_core::{self as cubecl, intrinsic, server::TensorMapMeta};
 use cubecl_std::{
     CubeOption, CubeOptionArgs, CubeOptionExpand,
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
@@ -193,6 +193,23 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
         state: &Self::State<Lhs, Rhs, EO>,
         axis: u32,
     ) -> u32;
+
+    /// Get the line size of the lhs tensor using the state.
+    fn line_size_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32);
+    /// Get the line size of the rhs tensor using the state.
+    fn line_size_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32);
+    /// Get the line size of the acc tensor using the state.
+    fn line_size_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32);
+    /// Get the line size of the out tensor using the state.
+    fn line_size_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32);
 }
 
 #[derive(Clone, Copy)]
@@ -306,6 +323,14 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     ) -> ExpandElementTyped<TensorMap<EO>> {
         unimplemented!("TensorOutputExpand can't be turned into a tensor map");
     }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        TensorOutputExpand::__expand_line_size_method(self.clone(), scope)
+    }
+
+    fn line_size(&self) -> u32 {
+        todo!()
+    }
 }
 
 impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<Lhs>
@@ -369,6 +394,14 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
         scope: &mut Scope,
     ) -> ExpandElementTyped<TensorMap<Lhs>> {
         TensorLhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
+    }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        TensorLhsExpand::__expand_line_size_method(self.clone(), scope)
+    }
+
+    fn line_size(&self) -> u32 {
+        todo!()
     }
 }
 
@@ -434,6 +467,14 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     ) -> ExpandElementTyped<TensorMap<Rhs>> {
         TensorRhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        TensorRhsExpand::__expand_line_size_method(self.clone(), scope)
+    }
+
+    fn line_size(&self) -> u32 {
+        todo!()
+    }
 }
 
 impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EO>
@@ -497,6 +538,14 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
         scope: &mut Scope,
     ) -> ExpandElementTyped<TensorMap<EO>> {
         TensorAccExpand::__expand_as_tensor_map_method(self.clone(), scope)
+    }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        TensorAccExpand::__expand_line_size_method(self.clone(), scope)
+    }
+
+    fn line_size(&self) -> u32 {
+        todo!()
     }
 }
 
@@ -578,6 +627,11 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorLhs<Lhs, Rhs
     pub fn as_tensor_map(&self) -> TensorMap<Lhs> {
         unsafe { MA::as_tensor_map_lhs(&(*self.state)) }
     }
+
+    /// Get the line size of the tensor.
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        unsafe { MA::line_size_lhs(&(*self.state)) }
+    }
 }
 
 #[cube]
@@ -626,6 +680,11 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorRhs<Lhs, Rhs
     /// Get the buffer length of the tensor.
     pub fn as_tensor_map(&self) -> TensorMap<Rhs> {
         unsafe { MA::as_tensor_map_rhs(&(*self.state)) }
+    }
+
+    /// Get the line size of the tensor.
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        unsafe { MA::line_size_rhs(&(*self.state)) }
     }
 }
 
@@ -676,6 +735,11 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorAcc<Lhs, Rhs
     pub fn as_tensor_map(&self) -> TensorMap<EO> {
         unsafe { MA::as_tensor_map_acc(&(*self.state)) }
     }
+
+    /// Get the line size of the tensor.
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        unsafe { MA::line_size_acc(&(*self.state)) }
+    }
 }
 
 #[cube]
@@ -714,6 +778,11 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> TensorOutput<Lhs, 
     /// Get the buffer length of the tensor.
     pub fn buffer_len(&self) -> u32 {
         unsafe { GA::len_out(&(*self.state)) }
+    }
+
+    /// Get the buffer length of the tensor.
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        unsafe { GA::line_size_out(&(*self.state)) }
     }
 }
 
@@ -999,6 +1068,33 @@ impl MatmulArgs for TensorArgs {
         state: &Self::State<Lhs, Rhs, EO>,
     ) -> u32 {
         unsafe { (*state.3).buffer_len() }
+    }
+
+    fn line_size_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        unsafe { (*state.0).line_size() }
+    }
+    fn line_size_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        unsafe { (*state.1).line_size() }
+    }
+    #[allow(unused_variables)]
+    fn line_size_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        intrinsic!(|scope| {
+            match state.2 {
+                CubeOptionExpand::None => 1,
+                CubeOptionExpand::Some(t) => t.__expand_line_size_method(scope),
+            }
+        })
+    }
+    fn line_size_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        unsafe { (*state.3).line_size() }
     }
 }
 
@@ -1379,6 +1475,33 @@ impl MatmulArgs for TensorMapArgs {
         state: &Self::State<Lhs, Rhs, EO>,
     ) -> u32 {
         unsafe { (*state.3).buffer_len() }
+    }
+
+    fn line_size_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        1
+    }
+    fn line_size_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        _state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        1
+    }
+    #[allow(unused_variables)]
+    fn line_size_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        intrinsic!(|scope| {
+            match state.2 {
+                CubeOptionExpand::None => 1,
+                CubeOptionExpand::Some(t) => t.__expand_line_size_method(scope),
+            }
+        })
+    }
+    fn line_size_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+        state: &Self::State<Lhs, Rhs, EO>,
+    ) -> comptime_type!(u32) {
+        unsafe { (*state.3).line_size() }
     }
 }
 

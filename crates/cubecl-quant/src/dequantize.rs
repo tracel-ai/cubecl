@@ -7,7 +7,10 @@ use crate::{
     qparams::QParams,
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
 };
-use cubecl_std::tensor::layout::linear::{LinearTensorView, LinearTensorViewLaunch};
+use cubecl_std::tensor::{
+    layout::linear::{LinearTensorView, linear_tensor},
+    r#virtual::ReadWrite,
+};
 use half::{bf16, f16};
 
 /// Dequantize a line of values into floating-point values using the provided scale.
@@ -150,20 +153,16 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     input: &LinearTensorView<i8>,
     scale: &Tensor<FS>,
-    output: &mut LinearTensorView<F>,
+    output: &mut LinearTensorView<F, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= input.len() {
         terminate!();
     }
 
-    let line_size = input.line_size();
-    let input = input.view();
-    let mut output = output.view_mut();
-
     let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * line_size);
+    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * input.line_size());
 
     output[ABSOLUTE_POS] =
         dequantize_symmetric::<F, FS>(Line::cast_from(input[ABSOLUTE_POS]), scale);
@@ -289,8 +288,8 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
 
-    let input = LinearTensorViewLaunch::from_handle(client, input, &line_size);
-    let output = LinearTensorViewLaunch::from_handle(client, output, &line_size);
+    let input = linear_tensor(client, input, &line_size);
+    let output = linear_tensor(client, output, &line_size);
 
     match scheme {
         QuantScheme {
