@@ -305,7 +305,7 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::Q8F,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
