@@ -17,7 +17,6 @@ fn quantize_symmetric<F: Float, FS: Float>(
     range_min: F,
     range_max: F,
 ) -> Line<F> {
-    // x_q = clamp(round(x / scale), a, b)
     Line::clamp(
         Line::round(value / Line::cast_from(scale)),
         Line::new(range_min),
@@ -161,7 +160,7 @@ fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
         terminate!();
     }
 
-    let num_quants = comptime!((scheme.size_bits_stored() / scheme.size_bits_value()) as u32);
+    let num_quants = comptime!(scheme.num_quants() as u32);
     let packed_pos = ABSOLUTE_POS * num_quants;
 
     let scale = match comptime!(scheme) {
@@ -206,7 +205,6 @@ pub fn launch_ref<R: Runtime, F: Float>(
 ) {
     match scheme {
         QuantScheme {
-            value: QuantValue::QInt8,
             store: QuantStore::U32,
             ..
         } => match scheme.param {
@@ -221,12 +219,15 @@ pub fn launch_ref<R: Runtime, F: Float>(
             }
         },
         QuantScheme {
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
             if !i8::is_supported(client) {
-                panic!("QInt8 is not supported for native quantization");
+                panic!(
+                    "{:?} is not supported for native quantization",
+                    scheme.value
+                );
             }
 
             match scheme.param {
@@ -240,6 +241,13 @@ pub fn launch_ref<R: Runtime, F: Float>(
                     quantize_native::<R, F, bf16>(client, input, scheme, scale, out_scale, output)
                 }
             }
+        }
+        QuantScheme {
+            store: QuantStore::Native,
+            value,
+            ..
+        } => {
+            panic!("{value:?} is not supported for native quantization");
         }
     }
 }
@@ -262,12 +270,13 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
     let out_layout = strided_layout(client, output);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
+    let (range_min, range_max) = scheme.value.range();
 
     match scheme {
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
@@ -281,8 +290,8 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
                     input.as_tensor_arg(line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scale.as_tensor_arg(1),
-                    ScalarArg::new(F::from_int(-i8::MAX as i64)),
-                    ScalarArg::new(F::from_int(i8::MAX as i64)),
+                    ScalarArg::new(F::from_int(range_min as i64)),
+                    ScalarArg::new(F::from_int(range_max as i64)),
                     output.as_tensor_arg(line_size),
                     out_scale.as_tensor_arg(1),
                     out_layout,
@@ -291,10 +300,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
                 )
             };
         }
-        QuantScheme {
-            store: QuantStore::U32,
-            ..
-        } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
+        _ => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
 
@@ -315,12 +321,12 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(line_size as usize), cube_dim);
+    let (range_min, range_max) = scheme.value.range();
 
     match scheme {
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
             store: QuantStore::U32,
             ..
         } => {
@@ -333,17 +339,14 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
                     input.as_ref().as_tensor_arg(line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scale.as_tensor_arg(1),
-                    ScalarArg::new(F::from_int(-i8::MAX as i64)),
-                    ScalarArg::new(F::from_int(i8::MAX as i64)),
+                    ScalarArg::new(F::from_int(range_min as i64)),
+                    ScalarArg::new(F::from_int(range_max as i64)),
                     output.as_tensor_arg(1),
                     out_scale.as_tensor_arg(1),
                     *scheme,
                 )
             };
         }
-        QuantScheme {
-            store: QuantStore::Native,
-            ..
-        } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
+        QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }

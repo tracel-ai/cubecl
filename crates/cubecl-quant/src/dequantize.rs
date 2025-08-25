@@ -23,13 +23,18 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
+pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: &Tensor<Line<QI>>,
     scales: &Tensor<FS>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
-    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales.to_slice(), scheme)
+    dequantize_symmetric_packed_value_at::<F, FS, QI>(
+        position,
+        values[position],
+        scales.to_slice(),
+        scheme,
+    )
 }
 
 /// Dequantize a single value using the scale at the specified position.
@@ -37,14 +42,14 @@ pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
+pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: Line<QI>,
     scales: Slice<FS>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     let qparams = QParams::new(scheme);
-    dequantize_packed_value::<F, FS, QI>(values, scales, qparams, position, scheme)
+    dequantize_symmetric_packed_value::<F, FS, QI>(values, scales, qparams, position, scheme)
 }
 
 /// Dequantize a single packed value using the scale provided.
@@ -52,7 +57,7 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
+pub fn dequantize_symmetric_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
     scales: Slice<FS>,
     qparams: QParams,
@@ -134,7 +139,7 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
     let values = input[ABSOLUTE_POS];
 
-    let out = dequantize_packed_value::<F, FS, u32>(
+    let out = dequantize_symmetric_packed_value::<F, FS, u32>(
         values,
         scales.to_slice(),
         qparams,
@@ -181,7 +186,6 @@ pub fn launch_ref<R: Runtime, F: Float>(
 ) {
     match scheme {
         QuantScheme {
-            value: QuantValue::QInt8,
             store: QuantStore::U32,
             ..
         } => match scheme.param {
@@ -196,12 +200,15 @@ pub fn launch_ref<R: Runtime, F: Float>(
             }
         },
         QuantScheme {
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
             if !i8::is_supported(client) {
-                panic!("QInt8 is not supported for native quantization");
+                panic!(
+                    "{:?} is not supported for native quantization",
+                    scheme.value
+                );
             }
 
             match scheme.param {
@@ -215,6 +222,13 @@ pub fn launch_ref<R: Runtime, F: Float>(
                     dequantize_native::<R, F, bf16>(client, values, scheme, params, output)
                 }
             }
+        }
+        QuantScheme {
+            store: QuantStore::Native,
+            value,
+            ..
+        } => {
+            panic!("{value:?} is not supported for native quantization");
         }
     }
 }
@@ -249,9 +263,8 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     match scheme {
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
-            mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
             store: QuantStore::U32,
+            mode: QuantMode::Symmetric,
             ..
         } => {
             unsafe {
@@ -266,10 +279,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
                 )
             };
         }
-        QuantScheme {
-            store: QuantStore::Native,
-            ..
-        } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
+        QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
 
@@ -295,7 +305,7 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
@@ -313,9 +323,6 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
                 )
             };
         }
-        QuantScheme {
-            store: QuantStore::U32,
-            ..
-        } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
+        QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }

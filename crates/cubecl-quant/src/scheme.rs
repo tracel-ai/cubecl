@@ -21,7 +21,7 @@ pub struct QuantScheme {
 impl Default for QuantScheme {
     fn default() -> Self {
         Self {
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8F,
             param: QuantParam::F32,
             store: QuantStore::U32,
             level: QuantLevel::Tensor,
@@ -89,15 +89,47 @@ pub enum QuantLevel {
 /// Data type used to represent quantized values.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QuantValue {
-    /// 8-bit signed integer.
-    QInt8,
+    /// 8-bit quantization with full range.
+    Q8F,
+    /// 4-bit quantization with full range.
+    Q4F,
+    /// 2-bit quantization with full range.
+    Q2F,
+    /// 8-bit quantization with symmetric range.
+    Q8S,
+    /// 4-bit quantization with symmetric range.
+    Q4S,
+    /// 2-bit quantization with symmetric range.
+    Q2S,
 }
 
 impl QuantValue {
     /// Returns the size of the quantization input type in bits.
     pub fn size_bits(&self) -> usize {
         match self {
-            QuantValue::QInt8 => 8,
+            QuantValue::Q8F | QuantValue::Q8S => 8,
+            QuantValue::Q4F | QuantValue::Q4S => 4,
+            QuantValue::Q2F | QuantValue::Q2S => 2,
+        }
+    }
+
+    /// The possible range of values allowed by the quant value.
+    pub fn range(&self) -> (f32, f32) {
+        match self {
+            QuantValue::Q8F => (i8::MIN as f32, i8::MAX as f32),
+            QuantValue::Q4F => (-8.0, 7.0),
+            QuantValue::Q2F => (-2.0, 1.0),
+            QuantValue::Q8S => (-i8::MAX as f32, i8::MAX as f32),
+            QuantValue::Q4S => (-7.0, 7.0),
+            QuantValue::Q2S => (-1.0, 1.0),
+        }
+    }
+
+    /// If the range of values is symmetric around zero.
+    pub fn is_symmetric(&self) -> bool {
+        match self {
+            Self::Q8F | Self::Q4F | Self::Q2F => false,
+            Self::Q8S | Self::Q4S | Self::Q2S => true,
         }
     }
 }
