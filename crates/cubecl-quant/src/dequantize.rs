@@ -200,12 +200,15 @@ pub fn launch_ref<R: Runtime, F: Float>(
             }
         },
         QuantScheme {
-            value: QuantValue::Q8F,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
             if !i8::is_supported(client) {
-                panic!("QInt8 is not supported for native quantization");
+                panic!(
+                    "{:?} is not supported for native quantization",
+                    scheme.value
+                );
             }
 
             match scheme.param {

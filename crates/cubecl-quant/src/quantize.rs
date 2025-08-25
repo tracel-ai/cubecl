@@ -219,12 +219,15 @@ pub fn launch_ref<R: Runtime, F: Float>(
             }
         },
         QuantScheme {
-            value: QuantValue::Q8F,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
             if !i8::is_supported(client) {
-                panic!("QInt8 is not supported for native quantization");
+                panic!(
+                    "{:?} is not supported for native quantization",
+                    scheme.value
+                );
             }
 
             match scheme.param {
@@ -267,6 +270,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
     let out_layout = strided_layout(client, output);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
+    let (range_min, range_max) = scheme.value.range();
 
     match scheme {
         QuantScheme {
@@ -286,8 +290,8 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
                     input.as_tensor_arg(line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scale.as_tensor_arg(1),
-                    ScalarArg::new(F::from_int(-i8::MAX as i64)),
-                    ScalarArg::new(F::from_int(i8::MAX as i64)),
+                    ScalarArg::new(F::from_int(range_min as i64)),
+                    ScalarArg::new(F::from_int(range_max as i64)),
                     output.as_tensor_arg(line_size),
                     out_scale.as_tensor_arg(1),
                     out_layout,
