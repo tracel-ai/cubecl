@@ -1,5 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::tensor::TensorView;
 
 use crate::scheme::{QuantLevel, QuantMode, QuantScheme, QuantValue};
 
@@ -21,7 +22,7 @@ impl QParams {
     }
 
     /// Get the quantization parameters values.
-    pub fn scale<F: Float>(&self, scale_tensor: &Slice<F>, value_pos: u32) -> F {
+    pub fn scale<F: Float>(&self, scale_tensor: &TensorView<F, u32>, value_pos: u32) -> F {
         match comptime!(self.scheme) {
             // Symmetric quantization only contains the scaling factor as the last element
             QuantScheme {
@@ -29,7 +30,7 @@ impl QParams {
                 mode: QuantMode::Symmetric,
                 value: QuantValue::QInt8,
                 ..
-            } => scale_tensor[0],
+            } => scale_tensor[0][0],
             QuantScheme {
                 level: QuantLevel::Block(block_size),
                 mode: QuantMode::Symmetric,
@@ -39,7 +40,7 @@ impl QParams {
                 // The input position is `num_quants` smaller because it acts as vectorize with a line
                 // size, but the scales don't have any line size.
                 let position = value_pos * self.num_quants;
-                scale_tensor[position / comptime! {block_size as u32}]
+                scale_tensor[position / comptime! {block_size as u32}][0]
             }
         }
     }

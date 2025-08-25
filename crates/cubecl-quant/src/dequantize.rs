@@ -8,6 +8,7 @@ use crate::{
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
 };
 use cubecl_std::tensor::{
+    TensorView,
     layout::linear::{LinearTensorView, linear_tensor},
     r#virtual::ReadWrite,
 };
@@ -27,11 +28,11 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 #[cube]
 pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
     position: u32,
-    values: &Tensor<Line<QI>>,
-    scales: &Tensor<FS>,
+    values: &TensorView<QI, u32>,
+    scales: &TensorView<FS, u32>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
-    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales.to_slice(), scheme)
+    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
 }
 
 /// Dequantize a single value using the scale at the specified position.
@@ -42,7 +43,7 @@ pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
 pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: Line<QI>,
-    scales: Slice<FS>,
+    scales: &TensorView<FS, u32>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     let qparams = QParams::new(scheme);
@@ -56,7 +57,7 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
 #[cube]
 pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
-    scales: Slice<FS>,
+    scales: &TensorView<FS, u32>,
     qparams: QParams,
     position: u32,
     #[comptime] scheme: QuantScheme,
@@ -68,7 +69,7 @@ pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
     #[unroll]
     for i in 0..line_size_values {
         let floats = unpack_q::<F, QS>(values[i], scheme.value, scheme.store);
-        let scale = qparams.scale(&scales, (position * line_size_values) + i);
+        let scale = qparams.scale(scales, (position * line_size_values) + i);
         let values = dequantize_symmetric::<F, FS>(floats, scale);
         tmp[i] = values;
     }
@@ -117,9 +118,9 @@ fn unpack_q<F: Float, QS: Int>(
 
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
-    input: &Tensor<Line<u32>>,
-    scales: &Tensor<FS>,
-    output: &mut Tensor<Line<F>>,
+    input: &LinearTensorView<u32>,
+    scales: &LinearTensorView<FS>,
+    output: &mut LinearTensorView<F, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= input.len() {
@@ -136,13 +137,7 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
     let values = input[ABSOLUTE_POS];
 
-    let out = dequantize_packed_value::<F, FS, u32>(
-        values,
-        scales.to_slice(),
-        qparams,
-        ABSOLUTE_POS,
-        scheme,
-    );
+    let out = dequantize_packed_value::<F, FS, u32>(values, scales, qparams, ABSOLUTE_POS, scheme);
 
     for i in 0..line_size_in {
         output[ABSOLUTE_POS * line_size_in + i] = out[i];
@@ -152,7 +147,7 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     input: &LinearTensorView<i8>,
-    scale: &Tensor<FS>,
+    scale: &LinearTensorView<FS>,
     output: &mut LinearTensorView<F, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
@@ -162,7 +157,7 @@ fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
 
     let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * input.line_size());
+    let scale = qparams.scale(scale, ABSOLUTE_POS * input.line_size());
 
     output[ABSOLUTE_POS] =
         dequantize_symmetric::<F, FS>(Line::cast_from(input[ABSOLUTE_POS]), scale);
@@ -257,9 +252,9 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    input.as_tensor_arg(line_size_in),
-                    scale.as_tensor_arg(1),
-                    output.as_tensor_arg(line_size_out),
+                    linear_tensor(client, input, &line_size_in),
+                    linear_tensor(client, scale, &1),
+                    linear_tensor(client, output, &line_size_out),
                     *scheme,
                 )
             };
@@ -288,9 +283,6 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
 
-    let input = linear_tensor(client, input, &line_size);
-    let output = linear_tensor(client, output, &line_size);
-
     match scheme {
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
@@ -304,9 +296,9 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    input,
-                    scale.as_tensor_arg(1),
-                    output,
+                    linear_tensor(client, input, &line_size),
+                    linear_tensor(client, scale, &1),
+                    linear_tensor(client, output, &line_size),
                     *scheme,
                 )
             };
