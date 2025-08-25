@@ -441,26 +441,54 @@ impl Display for Instruction {
                 }
             }
             Instruction::And { lhs, rhs, out } => {
+                let line_size = out.item().vectorization_factor();
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
                     writeln!(f, "atomicAnd({out}, {rhs});")
+                } else if line_size > 1 {
+                    writeln!(f, "{out} = {}(", out.item())?;
+                    for i in 0..line_size {
+                        let lhs_i = lhs.index(i);
+                        let rhs_i = rhs.index(i);
+                        writeln!(f, "{lhs_i} && {rhs_i},")?;
+                    }
+                    writeln!(f, ");")
                 } else {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {lhs} && {rhs};")
                 }
             }
             Instruction::Or { lhs, rhs, out } => {
+                let line_size = out.item().vectorization_factor();
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
                     writeln!(f, "atomicOr({out}, {rhs});")
+                } else if line_size > 1 {
+                    writeln!(f, "{out} = {}(", out.item())?;
+                    for i in 0..line_size {
+                        let lhs_i = lhs.index(i);
+                        let rhs_i = rhs.index(i);
+                        writeln!(f, "{lhs_i} || {rhs_i},")?;
+                    }
+                    writeln!(f, ");")
                 } else {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {lhs} || {rhs};")
                 }
             }
             Instruction::Not { input, out } => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = !{input};")
+                let line_size = out.item().vectorization_factor();
+                if line_size > 1 {
+                    writeln!(f, "{out} = {}(", out.item())?;
+                    for i in 0..line_size {
+                        let input_i = input.index(i);
+                        writeln!(f, "!{input_i},")?;
+                    }
+                    writeln!(f, ");")
+                } else {
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = !{input};")
+                }
             }
             Instruction::Index { lhs, rhs, out } => index(f, lhs, rhs, out, None, None),
             Instruction::IndexAssign {
