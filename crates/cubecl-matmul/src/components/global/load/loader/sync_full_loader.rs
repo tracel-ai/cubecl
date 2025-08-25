@@ -18,7 +18,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::layout::{Coords3d, TensorView},
+    tensor::{TensorView, layout::Coords3d},
 };
 
 #[cube]

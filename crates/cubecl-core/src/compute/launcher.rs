@@ -282,8 +282,10 @@ impl<R: Runtime> TensorState<R> {
 
         let elem_size = array.elem_size * *vectorization as usize;
         let buffer_len = array.handle.size() / elem_size as u64;
-        self.metadata()
-            .with_array(buffer_len as u32, array.length[0] as u32);
+        self.metadata().with_array(
+            buffer_len as u32,
+            array.length[0] as u32 / *vectorization as u32,
+        );
         Some(array.handle.clone().binding())
     }
 

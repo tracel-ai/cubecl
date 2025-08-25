@@ -342,6 +342,14 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len(scope, self.clone())
     }
+
+    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
+        self.line_size()
+    }
+
+    fn line_size(&self) -> u32 {
+        self.expand.item.vectorization() as u32
+    }
 }
 
 impl<T: CubePrimitive> ListMut<T> for Array<T> {

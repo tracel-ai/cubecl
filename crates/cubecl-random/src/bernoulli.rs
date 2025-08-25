@@ -4,6 +4,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use cubecl::{CubeLaunch, CubeType, Runtime};
+use cubecl_std::tensor::{TensorView, r#virtual::ReadWrite};
 
 use crate::RandomFamily;
 
@@ -38,7 +39,7 @@ impl<E: Numeric> PrngRuntime<E> for Bernoulli<E> {
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut Tensor<Line<E>>,
+        output: &mut TensorView<E, u32, ReadWrite>,
     ) {
         let prob = args.probability;
 
