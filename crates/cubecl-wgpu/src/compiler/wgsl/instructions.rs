@@ -477,18 +477,8 @@ impl Display for Instruction {
                 }
             }
             Instruction::Not { input, out } => {
-                let line_size = out.item().vectorization_factor();
-                if line_size > 1 {
-                    writeln!(f, "{out} = {}(", out.item())?;
-                    for i in 0..line_size {
-                        let input_i = input.index(i);
-                        writeln!(f, "!{input_i},")?;
-                    }
-                    writeln!(f, ");")
-                } else {
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = !{input};")
-                }
+                let out = out.fmt_left();
+                writeln!(f, "{out} = !{input};")
             }
             Instruction::Index { lhs, rhs, out } => index(f, lhs, rhs, out, None, None),
             Instruction::IndexAssign {
