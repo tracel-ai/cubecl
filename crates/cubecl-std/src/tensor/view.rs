@@ -154,6 +154,12 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
         unexpanded!()
     }
 
+    /// Read a line at `pos`. The layout handles translation into a concrete index.
+    /// Reading is done unchecked
+    pub fn read_unchecked(&self, pos: C) -> Line<E> {
+        unexpanded!()
+    }
+
     /// Read a line at `pos` if it's in bounds. The layout handles translation into a concrete index.
     pub fn read_checked(&self, pos: C) -> Line<E> {
         unexpanded!()
@@ -184,6 +190,18 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
     ) -> ExpandElementTyped<Line<E>> {
         let read_pos = self.clone().__expand_to_linear_pos_method(scope, pos);
         self.tensor.read().__expand_read_method(scope, read_pos)
+    }
+
+    /// Expand method for [TensorView::read_unchecked]
+    pub fn __expand_read_unchecked_method(
+        self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+    ) -> ExpandElementTyped<Line<E>> {
+        let read_pos = self.clone().__expand_to_linear_pos_method(scope, pos);
+        self.tensor
+            .read()
+            .__expand_read_unchecked_method(scope, read_pos)
     }
 
     /// Expand method for [TensorView::read_checked]
@@ -359,11 +377,11 @@ mod idx {
         type Output = <Line<E> as CubeType>::ExpandType;
 
         fn expand_index(self, scope: &mut Scope, index: C::ExpandType) -> Self::Output {
-            self.__expand_read_checked_method(scope, index)
+            self.__expand_read_method(scope, index)
         }
 
         fn expand_index_unchecked(self, scope: &mut Scope, index: C::ExpandType) -> Self::Output {
-            self.__expand_read_method(scope, index)
+            self.__expand_read_unchecked_method(scope, index)
         }
     }
 

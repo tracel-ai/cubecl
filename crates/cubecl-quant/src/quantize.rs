@@ -2,7 +2,10 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_std::tensor::{TensorView, into_contiguous, layout::linear::linear_tensor};
+use cubecl_std::tensor::{
+    AsViewMut, AsViewMutExpand, TensorView, into_contiguous,
+    layout::linear::{LinearLayout, LinearLayoutArgs, linear_tensor},
+};
 use cubecl_std::tensor::{layout::linear::LinearTensorView, r#virtual::ReadWrite};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
@@ -114,13 +117,18 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     scale: &LinearTensorView<F>,
     range_min: F,
     range_max: F,
-    output: &mut LinearTensorView<i8, ReadWrite>,
-    out_scale: &mut LinearTensorView<FS, ReadWrite>,
+    output: &mut Tensor<Line<i8>>,
+    output_layout: LinearLayout,
+    out_scale: &mut Tensor<Line<FS>>,
+    out_scale_layout: LinearLayout,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= output.len() {
         terminate!();
     }
+
+    let mut output = output.view_mut(output_layout.virt());
+    let mut out_scale = out_scale.view_mut(out_scale_layout.virt());
 
     let line_size = input.line_size();
 
@@ -131,18 +139,17 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
         } => write_scale_per_block(
             ABSOLUTE_POS * line_size,
             scale,
-            out_scale,
+            &mut out_scale,
             comptime!(block_size as u32),
         ),
         QuantScheme {
             level: QuantLevel::Tensor,
             ..
-        } => write_scale_per_tensor(ABSOLUTE_POS, scale, out_scale),
+        } => write_scale_per_tensor(ABSOLUTE_POS, scale, &mut out_scale),
     };
 
     output[ABSOLUTE_POS] =
         quantize_symmetric_i::<F, FS, i8>(input[ABSOLUTE_POS], scale, range_min, range_max);
-    sync_cube();
 }
 
 #[cube(launch_unchecked)]
@@ -151,8 +158,10 @@ fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
     scale: &LinearTensorView<F>,
     range_min: F,
     range_max: F,
-    output: &mut LinearTensorView<u32, ReadWrite>,
-    out_scale: &mut LinearTensorView<FS, ReadWrite>,
+    output: &mut Tensor<Line<u32>>,
+    output_layout: LinearLayout,
+    out_scale: &mut Tensor<Line<FS>>,
+    out_scale_layout: LinearLayout,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= output.len() {
@@ -162,15 +171,23 @@ fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
     let num_quants = comptime!((scheme.size_bits_stored() / scheme.size_bits_value()) as u32);
     let packed_pos = ABSOLUTE_POS * num_quants;
 
+    let mut output = output.view_mut(output_layout.virt());
+    let mut out_scale = out_scale.view_mut(out_scale_layout.virt());
+
     let scale = match comptime!(scheme) {
         QuantScheme {
             level: QuantLevel::Block(block_size),
             ..
-        } => write_scale_per_block(packed_pos, scale, out_scale, comptime!(block_size as u32)),
+        } => write_scale_per_block(
+            packed_pos,
+            scale,
+            &mut out_scale,
+            comptime!(block_size as u32),
+        ),
         QuantScheme {
             level: QuantLevel::Tensor,
             ..
-        } => write_scale_per_tensor(ABSOLUTE_POS, scale, out_scale),
+        } => write_scale_per_tensor(ABSOLUTE_POS, scale, &mut out_scale),
     };
 
     if comptime!(input.line_size() == num_quants) {
@@ -262,7 +279,6 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
 
     let input = linear_tensor(client, input, &line_size);
-    let output = linear_tensor(client, output, &line_size);
 
     match scheme {
         QuantScheme {
@@ -284,8 +300,10 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
                     linear_tensor(client, scale, &1),
                     ScalarArg::new(F::from_int(-i8::MAX as i64)),
                     ScalarArg::new(F::from_int(i8::MAX as i64)),
-                    output,
-                    linear_tensor(client, out_scale, &1),
+                    output.as_tensor_arg(line_size),
+                    LinearLayoutArgs::from_handle(client, output, &line_size),
+                    out_scale.as_tensor_arg(1),
+                    LinearLayoutArgs::from_handle(client, out_scale, &1),
                     *scheme,
                 )
             };
@@ -335,8 +353,10 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
                     linear_tensor(client, scale, &1),
                     ScalarArg::new(F::from_int(-i8::MAX as i64)),
                     ScalarArg::new(F::from_int(i8::MAX as i64)),
-                    linear_tensor(client, output, &1),
-                    linear_tensor(client, out_scale, &1),
+                    output.as_tensor_arg(1),
+                    LinearLayoutArgs::from_handle(client, output, &1),
+                    out_scale.as_tensor_arg(1),
+                    LinearLayoutArgs::from_handle(client, out_scale, &1),
                     *scheme,
                 )
             };
