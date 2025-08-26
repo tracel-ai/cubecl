@@ -8,6 +8,9 @@ use crate::tensor::{
     r#virtual::{Read, ReadWrite},
 };
 
+/// A conceptual view of an underlying linear storage.
+/// Allows abstract indexing in multiple dimensions, without having to know the data layout or
+/// location.
 #[derive(Clone)]
 pub struct TensorView<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
     pub layout: VirtualLayout<C>,
@@ -40,9 +43,7 @@ impl<E: CubePrimitive> ListType<E> {
     }
 }
 
-/// A conceptual view of an underlying linear storage.
-/// Allows abstract indexing in multiple dimensions, without having to know the data layout or
-/// location.
+/// Expand type of [TensorView]
 #[derive(Clone)]
 pub struct TensorViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
     tensor: ListType<E>,

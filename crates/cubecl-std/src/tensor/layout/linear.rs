@@ -97,9 +97,13 @@ impl Layout for LinearLayout {
 
 virtual_layout!(LinearLayout, LinearLayoutExpand);
 
+/// [TensorView] with a linear layout inferred from the shape/strides at launch.
+/// Useful for elementwise kernels.
 pub type LinearTensorView<E, IO = Read> = TensorViewTyped<E, LinearLayout, IO>;
+/// Launch type for [LinearTensorView].
 pub type LinearTensorViewLaunch<'a, R> = TensorViewTypedLaunch<'a, LinearLayout, R>;
 
+/// Create a linear tensor view from a handle and line size
 pub fn linear_tensor<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &'a TensorHandleRef<'a, R>,
