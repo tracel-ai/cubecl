@@ -62,7 +62,7 @@ impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colLoader<IP, G> {
 
     pub fn fill_stage(
         this: &mut Self,
-        bar: &Barrier<IP::Stage>,
+        bar: &Barrier,
         #[comptime] stage_idx: u32,
         #[comptime] config: G,
     ) {

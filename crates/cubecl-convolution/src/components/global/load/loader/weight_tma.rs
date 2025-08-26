@@ -60,7 +60,7 @@ impl<IP: InputPrecision, S: StageConfig> TmaWeightLoader<IP, S> {
 
     pub fn fill_stage(
         this: &mut Self,
-        barrier: &Barrier<IP::Stage>,
+        barrier: &Barrier,
         #[comptime] stage_idx: u32,
         #[comptime] config: S,
     ) {
