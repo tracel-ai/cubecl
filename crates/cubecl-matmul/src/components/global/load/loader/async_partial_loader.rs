@@ -45,7 +45,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 pub struct AsyncBufferLoader<
     IP: InputPrecision,
     S: stage::StageConfig,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     L: AsyncPartialLoadingStrategy,
 > {
     tensor_reader: TensorReader<IP::Global>,
@@ -58,12 +58,8 @@ pub struct AsyncBufferLoader<
 }
 
 #[cube]
-impl<
-    IP: InputPrecision,
-    S: stage::StageConfig,
-    CM: CopyMechanism<IP::Stage>,
-    L: AsyncPartialLoadingStrategy,
-> AsyncBufferLoader<IP, S, CM, L>
+impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
+    AsyncBufferLoader<IP, S, CM, L>
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
