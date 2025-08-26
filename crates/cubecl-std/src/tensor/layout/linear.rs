@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 
 use crate::tensor::{
     is_contiguous, is_contiguous_pitched,
-    launch::{TensorViewTyped, TensorViewTypedLaunch},
+    launch::{TypedView, TypedViewLaunch},
     layout::{
         Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutLaunch},
@@ -99,31 +99,31 @@ virtual_layout!(LinearLayout, LinearLayoutExpand);
 
 /// [TensorView] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
-pub type LinearTensorView<E, IO = Read> = TensorViewTyped<E, LinearLayout, IO>;
+pub type LinearView<E, IO = Read> = TypedView<E, LinearLayout, IO>;
 /// Launch type for [LinearTensorView].
-pub type LinearTensorViewLaunch<'a, R> = TensorViewTypedLaunch<'a, LinearLayout, R>;
+pub type LinearViewLaunch<'a, R> = TypedViewLaunch<'a, LinearLayout, R>;
 
 /// Create a linear tensor view from a handle and line size
-pub fn linear_tensor<'a, R: Runtime>(
+pub fn linear_view<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &'a TensorHandleRef<'a, R>,
     line_size: &'a u8,
-) -> LinearTensorViewLaunch<'a, R> {
+) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
     let buffer = unsafe {
         ArrayArg::from_raw_parts_and_size(handle.handle, len, *line_size, handle.elem_size)
     };
-    LinearTensorViewLaunch::new(buffer, layout)
+    LinearViewLaunch::new(buffer, layout)
 }
 
-pub fn linear_tensor_alias<'a, R: Runtime>(
+pub fn linear_view_alias<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &'a TensorHandleRef<'a, R>,
     line_size: &'a u8,
     pos: usize,
-) -> LinearTensorViewLaunch<'a, R> {
+) -> LinearViewLaunch<'a, R> {
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
     let buffer = ArrayArg::Alias { input_pos: pos };
-    LinearTensorViewLaunch::new(buffer, layout)
+    LinearViewLaunch::new(buffer, layout)
 }

@@ -3,10 +3,10 @@ use cubecl_core as cubecl;
 
 use cubecl_common::{rand::get_seeded_rng, stub::Mutex};
 use cubecl_std::tensor::{
-    TensorView,
+    View,
     layout::{
         Coords1d,
-        linear::{LinearTensorView, linear_tensor},
+        linear::{LinearView, linear_view},
     },
     r#virtual::ReadWrite,
 };
@@ -44,7 +44,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     //     output.strides.len() - 1,
     // );
 
-    let output = linear_tensor(client, &output, &output_line_size);
+    let output = linear_view(client, &output, &output_line_size);
 
     prng_kernel::launch::<F, E, R>(
         client,
@@ -108,7 +108,7 @@ pub(crate) trait PrngRuntime<E: Numeric>: Send + Sync + 'static + PrngArgs<E> {
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut TensorView<E, Coords1d, ReadWrite>,
+        output: &mut View<E, Coords1d, ReadWrite>,
     );
 }
 
@@ -116,7 +116,7 @@ type Args<F, E> = <<F as RandomFamily>::Runtime<E> as PrngArgs<E>>::Args;
 
 #[cube(launch)]
 fn prng_kernel<F: RandomFamily, E: Numeric>(
-    output: &mut LinearTensorView<E, ReadWrite>,
+    output: &mut LinearView<E, ReadWrite>,
     seed_0: u32,
     seed_1: u32,
     seed_2: u32,

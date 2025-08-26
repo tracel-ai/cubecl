@@ -8,8 +8,8 @@ use crate::{
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
 };
 use cubecl_std::tensor::{
-    TensorView,
-    layout::linear::{LinearTensorView, linear_tensor},
+    View,
+    layout::linear::{LinearView, linear_view},
     r#virtual::ReadWrite,
 };
 use half::{bf16, f16};
@@ -28,8 +28,8 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 #[cube]
 pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
     position: u32,
-    values: &TensorView<QI, u32>,
-    scales: &TensorView<FS, u32>,
+    values: &View<QI, u32>,
+    scales: &View<FS, u32>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     dequantize_symmetric_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
@@ -43,7 +43,7 @@ pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
 pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: Line<QI>,
-    scales: &TensorView<FS, u32>,
+    scales: &View<FS, u32>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     let qparams = QParams::new(scheme);
@@ -57,7 +57,7 @@ pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
 #[cube]
 pub fn dequantize_symmetric_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
-    scales: &TensorView<FS, u32>,
+    scales: &View<FS, u32>,
     qparams: QParams,
     position: u32,
     #[comptime] scheme: QuantScheme,
@@ -118,9 +118,9 @@ fn unpack_q<F: Float, QS: Int>(
 
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
-    input: &LinearTensorView<u32>,
-    scales: &LinearTensorView<FS>,
-    output: &mut LinearTensorView<F, ReadWrite>,
+    input: &LinearView<u32>,
+    scales: &LinearView<FS>,
+    output: &mut LinearView<F, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= input.len() {
@@ -152,9 +152,9 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
-    input: &LinearTensorView<i8>,
-    scale: &LinearTensorView<FS>,
-    output: &mut LinearTensorView<F, ReadWrite>,
+    input: &LinearView<i8>,
+    scale: &LinearView<FS>,
+    output: &mut LinearView<F, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
     if ABSOLUTE_POS >= input.len() {
@@ -266,9 +266,9 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    linear_tensor(client, input, &line_size_in),
-                    linear_tensor(client, scale, &1),
-                    linear_tensor(client, output, &line_size_out),
+                    linear_view(client, input, &line_size_in),
+                    linear_view(client, scale, &1),
+                    linear_view(client, output, &line_size_out),
                     *scheme,
                 )
             };
@@ -307,9 +307,9 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    linear_tensor(client, input, &line_size),
-                    linear_tensor(client, scale, &1),
-                    linear_tensor(client, output, &line_size),
+                    linear_view(client, input, &line_size),
+                    linear_view(client, scale, &1),
+                    linear_view(client, output, &line_size),
                     *scheme,
                 )
             };

@@ -3,14 +3,14 @@ use crate::components::MatrixLayout;
 use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{TensorView, layout::Coords3d};
+use cubecl_std::tensor::{View, layout::Coords3d};
 
 #[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorReader<EI: Numeric> {
-    pub view: TensorView<EI, Coords3d>,
+    pub view: View<EI, Coords3d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
     pub batch_offset: u32,
@@ -31,7 +31,7 @@ pub struct Window<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(view: TensorView<EG, Coords3d>, offset_global: Coords3d) -> Self {
+    pub fn new(view: View<EG, Coords3d>, offset_global: Coords3d) -> Self {
         let (b, row, col) = offset_global;
         TensorReader::<EG> {
             view,

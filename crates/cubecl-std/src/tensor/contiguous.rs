@@ -2,7 +2,7 @@ use crate::{
     FastDivmod,
     tensor::layout::{
         VirtualLayoutOperations, VirtualLayoutOperationsExpand,
-        linear::{LinearLayout, LinearLayoutArgs, LinearTensorView, linear_tensor},
+        linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
     },
 };
 
@@ -91,7 +91,7 @@ pub fn index_offset_contiguous_fastdivmod(
 
 #[cube(launch)]
 fn into_contiguous_kernel<N: CubePrimitive>(
-    input: &LinearTensorView<N>,
+    input: &LinearView<N>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
@@ -116,7 +116,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
 #[cube(launch)]
 fn into_contiguous_kernel_pack<N: CubePrimitive>(
-    input: &LinearTensorView<N>,
+    input: &LinearView<N>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
@@ -232,7 +232,7 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
             .unwrap_or(&1)
     };
 
-    let input = linear_tensor(client, input, &vectorization_factor);
+    let input = linear_view(client, input, &vectorization_factor);
     let out_layout = LinearLayoutArgs::from_handle(client, output, &out_vec);
 
     let cube_dim = CubeDim::default();

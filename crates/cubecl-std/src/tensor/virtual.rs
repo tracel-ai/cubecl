@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
     layout::{Coordinates, VirtualLayout},
-    view::TensorView,
+    view::View,
 };
 
 /// The read tag for [virtual tensor](VirtualTensor).
@@ -244,8 +244,8 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
     /// layouts
-    pub fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> TensorView<E, C, Read> {
-        TensorView::new::<VirtualTensor<E, IO>>(*self, layout)
+    pub fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, Read> {
+        View::new::<VirtualTensor<E, IO>>(*self, layout)
     }
 }
 
@@ -256,8 +256,8 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     pub fn view_mut<C: Coordinates>(
         &self,
         layout: VirtualLayout<C>,
-    ) -> TensorView<E, C, ReadWrite> {
-        TensorView::new_mut::<VirtualTensor<E, ReadWrite>>(*self, layout)
+    ) -> View<E, C, ReadWrite> {
+        View::new_mut::<VirtualTensor<E, ReadWrite>>(*self, layout)
     }
 }
 

@@ -12,12 +12,12 @@ use crate::tensor::{
 /// Allows abstract indexing in multiple dimensions, without having to know the data layout or
 /// location.
 #[derive(Clone)]
-pub struct TensorView<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
+pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
     pub layout: VirtualLayout<C>,
     _list: PhantomData<(E, IO)>,
 }
 
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for TensorView<E, C, IO> {}
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for View<E, C, IO> {}
 
 #[derive(Clone)]
 enum ListType<E: CubePrimitive> {
@@ -45,25 +45,25 @@ impl<E: CubePrimitive> ListType<E> {
 
 /// Expand type of [TensorView]
 #[derive(Clone)]
-pub struct TensorViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
+pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
     tensor: ListType<E>,
     layout: VirtualLayoutExpand<C>,
     _io: PhantomData<IO>,
 }
 
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for TensorView<E, C, IO> {
-    type ExpandType = TensorViewExpand<E, C, IO>;
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for View<E, C, IO> {
+    type ExpandType = ViewExpand<E, C, IO>;
 }
 
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for TensorViewExpand<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, IO> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for TensorViewExpand<E, C, IO> {}
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for ViewExpand<E, C, IO> {}
 
-impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, Read> {
+impl<E: CubePrimitive, C: Coordinates> View<E, C, Read> {
     /// Create a new tensor view from an underlying concrete storage and a layout to map it into
     /// the target coordinate space
     #[allow(unused_variables)]
@@ -72,7 +72,7 @@ impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, Read> {
         T: List<Line<E>> + CubeType,
         T::ExpandType: ListExpand<Line<E>> + 'static,
     {
-        TensorView {
+        View {
             layout,
             _list: PhantomData,
         }
@@ -83,12 +83,12 @@ impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, Read> {
         _scope: &mut Scope,
         tensor: T::ExpandType,
         layout: VirtualLayoutExpand<C>,
-    ) -> TensorViewExpand<E, C, Read>
+    ) -> ViewExpand<E, C, Read>
     where
         T: List<Line<E>> + CubeType,
         T::ExpandType: ListExpand<Line<E>> + 'static,
     {
-        TensorViewExpand::<E, C, Read> {
+        ViewExpand::<E, C, Read> {
             tensor: ListType::Read(Arc::new(tensor)),
             layout,
             _io: PhantomData,
@@ -96,15 +96,15 @@ impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, Read> {
     }
 }
 
-impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
+impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
     /// Create a new mutable tensor view from an underlying concrete storage and a layout to map it
     /// into the target coordinate space
-    pub fn new_mut<T>(_tensor: T, layout: VirtualLayout<C>) -> TensorView<E, C, ReadWrite>
+    pub fn new_mut<T>(_tensor: T, layout: VirtualLayout<C>) -> View<E, C, ReadWrite>
     where
         T: ListMut<Line<E>> + CubeType,
         T::ExpandType: ListMutExpand<Line<E>> + 'static,
     {
-        TensorView {
+        View {
             layout,
             _list: PhantomData,
         }
@@ -115,12 +115,12 @@ impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
         _scope: &mut Scope,
         tensor: T::ExpandType,
         layout: VirtualLayoutExpand<C>,
-    ) -> TensorViewExpand<E, C, ReadWrite>
+    ) -> ViewExpand<E, C, ReadWrite>
     where
         T: ListMut<Line<E>> + CubeType,
         T::ExpandType: ListMutExpand<Line<E>> + 'static,
     {
-        TensorViewExpand::<E, C, ReadWrite> {
+        ViewExpand::<E, C, ReadWrite> {
             tensor: ListType::ReadWrite(Arc::new(tensor)),
             layout,
             _io: PhantomData,
@@ -129,7 +129,7 @@ impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
 }
 
 #[cube]
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
     /// Calls [Layout::to_linear_pos] on the view's layout
     #[allow(unused)]
     pub fn to_linear_pos(&self, pos: C) -> u32 {
@@ -149,7 +149,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
 }
 
 #[allow(unused_variables)]
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
     /// Read a line at `pos`. The layout handles translation into a concrete index.
     pub fn read(&self, pos: C) -> Line<E> {
         unexpanded!()
@@ -182,7 +182,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorView<E, C, IO> {
     }
 }
 
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     /// Expand method for [TensorView::read]
     pub fn __expand_read_method(
         self,
@@ -244,7 +244,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> TensorViewExpand<E, C, IO> {
 }
 
 #[allow(unused_variables)]
-impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
+impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
     /// Write a line to `pos`. The layout handles translation into a concrete index.
     pub fn write(&self, pos: C, value: Line<E>) {
         unexpanded!()
@@ -256,7 +256,7 @@ impl<E: CubePrimitive, C: Coordinates> TensorView<E, C, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
+impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
     /// Expand method for [TensorView::write]
     pub fn __expand_write_method(
         self,
@@ -290,7 +290,7 @@ impl<E: CubePrimitive, C: Coordinates> TensorViewExpand<E, C, ReadWrite> {
 
 pub trait AsView<E: CubePrimitive> {
     #[allow(unused)]
-    fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> TensorView<E, C, Read> {
+    fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, Read> {
         unexpanded!()
     }
 }
@@ -300,15 +300,12 @@ pub trait AsViewExpand<E: CubePrimitive> {
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C>,
-    ) -> TensorViewExpand<E, C, Read>;
+    ) -> ViewExpand<E, C, Read>;
 }
 
 pub trait AsViewMut<E: CubePrimitive> {
     #[allow(unused)]
-    fn view_mut<C: Coordinates>(
-        &mut self,
-        layout: VirtualLayout<C>,
-    ) -> TensorView<E, C, ReadWrite> {
+    fn view_mut<C: Coordinates>(&mut self, layout: VirtualLayout<C>) -> View<E, C, ReadWrite> {
         unexpanded!()
     }
 }
@@ -318,7 +315,7 @@ pub trait AsViewMutExpand<E: CubePrimitive> {
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C>,
-    ) -> TensorViewExpand<E, C, ReadWrite>;
+    ) -> ViewExpand<E, C, ReadWrite>;
 }
 
 mod as_view {
@@ -339,8 +336,8 @@ mod as_view {
             self,
             scope: &mut Scope,
             layout: VirtualLayoutExpand<C>,
-        ) -> super::TensorViewExpand<E, C, Read> {
-            TensorView::__expand_new::<L>(scope, self, layout)
+        ) -> super::ViewExpand<E, C, Read> {
+            View::__expand_new::<L>(scope, self, layout)
         }
     }
 
@@ -359,8 +356,8 @@ mod as_view {
             self,
             scope: &mut Scope,
             layout: VirtualLayoutExpand<C>,
-        ) -> super::TensorViewExpand<E, C, ReadWrite> {
-            TensorView::__expand_new_mut::<L>(scope, self, layout)
+        ) -> super::ViewExpand<E, C, ReadWrite> {
+            View::__expand_new_mut::<L>(scope, self, layout)
         }
     }
 }
@@ -368,12 +365,12 @@ mod as_view {
 mod idx {
     use super::*;
 
-    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndex for TensorView<E, C, IO> {
+    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndex for View<E, C, IO> {
         type Output = Line<E>;
         type Idx = C;
     }
 
-    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand for TensorViewExpand<E, C, IO> {
+    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand for ViewExpand<E, C, IO> {
         type Output = <Line<E> as CubeType>::ExpandType;
         type Idx = <C as CubeType>::ExpandType;
 
@@ -386,8 +383,8 @@ mod idx {
         }
     }
 
-    impl<E: CubePrimitive, C: Coordinates> CubeIndexMut for TensorView<E, C, ReadWrite> {}
-    impl<E: CubePrimitive, C: Coordinates> CubeIndexMutExpand for TensorViewExpand<E, C, ReadWrite> {
+    impl<E: CubePrimitive, C: Coordinates> CubeIndexMut for View<E, C, ReadWrite> {}
+    impl<E: CubePrimitive, C: Coordinates> CubeIndexMutExpand for ViewExpand<E, C, ReadWrite> {
         fn expand_index_mut(self, scope: &mut Scope, index: C::ExpandType, value: Self::Output) {
             self.__expand_write_method(scope, index, value)
         }
@@ -408,39 +405,39 @@ pub mod launch {
 
     /// Launchable tensor view for ease of use.
     #[derive(Clone)]
-    pub struct TensorViewTyped<E: CubePrimitive, L: Layout, IO: Clone = Read> {
+    pub struct TypedView<E: CubePrimitive, L: Layout, IO: Clone = Read> {
         _ty: PhantomData<(E, L, IO)>,
     }
 
-    impl<E: CubePrimitive, L: Layout, IO: Clone> CubeType for TensorViewTyped<E, L, IO> {
-        type ExpandType = TensorViewExpand<E, L::Coordinates, IO>;
+    impl<E: CubePrimitive, L: Layout, IO: Clone> CubeType for TypedView<E, L, IO> {
+        type ExpandType = ViewExpand<E, L::Coordinates, IO>;
     }
 
-    impl<E: CubePrimitive, L: Layout, IO: Clone> Deref for TensorViewTyped<E, L, IO> {
-        type Target = TensorView<E, L::Coordinates, IO>;
+    impl<E: CubePrimitive, L: Layout, IO: Clone> Deref for TypedView<E, L, IO> {
+        type Target = View<E, L::Coordinates, IO>;
 
         fn deref(&self) -> &Self::Target {
             unexpanded!()
         }
     }
 
-    impl<E: CubePrimitive, L: Layout> DerefMut for TensorViewTyped<E, L, ReadWrite> {
+    impl<E: CubePrimitive, L: Layout> DerefMut for TypedView<E, L, ReadWrite> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             unexpanded!()
         }
     }
 
-    pub struct TensorViewTypedLaunch<'a, L: Layout + CubeLaunch, R: Runtime> {
+    pub struct TypedViewLaunch<'a, L: Layout + CubeLaunch, R: Runtime> {
         buffer: ArrayArg<'a, R>,
         layout: L::RuntimeArg<'a, R>,
     }
-    impl<'a, L: Layout + CubeLaunch, R: Runtime> TensorViewTypedLaunch<'a, L, R> {
+    impl<'a, L: Layout + CubeLaunch, R: Runtime> TypedViewLaunch<'a, L, R> {
         #[allow(clippy::too_many_arguments)]
         pub fn new(buffer: ArrayArg<'a, R>, layout: L::RuntimeArg<'a, R>) -> Self {
             Self { buffer, layout }
         }
     }
-    impl<'a, L: Layout + CubeLaunch, R: Runtime> ArgSettings<R> for TensorViewTypedLaunch<'a, L, R> {
+    impl<'a, L: Layout + CubeLaunch, R: Runtime> ArgSettings<R> for TypedViewLaunch<'a, L, R> {
         fn register(&self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
             self.buffer.register(launcher);
             self.layout.register(launcher);
@@ -449,11 +446,11 @@ pub mod launch {
 
     #[derive(serde::Serialize, serde::Deserialize)]
     #[serde(bound(serialize = "", deserialize = ""))]
-    pub struct TensorViewTypedCompilationArg<L: Layout + CubeLaunch> {
+    pub struct TypedViewCompilationArg<L: Layout + CubeLaunch> {
         buffer: ArrayCompilationArg,
         layout: L::CompilationArg,
     }
-    impl<L: Layout + CubeLaunch> Clone for TensorViewTypedCompilationArg<L> {
+    impl<L: Layout + CubeLaunch> Clone for TypedViewCompilationArg<L> {
         fn clone(&self) -> Self {
             Self {
                 buffer: self.buffer.clone(),
@@ -461,20 +458,20 @@ pub mod launch {
             }
         }
     }
-    impl<L: Layout + CubeLaunch> CompilationArg for TensorViewTypedCompilationArg<L> {}
+    impl<L: Layout + CubeLaunch> CompilationArg for TypedViewCompilationArg<L> {}
 
-    impl<L: Layout + CubeLaunch> core::hash::Hash for TensorViewTypedCompilationArg<L> {
+    impl<L: Layout + CubeLaunch> core::hash::Hash for TypedViewCompilationArg<L> {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
             self.buffer.hash(state);
             self.layout.hash(state);
         }
     }
-    impl<L: Layout + CubeLaunch> PartialEq for TensorViewTypedCompilationArg<L> {
+    impl<L: Layout + CubeLaunch> PartialEq for TypedViewCompilationArg<L> {
         fn eq(&self, other: &Self) -> bool {
             self.buffer.eq(&other.buffer) && self.layout.eq(&other.layout)
         }
     }
-    impl<L: Layout + CubeLaunch> core::fmt::Debug for TensorViewTypedCompilationArg<L> {
+    impl<L: Layout + CubeLaunch> core::fmt::Debug for TypedViewCompilationArg<L> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct(stringify!(TensorViewTyped))
                 .field("buffer", &self.buffer)
@@ -482,39 +479,39 @@ pub mod launch {
                 .finish()
         }
     }
-    impl<L: Layout + CubeLaunch> Eq for TensorViewTypedCompilationArg<L> {}
+    impl<L: Layout + CubeLaunch> Eq for TypedViewCompilationArg<L> {}
 
     impl<E: CubePrimitive, L: Layout + CubeLaunch, IO: Clone + Send + Sync + 'static> LaunchArg
-        for TensorViewTyped<E, L, IO>
+        for TypedView<E, L, IO>
     where
         L: VirtualLayoutOperations<L::Coordinates>,
         L::ExpandType: VirtualLayoutOperationsExpand<L::Coordinates>,
     {
-        type RuntimeArg<'a, R: Runtime> = TensorViewTypedLaunch<'a, L, R>;
+        type RuntimeArg<'a, R: Runtime> = TypedViewLaunch<'a, L, R>;
 
         fn compilation_arg<'a, R: Runtime>(
             runtime_arg: &Self::RuntimeArg<'a, R>,
         ) -> Self::CompilationArg {
-            TensorViewTypedCompilationArg {
+            TypedViewCompilationArg {
                 buffer: <Array<Line<E>> as LaunchArg>::compilation_arg(&runtime_arg.buffer),
                 layout: L::compilation_arg(&runtime_arg.layout),
             }
         }
     }
     impl<E: CubePrimitive, L: Layout + CubeLaunch, IO: Clone + Send + Sync + 'static>
-        LaunchArgExpand for TensorViewTyped<E, L, IO>
+        LaunchArgExpand for TypedView<E, L, IO>
     where
         L: VirtualLayoutOperations<L::Coordinates>,
         L::ExpandType: VirtualLayoutOperationsExpand<L::Coordinates>,
     {
-        type CompilationArg = TensorViewTypedCompilationArg<L>;
+        type CompilationArg = TypedViewCompilationArg<L>;
         fn expand(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             let buffer = <Array<Line<E>> as LaunchArgExpand>::expand(&arg.buffer, builder);
             let layout = L::expand(&arg.layout, builder);
-            TensorViewExpand::<E, L::Coordinates, IO> {
+            ViewExpand::<E, L::Coordinates, IO> {
                 tensor: ListType::Read(Arc::new(buffer)),
                 layout: VirtualLayoutExpand {
                     state: Arc::new(layout),
@@ -528,7 +525,7 @@ pub mod launch {
         ) -> <Self as CubeType>::ExpandType {
             let buffer = <Array<Line<E>> as LaunchArgExpand>::expand_output(&arg.buffer, builder);
             let layout = L::expand_output(&arg.layout, builder);
-            TensorViewExpand::<E, L::Coordinates, IO> {
+            ViewExpand::<E, L::Coordinates, IO> {
                 tensor: ListType::ReadWrite(Arc::new(buffer)),
                 layout: VirtualLayoutExpand {
                     state: Arc::new(layout),
