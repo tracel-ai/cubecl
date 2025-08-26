@@ -329,7 +329,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     }
 
     fn line_size(&self) -> u32 {
-        todo!()
+        let mut scope = Scope::root(false);
+        TensorOutputExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
@@ -401,7 +402,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     }
 
     fn line_size(&self) -> u32 {
-        todo!()
+        let mut scope = Scope::root(false);
+        TensorLhsExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
@@ -473,7 +475,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     }
 
     fn line_size(&self) -> u32 {
-        todo!()
+        let mut scope = Scope::root(false);
+        TensorRhsExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
@@ -545,7 +548,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     }
 
     fn line_size(&self) -> u32 {
-        todo!()
+        let mut scope = Scope::root(false);
+        TensorAccExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
