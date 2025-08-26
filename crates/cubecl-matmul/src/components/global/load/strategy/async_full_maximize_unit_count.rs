@@ -109,7 +109,7 @@ pub struct AsyncFullMaximizeUnitCountJob {
 impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsyncFullMaximizeUnitCountJob
 {
-    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
         tensor_reader: &TensorReader<IP::Global>,
