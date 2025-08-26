@@ -368,14 +368,14 @@ mod as_view {
 mod idx {
     use super::*;
 
-    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndex<C> for TensorView<E, C, IO> {
+    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndex for TensorView<E, C, IO> {
         type Output = Line<E>;
+        type Idx = C;
     }
 
-    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand<C>
-        for TensorViewExpand<E, C, IO>
-    {
+    impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand for TensorViewExpand<E, C, IO> {
         type Output = <Line<E> as CubeType>::ExpandType;
+        type Idx = <C as CubeType>::ExpandType;
 
         fn expand_index(self, scope: &mut Scope, index: C::ExpandType) -> Self::Output {
             self.__expand_read_method(scope, index)
@@ -386,10 +386,8 @@ mod idx {
         }
     }
 
-    impl<E: CubePrimitive, C: Coordinates> CubeIndexMut<C> for TensorView<E, C, ReadWrite> {}
-    impl<E: CubePrimitive, C: Coordinates> CubeIndexMutExpand<C> for TensorViewExpand<E, C, ReadWrite> {
-        type Output = <Line<E> as CubeType>::ExpandType;
-
+    impl<E: CubePrimitive, C: Coordinates> CubeIndexMut for TensorView<E, C, ReadWrite> {}
+    impl<E: CubePrimitive, C: Coordinates> CubeIndexMutExpand for TensorViewExpand<E, C, ReadWrite> {
         fn expand_index_mut(self, scope: &mut Scope, index: C::ExpandType, value: Self::Output) {
             self.__expand_write_method(scope, index, value)
         }

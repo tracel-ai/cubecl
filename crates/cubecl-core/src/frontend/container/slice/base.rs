@@ -278,6 +278,7 @@ impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
 }
 impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
     type Output = E;
+    type Idx = u32;
 
     fn expand_index(
         scope: &mut Scope,
@@ -290,6 +291,7 @@ impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
 
 impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadOnly> {
     type Output = E::ExpandType;
+    type Idx = ExpandElementTyped<u32>;
 
     fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
         self.__expand_read_method(scope, index)
@@ -349,6 +351,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> ListExpand<E> for SliceExpand<E, IO>
 
 impl<E: CubePrimitive> CubeIndex for Slice<E, ReadWrite> {
     type Output = E;
+    type Idx = u32;
 
     fn expand_index(
         scope: &mut Scope,
@@ -361,6 +364,7 @@ impl<E: CubePrimitive> CubeIndex for Slice<E, ReadWrite> {
 
 impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadWrite> {
     type Output = E::ExpandType;
+    type Idx = ExpandElementTyped<u32>;
 
     fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
         self.__expand_read_method(scope, index)
@@ -386,8 +390,6 @@ impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {
 }
 
 impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E, ReadWrite> {
-    type Output = E::ExpandType;
-
     fn expand_index_mut(
         self,
         scope: &mut Scope,

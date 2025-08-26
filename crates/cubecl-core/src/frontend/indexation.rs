@@ -8,57 +8,63 @@ use crate::{
 
 /// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
 /// non-expanded function
-pub trait CubeIndex<I: CubeType = u32>:
-    CubeType<ExpandType: CubeIndexExpand<I, Output = <Self::Output as CubeType>::ExpandType>>
+pub trait CubeIndex:
+    CubeType<
+    ExpandType: CubeIndexExpand<
+        Idx = <Self::Idx as CubeType>::ExpandType,
+        Output = <Self::Output as CubeType>::ExpandType,
+    >,
+>
 {
     type Output: CubeType;
+    type Idx: CubeType;
 
-    fn cube_idx(&self, _i: I) -> &Self::Output {
+    fn cube_idx(&self, _i: Self::Idx) -> &Self::Output {
         unexpanded!()
     }
 
     fn expand_index(
         scope: &mut Scope,
         array: Self::ExpandType,
-        index: I::ExpandType,
+        index: <Self::Idx as CubeType>::ExpandType,
     ) -> <Self::Output as CubeType>::ExpandType {
         array.expand_index(scope, index)
     }
     fn expand_index_unchecked(
         scope: &mut Scope,
         array: Self::ExpandType,
-        index: I::ExpandType,
+        index: <Self::Idx as CubeType>::ExpandType,
     ) -> <Self::Output as CubeType>::ExpandType {
         array.expand_index_unchecked(scope, index)
     }
 }
 
-pub trait CubeIndexExpand<I: CubeType = u32> {
+pub trait CubeIndexExpand {
     type Output;
-    fn expand_index(self, scope: &mut Scope, index: I::ExpandType) -> Self::Output;
-    fn expand_index_unchecked(self, scope: &mut Scope, index: I::ExpandType) -> Self::Output;
+    type Idx;
+    fn expand_index(self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
+    fn expand_index_unchecked(self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
 }
 
-pub trait CubeIndexMut<I: CubeType = u32>:
-    CubeIndex<I>
-    + CubeType<ExpandType: CubeIndexMutExpand<I, Output = <Self::Output as CubeType>::ExpandType>>
+pub trait CubeIndexMut:
+    CubeIndex
+    + CubeType<ExpandType: CubeIndexMutExpand<Output = <Self::Output as CubeType>::ExpandType>>
 {
-    fn cube_idx_mut(&mut self, _i: I) -> &mut Self::Output {
+    fn cube_idx_mut(&mut self, _i: Self::Idx) -> &mut Self::Output {
         unexpanded!()
     }
     fn expand_index_mut(
         scope: &mut Scope,
         array: Self::ExpandType,
-        index: I::ExpandType,
+        index: <Self::Idx as CubeType>::ExpandType,
         value: <Self::Output as CubeType>::ExpandType,
     ) {
         array.expand_index_mut(scope, index, value)
     }
 }
 
-pub trait CubeIndexMutExpand<I: CubeType = u32> {
-    type Output;
-    fn expand_index_mut(self, scope: &mut Scope, index: I::ExpandType, value: Self::Output);
+pub trait CubeIndexMutExpand: CubeIndexExpand {
+    fn expand_index_mut(self, scope: &mut Scope, index: Self::Idx, value: Self::Output);
 }
 
 pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
