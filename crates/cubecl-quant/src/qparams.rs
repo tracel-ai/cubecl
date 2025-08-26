@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::TensorView;
 
-use crate::scheme::{QuantLevel, QuantMode, QuantScheme, QuantValue};
+use crate::scheme::{QuantLevel, QuantScheme};
 
 /// Quantization parameters.
 #[derive(CubeLaunch, CubeType)]
@@ -27,14 +27,10 @@ impl QParams {
             // Symmetric quantization only contains the scaling factor as the last element
             QuantScheme {
                 level: QuantLevel::Tensor,
-                mode: QuantMode::Symmetric,
-                value: QuantValue::QInt8,
                 ..
             } => scale_tensor[0][0],
             QuantScheme {
                 level: QuantLevel::Block(block_size),
-                mode: QuantMode::Symmetric,
-                value: QuantValue::QInt8,
                 ..
             } => {
                 // The input position is `num_quants` smaller because it acts as vectorize with a line
