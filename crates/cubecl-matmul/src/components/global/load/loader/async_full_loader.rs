@@ -41,7 +41,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 /// each Task represents a single data transfer for a specific unit
 pub struct AsyncFullLoader<
     IP: InputPrecision,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
@@ -58,7 +58,7 @@ pub struct AsyncFullLoader<
 #[cube]
 impl<
     IP: InputPrecision,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,

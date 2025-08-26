@@ -1410,16 +1410,9 @@ impl<D: Dialect> CppCompiler<D> {
                     frag: self.compile_matrix(mat),
                 }
             }
-            gpu::VariableKind::Pipeline {
-                id,
-                item,
-                num_stages,
-            } => {
+            gpu::VariableKind::Pipeline { id, num_stages } => {
                 self.flags.op_pipeline = true;
-                let pipeline = Variable::Pipeline {
-                    id,
-                    item: self.compile_item(item),
-                };
+                let pipeline = Variable::Pipeline { id };
                 if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
                     self.pipelines.push(PipelineOps::Init {
                         pipeline,
@@ -1428,7 +1421,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier { id, item, level } => {
+            gpu::VariableKind::Barrier { id, level } => {
                 self.flags.op_barrier = true;
                 match level {
                     gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
@@ -1437,11 +1430,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                     _ => {}
                 }
-                Variable::Barrier {
-                    id,
-                    item: self.compile_item(item),
-                    level,
-                }
+                Variable::Barrier { id, level }
             }
         }
     }
