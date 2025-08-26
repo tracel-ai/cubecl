@@ -253,10 +253,7 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     /// Create a mutable conceptual view over this tensor, allowing for multi-dimensional indexing
     /// with custom layouts
-    pub fn view_mut<C: Coordinates>(
-        &self,
-        layout: VirtualLayout<C>,
-    ) -> View<E, C, ReadWrite> {
+    pub fn view_mut<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, ReadWrite> {
         View::new_mut::<VirtualTensor<E, ReadWrite>>(*self, layout)
     }
 }
