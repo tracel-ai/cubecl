@@ -2,7 +2,7 @@ use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
 use crate::ir::Switch;
-use crate::ir::{Branch, If, IfElse, Type, Loop, RangeLoop, Scope};
+use crate::ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type};
 
 use super::{CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric, assign};
 

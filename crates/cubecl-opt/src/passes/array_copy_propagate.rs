@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{Id, Instruction, Type, Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{Id, Instruction, Operation, Operator, Type, Variable, VariableKind};
 
 use crate::{AtomicCounter, Optimizer, analyses::writes::Writes};
 

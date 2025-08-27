@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{ConstantScalarValue, Type, Operation, OperationReflect, Variable, VariableKind};
+use cubecl_ir::{ConstantScalarValue, Operation, OperationReflect, Type, Variable, VariableKind};
 use float_ord::FloatOrd;
 use smallvec::SmallVec;
 

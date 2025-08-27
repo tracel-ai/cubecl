@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use super::{Branch, CoopMma, Type, NonSemantic, Plane, Synchronization, Variable};
+use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
     Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator, TmaOps,
     comparison::Comparison,
