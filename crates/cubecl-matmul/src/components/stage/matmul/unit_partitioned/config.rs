@@ -87,7 +87,7 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
     }
 
     fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme {
-        PartitionSchedulerScheme::Offset
+        PartitionSchedulerScheme::Naive
     }
 }
 
