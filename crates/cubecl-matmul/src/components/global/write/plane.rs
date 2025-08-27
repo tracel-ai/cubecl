@@ -5,11 +5,8 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::ReadWrite;
-use cubecl_std::{
-    div_ceil,
-    tensor::layout::{Coords3d, TensorView},
-};
+use cubecl_std::tensor::{View, r#virtual::ReadWrite};
+use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 
 use super::GlobalWriter;
 
@@ -23,7 +20,7 @@ pub struct PlaneWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
     pub fn new(
-        view: TensorView<EG, Coords3d, ReadWrite>,
+        view: View<EG, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

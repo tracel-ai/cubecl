@@ -1,9 +1,11 @@
 mod partition;
 mod partitioned_matmul;
 mod plane_partitioned;
+mod scheduler;
 mod unit_partitioned;
 
 pub use plane_partitioned::PlaneMatmulFamily;
+pub use scheduler::{PartitionScheduler, PartitionSchedulerScheme};
 pub use unit_partitioned::UnitMatmulFamily;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
