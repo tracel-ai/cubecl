@@ -20,8 +20,8 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
 
     let (q_min, q_max) = value.range();
     let range = match value.is_symmetric() {
-        true => half as f32 - 1.0,
-        false => half as f32,
+        true => half - 1.0,
+        false => half,
     };
     let scale_f32 = (2.0 * range) / (q_max - q_min);
     let data_scale = vec![scale_f32];

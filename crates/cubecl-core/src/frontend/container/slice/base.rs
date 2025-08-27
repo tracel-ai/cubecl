@@ -30,6 +30,16 @@ pub enum SliceOrigin<E: CubePrimitive> {
     SharedMemory(SharedMemory<E>),
 }
 
+impl<E: CubePrimitive> SliceOriginExpand<E> {
+    pub fn line_size(&self) -> u32 {
+        match self {
+            SliceOriginExpand::Tensor(t) => t.line_size(),
+            SliceOriginExpand::Array(t) => t.line_size(),
+            SliceOriginExpand::SharedMemory(t) => t.line_size(),
+        }
+    }
+}
+
 impl<E: CubePrimitive, IO: SliceVisibility> Iterator for Slice<E, IO> {
     type Item = E;
 
@@ -268,6 +278,7 @@ impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
 }
 impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
     type Output = E;
+    type Idx = u32;
 
     fn expand_index(
         scope: &mut Scope,
@@ -280,6 +291,7 @@ impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
 
 impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadOnly> {
     type Output = E::ExpandType;
+    type Idx = ExpandElementTyped<u32>;
 
     fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
         self.__expand_read_method(scope, index)
@@ -327,10 +339,19 @@ impl<E: CubePrimitive, IO: SliceVisibility> ListExpand<E> for SliceExpand<E, IO>
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len(scope, self.clone())
     }
+
+    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
+        self.line_size()
+    }
+
+    fn line_size(&self) -> u32 {
+        self.line_size.unwrap_or_else(|| self.origin.line_size())
+    }
 }
 
 impl<E: CubePrimitive> CubeIndex for Slice<E, ReadWrite> {
     type Output = E;
+    type Idx = u32;
 
     fn expand_index(
         scope: &mut Scope,
@@ -343,6 +364,7 @@ impl<E: CubePrimitive> CubeIndex for Slice<E, ReadWrite> {
 
 impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadWrite> {
     type Output = E::ExpandType;
+    type Idx = ExpandElementTyped<u32>;
 
     fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
         self.__expand_read_method(scope, index)
@@ -368,8 +390,6 @@ impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {
 }
 
 impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E, ReadWrite> {
-    type Output = E::ExpandType;
-
     fn expand_index_mut(
         self,
         scope: &mut Scope,

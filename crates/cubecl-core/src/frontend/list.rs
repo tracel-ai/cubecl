@@ -28,6 +28,10 @@ pub trait List<T: CubePrimitive>:
         unexpanded!();
     }
 
+    fn line_size(&self) -> u32 {
+        unexpanded!();
+    }
+
     fn __expand_read(
         scope: &mut Scope,
         this: Self::ExpandType,
@@ -47,6 +51,10 @@ pub trait List<T: CubePrimitive>:
     fn __expand_len(scope: &mut Scope, this: Self::ExpandType) -> ExpandElementTyped<u32> {
         this.__expand_len_method(scope)
     }
+
+    fn __expand_line_size(scope: &mut Scope, this: Self::ExpandType) -> u32 {
+        this.__expand_line_size_method(scope)
+    }
 }
 
 /// Expand version of [CubeRead].
@@ -62,6 +70,8 @@ pub trait ListExpand<T: CubePrimitive>: SliceOperatorExpand<T> {
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType;
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
+    fn line_size(&self) -> u32;
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32;
 }
 
 /// Type for which we can read and write values in cube functions.

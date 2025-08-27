@@ -78,7 +78,7 @@ pub mod index_assign {
     pub fn expand<A: CubeIndexMutExpand<Output = ExpandElementTyped<V>>, V: CubePrimitive>(
         scope: &mut Scope,
         expand: A,
-        index: ExpandElementTyped<u32>,
+        index: A::Idx,
         value: ExpandElementTyped<V>,
     ) {
         expand.expand_index_mut(scope, index, value)
@@ -89,8 +89,6 @@ pub mod index_assign {
             impl<E: CubePrimitive> CubeIndexMut for $type<E> {}
 
             impl<E: CubePrimitive> CubeIndexMutExpand for ExpandElementTyped<$type<E>> {
-                type Output = ExpandElementTyped<E>;
-
                 fn expand_index_mut(
                     self,
                     scope: &mut Scope,
@@ -116,7 +114,7 @@ pub mod index {
     pub fn expand<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
         scope: &mut Scope,
         expand: A,
-        index: ExpandElementTyped<u32>,
+        index: A::Idx,
     ) -> ExpandElementTyped<V> {
         expand.expand_index(scope, index)
     }
@@ -124,7 +122,7 @@ pub mod index {
     pub fn expand_with<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
         scope: &mut Scope,
         expand: A,
-        index: ExpandElementTyped<u32>,
+        index: A::Idx,
     ) -> ExpandElementTyped<V> {
         expand.expand_index(scope, index)
     }
@@ -133,10 +131,12 @@ pub mod index {
         ($type:ident) => {
             impl<E: CubePrimitive> CubeIndex for $type<E> {
                 type Output = E;
+                type Idx = u32;
             }
 
             impl<E: CubePrimitive> CubeIndexExpand for ExpandElementTyped<$type<E>> {
                 type Output = ExpandElementTyped<E>;
+                type Idx = ExpandElementTyped<u32>;
 
                 fn expand_index(
                     self,
@@ -169,7 +169,7 @@ pub mod index_unchecked {
     pub fn expand<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
         scope: &mut Scope,
         expand: A,
-        index: ExpandElementTyped<u32>,
+        index: A::Idx,
     ) -> ExpandElementTyped<V> {
         expand.expand_index_unchecked(scope, index)
     }
