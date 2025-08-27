@@ -1627,7 +1627,19 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         gpu::ElemType::Bool,
     ];
 
+    let supported_atomic_types = [
+        gpu::ElemType::Int(gpu::IntKind::I32),
+        gpu::ElemType::Int(gpu::IntKind::I64),
+        gpu::ElemType::UInt(gpu::UIntKind::U32),
+        gpu::ElemType::UInt(gpu::UIntKind::U64),
+        gpu::ElemType::Float(gpu::FloatKind::F32),
+    ];
+
     for ty in supported_types {
         props.register_feature(Feature::Type(gpu::StorageType::Scalar(ty)));
+    }
+
+    for ty in supported_atomic_types {
+        props.register_feature(Feature::Type(gpu::StorageType::Atomic(ty)));
     }
 }

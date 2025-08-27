@@ -30,9 +30,9 @@ impl AvailableLineSizes {
         elem_out: &StorageType,
     ) -> Self {
         AvailableLineSizes {
-            lhs: R::line_size_elem(elem_lhs).collect(),
-            rhs: R::line_size_elem(elem_rhs).collect(),
-            out: R::line_size_elem(elem_out).collect(),
+            lhs: R::line_size_type(elem_lhs).collect(),
+            rhs: R::line_size_type(elem_rhs).collect(),
+            out: R::line_size_type(elem_out).collect(),
         }
     }
 

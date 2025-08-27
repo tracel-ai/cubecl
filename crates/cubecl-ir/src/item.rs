@@ -399,10 +399,10 @@ impl Type {
         Self::new(StorageType::Semantic(ty))
     }
 
-    pub fn line(self, vectorization: LineSize) -> Type {
+    pub fn line(self, line_size: LineSize) -> Type {
         Type {
             storage: self.storage,
-            line_size: vectorization,
+            line_size,
         }
     }
 

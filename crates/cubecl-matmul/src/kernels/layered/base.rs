@@ -284,7 +284,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         lhs: 1,
         rhs: 1,
         out: try_tensor_line_size_parallel(
-            R::line_size_elem(&eo_elem),
+            R::line_size_type(&eo_elem),
             out.shape,
             out.strides,
             rank - 1,
