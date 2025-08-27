@@ -213,7 +213,7 @@ impl ElemType {
     }
 
     pub fn is_unsigned_int(&self) -> bool {
-        matches!(self, ElemType::UInt(_))
+        matches!(self, ElemType::UInt(_) | ElemType::Bool)
     }
 
     pub fn is_float(&self) -> bool {
