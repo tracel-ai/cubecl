@@ -1,5 +1,7 @@
 use cubecl_matmul::components::TileSize;
 
+use crate::components::FlashIdent;
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 // Score matmul: (seq_q, head_dim) @ (head_dim, seq_kv) → (seq_q, seq_kv)
 // Value matmul: (seq_q, seq_kv) @ (seq_kv, val_dim) → (seq_q, val_dim)
@@ -29,6 +31,28 @@ impl AttentionTileSize {
 
     pub fn accumulator_size(&self) -> u32 {
         self.seq_q * self.val_dim
+    }
+
+    pub fn num_rows(&self, ident: FlashIdent) -> u32 {
+        match ident {
+            FlashIdent::Query => self.seq_q,
+            FlashIdent::Key => self.seq_kv,
+            FlashIdent::ScoreProb => self.seq_q,
+            FlashIdent::Value => self.seq_kv,
+            FlashIdent::Mask => todo!(),
+            FlashIdent::Out => self.seq_q,
+        }
+    }
+
+    pub(crate) fn num_cols(&self, ident: FlashIdent) -> u32 {
+        match ident {
+            FlashIdent::Query => self.head_dim,
+            FlashIdent::Key => self.head_dim,
+            FlashIdent::ScoreProb => self.seq_kv,
+            FlashIdent::Value => self.val_dim,
+            FlashIdent::Mask => todo!(),
+            FlashIdent::Out => self.val_dim,
+        }
     }
 
     pub fn to_score_matmul(&self) -> TileSize {

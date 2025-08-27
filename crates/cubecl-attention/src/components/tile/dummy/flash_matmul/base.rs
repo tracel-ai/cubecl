@@ -101,6 +101,9 @@ pub trait FlashMatmulConfig:
     fn attention_tile_size(&self) -> AttentionTileSize;
     // If AP::EI != FP::Q
     fn cast_query(&self) -> bool;
+
+    fn num_units_per_row(&self, ident: FlashIdent) -> u32;
+    fn num_cols_per_unit(&self, ident: FlashIdent) -> u32;
 }
 
 pub trait FlashMatmulFamily: Send + Sync + 'static {

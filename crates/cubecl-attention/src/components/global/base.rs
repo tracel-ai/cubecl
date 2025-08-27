@@ -89,6 +89,6 @@ pub trait GlobalAttentionConfig:
 
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
-    fn tc(&self) -> u32;
+    fn num_stage_iterations(&self) -> u32;
     fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig;
 }

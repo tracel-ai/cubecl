@@ -1,16 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader};
+use cubecl_matmul::components::global::memory::TensorReader;
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::tensor::layout::{Coords3d, TensorView};
 use std::marker::PhantomData;
 
-use crate::components::AttentionPrecision;
 use crate::components::global::base::GlobalAttentionConfig;
+use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::{FlashMatmul, FlashPrecision};
+use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecision};
+use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
 pub struct DummyQueryLoader<AP: AttentionPrecision> {
@@ -43,15 +44,19 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
         DummyQueryLoader::<AP> { tensor_reader }
     }
 
-    pub fn reader(&self) -> QueryRegisterReader<AP::EI> {
+    pub fn reader<G: GlobalAttentionConfig>(
+        &self,
+        #[comptime] config: G,
+    ) -> QueryRegisterReader<AP::EI> {
         comment!("Loading Query");
 
+        let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
         let tile = Tile::<AP::EI> {
-            slice: self
-                .tensor_reader
-                .view
-                .slice((0u32.runtime(), 0u32.runtime(), 0u32.runtime()), 64),
-            stride: 8,
+            slice: self.tensor_reader.view.slice(
+                (0u32.runtime(), 0u32.runtime(), 0u32.runtime()),
+                attention_tile_size.query_size(),
+            ),
+            stride: attention_tile_size.num_cols(FlashIdent::Query),
             layout: MatrixLayout::RowMajor,
         };
 
@@ -84,36 +89,40 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         }
     }
 
-    pub fn load_transposed(&mut self) {
+    pub fn load_transposed(&mut self, #[comptime] config: G) {
+        // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
+
         comment!("Loading Key");
-        let config = comptime!(GlobalMemoryConfig {
-            elements_in_tile_row: 8,
-            elements_in_tile_col: 8,
-            elements_in_stage_row: 8,
-            elements_in_stage_col: 8,
-            global_line_size: 1,
-            check_row_bounds: false,
-            check_col_bounds: false,
-            matrix_layout: MatrixLayout::RowMajor,
-        });
-
-        let index_load_0 = UNIT_POS_X;
-        let index_load_1 = UNIT_POS_X + 32;
-        let (row_0, col_0) = (index_load_0 / 8, index_load_0 % 8);
-        let (row_1, col_1) = (index_load_1 / 8, index_load_1 % 8);
-        let index_store_0 = col_0 * 8 + row_0;
-        let index_store_1 = col_1 * 8 + row_1;
-
-        let line0 = self
-            .tensor_reader
-            .load_coalesced_in_tile(0u32, 0u32, index_load_0, config);
-        let line1 = self
-            .tensor_reader
-            .load_coalesced_in_tile(0u32, 0u32, index_load_1, config);
-
+        let memory_config = config.global_memory_config(FlashIdent::Key);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
-        slice[index_store_0] = Line::cast_from(line0);
-        slice[index_store_1] = Line::cast_from(line1);
+
+        let tile_config = config.stage_config().tile_config();
+        let num_rows = tile_config.attention_tile_size().num_rows(FlashIdent::Key);
+        let num_cols = tile_config.attention_tile_size().num_cols(FlashIdent::Key);
+        let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Key);
+        let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Key);
+
+        let row = UNIT_POS_X / num_units_per_row;
+        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
+
+        if row < num_rows {
+            #[unroll]
+            for i in 0..num_cols_per_unit {
+                let col = col_start + i;
+
+                if col < num_cols {
+                    let index_load = row * num_cols + col;
+                    let index_store = col * num_rows + row;
+                    slice[index_store] =
+                        Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
+                            0u32,
+                            0u32,
+                            index_load,
+                            memory_config,
+                        ));
+                }
+            }
+        }
     }
 }
 
@@ -142,29 +151,42 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
         }
     }
 
-    pub fn load(&mut self) {
+    pub fn load(&mut self, #[comptime] config: G) {
+        // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
+
         comment!("Loading Value");
-        let config = comptime!(GlobalMemoryConfig {
-            elements_in_tile_row: 8,
-            elements_in_tile_col: 8,
-            elements_in_stage_row: 8,
-            elements_in_stage_col: 8,
-            global_line_size: 1,
-            check_row_bounds: false,
-            check_col_bounds: false,
-            matrix_layout: MatrixLayout::RowMajor,
-        });
-
-        let line0 = self
-            .tensor_reader
-            .load_coalesced_in_tile(0u32, 0u32, UNIT_POS_X, config);
-        let line1 = self
-            .tensor_reader
-            .load_coalesced_in_tile(0u32, 0u32, UNIT_POS_X + 32, config);
-
+        let memory_config = config.global_memory_config(FlashIdent::Value);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
-        slice[UNIT_POS_X] = Line::cast_from(line0);
-        slice[UNIT_POS_X + 32] = Line::cast_from(line1);
+
+        let tile_config = config.stage_config().tile_config();
+        let num_rows = tile_config
+            .attention_tile_size()
+            .num_rows(FlashIdent::Value);
+        let num_cols = tile_config
+            .attention_tile_size()
+            .num_cols(FlashIdent::Value);
+        let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Value);
+        let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Value);
+
+        let row = UNIT_POS_X / num_units_per_row;
+        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
+
+        if row < num_rows {
+            #[unroll]
+            for i in 0..num_cols_per_unit {
+                let col = col_start + i;
+
+                if col < num_cols {
+                    let index = row * num_cols + col;
+                    slice[index] = Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
+                        0u32,
+                        0u32,
+                        index,
+                        memory_config,
+                    ));
+                }
+            }
+        }
     }
 }
 

@@ -45,7 +45,7 @@ impl<
     ) {
         comment!("Global: Execute");
 
-        let query_reader = query_loader.reader();
+        let query_reader = query_loader.reader::<Self::Config>(config);
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
@@ -54,9 +54,9 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        for _ in 0..config.tc() {
-            key_loader.load_transposed();
-            value_loader.load();
+        for _ in 0..config.num_stage_iterations() {
+            key_loader.load_transposed(config);
+            value_loader.load(config);
             SA::execute(
                 &key_reader,
                 &value_reader,

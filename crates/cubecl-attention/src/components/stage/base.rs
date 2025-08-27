@@ -112,7 +112,6 @@ pub trait StageAttentionConfig:
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
-    fn rows_per_plane(&self) -> u32;
 
     fn tile_config(&self) -> Self::FlashMatmulConfig;
     fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;

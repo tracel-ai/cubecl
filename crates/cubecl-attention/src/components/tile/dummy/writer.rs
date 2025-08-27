@@ -42,6 +42,7 @@ impl<EO: Numeric> DummyWriter<EO> {
             .value_stage_memory_config()
             .tiling_scheme()
             .elements_in_tile_mn();
+
         // let output_line_size = config.global_line_size(MatmulIdent::Out);
         let output_line_size = 1;
         let out_config = config.global_memory_config(FlashIdent::Out);

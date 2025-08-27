@@ -31,10 +31,10 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     ) {
         comment!("Batch: Execute");
 
+        // TODO
         // let n = config.seq_k();
         // There are ceil(n/br) to launch for each head and batch
         // Compute offsets
-        // But for now we assume every parameter = 8 so it's only one time the calls to tile matmul
 
         let global_config = config.global_config();
         GA::execute(

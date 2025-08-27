@@ -1,4 +1,7 @@
-use cubecl_matmul::components::{stage::StageMemoryConfig, tile::TileConfig, GlobalPartitionSize, MatrixLayout, StageIdent, TilingScheme};
+use cubecl_matmul::components::{
+    GlobalPartitionSize, MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig,
+    tile::TileConfig,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AttentionStageMemoryConfig<T: TileConfig> {
@@ -18,7 +21,7 @@ impl<T: TileConfig> StageMemoryConfig for AttentionStageMemoryConfig<T> {
 
     fn tiling_scheme(&self) -> TilingScheme {
         TilingScheme {
-            tile_size: (8, 8, 8).into(),
+            tile_size: self.tile_config.tile_size().clone(),
             partition_size: (1, 1, 1).into(),
             stage_size: (1, 1, 1).into(),
             global_partition_size: GlobalPartitionSize::new(1, 1, 1),

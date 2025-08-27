@@ -111,6 +111,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        println!("{:?}: {:?}, {:?}", i, a, e);
+
         // account for lower precision at higher values
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
@@ -347,9 +349,6 @@ where
     // scaling factor 1/sqrt(dk)
     let scale = P::EA::new((head_dim as f32).sqrt().recip());
 
-    // streaming block size along K/V (tunable)
-    let block_k = std::cmp::min(8usize, seq_k);
-
     for b in 0..batch {
         for h in 0..num_heads {
             for i in 0..seq_q {
@@ -362,7 +361,7 @@ where
                 // For each K/V block
                 let mut k_block_start = 0usize;
                 while k_block_start < seq_k {
-                    let k_block_end = std::cmp::min(seq_k, k_block_start + block_k);
+                    let k_block_end = std::cmp::min(seq_k, k_block_start + seq_k);
                     let cur_block_len = k_block_end - k_block_start;
 
                     // Step A: compute S_block[j'] = Q_i · K_{j'}  for j' in block

@@ -1,9 +1,11 @@
+use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, InvalidConfigError,
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, InvalidConfigError,
     tile::dummy::{
-        AttentionTileSize, FlashMatmulFamily, FlashPrecision,
+        FlashMatmulFamily, FlashPrecision,
         dummy_register::{DummyRegisterFlashMatmul, DummyRegisterFlashMatmulConfig},
     },
 };
@@ -22,19 +24,14 @@ impl FlashMatmulFamily for DummyRegisterFlashMatmul {
     }
 
     fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
-        _client: &cubecl_core::prelude::ComputeClient<R::Server, R::Channel>,
-        _problem: &crate::components::AttentionProblem,
-        selection: &crate::components::AttentionSelection,
-        line_sizes: &crate::components::AttentionLineSizes,
+        _client: &ComputeClient<R::Server, R::Channel>,
+        _problem: &AttentionProblem,
+        selection: &AttentionSelection,
+        line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
         DummyRegisterFlashMatmulConfig::new::<AP>(
             selection.plane_dim,
-            AttentionTileSize {
-                seq_q: 8,
-                head_dim: 8,
-                seq_kv: 8,
-                val_dim: 8,
-            },
+            selection.attention_tile_size,
             1,
             line_sizes.query as u32,
             line_sizes.key as u32,

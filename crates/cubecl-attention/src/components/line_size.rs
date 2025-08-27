@@ -53,6 +53,7 @@ impl AvailableLineSizes {
             FlashIdent::Value => self.value.iter().copied(),
             FlashIdent::Mask => self.mask.iter().copied(),
             FlashIdent::Out => self.out.iter().copied(),
+            FlashIdent::ScoreProb => unreachable!("Not a materizalied tensor"),
         };
 
         let target = tensor_line_size_parallel(iter, shape, strides, rank - 1);
@@ -81,6 +82,7 @@ impl AvailableLineSizes {
             FlashIdent::Out => {
                 self.out = self.out.into_iter().filter(&mut pred).collect();
             }
+            FlashIdent::ScoreProb => unreachable!("Not a materizalied tensor"),
         }
         self
     }

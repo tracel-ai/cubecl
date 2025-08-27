@@ -1,13 +1,15 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{MatrixLayout, tile::Tile};
+use cubecl_matmul::components::tile::Tile;
 use cubecl_std::tensor::layout::{Coords3d, TensorView};
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::tile::TileAttention;
-use crate::components::tile::dummy::{FlashMatmul, FlashPrecision, ScoreFragment};
+use crate::components::tile::dummy::{
+    FlashMatmul, FlashMatmulConfig, FlashPrecision, ScoreFragment,
+};
 use crate::components::{
     AttentionPrecision,
     global::GlobalAttentionConfig,
@@ -44,8 +46,9 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         #[comptime] config: Self::Config,
     ) {
         comment!("Tile: Execute");
-        // 1/sqrt(8)
-        let inv_sqrt_dk = AP::EA::new(0.35355);
+        let inv_sqrt_dk = AP::EA::new(comptime!(
+            1.0 / (config.attention_tile_size().head_dim as f32).sqrt()
+        ));
 
         let prev_m = state.m;
         let prev_l = state.l;
@@ -82,26 +85,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         state.l = new_l;
     }
 
-    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
-        comment!("Tile: Rescale");
-        let index_0 = 2 * UNIT_POS_X;
-        let index_1 = index_0 + 1;
-        let mut tmp_smem = SharedMemory::<AP::EA>::new(64);
-
-        FM::write_results::<AP::EA>(
-            &acc.fragment,
-            &mut tmp_smem.to_slice_mut().try_cast_unchecked(),
-            config,
-        );
-
-        tmp_smem[index_0] /= state.l;
-        tmp_smem[index_1] /= state.l;
-        let tile = Tile::<AP::EA> {
-            slice: tmp_smem.to_slice().try_cast_unchecked(),
-            stride: 8,
-            layout: MatrixLayout::RowMajor,
-        };
-        FM::tmp_fill_accumulator(&tile, &mut acc.fragment, config);
+    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] _config: Self::Config) {
+        acc.scale(AP::EA::recip(state.l));
     }
 
     fn init_state(#[comptime] _config: Self::Config) -> Self::State {
@@ -121,7 +106,9 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         #[comptime] global_config: G,
     ) {
         comment!("Tile: Write");
-        let mut out_smem = SharedMemory::<AP::EA>::new(64);
+        let mut out_smem =
+            SharedMemory::<AP::EA>::new(stage_config.attention_tile_size().accumulator_size());
+
         FM::write_results::<AP::EA>(
             &acc.fragment,
             &mut out_smem.to_slice_mut().try_cast_unchecked(),

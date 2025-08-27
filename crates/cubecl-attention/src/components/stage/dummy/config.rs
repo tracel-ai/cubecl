@@ -24,10 +24,6 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
         1
     }
 
-    fn rows_per_plane(&self) -> u32 {
-        1
-    }
-
     fn tile_config(&self) -> Self::FlashMatmulConfig {
         self.tile_config
     }
