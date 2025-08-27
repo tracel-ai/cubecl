@@ -175,7 +175,7 @@ pub fn execute_last_and_write_results<
                 SMM::write_results::<G>(
                     acc,
                     out_writer,
-                    &partition_scheduler,
+                    partition_scheduler,
                     config.stage_config(),
                     config,
                 );
@@ -195,7 +195,7 @@ pub fn execute_last_and_write_results<
             SMM::write_results::<G>(
                 acc,
                 out_writer,
-                &partition_scheduler,
+                partition_scheduler,
                 config.stage_config(),
                 config,
             );
