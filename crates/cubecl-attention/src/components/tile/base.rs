@@ -4,10 +4,7 @@ use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
-use cubecl_std::tensor::{
-    layout::{Coords3d, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
 
 use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
@@ -84,7 +81,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] global_config: G,
     );
 
-    fn init_writer(tensor: TensorView<AP::EO, Coords3d, ReadWrite>) -> Self::Writer;
+    fn init_writer(tensor: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
         query_reader: QueryRegisterReader<AP::EI>,

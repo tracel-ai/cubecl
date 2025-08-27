@@ -143,6 +143,15 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
     fn stride_value<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
     /// Get the stride of the out tensor using the state.
     fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, axis: u32) -> u32;
+
+    fn line_size_query<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+    ) -> comptime_type!(u32);
+    fn line_size_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> comptime_type!(u32);
+    fn line_size_value<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+    ) -> comptime_type!(u32);
+    fn line_size_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> comptime_type!(u32);
 }
 
 #[derive(Clone, Copy)]
@@ -234,6 +243,11 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> VirtualTensorOperationsExpand<
     ) -> ExpandElementTyped<TensorMap<EO>> {
         unimplemented!("TensorOutputExpand can't be turned into a tensor map");
     }
+
+    fn line_size(&self) -> u32 {
+        let mut scope = Scope::root(false);
+        TensorOutputExpand::__expand_line_size_method(self.clone(), &mut scope)
+    }
 }
 
 impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> VirtualTensorOperationsExpand<EI>
@@ -297,6 +311,11 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> VirtualTensorOperationsExpand<
         scope: &mut Scope,
     ) -> ExpandElementTyped<TensorMap<EI>> {
         TensorInputExpand::__expand_as_tensor_map_method(self.clone(), scope)
+    }
+
+    fn line_size(&self) -> u32 {
+        let mut scope = Scope::root(false);
+        TensorInputExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
@@ -420,6 +439,17 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> TensorInput<EI, EO, MA> {
             }
         }
     }
+
+    /// Get the line size of the tensor.
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        unsafe {
+            match comptime![&self.ident] {
+                TensorInputIdent::Query => MA::line_size_query(&(*self.state)),
+                TensorInputIdent::Key => MA::line_size_key(&(*self.state)),
+                TensorInputIdent::Value => MA::line_size_value(&(*self.state)),
+            }
+        }
+    }
 }
 
 #[cube]
@@ -458,6 +488,11 @@ impl<EI: Numeric, EO: Numeric, GA: AttentionArgs> TensorOutput<EI, EO, GA> {
     /// Get the buffer length of the tensor.
     pub fn buffer_len(&self) -> u32 {
         unsafe { GA::len_out(&(*self.state)) }
+    }
+
+    /// Get the line size of the tensor.
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        unsafe { GA::line_size_out(&(*self.state)) }
     }
 }
 
@@ -684,6 +719,23 @@ impl AttentionArgs for TensorArgs {
 
     fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
         unsafe { (*state.output).buffer_len() }
+    }
+
+    fn line_size_query<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+    ) -> comptime_type!(u32) {
+        unsafe { (*state.query).line_size() }
+    }
+    fn line_size_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> comptime_type!(u32) {
+        unsafe { (*state.key).line_size() }
+    }
+    fn line_size_value<EI: Numeric, EO: Numeric>(
+        state: &Self::State<EI, EO>,
+    ) -> comptime_type!(u32) {
+        unsafe { (*state.value).line_size() }
+    }
+    fn line_size_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> comptime_type!(u32) {
+        unsafe { (*state.output).line_size() }
     }
 }
 
