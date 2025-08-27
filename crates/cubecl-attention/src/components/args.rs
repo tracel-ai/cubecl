@@ -726,14 +726,17 @@ impl AttentionArgs for TensorArgs {
     ) -> comptime_type!(u32) {
         unsafe { (*state.query).line_size() }
     }
+
     fn line_size_key<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> comptime_type!(u32) {
         unsafe { (*state.key).line_size() }
     }
+
     fn line_size_value<EI: Numeric, EO: Numeric>(
         state: &Self::State<EI, EO>,
     ) -> comptime_type!(u32) {
         unsafe { (*state.value).line_size() }
     }
+
     fn line_size_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> comptime_type!(u32) {
         unsafe { (*state.output).line_size() }
     }
