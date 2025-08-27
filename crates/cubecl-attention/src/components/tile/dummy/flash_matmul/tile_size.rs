@@ -33,17 +33,17 @@ impl AttentionTileSize {
 
     pub fn to_score_matmul(&self) -> TileSize {
         TileSize {
-            m: self.seq_q as u8,
-            n: self.seq_kv as u8,
-            k: self.head_dim as u8,
+            m: self.seq_q,
+            n: self.seq_kv,
+            k: self.head_dim,
         }
     }
 
     pub fn to_value_matmul(&self) -> TileSize {
         TileSize {
-            m: self.seq_q as u8,
-            n: self.val_dim as u8,
-            k: self.seq_kv as u8,
+            m: self.seq_q,
+            n: self.val_dim,
+            k: self.seq_kv,
         }
     }
 

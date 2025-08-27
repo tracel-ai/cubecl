@@ -1,7 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::StageToTileReader;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::layout::{Coords3d, TensorView};
+use cubecl_std::tensor::r#virtual::ReadWrite;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
@@ -79,7 +80,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         TA::write::<G>(acc, writer, stage_config.tile_config(), global_config);
     }
 
-    fn init_writer(out: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer {
+    fn init_writer(out: TensorView<AP::EO, Coords3d, ReadWrite>) -> Self::Writer {
         TA::init_writer(out)
     }
 

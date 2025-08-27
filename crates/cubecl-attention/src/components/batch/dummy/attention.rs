@@ -36,11 +36,12 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         // Compute offsets
         // But for now we assume every parameter = 8 so it's only one time the calls to tile matmul
 
+        let global_config = config.global_config();
         GA::execute(
-            GA::init_query_loader(query),
-            GA::init_key_loader(key, config.global_config()),
-            GA::init_value_loader(value, config.global_config()),
-            GA::init_writer(out),
+            GA::init_query_loader(query, global_config),
+            GA::init_key_loader(key, global_config),
+            GA::init_value_loader(value, global_config),
+            GA::init_writer(out, global_config),
             config.global_config(),
         )
     }

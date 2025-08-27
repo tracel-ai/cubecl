@@ -4,7 +4,7 @@ use cubecl_matmul::components::global::memory::{GlobalMemoryConfig, TensorReader
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::tensor::layout::{Coords3d, TensorView};
 use std::marker::PhantomData;
 
 use crate::components::AttentionPrecision;
@@ -36,8 +36,9 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[cube]
 impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
-    pub fn new(query: VirtualTensor<AP::EI>) -> Self {
-        let tensor_reader = TensorReader::new(query, 0, 0, 0);
+    pub fn new(query: TensorView<AP::EI, Coords3d>) -> Self {
+        let tensor_reader =
+            TensorReader::new(query, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
 
         DummyQueryLoader::<AP> { tensor_reader }
     }
@@ -46,7 +47,10 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
         comment!("Loading Query");
 
         let tile = Tile::<AP::EI> {
-            slice: self.tensor_reader.tensor.as_slice(0, 64),
+            slice: self
+                .tensor_reader
+                .view
+                .slice((0u32.runtime(), 0u32.runtime(), 0u32.runtime()), 64),
             stride: 8,
             layout: MatrixLayout::RowMajor,
         };
@@ -57,8 +61,9 @@ impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
-    pub fn new(key: VirtualTensor<AP::EI>, #[comptime] config: G) -> Self {
-        let tensor_reader = TensorReader::new(key, 0, 0, 0);
+    pub fn new(key: TensorView<AP::EI, Coords3d>, #[comptime] config: G) -> Self {
+        let tensor_reader =
+            TensorReader::new(key, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
         let stage_memory = StageMemory::new::<G::ScoreStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
@@ -114,8 +119,9 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
-    pub fn new(value: VirtualTensor<AP::EI>, #[comptime] config: G) -> Self {
-        let tensor_reader = TensorReader::new(value, 0, 0, 0);
+    pub fn new(value: TensorView<AP::EI, Coords3d>, #[comptime] config: G) -> Self {
+        let tensor_reader =
+            TensorReader::new(value, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
         let stage_memory = StageMemory::new::<G::ValueStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,

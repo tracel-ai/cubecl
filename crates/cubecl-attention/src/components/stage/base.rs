@@ -1,7 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{
+    layout::{Coords3d, TensorView},
+    r#virtual::ReadWrite,
+};
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::{
@@ -52,7 +55,6 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyReader: CubeType;
     type ValueReader: CubeType;
-    type Writer: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
@@ -63,6 +65,8 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyValue: CubeType;
     type Score: CubeType;
     type Accumulator: CubeType;
+
+    type Writer: CubeType;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
@@ -90,7 +94,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] global_config: G,
     );
 
-    fn init_writer(tensor: VirtualTensor<AP::EO, ReadWrite>) -> Self::Writer;
+    fn init_writer(tensor: TensorView<AP::EO, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
         query_reader: QueryRegisterReader<AP::EI>,

@@ -1,9 +1,11 @@
 use crate::components::error::MatmulSetupError;
 use crate::components::resource::ComputeResources;
+use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
-use crate::components::tile::{TileMatmulFamily, TileSetupInfo};
-use crate::components::{AvailableLineSizes, InvalidConfigError};
+use crate::components::{
+    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection,
+};
 use cubecl_core::prelude::*;
 
 impl TileMatmulFamily for RegisterMatmul {
@@ -20,19 +22,21 @@ impl TileMatmulFamily for RegisterMatmul {
 
     fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        tile_setup_info: TileSetupInfo,
+        problem: &MatmulProblem,
+        selection: &MatmulSelection,
+        matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
         RegisterConfig::new::<Lhs, Rhs, Acc, R>(
             client,
-            tile_setup_info.tile_size,
-            tile_setup_info.plane_dim,
-            tile_setup_info.lhs_layout,
-            tile_setup_info.rhs_layout,
-            tile_setup_info.lhs_line_size,
-            tile_setup_info.rhs_line_size,
-            tile_setup_info.out_line_size,
-            tile_setup_info.lhs_line_size,
-            tile_setup_info.rhs_line_size,
+            selection.tiling_scheme.tile_size,
+            selection.plane_dim,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            matmul_line_sizes.lhs as u32,
+            matmul_line_sizes.rhs as u32,
+            matmul_line_sizes.out as u32,
+            matmul_line_sizes.lhs as u32,
+            matmul_line_sizes.rhs as u32,
         )
     }
 
