@@ -332,7 +332,7 @@ impl<T: NoUninit + AnyBitPattern + CubePrimitive> ScalarState<T> {
             let mut data = vec![0; len_u64];
             let slice = bytemuck::cast_slice_mut::<u64, T>(&mut data);
             slice[0..values.len()].copy_from_slice(values);
-            let elem = T::as_elem_native_unchecked();
+            let elem = T::as_type_native_unchecked();
             bindings
                 .scalars
                 .insert(elem, ScalarBinding::new(elem, len, data));

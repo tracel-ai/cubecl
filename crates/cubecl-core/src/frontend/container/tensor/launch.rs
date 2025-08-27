@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Runtime,
     compute::{KernelBuilder, KernelLauncher},
-    ir::{Id, Item, Vectorization},
+    ir::{Id, LineSize, Type},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
     },
@@ -68,7 +68,7 @@ impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorCompilationArg {
     pub inplace: Option<Id>,
-    pub vectorisation: Vectorization,
+    pub line_size: LineSize,
 }
 
 impl CompilationArg for TensorCompilationArg {}
@@ -81,10 +81,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Tensor<C>> {
         builder
-            .input_tensor(Item::vectorized(
-                C::as_elem(&builder.scope),
-                arg.vectorisation,
-            ))
+            .input_tensor(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
             .into()
     }
     fn expand_output(
@@ -94,10 +91,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
-                .output_tensor(Item::vectorized(
-                    C::as_elem(&builder.scope),
-                    arg.vectorisation,
-                ))
+                .output_tensor(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
                 .into(),
         }
     }
@@ -113,11 +107,11 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
                 ..
             } => TensorCompilationArg {
                 inplace: None,
-                vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),
+                line_size: LineSize::Some(NonZero::new(*vectorization_factor).unwrap()),
             },
             TensorArg::Alias { input_pos } => TensorCompilationArg {
                 inplace: Some(*input_pos as Id),
-                vectorisation: Vectorization::None,
+                line_size: LineSize::None,
             },
         }
     }

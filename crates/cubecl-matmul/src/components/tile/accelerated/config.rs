@@ -1,7 +1,7 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
 use cubecl_core::{Feature, Runtime};
+use cubecl_core::{client::ComputeClient, ir::StorageType};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -92,21 +92,27 @@ impl AcceleratedConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let lhs = Lhs::as_elem_native_unchecked();
-        let rhs = Rhs::as_elem_native_unchecked();
-        let acc = Acc::as_elem_native_unchecked();
+        let lhs = Lhs::as_type_native_unchecked();
+        let rhs = Rhs::as_type_native_unchecked();
+        let acc = Acc::as_type_native_unchecked();
 
         let lhs = match lhs {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => lhs,
         };
         let rhs = match rhs {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => rhs,
         };
 
         let ea = match acc {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => acc,
         };
 

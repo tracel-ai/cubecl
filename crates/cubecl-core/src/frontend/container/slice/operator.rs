@@ -9,10 +9,10 @@ use cubecl_common::tf32;
 use cubecl_ir::ExpandElement;
 
 pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &mut Scope) -> bool {
-    let ty_c = C::as_elem(scope);
-    let ty_t = T::as_elem(scope);
-    let ty_f32 = f32::as_elem(scope);
-    let ty_tf32 = tf32::as_elem(scope);
+    let ty_c = C::as_type(scope);
+    let ty_t = T::as_type(scope);
+    let ty_f32 = f32::as_type(scope);
+    let ty_tf32 = tf32::as_type(scope);
 
     (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }

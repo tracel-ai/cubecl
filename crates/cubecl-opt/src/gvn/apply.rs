@@ -102,7 +102,7 @@ impl GvnState {
             let new_phis = new_phis
                 .into_iter()
                 .map(|entries| PhiInstruction {
-                    out: *opt.allocator.create_local(entries[0].value.item),
+                    out: *opt.allocator.create_local(entries[0].value.ty),
                     entries,
                 })
                 .collect::<Vec<_>>();

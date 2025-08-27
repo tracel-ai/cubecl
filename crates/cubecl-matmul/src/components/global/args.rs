@@ -1206,14 +1206,14 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
         let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
-            tf32::as_elem_native_unchecked()
+            tf32::as_type_native_unchecked()
         } else {
-            Lhs::as_elem_native_unchecked()
+            Lhs::as_type_native_unchecked()
         };
         let rhs_elem = if TypeId::of::<Rhs>() == TypeId::of::<f32>() {
-            tf32::as_elem_native_unchecked()
+            tf32::as_type_native_unchecked()
         } else {
-            Rhs::as_elem_native_unchecked()
+            Rhs::as_type_native_unchecked()
         };
 
         let meta_lhs = TensorMapMeta {
@@ -1228,7 +1228,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             swizzle: TensorMapSwizzle::None,
             prefetch: prefetch_lhs,
             oob_fill: OobFill::Zero,
-            elem: lhs_elem,
+            storage_ty: lhs_elem,
         };
 
         let meta_rhs = TensorMapMeta {
@@ -1243,7 +1243,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             swizzle: TensorMapSwizzle::None,
             prefetch: prefetch_rhs,
             oob_fill: OobFill::Zero,
-            elem: rhs_elem,
+            storage_ty: rhs_elem,
         };
 
         let lhs = TensorMapArg {

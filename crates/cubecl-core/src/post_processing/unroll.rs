@@ -2,8 +2,8 @@ use std::num::NonZero;
 
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
-    IndexAssignOperator, IndexOperator, Instruction, Item, MatrixLayout, Metadata, Operation,
-    OperationReflect, Operator, Processor, ScopeProcessing, Variable, VariableKind,
+    IndexAssignOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
+    OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
 };
 use hashbrown::HashMap;
 
@@ -93,7 +93,7 @@ impl UnrollProcessor {
         }
 
         let args = inst.operation.args().unwrap_or_default();
-        if (inst.out.is_some() && inst.item().vectorization() > self.max_line_size)
+        if (inst.out.is_some() && inst.item().line_size() > self.max_line_size)
             || args
                 .iter()
                 .any(|arg| arg.vectorization_factor() > self.max_line_size)
@@ -462,7 +462,7 @@ impl UnrollProcessor {
             .into_iter()
             .map(|mut var| {
                 if var.vectorization_factor() > self.max_line_size {
-                    var.item.vectorization = NonZero::new(self.max_line_size);
+                    var.ty.line_size = NonZero::new(self.max_line_size);
                 }
                 var
             })
@@ -624,7 +624,7 @@ fn create_unrolled(
         return vec![ExpandElement::Plain(*var); unroll_factor as usize];
     }
 
-    let item = Item::vectorized(var.elem(), NonZero::new(max_line_size));
+    let item = Type::new(var.storage_type()).line(NonZero::new(max_line_size));
     (0..unroll_factor as usize)
         .map(|_| match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {
@@ -637,7 +637,7 @@ fn create_unrolled(
 }
 
 fn add_index(alloc: &Allocator, idx: Variable, i: u8) -> (Instruction, ExpandElement) {
-    let add_idx = alloc.create_local(idx.item);
+    let add_idx = alloc.create_local(idx.ty);
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperator {
             lhs: idx,
@@ -649,7 +649,7 @@ fn add_index(alloc: &Allocator, idx: Variable, i: u8) -> (Instruction, ExpandEle
 }
 
 fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u8) -> (Instruction, ExpandElement) {
-    let mul_idx = alloc.create_local(idx.item);
+    let mul_idx = alloc.create_local(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperator {
             lhs: idx,
@@ -661,7 +661,7 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u8) -> (Instructio
 }
 
 fn unroll_array(mut var: Variable, max_line_size: u8, factor: u8) -> Variable {
-    var.item.vectorization = NonZero::new(max_line_size);
+    var.ty.line_size = NonZero::new(max_line_size);
 
     match &mut var.kind {
         VariableKind::LocalArray { unroll_factor, .. }

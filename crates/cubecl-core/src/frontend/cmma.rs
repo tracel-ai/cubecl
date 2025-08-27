@@ -61,7 +61,7 @@ use crate::{
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use std::marker::PhantomData;
 
-use cubecl_ir::{CoopMma, Elem, ExpandElement, Item, Scope};
+use cubecl_ir::{CoopMma, ExpandElement, Scope, StorageType, Type};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -94,11 +94,11 @@ pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
     pub m: u32,
     pub n: u32,
     pub k: u32,
-    pub a_elem: Elem,
-    pub b_elem: Elem,
-    pub cd_elem: Elem,
+    pub a_type: StorageType,
+    pub b_type: StorageType,
+    pub cd_type: StorageType,
     pub scales_factor: Option<u32>,
-    pub scales_elem: Option<Elem>,
+    pub scales_type: Option<StorageType>,
     _a: PhantomData<A>,
     _b: PhantomData<B>,
     _cd: PhantomData<CD>,
@@ -120,11 +120,11 @@ impl<A: CubeType, B: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<A, B,
             m: self.m,
             n: self.n,
             k: self.k,
-            a_elem: self.a_elem,
-            b_elem: self.b_elem,
-            cd_elem: self.cd_elem,
+            a_type: self.a_type,
+            b_type: self.b_type,
+            cd_type: self.cd_type,
             scales_factor: self.scales_factor,
-            scales_elem: self.scales_elem,
+            scales_type: self.scales_type,
             _a: PhantomData,
             _b: PhantomData,
             _cd: PhantomData,
@@ -188,7 +188,7 @@ impl<C: CubePrimitive> Matrix<C> {
         layout: MatrixLayout,
     ) -> Self {
         intrinsic!(|scope| {
-            let elem = C::as_elem(scope);
+            let elem = C::as_type(scope);
             let elem = scope.create_matrix(ir::Matrix::new(
                 ident,
                 m.constant().unwrap().as_u32(),
@@ -287,19 +287,19 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     #[allow(unused_variables)]
     pub fn new(#[comptime] m: u32, #[comptime] n: u32, #[comptime] k: u32) -> Self {
         intrinsic!(|scope| {
-            let a_elem = A::as_elem(scope);
-            let b_elem = B::as_elem(scope);
-            let cd_elem = CD::as_elem(scope);
+            let a_type = A::as_type(scope);
+            let b_type = B::as_type(scope);
+            let cd_type = CD::as_type(scope);
 
             MmaDefinitionExpand {
                 m,
                 n,
                 k,
-                a_elem,
-                b_elem,
-                cd_elem,
+                a_type,
+                b_type,
+                cd_type,
                 scales_factor: None,
-                scales_elem: None,
+                scales_type: None,
                 _a: PhantomData,
                 _b: PhantomData,
                 _cd: PhantomData,
@@ -330,19 +330,19 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         #[comptime] scale_factor: u32,
     ) -> Self {
         intrinsic!(|scope| {
-            let a_elem = A::as_elem(scope);
-            let b_elem = B::as_elem(scope);
-            let cd_elem = CD::as_elem(scope);
+            let a_type = A::as_type(scope);
+            let b_type = B::as_type(scope);
+            let cd_type = CD::as_type(scope);
 
             MmaDefinitionExpand {
                 m,
                 n,
                 k,
-                a_elem,
-                b_elem,
-                cd_elem,
+                a_type,
+                b_type,
+                cd_type,
                 scales_factor: Some(scale_factor),
-                scales_elem: Some(S::as_elem(scope)),
+                scales_type: Some(S::as_type(scope)),
                 _a: PhantomData,
                 _b: PhantomData,
                 _cd: PhantomData,
@@ -355,10 +355,10 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             match ident {
-                MatrixIdent::A => (self.m * self.k) / self.a_elem.packing_factor() as u32,
-                MatrixIdent::B => (self.k * self.n) / self.b_elem.packing_factor() as u32,
+                MatrixIdent::A => (self.m * self.k) / self.a_type.packing_factor() as u32,
+                MatrixIdent::B => (self.k * self.n) / self.b_type.packing_factor() as u32,
                 MatrixIdent::Accumulator => {
-                    (self.m * self.n) / self.cd_elem.packing_factor() as u32
+                    (self.m * self.n) / self.cd_type.packing_factor() as u32
                 }
             }
         })
@@ -401,9 +401,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             let bits = match ident {
-                MatrixIdent::A => Elem::size_bits(&self.a_elem) as u32,
-                MatrixIdent::B => Elem::size_bits(&self.b_elem) as u32,
-                MatrixIdent::Accumulator => Elem::size_bits(&self.cd_elem) as u32,
+                MatrixIdent::A => StorageType::size_bits(&self.a_type) as u32,
+                MatrixIdent::B => StorageType::size_bits(&self.b_type) as u32,
+                MatrixIdent::Accumulator => StorageType::size_bits(&self.cd_type) as u32,
             };
             let register_size = scope.runtime_properties.mma.register_size_bits;
             // div_ceil for potential compatibility with f64
@@ -429,10 +429,10 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
             let lane_id: ExpandElement = lane_id.into();
             let elem_idx: ExpandElement = elem_idx.into();
 
-            let elem = match ident {
-                MatrixIdent::A => self.a_elem,
-                MatrixIdent::B => self.b_elem,
-                MatrixIdent::Accumulator => self.cd_elem,
+            let ty = match ident {
+                MatrixIdent::A => self.a_type,
+                MatrixIdent::B => self.b_type,
+                MatrixIdent::Accumulator => self.cd_type,
             };
             let layout = match ident {
                 MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
@@ -444,12 +444,12 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem: elem.unpacked(),
+                storage: ty,
                 layout,
             };
 
-            let row = scope.create_local(Item::new(u32::as_elem(scope)));
-            let col = scope.create_local(Item::new(u32::as_elem(scope)));
+            let row = scope.create_local(Type::new(u32::as_type(scope)));
+            let col = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(
                 CoopMma::RowIndex {
                     lane_id: *lane_id,
@@ -497,7 +497,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     pub fn scales_line_size(&self) -> comptime_type!(u32) {
         intrinsic!(|scope| {
             let elem = self
-                .scales_elem
+                .scales_type
                 .expect("Can't retrieve scales line size for matrix with no scales");
             scope.runtime_properties.mma.register_size_bits / elem.size_bits() as u32
         })
@@ -542,7 +542,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem: self.a_elem,
+                storage: self.a_type,
                 layout: MatrixLayout::ColMajor,
             };
 
@@ -601,7 +601,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 m: self.m,
                 n: self.n,
                 k: self.k,
-                elem: self.a_elem,
+                storage: self.a_type,
                 layout: MatrixLayout::ColMajor,
             };
 
@@ -835,7 +835,7 @@ pub mod cast {
             _ => unreachable!(),
         };
 
-        let elem = O::as_elem(scope);
+        let elem = O::as_type(scope);
         let elem = scope.create_matrix(ir::Matrix::new(
             ident,
             input_mat.m,

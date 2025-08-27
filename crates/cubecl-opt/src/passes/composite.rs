@@ -1,7 +1,7 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    Id, IndexAssignOperator, IndexOperator, Instruction, Item, LineInitOperator, Operation,
+    Id, IndexAssignOperator, IndexOperator, Instruction, Type, LineInitOperator, Operation,
     Operator, Variable, VariableKind,
 };
 use stable_vec::StableVec;
@@ -56,10 +56,10 @@ impl OptimizerPass for CompositeMerge {
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
                 {
-                    let item = op.out.unwrap().item;
+                    let item = op.out.unwrap().ty;
                     if let Some(index) = index.as_const() {
                         let index = index.as_u32();
-                        let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
+                        let vectorization = item.line_size.map(|it| it.get()).unwrap_or(1);
                         if vectorization > 1 {
                             let assigns = assigns.entry(id).or_default();
                             assigns.push((idx, index, value));
@@ -90,7 +90,7 @@ fn merge_assigns(
     ops: &mut StableVec<Instruction>,
     mut assigns: Vec<(usize, u32, Variable)>,
     id: Id,
-    item: Item,
+    item: Type,
 ) {
     for assignment in assigns.iter() {
         ops.remove(assignment.0);
@@ -122,7 +122,7 @@ impl OptimizerPass for RemoveIndexScalar {
                     && let Some(index) = index.as_const()
                 {
                     let index = index.as_u32();
-                    let vectorization = list.item.vectorization.map(|it| it.get()).unwrap_or(1);
+                    let vectorization = list.ty.line_size.map(|it| it.get()).unwrap_or(1);
                     if vectorization == 1 {
                         assert_eq!(index, 0, "Can't index into scalar");
                         op.operation = Operation::Copy(*list);

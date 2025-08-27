@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use cubecl_ir::{
-    Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, OpCode, UIntKind,
+    Builtin, ConstantScalarValue, ElemType, FloatKind, Id, IntKind, OpCode, StorageType, Type,
+    UIntKind,
 };
 use float_ord::FloatOrd;
 use petgraph::graph::NodeIndex;
@@ -74,7 +75,7 @@ impl Default for ValueTable {
 pub struct Local {
     pub id: Id,
     pub version: u16,
-    pub item: Item,
+    pub item: Type,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
@@ -89,18 +90,18 @@ pub enum Constant {
 pub enum Value {
     Constant(Constant),
     Local(Local),
-    Input(Id, Item),
-    Scalar(Id, Elem),
-    ConstArray(Id, Item, u32, u32),
+    Input(Id, Type),
+    Scalar(Id, StorageType),
+    ConstArray(Id, Type, u32, u32),
     Builtin(Builtin),
     // Metadata only
-    Output(Id, Item),
+    Output(Id, Type),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub enum Expression {
     Instruction(Instruction),
-    Copy(u32, Item),
+    Copy(u32, Type),
     Value(Value),
     Volatile(Value),
     Phi(Vec<(Value, NodeIndex)>),
@@ -120,7 +121,7 @@ impl Expression {
         matches!(self, Expression::Copy(_, _))
     }
 
-    pub fn item(&self) -> Item {
+    pub fn item(&self) -> Type {
         match self {
             Expression::Instruction(instruction) => instruction.item,
             Expression::Copy(_, item) => *item,
@@ -132,23 +133,23 @@ impl Expression {
 }
 
 impl Value {
-    pub fn item(&self) -> Item {
+    pub fn item(&self) -> Type {
         match self {
             Value::Constant(constant) => constant.item(),
             Value::Local(local) => local.item,
             Value::Input(_, item) => *item,
-            Value::Scalar(_, elem) => Item::new(*elem),
+            Value::Scalar(_, elem) => Type::new(*elem),
             Value::ConstArray(_, item, _, _) => *item,
-            Value::Builtin(_) => Item::new(Elem::UInt(UIntKind::U32)),
+            Value::Builtin(_) => Type::scalar(ElemType::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
         }
     }
 }
 
 impl Constant {
-    pub fn item(&self) -> Item {
+    pub fn item(&self) -> Type {
         let val: ConstantScalarValue = (*self).into();
-        Item::new(val.elem())
+        Type::scalar(val.elem_type())
     }
 }
 
@@ -163,11 +164,11 @@ pub struct Instruction {
     pub(crate) op: OpCode,
     pub(crate) commutative: bool,
     pub(crate) args: SmallVec<[u32; 4]>,
-    pub(crate) item: Item,
+    pub(crate) item: Type,
 }
 
 impl Instruction {
-    pub fn new(op: impl Into<OpCode>, args: &[u32], item: Item) -> Self {
+    pub fn new(op: impl Into<OpCode>, args: &[u32], item: Type) -> Self {
         Self {
             op: op.into(),
             commutative: false,
@@ -176,7 +177,7 @@ impl Instruction {
         }
     }
 
-    pub fn commutative(op: impl Into<OpCode>, args: &[u32], item: Item) -> Self {
+    pub fn commutative(op: impl Into<OpCode>, args: &[u32], item: Type) -> Self {
         Self {
             op: op.into(),
             commutative: true,

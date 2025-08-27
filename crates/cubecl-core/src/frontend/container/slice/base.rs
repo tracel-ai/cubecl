@@ -2,7 +2,7 @@ use std::{marker::PhantomData, num::NonZero};
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
-use cubecl_ir::{Branch, Elem, ExpandElement, FloatKind, Item, RangeLoop, Variable};
+use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, RangeLoop, Type, Variable};
 use cubecl_macros::intrinsic;
 
 #[derive(Clone)]
@@ -85,13 +85,13 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
     pub fn with_line_size(&self, #[comptime] line_size: u32) -> Slice<Line<E>, IO> {
         intrinsic!(|scope| {
             let (input, offset) = self.__to_raw_parts();
-            let mut item = input.item;
+            let mut item = input.ty;
 
-            if line_size as u8 == item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() {
+            if line_size as u8 == item.line_size.unwrap_or(NonZero::new(1).unwrap()).get() {
                 return self;
             }
 
-            let current = input.item.vectorization.map(|a| a.get()).unwrap_or(1) as u32;
+            let current = input.ty.line_size.map(|a| a.get()).unwrap_or(1) as u32;
             let mut out = self.clone();
 
             if current < line_size {
@@ -135,10 +135,10 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// types are supposed to be the same.
     pub fn try_cast_unchecked<T: CubePrimitive>(&self) -> Slice<T, IO> {
         intrinsic!(|scope| {
-            if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
-                let elems = [T::as_elem(scope), E::as_elem(scope)];
-                let is_flex32_cast = elems.contains(&Elem::Float(FloatKind::F32))
-                    && elems.contains(&Elem::Float(FloatKind::Flex32));
+            if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
+                let elems = [T::as_type(scope).elem_type(), E::as_type(scope).elem_type()];
+                let is_flex32_cast = elems.contains(&ElemType::Float(FloatKind::F32))
+                    && elems.contains(&ElemType::Float(FloatKind::Flex32));
 
                 if !is_flex32_cast {
                     panic!(
@@ -248,7 +248,7 @@ impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
         scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <E as CubeType>::ExpandType),
     ) {
-        let index_ty = Item::new(u32::as_elem(scope));
+        let index_ty = Type::new(u32::as_type(scope));
         let len: ExpandElement = self.length.clone().into();
 
         let mut child = scope.child();

@@ -8,7 +8,7 @@ use crate::prelude::{assign, index, index_assign};
 use crate::{self as cubecl};
 use crate::{
     frontend::CubeType,
-    ir::{Item, Metadata},
+    ir::{Metadata, Type},
     unexpanded,
 };
 use cubecl_macros::{cube, intrinsic};
@@ -38,8 +38,8 @@ mod new {
                     .constant()
                     .expect("Array needs constant initialization value")
                     .as_u32();
-                let elem = T::as_elem(scope);
-                scope.create_local_array(Item::new(elem), size).into()
+                let elem = T::as_type(scope);
+                scope.create_local_array(Type::new(elem), size).into()
             })
         }
     }
@@ -56,7 +56,7 @@ mod new {
             scope: &mut Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = scope.create_const_array(Item::new(T::as_elem(scope)), data.values);
+            let var = scope.create_const_array(Type::new(T::as_type(scope)), data.values);
             ExpandElementTyped::new(var)
         }
     }
@@ -117,8 +117,8 @@ mod line {
         /// Comptime version of [size](Array::line_size).
         pub fn line_size(&self) -> u32 {
             self.expand
-                .item
-                .vectorization
+                .ty
+                .line_size
                 .unwrap_or(NonZero::new(1).unwrap())
                 .get() as u32
         }
@@ -144,10 +144,7 @@ mod vectorization {
             intrinsic!(|scope| {
                 scope
                     .create_local_array(
-                        Item::vectorized(
-                            T::as_elem(scope),
-                            NonZero::new(vectorization_factor as u8),
-                        ),
+                        Type::new(T::as_type(scope)).line(NonZero::new(vectorization_factor as u8)),
                         length,
                     )
                     .into()
@@ -159,7 +156,7 @@ mod vectorization {
             intrinsic!(|scope| {
                 let factor = vectorization_factor;
                 let var = self.expand.clone();
-                let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
+                let item = Type::new(var.storage_type()).line(NonZero::new(factor as u8));
 
                 let new_var = if factor == 1 {
                     let new_var = scope.create_local(item);
@@ -210,7 +207,7 @@ mod metadata {
         /// Obtain the array buffer length
         pub fn buffer_len(&self) -> u32 {
             intrinsic!(|scope| {
-                let out = scope.create_local(Item::new(u32::as_elem(scope)));
+                let out = scope.create_local(Type::new(u32::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::BufferLength {
                         var: self.expand.into(),
@@ -247,7 +244,7 @@ mod indexation {
             Self: CubeIndex,
         {
             intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.item);
+                let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
@@ -348,7 +345,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     }
 
     fn line_size(&self) -> u32 {
-        self.expand.item.vectorization() as u32
+        self.expand.ty.line_size() as u32
     }
 }
 

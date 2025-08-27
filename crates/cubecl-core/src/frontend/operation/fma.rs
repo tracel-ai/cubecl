@@ -18,7 +18,7 @@ pub fn fma_expand<C: CubePrimitive>(
     b: ExpandElement,
     c: ExpandElement,
 ) -> ExpandElement {
-    let output = scope.create_local(a.item);
+    let output = scope.create_local(a.ty);
 
     let out = *output;
     let a = *a;

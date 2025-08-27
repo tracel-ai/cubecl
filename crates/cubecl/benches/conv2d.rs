@@ -83,8 +83,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             R::name(&client),
             MP::EI::as_elem_native_unchecked(),
             MP::ES::as_elem_native_unchecked(),
-            MP::EA::as_elem_native_unchecked(),
-            MP::EO::as_elem_native_unchecked(),
+            MP::EA::as_type_native_unchecked(),
+            MP::EO::as_type_native_unchecked(),
         )
         .to_lowercase()
     }

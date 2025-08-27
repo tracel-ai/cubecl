@@ -142,9 +142,9 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let rhs = rhs_handle.data();
 
     let rank = lhs.strides.len();
-    let lhs_elem = LhsG::<MP>::as_elem_native().expect("To be a native type");
-    let rhs_elem = RhsG::<MP>::as_elem_native().expect("To be a native type");
-    let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
+    let lhs_elem = LhsG::<MP>::as_type_native().expect("To be a native type");
+    let rhs_elem = RhsG::<MP>::as_type_native().expect("To be a native type");
+    let eo_elem = MP::EO::as_type_native().expect("To be a native type");
 
     if !client.properties().feature_enabled(Feature::Type(lhs_elem))
         || !client.properties().feature_enabled(Feature::Type(eo_elem))
@@ -182,7 +182,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(&lhs_elem, &rhs_elem, &eo_elem);
+    let line_sizes = AvailableLineSizes::from_types::<R>(&lhs_elem, &rhs_elem, &eo_elem);
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)
@@ -265,7 +265,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let rhs = rhs_handle.data();
 
     let rank = lhs.strides.len();
-    let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
+    let eo_elem = MP::EO::as_type_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;

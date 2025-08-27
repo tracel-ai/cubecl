@@ -6,7 +6,7 @@ use cubecl_common::{future, profile::TimingMethod};
 
 use cubecl_core::{
     AtomicFeature, Feature,
-    ir::{Elem, FloatKind},
+    ir::{ElemType, FloatKind},
 };
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -320,7 +320,11 @@ pub(crate) fn create_client_on_setup(
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
+        use cubecl_core::ir::StorageType;
+
+        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
+            FloatKind::F32,
+        ))));
 
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
@@ -328,10 +332,14 @@ pub(crate) fn create_client_on_setup(
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {
-        use cubecl_core::ir::{IntKind, UIntKind};
+        use cubecl_core::ir::{IntKind, StorageType, UIntKind};
 
-        device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
-        device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
+            IntKind::I32,
+        ))));
+        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
+            UIntKind::U32,
+        ))));
         device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
         device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));

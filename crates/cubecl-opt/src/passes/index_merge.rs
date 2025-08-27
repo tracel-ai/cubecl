@@ -22,7 +22,7 @@ impl OptimizerPass for CopyTransform {
                 match &inst.operation {
                     Operation::Operator(Operator::Index(op))
                         if op.list.is_array()
-                            && item_compatible(op.list.item, inst.item())
+                            && item_compatible(op.list.ty, inst.item())
                             && !is_reused(opt, &inst.out) =>
                     {
                         if let Some(id) = as_versioned(&inst.out()) {
@@ -30,7 +30,7 @@ impl OptimizerPass for CopyTransform {
                         }
                     }
                     Operation::Operator(Operator::IndexAssign(op))
-                        if inst.out().is_array() && item_compatible(inst.item(), op.value.item) =>
+                        if inst.out().is_array() && item_compatible(inst.item(), op.value.ty) =>
                     {
                         if let Some(id) = as_versioned(&op.value) {
                             writes.insert(id, (idx, inst.out(), op.index));

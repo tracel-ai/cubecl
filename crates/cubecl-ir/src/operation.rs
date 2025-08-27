@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use super::{Branch, CoopMma, Item, NonSemantic, Plane, Synchronization, Variable};
+use super::{Branch, CoopMma, Type, NonSemantic, Plane, Synchronization, Variable};
 use crate::{
     Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator, TmaOps,
     comparison::Comparison,
@@ -87,8 +87,8 @@ impl Instruction {
         self.out.unwrap()
     }
 
-    pub fn item(&self) -> Item {
-        self.out().item
+    pub fn item(&self) -> Type {
+        self.out().ty
     }
 }
 
@@ -119,9 +119,9 @@ impl Display for Instruction {
                     self.out(),
                     op.index,
                     op.value,
-                    op.index.item,
-                    op.value.item,
-                    self.out().item,
+                    op.index.ty,
+                    op.value.ty,
+                    self.out().ty,
                 )
             }
             Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
@@ -131,9 +131,9 @@ impl Display for Instruction {
                     self.out(),
                     op.index,
                     op.value,
-                    op.index.item,
-                    op.value.item,
-                    self.out().item,
+                    op.index.ty,
+                    op.value.ty,
+                    self.out().ty,
                 )
             }
             Operation::Operator(Operator::Cast(op)) => {
@@ -143,8 +143,8 @@ impl Display for Instruction {
                     self.out(),
                     self.item(),
                     op.input,
-                    op.input.item,
-                    self.out().item,
+                    op.input.ty,
+                    self.out().ty,
                 )
             }
             Operation::Operator(Operator::Reinterpret(op)) => {
@@ -157,12 +157,12 @@ impl Display for Instruction {
                         if i != 0 {
                             vars_str.push_str(", ");
                         }
-                        vars_str.push_str(&var.item.to_string());
+                        vars_str.push_str(&var.ty.to_string());
                     }
                     write!(
                         f,
                         "{out} = {} : ({}) -> ({})",
-                        self.operation, vars_str, out.item
+                        self.operation, vars_str, out.ty
                     )
                 } else {
                     write!(f, "{}", self.operation)

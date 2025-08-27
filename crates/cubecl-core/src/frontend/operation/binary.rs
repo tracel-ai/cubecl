@@ -194,8 +194,8 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
                 rhs: ExpandElementTyped<Self>,
             ) -> ExpandElementTyped<Self> {
                 let lhs: ExpandElement = lhs.into();
-                let mut item = lhs.item;
-                item.vectorization = $out_vectorization;
+                let mut item = lhs.ty;
+                item.line_size = $out_vectorization;
                 binary_expand_fixed_output(scope, lhs, rhs.into(), item, $operator).into()
             }
         }
@@ -204,8 +204,8 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
         $(impl ExpandElementTyped<$type> {
             pub fn $method_name_expand(self, scope: &mut Scope, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
                 let lhs: ExpandElement = self.into();
-                let mut item = lhs.item;
-                item.vectorization = $out_vectorization;
+                let mut item = lhs.ty;
+                item.line_size = $out_vectorization;
                 binary_expand_fixed_output(scope, lhs, rhs.into(), item, $operator).into()
             }
         })*

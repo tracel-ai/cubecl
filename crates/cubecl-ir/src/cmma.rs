@@ -1,8 +1,9 @@
 use alloc::{format, string::String, vec, vec::Vec};
+use derive_new::new;
 
-use super::{Elem, Variable};
-use crate::TypeHash;
+use super::Variable;
 use crate::{OperationCode, OperationReflect};
+use crate::{StorageType, TypeHash};
 use core::fmt::Display;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -24,42 +25,26 @@ pub enum MatrixLayout {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(new, Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub struct Matrix {
     pub ident: MatrixIdent,
     pub m: u32,
     pub n: u32,
     pub k: u32,
-    pub elem: Elem,
+    pub storage: StorageType,
     pub layout: MatrixLayout,
 }
 
 impl Matrix {
-    pub fn new(
-        ident: MatrixIdent,
-        m: u32,
-        n: u32,
-        k: u32,
-        elem: Elem,
-        layout: MatrixLayout,
-    ) -> Self {
-        Matrix {
-            ident,
-            m,
-            n,
-            k,
-            elem,
-            layout,
-        }
-    }
-
+    /// Number of elements in terms of the physical storage type, accounting for packed elements
     pub fn num_elems(&self) -> u32 {
-        match self.ident {
+        let elems = match self.ident {
             MatrixIdent::A => self.m * self.k,
             MatrixIdent::B => self.k * self.n,
             MatrixIdent::Accumulator => self.m * self.n,
-        }
+        };
+        elems / self.storage.packing_factor()
     }
 }
 

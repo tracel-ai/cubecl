@@ -1,8 +1,8 @@
-use cubecl_ir::Scope;
+use cubecl_ir::{Scope, StorageType};
 use half::{bf16, f16};
 
 use crate::{
-    ir::{Elem, ExpandElement, FloatKind},
+    ir::{ElemType, ExpandElement, FloatKind},
     prelude::*,
 };
 
@@ -82,8 +82,8 @@ macro_rules! impl_float {
 
         impl CubePrimitive for $primitive {
             /// Return the element type to use on GPU
-            fn as_elem_native() -> Option<Elem> {
-                Some(Elem::Float(FloatKind::$kind))
+            fn as_type_native() -> Option<StorageType> {
+                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
             }
         }
 
@@ -141,7 +141,7 @@ macro_rules! impl_float {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem(&builder.scope)).into()
+                builder.scalar($primitive::as_type(&builder.scope)).into()
             }
         }
     };

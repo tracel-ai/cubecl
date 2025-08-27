@@ -1,5 +1,5 @@
 use cubecl_common::flex32;
-use cubecl_ir::{Elem, ExpandElement, FloatKind, Scope};
+use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{Numeric, into_runtime_expand_element};
 
@@ -15,8 +15,8 @@ impl CubeType for flex32 {
 
 impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
-    fn as_elem_native() -> Option<Elem> {
-        Some(Elem::Float(FloatKind::Flex32))
+    fn as_type_native() -> Option<StorageType> {
+        Some(ElemType::Float(FloatKind::Flex32).into())
     }
 }
 
@@ -78,7 +78,7 @@ impl LaunchArgExpand for flex32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(flex32::as_elem(&builder.scope)).into()
+        builder.scalar(flex32::as_type(&builder.scope)).into()
     }
 }
 

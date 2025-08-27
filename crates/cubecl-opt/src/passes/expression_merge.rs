@@ -1,6 +1,6 @@
 use std::{cell::RefCell, mem::take};
 
-use cubecl_ir::{CoopMma, Instruction, Item, Operation, Operator, UnaryOperator};
+use cubecl_ir::{CoopMma, Instruction, Operation, Operator, Type, UnaryOperator};
 use stable_vec::StableVec;
 
 use crate::{AtomicCounter, Optimizer, visit_noop};
@@ -56,7 +56,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 | Operation::CoopMma(CoopMma::Cast { input }) => {
                     if (input.is_immutable() || input.is_array())
                         && (op.out().is_immutable() || op.out().is_array())
-                        && item_compatible(input.item, op.item())
+                        && item_compatible(input.ty, op.item())
                     {
                         opt.visit_all(
                             |_, var| {
@@ -78,10 +78,10 @@ fn search_loop(opt: &mut Optimizer) -> bool {
     false
 }
 
-pub fn item_compatible(lhs: Item, rhs: Item) -> bool {
-    let vectorization_lhs = lhs.vectorization.map(|it| it.get()).unwrap_or(1);
-    let vectorization_rhs = rhs.vectorization.map(|it| it.get()).unwrap_or(1);
-    vectorization_lhs == vectorization_rhs && lhs.elem() == rhs.elem()
+pub fn item_compatible(lhs: Type, rhs: Type) -> bool {
+    let vectorization_lhs = lhs.line_size.map(|it| it.get()).unwrap_or(1);
+    let vectorization_rhs = rhs.line_size.map(|it| it.get()).unwrap_or(1);
+    vectorization_lhs == vectorization_rhs && lhs.storage == rhs.storage
 }
 
 /// Merge identical and immutable expressions in the same block into a single variable.
@@ -142,7 +142,7 @@ fn check_op(
     for rhs_idx in indices.iter().skip(i + 1) {
         // Type needs to be checked because versioned variable can have the same expression, but different output
         if op.operation == ops.borrow()[*rhs_idx].operation
-            && out.item == ops.borrow()[*rhs_idx].out().item
+            && out.ty == ops.borrow()[*rhs_idx].out().ty
         {
             ops.borrow_mut()[*rhs_idx].operation = Operation::Copy(out);
             changes.inc();

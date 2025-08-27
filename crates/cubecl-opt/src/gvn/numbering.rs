@@ -4,8 +4,8 @@ use std::{
 };
 
 use cubecl_ir::{
-    self as ir, Arithmetic, Comparison, ComparisonOpCode, Elem, Item, Metadata, OpCode, Operation,
-    OperationReflect, Operator, UIntKind, Variable, VariableKind,
+    self as ir, Arithmetic, Comparison, ComparisonOpCode, ElemType, Metadata, OpCode, Operation,
+    OperationReflect, Operator, Type, UIntKind, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
@@ -138,7 +138,7 @@ impl ValueTable {
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
             Arithmetic::Fma(op) => {
-                let item = out.item;
+                let item = out.ty;
                 let mut a = self.lookup_or_add_var(&op.a)?;
                 let mut b = self.lookup_or_add_var(&op.b)?;
                 let c = self.lookup_or_add_var(&op.c)?;
@@ -167,7 +167,7 @@ impl ValueTable {
             | Comparison::Greater(op)
             | Comparison::LowerEqual(op)
             | Comparison::GreaterEqual(op) => {
-                let item = out.item;
+                let item = out.ty;
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
@@ -194,7 +194,7 @@ impl ValueTable {
                 if !op.list.is_immutable() {
                     Err(out_val)?
                 }
-                let item = out.item;
+                let item = out.ty;
                 let lhs = self.lookup_or_add_var(&op.list)?;
                 let rhs = self.lookup_or_add_var(&op.index)?;
                 let id = OpCode::Operator(operator.op_code());
@@ -220,7 +220,7 @@ impl ValueTable {
         let op = OpCode::Metadata(meta.op_code());
         let (expr, val) = match meta {
             Metadata::Length { var } => {
-                let item = out.item;
+                let item = out.ty;
                 let out = value_of_var(&out);
                 let var = match var.kind {
                     VariableKind::GlobalInputArray { .. }
@@ -231,7 +231,8 @@ impl ValueTable {
                     | VariableKind::LocalArray { length, .. } => {
                         let constant = length.into();
                         let num = self.lookup_or_add_var(&constant)?;
-                        let expr = Expression::Copy(num, Item::new(Elem::UInt(UIntKind::U32)));
+                        let expr =
+                            Expression::Copy(num, Type::scalar(ElemType::UInt(UIntKind::U32)));
                         return Ok((expr, out));
                     }
                     _ => unreachable!("Length only available on array"),
@@ -249,7 +250,7 @@ impl ValueTable {
         op: &impl OperationReflect<OpCode = Code>,
         out: Variable,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        let item = out.item;
+        let item = out.ty;
         let id = op.op_code().into();
         let args = op.args();
         if let Some(args) = args {

@@ -1,6 +1,6 @@
+use crate::codegen::Compiler;
 use crate::compute::CubeTask;
-use crate::{codegen::Compiler, ir::Elem};
-use cubecl_ir::TargetProperties;
+use cubecl_ir::{StorageType, TargetProperties};
 use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
@@ -38,7 +38,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn supported_line_sizes() -> &'static [u8];
 
     /// Returns all line sizes that are useful to perform IO operation on the given element.
-    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> + Clone {
+    fn line_size_elem(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
         Self::supported_line_sizes()
             .iter()
             .filter(|v| **v as usize * elem.size() <= 16)
@@ -62,9 +62,9 @@ pub enum Feature {
     Plane,
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
     Cmma {
-        a: Elem,
-        b: Elem,
-        c: Elem,
+        a: StorageType,
+        b: StorageType,
+        c: StorageType,
         m: u8,
         k: u8,
         n: u8,
@@ -73,11 +73,11 @@ pub enum Feature {
     /// movement
     ManualMma {
         /// Element of the A matrix
-        a_elem: Elem,
+        a_type: StorageType,
         /// Element of the B matrix
-        b_elem: Elem,
+        b_type: StorageType,
         /// Element of the C/D matrices
-        cd_elem: Elem,
+        cd_type: StorageType,
         m: u32,
         n: u32,
         k: u32,
@@ -86,13 +86,13 @@ pub enum Feature {
     /// instruction. Scales must fit a specific layout and block size.
     ScaledMma {
         /// Element of the quantized A matrix
-        a_elem: Elem,
+        a_type: StorageType,
         /// Element of the quantized B matrix
-        b_elem: Elem,
+        b_type: StorageType,
         /// Element of the unquantized C/D matrices
-        cd_elem: Elem,
+        cd_type: StorageType,
         /// Element of the blocks scales
-        scales_elem: Elem,
+        scales_type: StorageType,
         m: u32,
         n: u32,
         k: u32,
@@ -102,7 +102,7 @@ pub enum Feature {
         scales_factor: u32,
     },
     CmmaWarpSize(i32),
-    Type(Elem),
+    Type(StorageType),
     /// Features supported for floating point atomics.
     AtomicFloat(AtomicFeature),
     /// Features supported for integer atomics.

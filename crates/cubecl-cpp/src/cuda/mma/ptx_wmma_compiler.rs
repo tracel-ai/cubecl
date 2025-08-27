@@ -331,47 +331,47 @@ for (int i = 0; i < {reg_count}; ++i) {{
             // Types fully supported.
             let types = vec![
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16), // m
-                    gpu::Elem::Float(gpu::FloatKind::F16), // n
-                    gpu::Elem::Float(gpu::FloatKind::F16), // k
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // m
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // n
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // k
                 ),
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16),
-                    gpu::Elem::Float(gpu::FloatKind::F16),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::F16),
+                    gpu::ElemType::Float(gpu::FloatKind::F16),
+                    gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
                 (
-                    gpu::Elem::Float(gpu::FloatKind::BF16),
-                    gpu::Elem::Float(gpu::FloatKind::BF16),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::BF16),
+                    gpu::ElemType::Float(gpu::FloatKind::BF16),
+                    gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                .map(|(m, n, k)| (m, n, k, vec![(16, 16, 16)]))
+                .map(|(m, n, k)| (m.into(), n.into(), k.into(), vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
             if arch.get_version() >= 72 {
                 result.extend([
                     (
-                        gpu::Elem::UInt(gpu::UIntKind::U8),
-                        gpu::Elem::UInt(gpu::UIntKind::U8),
-                        gpu::Elem::Int(gpu::IntKind::I32),
+                        gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
+                        gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
+                        gpu::ElemType::Int(gpu::IntKind::I32).into(),
                         vec![(16, 16, 16)],
                     ),
                     (
-                        gpu::Elem::Int(gpu::IntKind::I8),
-                        gpu::Elem::Int(gpu::IntKind::I8),
-                        gpu::Elem::Int(gpu::IntKind::I32),
+                        gpu::ElemType::Int(gpu::IntKind::I8).into(),
+                        gpu::ElemType::Int(gpu::IntKind::I8).into(),
+                        gpu::ElemType::Int(gpu::IntKind::I32).into(),
                         vec![(16, 16, 16)],
                     ),
                 ]);
             }
             if arch.get_version() >= 80 {
                 result.push((
-                    gpu::Elem::Float(gpu::FloatKind::TF32),
-                    gpu::Elem::Float(gpu::FloatKind::TF32),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                    gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                    gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                     vec![(16, 16, 8)],
                 ));
             }
@@ -588,57 +588,57 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
     if arch.get_version() >= 80 {
         result.extend([
             (
-                gpu::Elem::Float(gpu::FloatKind::F16), // a
-                gpu::Elem::Float(gpu::FloatKind::F16), // b
-                gpu::Elem::Float(gpu::FloatKind::F32), // cd
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(), // a
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(), // b
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(), // cd
                 16,
                 8,
                 16,
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 16,
                 8,
                 16,
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::TF32),
-                gpu::Elem::Float(gpu::FloatKind::TF32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 16,
                 8,
                 8,
             ),
             (
-                gpu::Elem::Int(gpu::IntKind::I8),
-                gpu::Elem::Int(gpu::IntKind::I8),
-                gpu::Elem::Int(gpu::IntKind::I32),
+                gpu::ElemType::Int(gpu::IntKind::I8).into(),
+                gpu::ElemType::Int(gpu::IntKind::I8).into(),
+                gpu::ElemType::Int(gpu::IntKind::I32).into(),
                 16,
                 8,
                 32,
             ),
             (
-                gpu::Elem::UInt(gpu::UIntKind::U8),
-                gpu::Elem::UInt(gpu::UIntKind::U8),
-                gpu::Elem::Int(gpu::IntKind::I32),
+                gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
+                gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
+                gpu::ElemType::Int(gpu::IntKind::I32).into(),
                 16,
                 8,
                 32,
             ),
             (
-                gpu::Elem::Int(gpu::IntKind::I8),
-                gpu::Elem::UInt(gpu::UIntKind::U8),
-                gpu::Elem::Int(gpu::IntKind::I32),
+                gpu::ElemType::Int(gpu::IntKind::I8).into(),
+                gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
+                gpu::ElemType::Int(gpu::IntKind::I32).into(),
                 16,
                 8,
                 32,
             ),
             (
-                gpu::Elem::UInt(gpu::UIntKind::U8),
-                gpu::Elem::Int(gpu::IntKind::I8),
-                gpu::Elem::Int(gpu::IntKind::I32),
+                gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
+                gpu::ElemType::Int(gpu::IntKind::I8).into(),
+                gpu::ElemType::Int(gpu::IntKind::I32).into(),
                 16,
                 8,
                 32,
@@ -660,9 +660,9 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
         let combinations = combinations.into_iter();
         result.extend(combinations.map(|(t1, t2)| {
             (
-                gpu::Elem::Float(*t1),
-                gpu::Elem::Float(*t2),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(*t1).into(),
+                gpu::ElemType::Float(*t2).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 16,
                 8,
                 32,
@@ -691,10 +691,10 @@ pub(super) fn supported_scaled_mma_combinations(
 
         result.extend(combinations.map(|(t1, t2)| {
             (
-                gpu::Elem::Float(*t1),
-                gpu::Elem::Float(*t2),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::UE8M0),
+                gpu::ElemType::Float(*t1).into(),
+                gpu::ElemType::Float(*t2).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::UE8M0).into(),
                 (16, 8, 32),
                 1,
             )
@@ -702,19 +702,19 @@ pub(super) fn supported_scaled_mma_combinations(
 
         result.extend([
             (
-                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
-                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::UE8M0),
+                gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
+                gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::UE8M0).into(),
                 (16, 8, 64),
                 2,
             ),
             // Sign of scales is ignored
             (
-                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
-                gpu::Elem::Float(gpu::FloatKind::E2M1x2),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::E4M3),
+                gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
+                gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::E4M3).into(),
                 (16, 8, 64),
                 4,
             ),

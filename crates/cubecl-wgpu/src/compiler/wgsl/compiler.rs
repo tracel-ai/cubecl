@@ -67,7 +67,7 @@ impl cubecl_core::Compiler for WgslCompiler {
         self.compile_shader(shader, mode)
     }
 
-    fn elem_size(&self, elem: cube::Elem) -> usize {
+    fn elem_size(&self, elem: cube::ElemType) -> usize {
         elem.size()
     }
 
@@ -112,8 +112,8 @@ impl WgslCompiler {
                 .map(|mut it| {
                     // This is safe when combined with the unroll transform that adjusts all indices.
                     // Must not be used alone
-                    if it.item.vectorization() > MAX_LINE_SIZE {
-                        it.item.vectorization = NonZero::new(MAX_LINE_SIZE);
+                    if it.item.line_size() > MAX_LINE_SIZE {
+                        it.item.line_size = NonZero::new(MAX_LINE_SIZE);
                     }
                     self.compile_binding(it)
                 })
@@ -121,7 +121,7 @@ impl WgslCompiler {
             scalars: value
                 .scalars
                 .into_iter()
-                .map(|binding| (self.compile_elem(binding.elem), binding.count))
+                .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
                 .collect(),
             shared_memories: self.shared_memories.clone(),
             constant_arrays: self.const_arrays.clone(),
@@ -149,22 +149,48 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_item(&mut self, item: cube::Item) -> Item {
-        let elem = self.compile_elem(item.elem);
-        match item.vectorization.map(|it| it.get()).unwrap_or(1) {
+    fn compile_type(&mut self, item: cube::Type) -> Item {
+        let elem = self.compile_storage_type(item.storage);
+        match item.line_size.map(|it| it.get()).unwrap_or(1) {
             1 => wgsl::Item::Scalar(elem),
             2 => wgsl::Item::Vec2(elem),
             3 => wgsl::Item::Vec3(elem),
             4 => wgsl::Item::Vec4(elem),
-            _ => panic!("Unsupported vectorizations scheme {:?}", item.vectorization),
+            _ => panic!("Unsupported vectorizations scheme {:?}", item.line_size),
         }
     }
 
-    fn compile_elem(&mut self, value: cube::Elem) -> wgsl::Elem {
+    fn compile_storage_type(&mut self, ty: cube::StorageType) -> wgsl::Elem {
+        match ty {
+            cube::StorageType::Scalar(ty) => self.compile_elem(ty),
+            cube::StorageType::Atomic(ty) => match ty {
+                cube::ElemType::Float(i) => match i {
+                    cube::FloatKind::F32 => wgsl::Elem::AtomicF32,
+                    kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
+                },
+                cube::ElemType::Int(i) => match i {
+                    cube::IntKind::I32 => wgsl::Elem::AtomicI32,
+                    kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
+                },
+                cube::ElemType::UInt(kind) => match kind {
+                    cube::UIntKind::U32 => wgsl::Elem::AtomicU32,
+                    kind => panic!("{kind:?} is not a valid WgpuElement"),
+                },
+                other => panic!("{other:?} is not a valid WgpuElement"),
+            },
+            cube::StorageType::Packed(_, _) => {
+                unimplemented!("Packed types not yet supported in WGSL")
+            }
+            cube::StorageType::Semantic(_) => {
+                unimplemented!("Semantic types not yet supported in WGSL")
+            }
+        }
+    }
+
+    fn compile_elem(&mut self, value: cube::ElemType) -> wgsl::Elem {
         match value {
-            cube::Elem::Float(f) => match f {
+            cube::ElemType::Float(f) => match f {
                 cube::FloatKind::E2M1
-                | cube::FloatKind::E2M1x2
                 | cube::FloatKind::E2M3
                 | cube::FloatKind::E3M2
                 | cube::FloatKind::E4M3
@@ -180,29 +206,17 @@ impl WgslCompiler {
                 cube::FloatKind::F32 => wgsl::Elem::F32,
                 cube::FloatKind::F64 => wgsl::Elem::F64,
             },
-            cube::Elem::Int(i) => match i {
+            cube::ElemType::Int(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::I32,
                 cube::IntKind::I64 => wgsl::Elem::I64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
-            cube::Elem::UInt(kind) => match kind {
+            cube::ElemType::UInt(kind) => match kind {
                 cube::UIntKind::U32 => wgsl::Elem::U32,
                 cube::UIntKind::U64 => wgsl::Elem::U64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
-            cube::Elem::Bool => wgsl::Elem::Bool,
-            cube::Elem::AtomicFloat(i) => match i {
-                cube::FloatKind::F32 => wgsl::Elem::AtomicF32,
-                kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
-            },
-            cube::Elem::AtomicInt(i) => match i {
-                cube::IntKind::I32 => wgsl::Elem::AtomicI32,
-                kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
-            },
-            cube::Elem::AtomicUInt(kind) => match kind {
-                cube::UIntKind::U32 => wgsl::Elem::AtomicU32,
-                kind => panic!("{kind:?} is not a valid WgpuElement"),
-            },
+            cube::ElemType::Bool => wgsl::Elem::Bool,
         }
     }
 
@@ -212,29 +226,29 @@ impl WgslCompiler {
     }
 
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
-        let item = value.item;
+        let item = value.ty;
         match value.kind {
             cube::VariableKind::GlobalInputArray(id) => {
-                wgsl::Variable::GlobalInputArray(id, self.compile_item(item))
+                wgsl::Variable::GlobalInputArray(id, self.compile_type(item))
             }
             cube::VariableKind::GlobalScalar(id) => {
-                wgsl::Variable::GlobalScalar(id, self.compile_elem(item.elem))
+                wgsl::Variable::GlobalScalar(id, self.compile_storage_type(item.storage))
             }
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 wgsl::Variable::LocalMut {
                     id,
-                    item: self.compile_item(item),
+                    item: self.compile_type(item),
                 }
             }
             cube::VariableKind::LocalConst { id } => wgsl::Variable::LocalConst {
                 id,
-                item: self.compile_item(item),
+                item: self.compile_type(item),
             },
             cube::VariableKind::GlobalOutputArray(id) => {
-                wgsl::Variable::GlobalOutputArray(id, self.compile_item(item))
+                wgsl::Variable::GlobalOutputArray(id, self.compile_type(item))
             }
             cube::VariableKind::ConstantScalar(value) => {
-                wgsl::Variable::ConstantScalar(value, self.compile_elem(value.elem()))
+                wgsl::Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
             cube::VariableKind::SharedMemory {
                 id,
@@ -242,7 +256,7 @@ impl WgslCompiler {
                 unroll_factor,
                 alignment,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories.push(SharedMemory::new(
                         id,
@@ -254,7 +268,7 @@ impl WgslCompiler {
                 wgsl::Variable::SharedMemory(id, item, length)
             }
             cube::VariableKind::ConstantArray { id, length, .. } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 wgsl::Variable::ConstantArray(id, item, length)
             }
             cube::VariableKind::LocalArray {
@@ -262,7 +276,7 @@ impl WgslCompiler {
                 length,
                 unroll_factor,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
                     self.local_arrays
                         .push(LocalArray::new(id, item, length * unroll_factor));
@@ -384,7 +398,7 @@ impl WgslCompiler {
             .drain(..)
             .map(|(var, values)| ConstantArray {
                 index: var.index().unwrap(),
-                item: self.compile_item(var.item),
+                item: self.compile_type(var.ty),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -399,8 +413,8 @@ impl WgslCompiler {
         let processing = scope.process([&*unroll, &*checked_io]);
 
         for mut var in processing.variables {
-            if var.item.vectorization() > MAX_LINE_SIZE {
-                var.item.vectorization = NonZero::new(MAX_LINE_SIZE);
+            if var.ty.line_size() > MAX_LINE_SIZE {
+                var.ty.line_size = NonZero::new(MAX_LINE_SIZE);
             }
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
@@ -1056,7 +1070,7 @@ impl WgslCompiler {
             id: value.id,
             visibility: value.visibility,
             location: Self::compile_location(value.location),
-            item: self.compile_item(value.item),
+            item: self.compile_type(value.item),
             size: value.size,
         }
     }

@@ -6,11 +6,11 @@ use crate::{
     prelude::MulHi,
 };
 use crate::{
-    ir::{Arithmetic, BinaryOperator, Elem, Instruction, Item, Scope},
+    ir::{Arithmetic, BinaryOperator, Instruction, Scope, Type},
     prelude::{Dot, Numeric, binary_expand_fixed_output},
     unexpanded,
 };
-use cubecl_ir::{Comparison, ExpandElement};
+use cubecl_ir::{Comparison, ExpandElement, StorageType};
 use cubecl_macros::{cube, intrinsic};
 use derive_more::derive::Neg;
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -54,8 +54,8 @@ mod new {
             intrinsic!(|_| {
                 let elem: ExpandElementTyped<Line<P>> = self;
                 elem.expand
-                    .item
-                    .vectorization
+                    .ty
+                    .line_size
                     .map(|a| a.get() as u32)
                     .unwrap_or(1)
             })
@@ -84,8 +84,8 @@ mod fill {
         #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
-                let length = self.expand.item.vectorization;
-                let output = scope.create_local(Item::vectorized(P::as_elem(scope), length));
+                let length = self.expand.ty.line_size;
+                let output = scope.create_local(Type::new(P::as_type(scope)).line(length));
 
                 cast::expand::<P>(scope, value, output.clone().into());
 
@@ -114,7 +114,7 @@ mod empty {
                 // We don't declare const variables in our compilers, only mut variables.
                 // So we need to create the variable as mut here.
                 let var: ExpandElementTyped<Line<P>> = scope
-                    .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
+                    .create_local_mut(Type::new(Self::as_type(scope)).line(length))
                     .into();
                 cubecl::frontend::assign::expand(scope, zero, var.clone());
                 var
@@ -152,8 +152,8 @@ mod size {
         /// Comptime version of [size](Line::size).
         pub fn size(&self) -> u32 {
             self.expand
-                .item
-                .vectorization
+                .ty
+                .line_size
                 .unwrap_or(NonZero::new(1).unwrap())
                 .get() as u32
         }
@@ -184,11 +184,11 @@ macro_rules! impl_line_comparison {
                     #[allow(unused_variables)]
                     pub fn $name(self, other: Self) -> Line<bool> {
                         intrinsic!(|scope| {
-                            let size = self.expand.item.vectorization;
+                            let size = self.expand.ty.line_size;
                             let lhs = self.expand.into();
                             let rhs = other.expand.into();
 
-                            let output = scope.create_local_mut(Item::vectorized(bool::as_elem(scope), size));
+                            let output = scope.create_local_mut(Type::new(bool::as_type(scope)).line(size));
 
                             scope.register(Instruction::new(
                                 Comparison::$operator(BinaryOperator { lhs, rhs }),
@@ -267,12 +267,12 @@ impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
 }
 
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
-    fn as_elem(scope: &Scope) -> Elem {
-        P::as_elem(scope)
+    fn as_type(scope: &Scope) -> StorageType {
+        P::as_type(scope)
     }
 
-    fn as_elem_native() -> Option<Elem> {
-        P::as_elem_native()
+    fn as_type_native() -> Option<StorageType> {
+        P::as_type_native()
     }
 
     fn size() -> Option<usize> {
@@ -291,8 +291,8 @@ impl<N: Numeric> Dot for Line<N> {
         rhs: ExpandElementTyped<Self>,
     ) -> ExpandElementTyped<Self> {
         let lhs: ExpandElement = lhs.into();
-        let mut item = lhs.item;
-        item.vectorization = None;
+        let mut item = lhs.ty;
+        item.line_size = None;
         binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }

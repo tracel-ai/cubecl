@@ -27,7 +27,7 @@ pub(crate) fn assert_equals_approx<
         .enumerate()
     {
         // account for lower precision at higher values
-        let allowed_error = F::new((epsilon * e.to_f32().unwrap()).max(epsilon));
+        let allowed_error = F::new((epsilon * e.to_f32().unwrap().abs()).max(epsilon));
         assert!(
             (*a - *e).abs() < allowed_error || (a.is_nan() && e.is_nan()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}

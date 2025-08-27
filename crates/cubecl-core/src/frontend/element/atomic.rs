@@ -1,4 +1,4 @@
-use cubecl_ir::{AtomicOp, ExpandElement};
+use cubecl_ir::{AtomicOp, ExpandElement, StorageType};
 
 use super::{
     ExpandElementIntoMut, ExpandElementTyped, Int, LaunchArgExpand, Numeric,
@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     frontend::{CubePrimitive, CubeType},
-    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, Scope, UnaryOperator},
+    ir::{BinaryOperator, CompareAndSwapOperator, Instruction, Scope, Type, UnaryOperator},
     prelude::KernelBuilder,
     unexpanded,
 };
@@ -69,7 +69,7 @@ impl<Inner: Numeric> Atomic<Inner> {
         pointer: <Self as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let pointer: ExpandElement = pointer.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Load(UnaryOperator { input: *pointer }),
             *new_var,
@@ -97,7 +97,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Swap(BinaryOperator {
                 lhs: *ptr,
@@ -115,7 +115,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Add(BinaryOperator {
                 lhs: *ptr,
@@ -133,7 +133,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Sub(BinaryOperator {
                 lhs: *ptr,
@@ -151,7 +151,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Max(BinaryOperator {
                 lhs: *ptr,
@@ -169,7 +169,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Min(BinaryOperator {
                 lhs: *ptr,
@@ -219,7 +219,7 @@ impl<Inner: Int> Atomic<Inner> {
         let pointer: ExpandElement = pointer.into();
         let cmp: ExpandElement = cmp.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::CompareAndSwap(CompareAndSwapOperator {
                 input: *pointer,
@@ -238,7 +238,7 @@ impl<Inner: Int> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::And(BinaryOperator {
                 lhs: *ptr,
@@ -256,7 +256,7 @@ impl<Inner: Int> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Or(BinaryOperator {
                 lhs: *ptr,
@@ -274,7 +274,7 @@ impl<Inner: Int> Atomic<Inner> {
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
         scope.register(Instruction::new(
             AtomicOp::Xor(BinaryOperator {
                 lhs: *ptr,
@@ -291,32 +291,16 @@ impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
-    fn as_elem_native() -> Option<Elem> {
-        match Inner::as_elem_native() {
-            Some(Elem::Float(kind)) => Some(Elem::AtomicFloat(kind)),
-            Some(Elem::Int(kind)) => Some(Elem::AtomicInt(kind)),
-            Some(Elem::UInt(kind)) => Some(Elem::AtomicUInt(kind)),
-            None => None,
-            _ => unreachable!("Atomics can only be float/int/uint"),
-        }
+    fn as_type_native() -> Option<StorageType> {
+        Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()))
     }
 
-    fn as_elem(scope: &Scope) -> Elem {
-        match Inner::as_elem(scope) {
-            Elem::Float(kind) => Elem::AtomicFloat(kind),
-            Elem::Int(kind) => Elem::AtomicInt(kind),
-            Elem::UInt(kind) => Elem::AtomicUInt(kind),
-            _ => unreachable!("Atomics can only be float/int/uint"),
-        }
+    fn as_type(scope: &Scope) -> StorageType {
+        StorageType::Atomic(Inner::as_type(scope).elem_type())
     }
 
-    fn as_elem_native_unchecked() -> Elem {
-        match Inner::as_elem_native_unchecked() {
-            Elem::Float(kind) => Elem::AtomicFloat(kind),
-            Elem::Int(kind) => Elem::AtomicInt(kind),
-            Elem::UInt(kind) => Elem::AtomicUInt(kind),
-            _ => unreachable!("Atomics can only be float/int/uint"),
-        }
+    fn as_type_native_unchecked() -> StorageType {
+        StorageType::Atomic(Inner::as_type_native_unchecked().elem_type())
     }
 
     fn size() -> Option<usize> {
@@ -338,6 +322,6 @@ impl<Inner: CubePrimitive> LaunchArgExpand for Atomic<Inner> {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(Self::as_elem_native_unchecked()).into()
+        builder.scalar(Self::as_type_native_unchecked()).into()
     }
 }

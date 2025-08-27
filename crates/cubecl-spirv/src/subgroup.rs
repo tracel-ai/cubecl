@@ -28,7 +28,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         });
                     }
                     vec => {
-                        let elem_ty = self.compile_item(op.input.item).elem().id(self);
+                        let elem_ty = self.compile_type(op.input.ty).elem().id(self);
                         let bool_ty = self.type_bool();
 
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
@@ -56,7 +56,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         });
                     }
                     vec => {
-                        let elem_ty = self.compile_item(op.input.item).elem().id(self);
+                        let elem_ty = self.compile_type(op.input.ty).elem().id(self);
                         let bool_ty = self.type_bool();
 
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {

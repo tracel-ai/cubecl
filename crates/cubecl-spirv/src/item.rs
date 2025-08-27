@@ -293,9 +293,9 @@ impl Elem {
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_item(&mut self, item: core::Item) -> Item {
-        let elem = self.compile_elem(item.elem);
-        let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
+    pub fn compile_type(&mut self, item: core::Type) -> Item {
+        let elem = self.compile_storage_type(item.storage);
+        let vectorization = item.line_size.map(|it| it.get()).unwrap_or(1);
         if vectorization == 1 {
             Item::Scalar(elem)
         } else {
@@ -303,108 +303,69 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_elem(&mut self, elem: core::Elem) -> Elem {
+    pub fn compile_storage_type(&mut self, ty: core::StorageType) -> Elem {
+        match ty {
+            core::StorageType::Scalar(ty) | core::StorageType::Atomic(ty) => self.compile_elem(ty),
+            core::StorageType::Packed(_, _) => {
+                unimplemented!("Packed types not yet supported in SPIR-V")
+            }
+            core::StorageType::Semantic(_) => {
+                unimplemented!("No semantic types supported in SPIR-V")
+            }
+        }
+    }
+
+    pub fn compile_elem(&mut self, elem: core::ElemType) -> Elem {
         match elem {
-            core::Elem::Float(
+            core::ElemType::Float(
                 core::FloatKind::E2M1
-                | core::FloatKind::E2M1x2
                 | core::FloatKind::E2M3
                 | core::FloatKind::E3M2
                 | core::FloatKind::E4M3
                 | core::FloatKind::E5M2
                 | core::FloatKind::UE8M0,
             ) => panic!("Minifloat not supported in SPIR-V"),
-            core::Elem::Float(core::FloatKind::BF16) => panic!("BFloat16 not supported in SPIR-V"),
-            core::Elem::Float(FloatKind::F16) => {
-                self.capabilities.insert(Capability::Float16);
-                Elem::Float(16)
-            }
-            core::Elem::Float(FloatKind::TF32) => panic!("TF32 not supported in SPIR-V"),
-            core::Elem::Float(FloatKind::Flex32) => Elem::Relaxed,
-            core::Elem::Float(FloatKind::F32) => Elem::Float(32),
-            core::Elem::Float(FloatKind::F64) => {
-                self.capabilities.insert(Capability::Float64);
-                Elem::Float(64)
-            }
-            core::Elem::AtomicFloat(FloatKind::F16) => {
-                self.capabilities.insert(Capability::Float16);
-                Elem::Float(16)
-            }
-            core::Elem::AtomicFloat(FloatKind::F32) => Elem::Float(32),
-            core::Elem::AtomicFloat(FloatKind::Flex32) => Elem::Relaxed,
-            core::Elem::AtomicFloat(FloatKind::F64) => {
-                self.capabilities.insert(Capability::Float64);
-                Elem::Float(64)
-            }
-            core::Elem::AtomicFloat(
-                core::FloatKind::E2M1
-                | core::FloatKind::E2M1x2
-                | core::FloatKind::E2M3
-                | core::FloatKind::E3M2
-                | core::FloatKind::E4M3
-                | core::FloatKind::E5M2
-                | core::FloatKind::UE8M0,
-            ) => panic!("Minifloat not supported in SPIR-V"),
-            core::Elem::AtomicFloat(core::FloatKind::BF16) => {
+            core::ElemType::Float(core::FloatKind::BF16) => {
                 panic!("BFloat16 not supported in SPIR-V")
             }
-            core::Elem::AtomicFloat(core::FloatKind::TF32) => {
-                panic!("TF32 not supported in SPIR-V")
+            core::ElemType::Float(FloatKind::F16) => {
+                self.capabilities.insert(Capability::Float16);
+                Elem::Float(16)
             }
-            core::Elem::Int(IntKind::I8) => {
+            core::ElemType::Float(FloatKind::TF32) => panic!("TF32 not supported in SPIR-V"),
+            core::ElemType::Float(FloatKind::Flex32) => Elem::Relaxed,
+            core::ElemType::Float(FloatKind::F32) => Elem::Float(32),
+            core::ElemType::Float(FloatKind::F64) => {
+                self.capabilities.insert(Capability::Float64);
+                Elem::Float(64)
+            }
+            core::ElemType::Int(IntKind::I8) => {
                 self.capabilities.insert(Capability::Int8);
                 Elem::Int(8, true)
             }
-            core::Elem::Int(IntKind::I16) => {
+            core::ElemType::Int(IntKind::I16) => {
                 self.capabilities.insert(Capability::Int16);
                 Elem::Int(16, true)
             }
-            core::Elem::Int(IntKind::I32) => Elem::Int(32, true),
-            core::Elem::Int(IntKind::I64) => {
+            core::ElemType::Int(IntKind::I32) => Elem::Int(32, true),
+            core::ElemType::Int(IntKind::I64) => {
                 self.capabilities.insert(Capability::Int64);
                 Elem::Int(64, true)
             }
-            core::Elem::AtomicInt(IntKind::I8) => {
-                self.capabilities.insert(Capability::Int8);
-                Elem::Int(8, true)
-            }
-            core::Elem::AtomicInt(IntKind::I16) => {
-                self.capabilities.insert(Capability::Int16);
-                Elem::Int(16, true)
-            }
-            core::Elem::AtomicInt(IntKind::I32) => Elem::Int(32, true),
-            core::Elem::AtomicInt(IntKind::I64) => {
-                self.capabilities.insert(Capability::Int64Atomics);
-                Elem::Int(64, true)
-            }
-            core::Elem::UInt(UIntKind::U64) => {
+            core::ElemType::UInt(UIntKind::U64) => {
                 self.capabilities.insert(Capability::Int64);
                 Elem::Int(64, false)
             }
-            core::Elem::UInt(UIntKind::U32) => Elem::Int(32, false),
-            core::Elem::UInt(UIntKind::U16) => {
+            core::ElemType::UInt(UIntKind::U32) => Elem::Int(32, false),
+            core::ElemType::UInt(UIntKind::U16) => {
                 self.capabilities.insert(Capability::Int16);
                 Elem::Int(16, false)
             }
-            core::Elem::UInt(UIntKind::U8) => {
+            core::ElemType::UInt(UIntKind::U8) => {
                 self.capabilities.insert(Capability::Int8);
                 Elem::Int(8, false)
             }
-            core::Elem::AtomicUInt(UIntKind::U8) => {
-                self.capabilities.insert(Capability::Int8);
-                Elem::Int(8, false)
-            }
-            core::Elem::AtomicUInt(UIntKind::U16) => {
-                self.capabilities.insert(Capability::Int16);
-                Elem::Int(16, false)
-            }
-            core::Elem::AtomicUInt(UIntKind::U32) => Elem::Int(32, false),
-            core::Elem::AtomicUInt(UIntKind::U64) => {
-                self.capabilities.insert(Capability::Int64);
-                self.capabilities.insert(Capability::Int64Atomics);
-                Elem::Int(64, false)
-            }
-            core::Elem::Bool => Elem::Bool,
+            core::ElemType::Bool => Elem::Bool,
         }
     }
 

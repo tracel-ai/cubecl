@@ -1,6 +1,6 @@
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, SizedContainer},
-    ir::{Item, Metadata, Scope},
+    ir::{Metadata, Scope, Type},
     prelude::{
         Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
     },
@@ -38,7 +38,7 @@ mod metadata {
         pub fn stride(&self, dim: u32) -> u32 {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Item::new(u32::as_elem(scope)));
+                let out = scope.create_local(Type::new(u32::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: *dim,
@@ -55,7 +55,7 @@ mod metadata {
         pub fn shape(&self, dim: u32) -> u32 {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Item::new(u32::as_elem(scope)));
+                let out = scope.create_local(Type::new(u32::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: *dim,
@@ -79,7 +79,7 @@ mod metadata {
                 let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(Item::new(u32::as_elem(scope)));
+                let num_strides = scope.create_local(Type::new(u32::as_type(scope)));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
                         lhs: *index,
@@ -89,7 +89,7 @@ mod metadata {
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(Item::new(u32::as_elem(scope)));
+                let coordinate = scope.create_local(Type::new(u32::as_type(scope)));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
                         lhs: *num_strides,
@@ -133,7 +133,7 @@ mod metadata {
         /// Returns the rank of the tensor.
         pub fn rank(&self) -> u32 {
             intrinsic!(|scope| {
-                let out = scope.create_local(Item::new(u32::as_elem(scope)));
+                let out = scope.create_local(Type::new(u32::as_type(scope)));
                 scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
                 out.into()
             })
@@ -165,7 +165,7 @@ mod indexation {
             Self: CubeIndex,
         {
             intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.item);
+                let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
@@ -233,8 +233,8 @@ mod line {
         /// Comptime version of [size](Tensor::line_size).
         pub fn line_size(&self) -> u32 {
             self.expand
-                .item
-                .vectorization
+                .ty
+                .line_size
                 .unwrap_or(NonZero::new(1).unwrap())
                 .get() as u32
         }
@@ -319,7 +319,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     }
 
     fn line_size(&self) -> u32 {
-        self.expand.item.vectorization() as u32
+        self.expand.ty.line_size() as u32
     }
 }
 
