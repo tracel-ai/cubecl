@@ -1,4 +1,3 @@
-use crate::components::global::Specializer;
 use crate::components::global::load::{
     StageBuffer, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
     SyncPartialLoadingStrategy,
@@ -8,13 +7,14 @@ use crate::components::global::multi_stage::double_buffer_execution::{
 };
 use crate::components::global::multi_stage::ordered::LL;
 use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::{LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -46,6 +46,7 @@ where
                 <LL as SyncFullLoadingStrategy>::TilingLayout,
             >,
             RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            WriteCoords = Coords3d,
         >,
     RL: SyncPartialLoadingStrategy,
 {
@@ -167,8 +168,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         SyncFullLoader::<MP::Lhs, Self::Config, LL>::new(
-            lhs,
+            lhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -185,8 +187,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
-            rhs,
+            rhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -201,8 +204,15 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        SMM::init_writer(
+            out.view_mut(layout.virt()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

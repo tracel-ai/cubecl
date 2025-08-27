@@ -7,7 +7,7 @@ use cubecl_core::{
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{LhsG, MatmulSetupError, RhsG, tile::accelerated::AcceleratedMatmul},
+    components::{EO, LhsG, MatmulSetupError, RhsG, tile::accelerated::AcceleratedMatmul},
     kernels::layered::{
         Selection,
         double_buffering::DoubleBufferingArgs,
@@ -15,6 +15,7 @@ use crate::{
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
+        vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
 
@@ -55,6 +56,8 @@ pub enum Strategy {
     DoubleBuffering(SyncPartialLoadingStrategy, Selection<DoubleBufferingArgs>),
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
     DoubleUnit(Selection<DoubleUnitSelectionArgs>),
+    SimpleVecMat(Selection<()>),
+    DoubleVecMat(Selection<()>),
     OrderedDoubleBuffering(Selection<OrderedSelectionArgs>),
     Naive,
     #[default]
@@ -301,8 +304,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
         }
         Strategy::Naive => {
-            // Warning: this assumes Lhs, Rhs and Output have the same type
-            naive::launch_ref::<R, LhsG<MP>>(client, lhs.data(), rhs.data(), out)?;
+            naive::launch_ref::<R, LhsG<MP>, EO<MP>>(client, lhs.data(), rhs.data(), out)?;
             Ok(())
         }
         Strategy::Auto => {
@@ -329,6 +331,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             }
 
             Ok(())
+        }
+        Strategy::SimpleVecMat(selection) => {
+            layered::launch_ref::<R, MP, SimpleVecMatAlgorithm>(client, lhs, rhs, out, selection)
+        }
+        Strategy::DoubleVecMat(selection) => {
+            layered::launch_ref::<R, MP, DoubleVecMatAlgorithm>(client, lhs, rhs, out, selection)
         }
     }
 }

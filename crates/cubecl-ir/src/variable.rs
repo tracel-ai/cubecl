@@ -84,12 +84,10 @@ pub enum VariableKind {
     Builtin(Builtin),
     Pipeline {
         id: Id,
-        item: Item,
         num_stages: u8,
     },
     Barrier {
         id: Id,
-        item: Item,
         level: BarrierLevel,
     },
 }

@@ -61,7 +61,7 @@ impl<
         #[unroll]
         for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
             let acc = self.sequence.index_mut(i);
-            L::load::<TM>(loader, acc, i, config.tile_config());
+            L::load::<TM, S>(loader, acc, i, config);
         }
     }
 

@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::BarrierLevel;
+use crate::{BarrierLevel, Elem};
 
 use super::{Item, Matrix, Variable, VariableKind};
 
@@ -92,22 +92,19 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_pipeline(&self, item: Item, num_stages: u8) -> ExpandElement {
+    pub fn create_pipeline(&self, num_stages: u8) -> ExpandElement {
         let id = self.new_local_index();
         let variable = Variable::new(
-            VariableKind::Pipeline {
-                id,
-                item,
-                num_stages,
-            },
-            item,
+            VariableKind::Pipeline { id, num_stages },
+            Item::new(Elem::Bool),
         );
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_barrier(&self, item: Item, level: BarrierLevel) -> ExpandElement {
+    pub fn create_barrier(&self, level: BarrierLevel) -> ExpandElement {
         let id = self.new_local_index();
-        let variable = Variable::new(VariableKind::Barrier { id, item, level }, item);
+        // Dummy elem for now, awaiting a rework to item to include non-native conceptual types
+        let variable = Variable::new(VariableKind::Barrier { id, level }, Item::new(Elem::Bool));
         ExpandElement::Plain(variable)
     }
 

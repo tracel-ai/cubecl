@@ -70,7 +70,7 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
     let expected = case.matmul_cpu::<R, F>(&lhs, &rhs, &client);
 
     let out: TensorHandle<R, F> = case.empty_out(&client);
-    naive::launch::<R, F>(&client, lhs, rhs, &out.as_ref()).unwrap();
+    naive::launch::<R, F, F>(&client, lhs, rhs, &out.as_ref()).unwrap();
 
     if let Err(e) = assert_equals_approx::<R, F>(
         &client,

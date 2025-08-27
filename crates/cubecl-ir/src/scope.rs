@@ -125,15 +125,15 @@ impl Scope {
     }
 
     /// Create a new pipeline element.
-    pub fn create_pipeline(&mut self, item: Item, num_stages: u8) -> ExpandElement {
-        let pipeline = self.allocator.create_pipeline(item, num_stages);
+    pub fn create_pipeline(&mut self, num_stages: u8) -> ExpandElement {
+        let pipeline = self.allocator.create_pipeline(num_stages);
         self.add_pipeline(*pipeline);
         pipeline
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier(&mut self, item: Item, level: BarrierLevel) -> ExpandElement {
-        let barrier = self.allocator.create_barrier(item, level);
+    pub fn create_barrier(&mut self, level: BarrierLevel) -> ExpandElement {
+        let barrier = self.allocator.create_barrier(level);
         self.add_barrier(*barrier);
         barrier
     }

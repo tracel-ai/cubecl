@@ -15,18 +15,23 @@ use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{
+    layout::{Coordinates, TensorView},
+    r#virtual::ReadWrite,
+};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: GlobalWriter<EO>;
+    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
+    /// Coordinates used by the writer
+    type WriteCoords: Coordinates;
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: VirtualTensor<EO, ReadWrite>,
+        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -79,6 +84,7 @@ where
     type LhsTile = Sequence<TM::Lhs>;
     type RhsTile = RhsTile<TM::Rhs>;
     type Writer = SP::Writer<MP::EO>;
+    type WriteCoords = SP::WriteCoords;
 
     fn execute(
         lhs_reader: &RL,
@@ -155,6 +161,8 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = stage_config.stage_line_size(StageIdent::Acc);
+
+        // The out shared memory is one tile wide per partition.
         let num_tile_lines =
             stage_config.tiling_scheme().elements_in_tile_mn() / out_smem_line_size;
         let out_smem_num_lines = num_tile_lines * comptime!(SP::num_primitives(stage_config));
@@ -174,6 +182,7 @@ where
 
         let mut m_iter = comptime![0u32];
 
+        // Iterate over each tile in the partition
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime![m_iterations] {
@@ -182,9 +191,18 @@ where
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
-                let accumulator =
+                let tile_accumulator =
                     Accumulators::<MP, TM, S>::get_at(acc, m_iter, n_iter, stage_config);
-                TM::write_results(accumulator, &mut smem_slice, stage_config.tile_config());
+
+                // Write the results for one tile. To save shared memory space, it reuses the same spot for
+                // all tile in the partition
+                TM::write_results(
+                    tile_accumulator,
+                    &mut smem_slice,
+                    stage_config.tile_config(),
+                );
+
+                // Write the current tile result to global memory
                 Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),
@@ -200,7 +218,7 @@ where
     }
 
     fn init_writer(
-        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        tensor: TensorView<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

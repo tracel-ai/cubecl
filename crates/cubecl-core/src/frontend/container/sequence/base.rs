@@ -261,4 +261,8 @@ impl<T: CubeType> SequenceExpand<T> {
         self.values.borrow_mut().reverse();
         self
     }
+
+    pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
+        self.clone()
+    }
 }

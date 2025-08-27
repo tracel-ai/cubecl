@@ -2,10 +2,10 @@ use std::{marker::PhantomData, num::NonZero};
 
 use cubecl_ir::{ExpandElement, Scope};
 
-use crate as cubecl;
 use crate::frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped};
 use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked};
 use crate::prelude::{assign, index, index_assign};
+use crate::{self as cubecl};
 use crate::{
     frontend::CubeType,
     ir::{Item, Metadata},
@@ -337,6 +337,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
         index_unchecked::expand(scope, self.clone(), idx)
+    }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        Self::__expand_len(scope, self.clone())
     }
 }
 

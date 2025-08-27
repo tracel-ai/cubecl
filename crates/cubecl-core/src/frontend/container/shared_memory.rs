@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, num::NonZero};
 
-use crate as cubecl;
+use crate::{self as cubecl, prelude::expand_length_native};
+use cubecl_ir::ExpandElement;
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -185,6 +186,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
         idx: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<T> {
         index_unchecked::expand(scope, self.clone(), idx)
+    }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        ExpandElement::Plain(expand_length_native(scope, *self.expand)).into()
     }
 }
 

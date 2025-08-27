@@ -3,7 +3,10 @@ use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_core::ir::{Id, Processor};
 
-use crate::shared::{FmtLeft, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations};
+use crate::shared::{
+    FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
+    reduce_comparison, reduce_exclusive, reduce_inclusive, reduce_operator, reduce_quantifier,
+};
 
 use super::{
     Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
@@ -17,6 +20,7 @@ pub trait Dialect:
     DialectIncludes<Self>
     + DialectTypes<Self>
     + DialectBindings<Self>
+    + DialectWarpReduceCompiler<Self>
     + DialectCubeBuiltins<Self>
     + DialectInstructions<Self>
     + DialectWmmaCompiler<Self>
@@ -651,6 +655,81 @@ pub struct ManualMma<'a, D: Dialect> {
     pub frag_b: &'a [Variable<D>],
     pub frag_c: &'a [Variable<D>],
     pub frag_d: &'a Variable<D>,
+}
+
+pub trait DialectWarpReduceCompiler<D: Dialect>:
+    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
+{
+    fn warp_reduce_sum(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_operator(f, input, out, "+=")
+    }
+    fn warp_reduce_prod(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_operator(f, input, out, "*=")
+    }
+    fn warp_reduce_max(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_comparison(f, input, out, D::compile_instruction_max_function_name)
+    }
+    fn warp_reduce_min(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_comparison(f, input, out, D::compile_instruction_min_function_name)
+    }
+    fn warp_reduce_all(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedVariable<D>>)
+    }
+    fn warp_reduce_any(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_quantifier(f, input, out, D::compile_warp_any::<IndexedVariable<D>>)
+    }
+    fn warp_reduce_sum_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_inclusive(f, input, out, "+=")
+    }
+    fn warp_reduce_prod_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_inclusive(f, input, out, "*=")
+    }
+    fn warp_reduce_sum_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_exclusive(f, input, out, "+=", "0")
+    }
+    fn warp_reduce_prod_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        reduce_exclusive(f, input, out, "*=", "1")
+    }
 }
 
 pub trait DialectWmmaCompiler<D: Dialect>:

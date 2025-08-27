@@ -12,8 +12,10 @@ use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::layout::{Coords3d, TensorView},
+};
 
 #[cube]
 /// A strategy for asynchronously loading a stage of stage memory
@@ -43,7 +45,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 pub struct AsyncBufferLoader<
     IP: InputPrecision,
     S: stage::StageConfig,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     L: AsyncPartialLoadingStrategy,
 > {
     tensor_reader: TensorReader<IP::Global>,
@@ -56,16 +58,12 @@ pub struct AsyncBufferLoader<
 }
 
 #[cube]
-impl<
-    IP: InputPrecision,
-    S: stage::StageConfig,
-    CM: CopyMechanism<IP::Stage>,
-    L: AsyncPartialLoadingStrategy,
-> AsyncBufferLoader<IP, S, CM, L>
+impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
+    AsyncBufferLoader<IP, S, CM, L>
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
-        tensor: VirtualTensor<IP::Global>,
+        tensor: TensorView<IP::Global, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -77,7 +75,7 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let tensor_reader = TensorReader::new(tensor, (batch_offset, x_offset, y_offset));
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
