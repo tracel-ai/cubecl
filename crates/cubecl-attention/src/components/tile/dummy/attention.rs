@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
-use cubecl_std::tensor::layout::{Coords3d, };
-use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::View;
+use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::r#virtual::ReadWrite;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;

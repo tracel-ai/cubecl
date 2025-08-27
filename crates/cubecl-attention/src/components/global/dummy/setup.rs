@@ -17,12 +17,8 @@ pub struct DummyGlobalAttentionFamily<SA: StageAttentionFamily> {
     _phantom: PhantomData<SA>,
 }
 
-impl<
-    SA: StageAttentionFamily<
-            KeyReader = FullReaderFamily,
-            ValueReader = FullReaderFamily,
-        >,
-> GlobalAttentionFamily for DummyGlobalAttentionFamily<SA>
+impl<SA: StageAttentionFamily<KeyReader = FullReaderFamily, ValueReader = FullReaderFamily>>
+    GlobalAttentionFamily for DummyGlobalAttentionFamily<SA>
 {
     type Attention<AP: AttentionPrecision> = DummyGlobalAttention<AP, SA::Attention<AP>>;
 
