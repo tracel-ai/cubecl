@@ -112,6 +112,7 @@ where
 
         let mut barriers = Sequence::<Barrier>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let mut stage = comptime![0u32];
 
@@ -162,6 +163,7 @@ where
                         &mut tile_rhs,
                         acc,
                         config.stage_config(),
+                        &partition_scheduler,
                     );
                     barrier.arrive();
 
@@ -186,7 +188,13 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
