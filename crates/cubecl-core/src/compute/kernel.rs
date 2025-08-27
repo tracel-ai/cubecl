@@ -169,7 +169,7 @@ pub struct Binding {
     pub id: Id,
     pub location: Location,
     pub visibility: Visibility,
-    pub item: Type,
+    pub ty: Type,
     pub size: Option<usize>,
     pub has_extended_meta: bool,
 }

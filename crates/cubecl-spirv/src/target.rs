@@ -134,7 +134,7 @@ impl SpirvTarget for GLCompute {
         name: String,
     ) -> Word {
         let index = binding.id;
-        let item = b.compile_type(binding.item);
+        let item = b.compile_type(binding.ty);
         let item_size = item.size();
         let item = match binding.size {
             Some(size) => Item::Array(Box::new(item), size as u32),

@@ -456,7 +456,7 @@ impl Display for ConstantScalarValue {
 }
 
 impl Variable {
-    pub fn vectorization_factor(&self) -> u8 {
+    pub fn line_size(&self) -> u8 {
         self.ty.line_size.map(NonZero::get).unwrap_or(1u8)
     }
 

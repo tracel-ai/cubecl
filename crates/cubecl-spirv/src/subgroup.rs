@@ -20,7 +20,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Plane::All(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformVote);
-                match out.vectorization_factor() {
+                match out.line_size() {
                     1 => {
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                             b.group_non_uniform_all(ty, Some(out), subgroup, input)
@@ -48,7 +48,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Plane::Any(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformVote);
-                match out.vectorization_factor() {
+                match out.line_size() {
                     1 => {
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                             b.group_non_uniform_any(ty, Some(out), subgroup, input)
@@ -77,7 +77,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Plane::Ballot(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformBallot);
                 assert_eq!(
-                    op.input.vectorization_factor(),
+                    op.input.line_size(),
                     1,
                     "plane_ballot can't work with vectorized values"
                 );

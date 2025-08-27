@@ -123,7 +123,7 @@ impl KernelIntegrator {
         for buffer in self.expansion.buffers.drain(..) {
             self.buffer_bindings.push(Binding {
                 id: buffer.id,
-                item: buffer.item,
+                ty: buffer.item,
                 visibility: buffer.visibility,
                 location: Location::Storage,
                 has_extended_meta: buffer.has_extended_meta,

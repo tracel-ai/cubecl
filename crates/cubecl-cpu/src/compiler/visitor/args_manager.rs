@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cubecl_core::{
     Metadata,
     compute::ScalarBinding,
-    ir::{Builtin, Elem},
+    ir::{Builtin, StorageType},
     prelude::KernelDefinition,
 };
 use tracel_llvm::melior::ir::{
@@ -73,14 +73,14 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         };
 
         for binding in kernel.buffers.iter() {
-            let inner_type = binding.item.elem.to_type(context);
+            let inner_type = binding.ty.storage.to_type(context);
             let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
         }
 
         for shared_memory in args.shared_memories.0.iter() {
-            let inner_type = shared_memory.elem.to_type(context);
+            let inner_type = shared_memory.ty.to_type(context);
             let memref =
                 MemRefType::new(inner_type, &[shared_memory.length as i64], None, None).into();
             args.function_types.push(memref);
@@ -94,7 +94,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         args.block_inputs.push((memref, location));
 
         for binding in kernel.scalars.iter() {
-            let inner_type = binding.elem.to_type(context);
+            let inner_type = binding.ty.to_type(context);
             let memref = MemRefType::new(inner_type, &[binding.count as i64], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
@@ -148,7 +148,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             let binding = &self.scalars[i];
             let i = i + total_len;
             args.scalars_memref
-                .insert(binding.elem, block.argument(i).unwrap().into());
+                .insert(binding.ty, block.argument(i).unwrap().into());
         }
 
         total_len += self.scalars.len();
@@ -165,7 +165,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 
 pub(super) struct ArgsManager<'a> {
     pub buffers: Vec<Value<'a, 'a>>,
-    pub scalars_memref: HashMap<Elem, Value<'a, 'a>>,
+    pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub metadata_memref: Option<Value<'a, 'a>>,
     pub ext_meta_positions: Vec<u32>,
     pub metadata: Metadata,

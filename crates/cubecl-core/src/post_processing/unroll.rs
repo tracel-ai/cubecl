@@ -56,7 +56,7 @@ impl UnrollProcessor {
                         stride,
                         offset,
                         layout,
-                    } if value.vectorization_factor() > self.max_line_size => {
+                    } if value.line_size() > self.max_line_size => {
                         return TransformAction::Replace(self.transform_cmma_load(
                             alloc,
                             inst.out(),
@@ -71,7 +71,7 @@ impl UnrollProcessor {
                         stride,
                         offset,
                         layout,
-                    } if inst.out().vectorization_factor() > self.max_line_size => {
+                    } if inst.out().line_size() > self.max_line_size => {
                         return TransformAction::Replace(self.transform_cmma_store(
                             alloc,
                             inst.out(),
@@ -94,9 +94,7 @@ impl UnrollProcessor {
 
         let args = inst.operation.args().unwrap_or_default();
         if (inst.out.is_some() && inst.item().line_size() > self.max_line_size)
-            || args
-                .iter()
-                .any(|arg| arg.vectorization_factor() > self.max_line_size)
+            || args.iter().any(|arg| arg.line_size() > self.max_line_size)
         {
             let line_size = max_line_size(&inst.out, &args);
             let unroll_factor = line_size / self.max_line_size;
@@ -228,7 +226,7 @@ impl UnrollProcessor {
         offset: &Variable,
         layout: &Option<MatrixLayout>,
     ) -> Vec<Instruction> {
-        let line_size = value.vectorization_factor();
+        let line_size = value.line_size();
         let unroll_factor = line_size / self.max_line_size;
 
         let value = unroll_array(*value, self.max_line_size, unroll_factor);
@@ -255,7 +253,7 @@ impl UnrollProcessor {
         offset: &Variable,
         layout: &MatrixLayout,
     ) -> Vec<Instruction> {
-        let line_size = out.vectorization_factor();
+        let line_size = out.line_size();
         let unroll_factor = line_size / self.max_line_size;
 
         let out = unroll_array(out, self.max_line_size, unroll_factor);
@@ -461,7 +459,7 @@ impl UnrollProcessor {
         let args = args
             .into_iter()
             .map(|mut var| {
-                if var.vectorization_factor() > self.max_line_size {
+                if var.line_size() > self.max_line_size {
                     var.ty.line_size = NonZero::new(self.max_line_size);
                 }
                 var
@@ -488,7 +486,7 @@ impl UnrollProcessor {
         let args = args
             .into_iter()
             .map(|arg| {
-                if arg.vectorization_factor() > 1 {
+                if arg.line_size() > 1 {
                     mappings.get(alloc, arg, unroll_factor, self.max_line_size)
                 } else {
                     // Preserve scalars
@@ -605,12 +603,8 @@ impl Processor for UnrollProcessor {
 }
 
 fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> u8 {
-    let line_size = args
-        .iter()
-        .map(|it| it.vectorization_factor())
-        .max()
-        .unwrap();
-    line_size.max(out.map(|out| out.vectorization_factor()).unwrap_or(1))
+    let line_size = args.iter().map(|it| it.line_size()).max().unwrap();
+    line_size.max(out.map(|out| out.line_size()).unwrap_or(1))
 }
 
 fn create_unrolled(
@@ -620,7 +614,7 @@ fn create_unrolled(
     unroll_factor: u8,
 ) -> Vec<ExpandElement> {
     // Preserve scalars
-    if var.vectorization_factor() == 1 {
+    if var.line_size() == 1 {
         return vec![ExpandElement::Plain(*var); unroll_factor as usize];
     }
 

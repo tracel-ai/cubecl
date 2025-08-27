@@ -109,11 +109,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .map(|mut binding| {
                 // This is safe when combined with the unroll transform that adjusts all indices.
                 // Must not be used alone
-                if binding.item.line_size() > MAX_VECTORIZATION {
-                    binding.item.line_size = NonZero::new(MAX_VECTORIZATION);
+                if binding.ty.line_size() > MAX_VECTORIZATION {
+                    binding.ty.line_size = NonZero::new(MAX_VECTORIZATION);
                 }
-                let var =
-                    ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.item);
+                let var = ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.ty);
                 let name = self.name_of_var(var);
                 target.generate_binding(self, binding, name.into())
             })
@@ -124,7 +123,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             id: offset,
             location: Location::Storage,
             visibility: Visibility::Read,
-            item: ir::Type::scalar(ir::ElemType::UInt(ir::UIntKind::U32)),
+            ty: ir::Type::scalar(ir::ElemType::UInt(ir::UIntKind::U32)),
             size: None,
             has_extended_meta: false,
         };
@@ -143,7 +142,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     id: i as u32 + offset,
                     location: Location::Storage,
                     visibility: Visibility::Read,
-                    item: ir::Type::new(elem),
+                    ty: ir::Type::new(elem),
                     size: Some(binding.count),
                     has_extended_meta: false,
                 };

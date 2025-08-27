@@ -112,8 +112,8 @@ impl WgslCompiler {
                 .map(|mut it| {
                     // This is safe when combined with the unroll transform that adjusts all indices.
                     // Must not be used alone
-                    if it.item.line_size() > MAX_LINE_SIZE {
-                        it.item.line_size = NonZero::new(MAX_LINE_SIZE);
+                    if it.ty.line_size() > MAX_LINE_SIZE {
+                        it.ty.line_size = NonZero::new(MAX_LINE_SIZE);
                     }
                     self.compile_binding(it)
                 })
@@ -1070,7 +1070,7 @@ impl WgslCompiler {
             id: value.id,
             visibility: value.visibility,
             location: Self::compile_location(value.location),
-            item: self.compile_type(value.item),
+            item: self.compile_type(value.ty),
             size: value.size,
         }
     }

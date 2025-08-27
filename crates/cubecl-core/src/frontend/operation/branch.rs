@@ -46,9 +46,9 @@ pub mod select {
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();
 
-        let vf = cond.vectorization_factor();
-        let vf = Ord::max(vf, then.vectorization_factor());
-        let vf = Ord::max(vf, or_else.vectorization_factor());
+        let vf = cond.line_size();
+        let vf = Ord::max(vf, then.line_size());
+        let vf = Ord::max(vf, or_else.line_size());
 
         let output = scope.create_local(then.ty.line(NonZero::new(vf)));
         let out = *output;

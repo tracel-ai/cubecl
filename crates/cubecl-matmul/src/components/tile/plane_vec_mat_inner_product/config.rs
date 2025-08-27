@@ -122,15 +122,13 @@ impl PlaneVecMatInnerProductConfig {
 
         if m != 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Only m=1 is supported, got m={:?}",
-                m
+                "Only m=1 is supported, got m={m:?}",
             ))));
         }
 
         if lhs_line != rhs_line {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Lhs and Rhs must have same line size, got lhs={:?} and rhs={:?}",
-                lhs_line, rhs_line
+                "Lhs and Rhs must have same line size, got lhs={lhs_line:?} and rhs={rhs_line:?}",
             ))));
         }
 
@@ -143,8 +141,7 @@ impl PlaneVecMatInnerProductConfig {
 
         if n % out_line != 0 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "n must be divisible by out line size, got n={:?}, out_line_size={:?}",
-                n, out_line
+                "n must be divisible by out line size, got n={n:?}, out_line_size={out_line:?}",
             ))));
         }
 

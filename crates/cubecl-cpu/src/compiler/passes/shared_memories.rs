@@ -1,10 +1,10 @@
-use cubecl_core::ir::{Elem, OperationReflect, Variable, VariableKind};
+use cubecl_core::ir::{OperationReflect, StorageType, Variable, VariableKind};
 use cubecl_opt::Optimizer;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedMemory {
     pub id: u32,
-    pub elem: Elem,
+    pub ty: StorageType,
     // Length include the vectorization factor
     pub length: u32,
 }
@@ -19,10 +19,14 @@ impl SharedMemories {
             return;
         };
         if self.0.iter().all(|shared_memory| shared_memory.id != id) {
-            let elem = variable.elem();
-            let vectorization = variable.vectorization_factor();
+            let elem = variable.storage_type();
+            let vectorization = variable.line_size();
             let length = length * vectorization as u32;
-            self.0.push(SharedMemory { id, elem, length });
+            self.0.push(SharedMemory {
+                id,
+                ty: elem,
+                length,
+            });
         }
     }
     pub fn visit(&mut self, opt: &Optimizer) {

@@ -1460,7 +1460,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
         Binding {
             id: binding.id,
-            item: self.compile_type(binding.item),
+            item: self.compile_type(binding.ty),
             location: binding.location,
             size: binding.size,
             vis: binding.visibility,
