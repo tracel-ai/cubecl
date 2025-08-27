@@ -158,7 +158,7 @@ impl<'a> Visitor<'a> {
 
                 let max = self.create_int_constant_from_item(
                     unary_operator.input.ty,
-                    unary_operator.input.ty.size_bits() as i64 + 1,
+                    unary_operator.input.ty.storage.size_bits() as i64 + 1,
                 );
                 let cond = self.append_operation_with_result(arith::cmpi(
                     self.context,
