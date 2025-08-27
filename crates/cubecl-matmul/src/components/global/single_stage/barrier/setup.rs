@@ -11,6 +11,7 @@ use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use cubecl_core::{Runtime, client::ComputeClient};
+use cubecl_std::tensor::layout::Coords3d;
 
 /// Simple Barrier matmul family for any precision
 pub struct SimpleBarrierMatmulFamily<
@@ -25,7 +26,11 @@ pub struct SimpleBarrierMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
+    SMM: stage::StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {

@@ -176,17 +176,6 @@ where
     Input<Alg, MP>: ConcreteInputsFactory,
     Output<Alg, MP>: ConcreteOutputFactory,
 {
-    let rank = out.shape.len();
-    let dim_c = rank - 1;
-
-    // Reshape out to (M, N)
-    let out_shape = [out.shape[0..dim_c].iter().product(), out.shape[dim_c]];
-    let out_strides = [out.strides[rank - 2], out.strides[dim_c]];
-
-    let out = unsafe {
-        TensorHandleRef::from_raw_parts(out.handle, &out_strides, &out_shape, out.elem_size)
-    };
-
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
         &LhsG::<MP>::as_elem_native_unchecked(),
         &RhsG::<MP>::as_elem_native_unchecked(),
@@ -207,6 +196,6 @@ where
     let line_sizes = config.line_sizes();
 
     launch_kernel_concrete::<(MP, Alg::Args), R, Alg>(
-        client, input, weight, bias, &out, problem, line_sizes, selection,
+        client, input, weight, bias, out, problem, line_sizes, selection,
     )
 }

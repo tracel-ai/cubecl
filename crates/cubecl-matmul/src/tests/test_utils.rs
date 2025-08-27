@@ -72,8 +72,8 @@ where
 
         // Need to compensate for the temporary conversion to f16/tf32
         let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-5,
+            true => 3.0 * 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+            false => 3.0 * 10e-6,
         };
 
         let expected = matmul_cpu_reference::<Self>(lhs, rhs, problem)
@@ -106,7 +106,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
-        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        let allowed_error = (epsilon * e.to_f32().unwrap().abs()).max(epsilon);
 
         if f32::is_nan(a.to_f32().unwrap())
             || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error

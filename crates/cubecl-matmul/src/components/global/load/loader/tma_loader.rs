@@ -123,7 +123,7 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
     }
 
     /// Fill the full stage memory
-    pub fn fill_stage(this: &mut Self, barrier: &Barrier<IP::Stage>, #[comptime] config: G) {
+    pub fn fill_stage(this: &mut Self, barrier: &Barrier, #[comptime] config: G) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident);
             let stage_ident = comptime!(ident.into_stage());
@@ -175,9 +175,9 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
 
 #[cube]
 /// Barrier for TMA
-pub fn arrive_tma<E: CubePrimitive>(barrier: &Barrier<E>, #[comptime] num_elems: u32) {
+pub fn arrive_tma(barrier: &Barrier, #[comptime] num_bytes: u32) {
     if UNIT_POS == 0 {
-        barrier.arrive_tx(1, num_elems * E::elem_size());
+        barrier.arrive_tx(1, num_bytes);
     } else {
         barrier.arrive();
     }

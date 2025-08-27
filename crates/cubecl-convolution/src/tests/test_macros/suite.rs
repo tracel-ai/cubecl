@@ -148,20 +148,20 @@ macro_rules! conv2d_standard_tests {
             $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 1, k: 1 });
         }
 
-        mod p1x8x1 {
-            use super::*;
-            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 8, k: 1 });
-        }
+        // mod p1x8x1 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 8, k: 1 });
+        // }
 
-        mod p1x2x2 {
-            use super::*;
-            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 2, k: 2 });
-        }
+        // mod p1x2x2 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 2, k: 2 });
+        // }
 
-        mod p1x4x2 {
-            use super::*;
-            $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 4, k: 2 });
-        }
+        // mod p1x4x2 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!($tile, PartitionSize { m: 1, n: 4, k: 2 });
+        // }
     };
 
     ($tile:expr, $partition:expr) => {

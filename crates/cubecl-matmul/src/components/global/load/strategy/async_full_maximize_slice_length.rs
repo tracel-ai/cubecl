@@ -72,7 +72,7 @@ pub struct AsynFullMaximizeSliceLengthJob {
 impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsynFullMaximizeSliceLengthJob
 {
-    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<IP::Global>,
@@ -112,7 +112,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 }
 
 #[cube]
-fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConfig>(
+fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
     nth_slice: u32,
     tensor_reader: &TensorReader<EG>,
     stage: &mut StageMemory<ES, StridedTilingLayout>,

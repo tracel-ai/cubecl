@@ -9,6 +9,7 @@ use cubecl_matmul::components::{
         StageMatmulFamily,
     },
 };
+use cubecl_std::tensor::layout::Coords3d;
 
 use crate::components::{
     ConvolutionConfig, ConvolutionProblem,
@@ -23,7 +24,11 @@ pub struct SimpleConvolutionFamily<SMM: StageMatmulFamily> {
 
 impl<SMM> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
+    SMM: StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
 {
     type Convolution<MP: MatmulPrecision> =
         SimpleConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;

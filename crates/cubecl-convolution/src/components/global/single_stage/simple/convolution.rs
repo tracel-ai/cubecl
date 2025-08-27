@@ -13,16 +13,19 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{
+        layout::Coords3d,
+        r#virtual::{ReadWrite, VirtualTensor},
+    },
 };
 
 use crate::{
     components::{
         ConvolutionConfig,
         global::{
-            GlobalConvolution,
-            load::{bias::BiasLoader, im2col::SimpleIm2colLoader},
-            memory::ConvTilingLayout,
+            ConvTilingLayout, GlobalConvolution,
+            layout::{Im2colGlobalLayout, NhwcOutGlobalLayout, WeightGlobalLayout},
+            load::bias::BiasLoader,
         },
     },
     kernels::layered::selector::RuntimeArgs,
@@ -43,9 +46,14 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, ConvTilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, ConvTilingLayout>,
+            WriteCoords = Coords3d,
         >,
 {
-    type LhsLoader = SimpleIm2colLoader<MP::Lhs, Self::Config>;
+    type LhsLoader = SyncFullLoader<
+        MP::Lhs,
+        Self::Config,
+        sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
+    >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
     type RhsLoader = SyncFullLoader<
         MP::Rhs,
@@ -127,17 +135,33 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, config)
+        let layout = Im2colGlobalLayout::new(&lhs, runtime_args, config);
+        Self::LhsLoader::new(
+            lhs.view(layout.virt()),
+            x_offset,
+            y_offset,
+            0,
+            MatmulIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
-        _runtime_args: &RuntimeArgs,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
+        let layout = WeightGlobalLayout::new(&rhs, runtime_args, config);
+        Self::RhsLoader::new(
+            rhs.view(layout.virt()),
+            x_offset,
+            y_offset,
+            0,
+            MatmulIdent::Rhs,
+            config,
+        )
     }
 
     fn init_bias_loader(
@@ -152,8 +176,17 @@ where
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, 0)
+        let layout = NhwcOutGlobalLayout::new(
+            &out,
+            runtime_args.shape_m,
+            runtime_args.shape_n,
+            runtime_args.shape_out.clone(),
+            config.global_memory_config(MatmulIdent::Out),
+        );
+        SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
