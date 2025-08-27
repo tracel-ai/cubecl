@@ -64,6 +64,7 @@ where
         let num_bytes_stages = num_bytes_lhs + num_bytes_rhs;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
@@ -89,13 +90,20 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
