@@ -293,8 +293,8 @@ impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadOnly> {
     }
 }
 
-impl<E: CubePrimitive> List<E> for Slice<E, ReadOnly> {}
-impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadOnly> {
+impl<E: CubePrimitive, IO: SliceVisibility> List<E> for Slice<E, IO> {}
+impl<E: CubePrimitive, IO: SliceVisibility> ListExpand<E> for SliceExpand<E, IO> {
     fn __expand_read_method(
         &self,
         scope: &mut cubecl_ir::Scope,
@@ -322,6 +322,10 @@ impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadOnly> {
             self.line_size,
             false,
         )
+    }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        Self::__expand_len(scope, self.clone())
     }
 }
 
@@ -349,38 +353,6 @@ impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadWrite> {
         index: ExpandElementTyped<u32>,
     ) -> Self::Output {
         self.__expand_read_unchecked_method(scope, index)
-    }
-}
-
-impl<E: CubePrimitive> List<E> for Slice<E, ReadWrite> {}
-impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E, ReadWrite> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut cubecl_ir::Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> <E as CubeType>::ExpandType {
-        read_offset::expand::<E>(
-            scope,
-            self.origin.clone(),
-            self.offset.clone(),
-            index,
-            self.line_size,
-            true,
-        )
-    }
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &mut cubecl_ir::Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> <E as CubeType>::ExpandType {
-        read_offset::expand::<E>(
-            scope,
-            self.origin.clone(),
-            self.offset.clone(),
-            index,
-            self.line_size,
-            false,
-        )
     }
 }
 

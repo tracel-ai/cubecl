@@ -85,6 +85,7 @@ pub struct Flags {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
 }
 
@@ -178,6 +179,7 @@ impl<D: Dialect> CppCompiler<D> {
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
+            cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
         };
 
@@ -1408,16 +1410,9 @@ impl<D: Dialect> CppCompiler<D> {
                     frag: self.compile_matrix(mat),
                 }
             }
-            gpu::VariableKind::Pipeline {
-                id,
-                item,
-                num_stages,
-            } => {
+            gpu::VariableKind::Pipeline { id, num_stages } => {
                 self.flags.op_pipeline = true;
-                let pipeline = Variable::Pipeline {
-                    id,
-                    item: self.compile_item(item),
-                };
+                let pipeline = Variable::Pipeline { id };
                 if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
                     self.pipelines.push(PipelineOps::Init {
                         pipeline,
@@ -1426,7 +1421,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier { id, item, level } => {
+            gpu::VariableKind::Barrier { id, level } => {
                 self.flags.op_barrier = true;
                 match level {
                     gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
@@ -1435,11 +1430,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                     _ => {}
                 }
-                Variable::Barrier {
-                    id,
-                    item: self.compile_item(item),
-                    level,
-                }
+                Variable::Barrier { id, level }
             }
         }
     }

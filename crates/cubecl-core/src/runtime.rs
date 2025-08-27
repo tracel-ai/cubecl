@@ -121,6 +121,8 @@ pub enum Feature {
     DynamicLineSize,
     /// Enables synchronization within a plane only
     SyncPlane,
+    /// Enables using plane-wide operations like plane_sum, etc.
+    PlaneOps,
 }
 
 /// Atomic features that may be supported by a [cube runtime](Runtime).

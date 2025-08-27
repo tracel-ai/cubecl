@@ -4,6 +4,7 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::{Id, Processor};
 
+use crate::shared::DialectWarpReduceCompiler;
 use crate::{
     Dialect,
     shared::{
@@ -34,6 +35,8 @@ pub struct HipDialect<M> {
 impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {
     type Architecture = AMDArchitecture;
 }
+
+impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for HipDialect<M> {}
 
 // Includes
 
@@ -332,8 +335,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
             f,
             "
 
-extern \"C\" __global__ void {kernel_name}(
-"
+extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
+",
+            flags.cube_dim.num_elems()
         )?;
         shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
         shared::compile_scalars_dynamic::<Self>(f, scalars)?;

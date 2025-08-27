@@ -94,12 +94,12 @@ macro_rules! impl_from_tuple {
 }
 
 // Number of elements in a tile
-define_3d_size_base!(TileSize, u8);
-impl_from_tuple!(TileSize, u8, u8);
-impl_from_tuple!(TileSize, u8, u32);
-impl_from_tuple!(TileSize, u8, i32);
-impl_from_tuple!(TileSize, u8, u16);
-impl_from_tuple!(TileSize, u8, usize);
+define_3d_size_base!(TileSize, u32);
+impl_from_tuple!(TileSize, u32, u8);
+impl_from_tuple!(TileSize, u32, u32);
+impl_from_tuple!(TileSize, u32, i32);
+impl_from_tuple!(TileSize, u32, u16);
+impl_from_tuple!(TileSize, u32, usize);
 
 // Number of tiles in a stage partition
 define_3d_size_base!(PartitionSize, u8);

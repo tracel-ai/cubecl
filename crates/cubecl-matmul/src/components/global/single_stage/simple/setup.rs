@@ -8,6 +8,7 @@ use crate::components::{
     stage::StageConfig,
 };
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -29,7 +30,11 @@ pub struct SimpleMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
+    SMM: stage::StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {

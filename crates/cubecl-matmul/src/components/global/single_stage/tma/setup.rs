@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
+use cubecl_std::tensor::layout::Coords3d;
 
 use crate::components::{
     MatmulProblem,
@@ -26,7 +27,11 @@ pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
 
 impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
+    SMM: stage::StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
     type Config = SimpleTmaConfig<SMM::Config>;

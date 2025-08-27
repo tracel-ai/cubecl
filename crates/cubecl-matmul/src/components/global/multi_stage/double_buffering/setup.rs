@@ -9,6 +9,7 @@ use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
 /// Double buffering matmul family for any precision
@@ -24,7 +25,11 @@ pub struct DoubleBufferingMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = PartialReaderFamily, RhsReader = PartialReaderFamily>,
+    SMM: stage::StageMatmulFamily<
+            LhsReader = PartialReaderFamily,
+            RhsReader = PartialReaderFamily,
+            WriteCoords = Coords3d,
+        >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 {
