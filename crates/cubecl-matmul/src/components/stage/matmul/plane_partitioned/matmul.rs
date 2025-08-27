@@ -9,10 +9,7 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{
-    layout::{Coords3d, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
@@ -43,7 +40,7 @@ impl StagePartitioner for PlanePartitioner {
     type WriteCoords = Coords3d;
 
     fn init_writer<EO: Numeric>(
-        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

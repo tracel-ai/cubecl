@@ -15,10 +15,7 @@ use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{
-    layout::{Coordinates, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{View, layout::Coordinates, r#virtual::ReadWrite};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
@@ -31,7 +28,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -218,7 +215,7 @@ where
     }
 
     fn init_writer(
-        tensor: TensorView<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<MP::EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -14,7 +14,7 @@ use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::layout::{Coords3d, TensorView},
+    tensor::{View, layout::Coords3d},
 };
 
 #[cube]
@@ -45,7 +45,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 pub struct AsyncBufferLoader<
     IP: InputPrecision,
     S: stage::StageConfig,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     L: AsyncPartialLoadingStrategy,
 > {
     tensor_reader: TensorReader<IP::Global>,
@@ -58,16 +58,12 @@ pub struct AsyncBufferLoader<
 }
 
 #[cube]
-impl<
-    IP: InputPrecision,
-    S: stage::StageConfig,
-    CM: CopyMechanism<IP::Stage>,
-    L: AsyncPartialLoadingStrategy,
-> AsyncBufferLoader<IP, S, CM, L>
+impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
+    AsyncBufferLoader<IP, S, CM, L>
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
-        tensor: TensorView<IP::Global, Coords3d>,
+        tensor: View<IP::Global, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

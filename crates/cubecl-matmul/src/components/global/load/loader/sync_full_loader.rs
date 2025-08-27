@@ -18,7 +18,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::layout::{Coords3d, TensorView},
+    tensor::{View, layout::Coords3d},
 };
 
 #[cube]
@@ -58,7 +58,7 @@ pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadin
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<IP, G, L> {
     /// Create a new SyncFullLoader
     pub fn new(
-        tensor: TensorView<IP::Global, Coords3d>,
+        tensor: View<IP::Global, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
