@@ -145,6 +145,7 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
         scheme,
     );
 
+    #[unroll]
     for i in 0..line_size_in {
         output[ABSOLUTE_POS * line_size_in + i] = out[i];
     }

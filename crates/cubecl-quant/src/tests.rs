@@ -19,18 +19,16 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
     let input_alloc = client.create_tensor(f32::as_bytes(&data), &shape, f32::elem_size() as usize);
 
     let (q_min, q_max) = value.range();
-    let range = match value.is_symmetric() {
-        true => half - 1.0,
-        false => half,
-    };
-    let scale_f32 = (2.0 * range) / (q_max - q_min);
+    // input data range is not affected by quant range symmetry
+    let scale_f32 = (2.0 * half) / (q_max - q_min);
     let data_scale = vec![scale_f32];
 
     let scale_alloc =
         client.create_tensor(f32::as_bytes(&data_scale), &[1], f32::elem_size() as usize);
 
-    let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape, input_alloc.strides);
+    let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape.clone(), input_alloc.strides);
     let scale = TensorHandle::<R, f32>::new(scale_alloc.handle, vec![1], scale_alloc.strides);
+    let output_f = TensorHandle::<R, f32>::zeros(&client, shape);
 
     let scheme = QuantScheme::default()
         .with_level(QuantLevel::Tensor)
@@ -78,25 +76,30 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         &client,
         // The input of the dequantize kernel is the output of the quantized one.
         &output.as_ref(),
-        // We reuse the same buffer from the original input to store the
-        // dequantized values.
-        &input.as_ref(),
+        // We use a new buffer to make sure all values are correctly dequantized back.
+        &output_f.as_ref(),
         &output_scale.as_ref(),
         &scheme,
     );
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
-        input.handle.binding(),
-        &input.shape,
-        &input.strides,
+        output_f.handle.binding(),
+        &output_f.shape,
+        &output_f.strides,
         core::mem::size_of::<f32>(),
     ));
     let data_restored = f32::from_bytes(&computed);
 
+    // Max quantization error = step size / 2
+    let rel_tol = 1e-4;
+    let max_error = (scale_f32 / 2.0) * (1f32 + rel_tol);
     assert_eq!(data_restored.len(), data.len());
     for (actual, expected) in data_restored.iter().zip(data.into_iter()) {
         let diff = f32::abs(actual - expected);
-        assert!(diff <= scale_f32);
+        assert!(
+            diff <= max_error,
+            "Expected: {expected} | Actual: {actual} (diff {diff} > {max_error})"
+        );
     }
 }
 
@@ -147,9 +150,10 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         f32::elem_size() as usize,
     );
 
-    let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape, input_alloc.strides);
+    let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape.clone(), input_alloc.strides);
     let scale =
         TensorHandle::<R, f32>::new(scale_alloc.handle, vec![scale_count], scale_alloc.strides);
+    let output_f = TensorHandle::<R, f32>::zeros(&client, shape);
 
     let scheme = QuantScheme::default()
         .with_level(QuantLevel::Block(block_size))
@@ -197,27 +201,32 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         &client,
         // The input of the dequantize kernel is the output of the quantized one.
         &output.as_ref(),
-        // We reuse the same buffer from the original input to store the
-        // dequantized values.
-        &input.as_ref(),
+        // We use a new buffer to make sure all values are correctly dequantized back.
+        &output_f.as_ref(),
         &output_scale.as_ref(),
         &scheme,
     );
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
-        input.handle.binding(),
-        &input.shape,
-        &input.strides,
+        output_f.handle.binding(),
+        &output_f.shape,
+        &output_f.strides,
         core::mem::size_of::<f32>(),
     ));
     let data_restored = f32::from_bytes(&computed);
 
     assert_eq!(data_restored.len(), data.len());
+    let rel_tol = 1e-4;
     for (i, (actual, expected)) in data_restored.iter().zip(data.into_iter()).enumerate() {
         let block = i / block_size;
         let scale = scales[block];
+        // Max quantization error = step size / 2
+        let max_error = (scale / 2.0) * (1f32 + rel_tol);
         let diff = f32::abs(actual - expected);
-        assert!(diff <= scale);
+        assert!(
+            diff <= max_error,
+            "Expected: {expected} | Actual: {actual} (diff {diff} > {max_error})"
+        );
     }
 }
 
