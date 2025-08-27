@@ -140,11 +140,11 @@ mod vectorization {
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn vectorized(#[comptime] length: u32, #[comptime] vectorization_factor: u32) -> Self {
+        pub fn vectorized(#[comptime] length: u32, #[comptime] line_size: u32) -> Self {
             intrinsic!(|scope| {
                 scope
                     .create_local_array(
-                        Type::new(T::as_type(scope)).line(NonZero::new(vectorization_factor as u8)),
+                        Type::new(T::as_type(scope)).line(NonZero::new(line_size as u8)),
                         length,
                     )
                     .into()
@@ -152,9 +152,9 @@ mod vectorization {
         }
 
         #[allow(unused_variables)]
-        pub fn to_vectorized(self, #[comptime] vectorization_factor: u32) -> T {
+        pub fn to_vectorized(self, #[comptime] line_size: u32) -> T {
             intrinsic!(|scope| {
-                let factor = vectorization_factor;
+                let factor = line_size;
                 let var = self.expand.clone();
                 let item = Type::new(var.storage_type()).line(NonZero::new(factor as u8));
 
