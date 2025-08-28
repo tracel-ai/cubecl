@@ -8,7 +8,9 @@ use crate::components::{
     batch::{
         BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
     },
-    global::GlobalAttention,
+    global::{GlobalAttention, GlobalAttentionConfig as _},
+    stage::StageAttentionConfig as _,
+    tile::dummy::FlashMatmulConfig as _,
 };
 
 pub struct DummyBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>> {
@@ -31,18 +33,25 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     ) {
         comment!("Batch: Execute");
 
-        // TODO
-        // let n = config.seq_k();
-        // There are ceil(n/br) to launch for each head and batch
-        // Compute offsets
+        let q_index = CUBE_POS;
+
+        let q_offset = q_index
+            * config
+                .global_config()
+                .stage_config()
+                .tile_config()
+                .attention_tile_size()
+                .seq_q;
+
+        let seq_kv = value.shape(1);
 
         let global_config = config.global_config();
         GA::execute(
-            GA::init_query_loader(query, global_config),
+            GA::init_query_loader(q_offset, query, global_config),
             GA::init_key_loader(key, global_config),
             GA::init_value_loader(value, global_config),
-            GA::init_writer(out, global_config),
-            value.shape(1),
+            GA::init_writer(q_offset, out, global_config),
+            seq_kv,
             config.global_config(),
         )
     }

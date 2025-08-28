@@ -82,8 +82,17 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         masked: false,
     };
 
+    let attention_tile_size = AttentionTileSize {
+        seq_q: 8,
+        head_dim: 8,
+        seq_kv: 8,
+        val_dim: 8,
+    };
+
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {},
+        hypercube_selection: HypercubeSelection {
+            tile_seq_q: attention_tile_size.seq_q,
+        },
         attention_tile_size: AttentionTileSize {
             seq_q: 8,
             head_dim: 8,
@@ -118,3 +127,4 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     Ok(())
 }
+

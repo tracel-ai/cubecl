@@ -50,7 +50,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Config: GlobalAttentionConfig;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP>,
+        query_loader: DummyQueryLoader<AP, Self::Config>,
         key_loader: Self::KeyLoader,
         value_loader: Self::ValueLoader,
         writer: Self::Writer,
@@ -59,18 +59,23 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     );
 
     fn init_query_loader(
+        q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP>;
+    ) -> DummyQueryLoader<AP, Self::Config>;
+
     fn init_key_loader(
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyLoader;
+
     fn init_value_loader(
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader;
+
     fn init_writer(
+        q_offset: u32,
         out: VirtualTensor<AP::EO, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer;

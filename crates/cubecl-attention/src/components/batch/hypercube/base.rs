@@ -4,7 +4,9 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionProblem;
 
 #[derive(Debug, Clone)]
-pub struct HypercubeSelection {}
+pub struct HypercubeSelection {
+    pub tile_seq_q: u32,
+}
 
 impl HypercubeSelection {
     pub fn to_hypercube_config(
@@ -12,28 +14,38 @@ impl HypercubeSelection {
         _problem: &AttentionProblem,
         _max_cube_count: CubeCount,
     ) -> HypercubeConfig {
-        HypercubeConfig {}
+        HypercubeConfig {
+            tile_seq_q: self.tile_seq_q,
+        }
     }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct HypercubeConfig {}
+pub struct HypercubeConfig {
+    tile_seq_q: u32,
+}
 
 impl HypercubeConfig {
     pub fn cube_count_plan(
         &self,
-        _problem: &AttentionProblem,
+        problem: &AttentionProblem,
         _max_cube_count: CubeCount,
     ) -> CubeCountPlan {
-        CubeCountPlan {}
+        CubeCountPlan {
+            inner: problem.seq_q as u32,
+            outer: (problem.batch * problem.num_heads) as u32,
+        }
     }
 }
 
-pub struct CubeCountPlan {}
+pub struct CubeCountPlan {
+    inner: u32,
+    outer: u32,
+}
 
 impl CubeCountPlan {
     pub fn resolve(&self) -> CubeCount {
-        CubeCount::Static(1, 1, 1)
+        CubeCount::Static(self.inner, self.outer, 1)
     }
 
     /// Make a CubeCountInput from CubeCountPlan

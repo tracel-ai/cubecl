@@ -39,7 +39,7 @@ impl<
     type Config = DummyGlobalConfig<SA::Config>;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP>,
+        query_loader: DummyQueryLoader<AP, Self::Config>,
         mut key_loader: Self::KeyLoader,
         mut value_loader: Self::ValueLoader,
         mut writer: Self::Writer,
@@ -48,7 +48,7 @@ impl<
     ) {
         comment!("Global: Execute");
 
-        let query_reader = query_loader.reader::<Self::Config>(config);
+        let query_reader = query_loader.reader(config);
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
@@ -107,13 +107,14 @@ impl<
     }
 
     fn init_query_loader(
+        q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP> {
+    ) -> DummyQueryLoader<AP, Self::Config> {
         comment!("Global: Init Query Loader");
         let layout =
             SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
-        DummyQueryLoader::<AP>::new(query.view(layout.virt()))
+        DummyQueryLoader::<AP, Self::Config>::new(q_offset, query.view(layout.virt()), config)
     }
 
     fn init_key_loader(
@@ -136,11 +137,12 @@ impl<
     }
 
     fn init_writer(
+        q_offset: u32,
         out: VirtualTensor<AP::EO, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         comment!("Global: Init Writer");
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
-        SA::init_writer(out.view_mut(layout.virt()))
+        SA::init_writer(q_offset, out.view_mut(layout.virt()))
     }
 }
