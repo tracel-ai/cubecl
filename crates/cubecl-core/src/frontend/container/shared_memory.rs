@@ -189,7 +189,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     }
 
     fn line_size(&self) -> u32 {
-        self.expand.ty.line_size() as u32
+        self.expand.ty.line_size()
     }
 }
 

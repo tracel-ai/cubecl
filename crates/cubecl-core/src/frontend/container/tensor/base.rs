@@ -303,7 +303,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     }
 
     fn line_size(&self) -> u32 {
-        self.expand.ty.line_size() as u32
+        self.expand.ty.line_size()
     }
 }
 

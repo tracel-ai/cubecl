@@ -294,7 +294,7 @@ impl UnrollProcessor {
                     input,
                     in_index: *in_index,
                     out_index: *out_index,
-                    len: op.len * unroll_factor as u32,
+                    len: op.len * unroll_factor,
                     offset_input: *offset_input,
                     offset_out: *offset_out,
                 }),
@@ -328,7 +328,7 @@ impl UnrollProcessor {
                     list,
                     index: *idx,
                     line_size: 0,
-                    unroll_factor: unroll_factor as u32,
+                    unroll_factor: unroll_factor,
                 }),
                 out[i],
             );
@@ -364,7 +364,7 @@ impl UnrollProcessor {
                     index: *idx,
                     line_size: 0,
                     value: value[i],
-                    unroll_factor: unroll_factor as u32,
+                    unroll_factor: unroll_factor,
                 }),
                 out,
             );
@@ -394,8 +394,8 @@ impl UnrollProcessor {
             .expect("Can't unroll non-constant vector index")
             .as_u32();
 
-        let unroll_idx = index / self.max_line_size as u32;
-        let sub_idx = index % self.max_line_size as u32;
+        let unroll_idx = index / self.max_line_size;
+        let sub_idx = index % self.max_line_size;
 
         let value = mappings.get(alloc, op.list, unroll_factor, self.max_line_size);
 
@@ -404,7 +404,7 @@ impl UnrollProcessor {
                 list: value[unroll_idx as usize],
                 index: sub_idx.into(),
                 line_size: 1,
-                unroll_factor: unroll_factor as u32,
+                unroll_factor: unroll_factor,
             }),
             out,
         )]
@@ -429,8 +429,8 @@ impl UnrollProcessor {
             .expect("Can't unroll non-constant vector index")
             .as_u32();
 
-        let unroll_idx = index / self.max_line_size as u32;
-        let sub_idx = index % self.max_line_size as u32;
+        let unroll_idx = index / self.max_line_size;
+        let sub_idx = index % self.max_line_size;
 
         let out = mappings.get(alloc, out, unroll_factor, self.max_line_size);
 
@@ -439,7 +439,7 @@ impl UnrollProcessor {
                 index: sub_idx.into(),
                 line_size: 1,
                 value: op.value,
-                unroll_factor: unroll_factor as u32,
+                unroll_factor: unroll_factor,
             }),
             out[unroll_idx as usize],
         )]
@@ -633,7 +633,7 @@ fn add_index(alloc: &Allocator, idx: Variable, i: u32) -> (Instruction, ExpandEl
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperator {
             lhs: idx,
-            rhs: (i as u32).into(),
+            rhs: i.into(),
         }),
         *add_idx,
     );
@@ -645,7 +645,7 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u32) -> (Instructi
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperator {
             lhs: idx,
-            rhs: (unroll_factor as u32).into(),
+            rhs: unroll_factor.into(),
         }),
         *mul_idx,
     );
@@ -659,7 +659,7 @@ fn unroll_array(mut var: Variable, max_line_size: u32, factor: u32) -> Variable 
         VariableKind::LocalArray { unroll_factor, .. }
         | VariableKind::ConstantArray { unroll_factor, .. }
         | VariableKind::SharedMemory { unroll_factor, .. } => {
-            *unroll_factor = factor as u32;
+            *unroll_factor = factor;
         }
         _ => {}
     }
